@@ -1,0 +1,69 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="blazeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#F7931E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFD23F;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="photoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667EEA;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764BA2;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#blazeGradient)" opacity="0.1"/>
+  
+  <!-- Photo Frame Grid (Gallery aspect) -->
+  <g transform="translate(120, 120)">
+    <!-- Back photo frame -->
+    <rect x="20" y="20" width="140" height="105" rx="8" fill="url(#photoGradient)" opacity="0.6" transform="rotate(5 90 72.5)"/>
+    <rect x="25" y="25" width="130" height="95" rx="4" fill="white" opacity="0.8" transform="rotate(5 90 72.5)"/>
+    
+    <!-- Middle photo frame -->
+    <rect x="40" y="40" width="140" height="105" rx="8" fill="url(#photoGradient)" opacity="0.7" transform="rotate(-3 110 92.5)"/>
+    <rect x="45" y="45" width="130" height="95" rx="4" fill="white" opacity="0.9" transform="rotate(-3 110 92.5)"/>
+    
+    <!-- Front photo frame -->
+    <rect x="60" y="60" width="140" height="105" rx="8" fill="url(#photoGradient)"/>
+    <rect x="65" y="65" width="130" height="95" rx="4" fill="white"/>
+    
+    <!-- Photo content in front frame -->
+    <rect x="70" y="70" width="120" height="85" rx="2" fill="#E5E7EB"/>
+    <!-- Mountain/landscape silhouette -->
+    <path d="M70 135 Q85 120 100 125 Q115 130 130 115 Q145 100 160 110 Q175 120 190 105 V155 H70 Z" fill="#9CA3AF"/>
+    <!-- Sun -->
+    <circle cx="170" cy="85" r="8" fill="#FCD34D"/>
+  </g>
+  
+  <!-- Flame/Blaze element -->
+  <g transform="translate(340, 140)" filter="url(#glow)">
+    <!-- Main flame -->
+    <path d="M0 80 Q-15 60 -10 40 Q-5 20 10 15 Q25 10 35 25 Q45 40 40 55 Q35 70 25 75 Q15 80 0 80 Z" fill="url(#blazeGradient)"/>
+    <!-- Inner flame -->
+    <path d="M5 65 Q0 50 8 40 Q16 30 25 35 Q34 40 32 50 Q30 60 22 62 Q14 65 5 65 Z" fill="#FFE66D" opacity="0.8"/>
+    <!-- Flame tip -->
+    <path d="M15 25 Q20 15 25 20 Q30 25 28 30 Q25 35 20 32 Q15 30 15 25 Z" fill="#FFF" opacity="0.6"/>
+  </g>
+  
+  <!-- Spark elements around the flame -->
+  <g opacity="0.8">
+    <circle cx="380" cy="120" r="3" fill="#FFD23F"/>
+    <circle cx="360" cy="180" r="2" fill="#F7931E"/>
+    <circle cx="390" cy="200" r="1.5" fill="#FF6B35"/>
+    <circle cx="320" cy="160" r="2.5" fill="#FFE66D"/>
+  </g>
+  
+  <!-- App name integrated design -->
+  <g transform="translate(256, 400)" text-anchor="middle">
+    <text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="url(#blazeGradient)">BLAZE</text>
+    <text x="0" y="30" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="400" fill="#6B7280">GALLERY</text>
+  </g>
+</svg>

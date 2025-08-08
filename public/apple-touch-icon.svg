@@ -1,0 +1,57 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="blazeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#F7931E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFD23F;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="photoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667EEA;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764BA2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Rounded background for iOS -->
+  <rect width="180" height="180" rx="40" fill="url(#blazeGradient)" opacity="0.1"/>
+  
+  <!-- Photo frames -->
+  <g transform="translate(30, 40)">
+    <!-- Back photo frame -->
+    <rect x="5" y="5" width="50" height="37" rx="3" fill="url(#photoGradient)" opacity="0.6" transform="rotate(8 30 23.5)"/>
+    <rect x="7" y="7" width="46" height="33" rx="2" fill="white" opacity="0.8" transform="rotate(8 30 23.5)"/>
+    
+    <!-- Middle photo frame -->
+    <rect x="15" y="15" width="50" height="37" rx="3" fill="url(#photoGradient)" opacity="0.7" transform="rotate(-5 40 33.5)"/>
+    <rect x="17" y="17" width="46" height="33" rx="2" fill="white" opacity="0.9" transform="rotate(-5 40 33.5)"/>
+    
+    <!-- Front photo frame -->
+    <rect x="25" y="25" width="50" height="37" rx="3" fill="url(#photoGradient)"/>
+    <rect x="27" y="27" width="46" height="33" rx="2" fill="white"/>
+    
+    <!-- Photo content -->
+    <rect x="29" y="29" width="42" height="29" rx="1" fill="#E5E7EB"/>
+    <!-- Mountain landscape -->
+    <path d="M29 50 Q35 45 42 47 Q49 49 56 44 Q63 39 71 42 V58 H29 Z" fill="#9CA3AF"/>
+    <!-- Sun -->
+    <circle cx="65" cy="35" r="3" fill="#FCD34D"/>
+  </g>
+  
+  <!-- Flame element -->
+  <g transform="translate(120, 50)">
+    <path d="M0 30 Q-6 22 -4 15 Q-2 8 4 6 Q10 4 14 10 Q18 16 16 22 Q14 28 10 30 Q6 32 0 30 Z" fill="url(#blazeGradient)"/>
+    <path d="M2 25 Q0 20 3 16 Q6 12 10 14 Q14 16 13 20 Q12 24 9 25 Q6 26 2 25 Z" fill="#FFE66D" opacity="0.8"/>
+    <path d="M6 10 Q8 6 10 8 Q12 10 11 12 Q10 14 8 13 Q6 12 6 10 Z" fill="#FFF" opacity="0.6"/>
+  </g>
+  
+  <!-- Sparks -->
+  <circle cx="135" cy="45" r="1.5" fill="#FFD23F"/>
+  <circle cx="125" cy="65" r="1" fill="#F7931E"/>
+  <circle cx="140" cy="75" r="0.8" fill="#FF6B35"/>
+  <circle cx="110" cy="60" r="1.2" fill="#FFE66D"/>
+  
+  <!-- App title -->
+  <g transform="translate(90, 130)" text-anchor="middle">
+    <text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="url(#blazeGradient)">BLAZE</text>
+    <text x="0" y="15" font-family="system-ui, -apple-system, sans-serif" font-size="8" font-weight="400" fill="#6B7280">GALLERY</text>
+  </g>
+</svg>

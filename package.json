@@ -1,0 +1,40 @@
+{
+  "name": "photo-gallery",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "sync": "node dist/scripts/sync.js",
+    "cleanup": "node dist/scripts/cleanup.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.650.0",
+    "@aws-sdk/s3-request-presigner": "^3.863.0",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "better-sqlite3": "^11.3.0",
+    "exifreader": "^4.23.7",
+    "lucide-react": "^0.446.0",
+    "next": "14.2.11",
+    "react": "^18",
+    "react-dom": "^18",
+    "sharp": "^0.33.5",
+    "typescript": "^5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.11",
+    "postcss": "^8.4.47",
+    "prettier": "^3.0.0",
+    "tailwindcss": "^3.4.1"
+  }
+}

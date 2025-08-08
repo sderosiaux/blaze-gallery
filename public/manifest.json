@@ -1,0 +1,34 @@
+{
+  "name": "Blaze Gallery",
+  "short_name": "Blaze Gallery",
+  "description": "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#FF6B35",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "32x32",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["photo", "multimedia", "utilities"],
+  "lang": "en",
+  "orientation": "any",
+  "scope": "/",
+  "id": "blaze-gallery"
+}
