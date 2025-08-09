@@ -72,7 +72,10 @@ export default function FolderBrowser({
                     </p>
                   </div>
                   <p className="text-sm text-gray-500">
-                    {folder.photo_count} photos
+                    {folder.photo_count > 0 && `${folder.photo_count} photos`}
+                    {folder.photo_count > 0 && folder.subfolder_count > 0 && ' • '}
+                    {folder.subfolder_count > 0 && `${folder.subfolder_count} folders`}
+                    {folder.photo_count === 0 && folder.subfolder_count === 0 && 'Empty folder'}
                   </p>
                 </div>
               </button>

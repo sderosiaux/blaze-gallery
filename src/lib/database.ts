@@ -323,7 +323,7 @@ export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
   const stmt = database.prepare(`
     SELECT * FROM photos 
     WHERE folder_id = ? 
-    ORDER BY modified_at DESC
+    ORDER BY filename COLLATE NOCASE
   `);
 
   const photos = stmt.all(folderId) as DatabasePhoto[];

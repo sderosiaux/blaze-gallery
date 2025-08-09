@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
       WHERE p.is_favorite = 1
-      ORDER BY p.created_at DESC
+      ORDER BY p.filename COLLATE NOCASE
     `);
 
     const favoritePhotos = stmt.all();

@@ -50,13 +50,27 @@ class Logger {
     return level >= this.logLevel;
   }
 
+  private sanitizeContext(context: LogContext): LogContext {
+    const sanitized = { ...context };
+    const sensitiveKeys = ['key', 'secret', 'password', 'token', 'credential', 'auth'];
+    
+    for (const [key, value] of Object.entries(sanitized)) {
+      if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
+        sanitized[key] = typeof value === 'string' && value.length > 0 ? '***' : value;
+      }
+    }
+    
+    return sanitized;
+  }
+
   private formatMessage(
     level: string,
     message: string,
     context?: LogContext,
   ): string {
     const timestamp = new Date().toISOString();
-    const contextStr = context ? ` ${JSON.stringify(context)}` : "";
+    // Only include context in development mode and sanitize sensitive data
+    const contextStr = this.isDevelopment && context ? ` ${JSON.stringify(this.sanitizeContext(context))}` : "";
     return `[${timestamp}] ${level}: ${message}${contextStr}`;
   }
 
@@ -122,7 +136,7 @@ class Logger {
   }
 
   syncOperation(message: string, context?: SyncLogContext) {
-    this.info(`[SYNC] ${message}`);
+    this.debug(`[SYNC] ${message}`, context ? { component: "Sync", ...context } : undefined);
   }
 
   syncError(message: string, error: Error, context?: SyncLogContext) {
@@ -130,44 +144,48 @@ class Logger {
   }
 
   thumbnailOperation(message: string, context?: ThumbnailLogContext) {
-    this.info(`[THUMBNAIL] ${message}`, {
+    this.debug(`[THUMBNAIL] ${message}`, context ? {
       component: "ThumbnailService",
       ...context,
-    });
+    } : undefined);
   }
 
   thumbnailError(message: string, error: Error, context?: ThumbnailLogContext) {
     this.error(
       `[THUMBNAIL] ${message}`,
-      { component: "ThumbnailService", ...context },
+      context ? { component: "ThumbnailService", ...context } : undefined,
       error,
     );
   }
 
   dbOperation(message: string, context?: DatabaseLogContext) {
-    this.debug(`[DB] ${message}`, { component: "Database", ...context });
+    this.debug(`[DB] ${message}`, context ? { component: "Database", ...context } : undefined);
   }
 
   dbError(message: string, error: Error, context?: DatabaseLogContext) {
-    this.error(`[DB] ${message}`, { component: "Database", ...context }, error);
+    this.error(`[DB] ${message}`, context ? { component: "Database", ...context } : undefined, error);
   }
 
   apiRequest(message: string, context?: ApiLogContext) {
-    this.info(`[API] ${message}`, { component: "API", ...context });
+    this.info(`[API] ${message}`, context ? { component: "API", ...context } : undefined);
   }
 
   apiError(message: string, error: Error, context?: ApiLogContext) {
-    this.error(`[API] ${message}`, { component: "API", ...context }, error);
+    this.error(`[API] ${message}`, context ? { component: "API", ...context } : undefined, error);
   }
 
   configOperation(message: string, context?: ConfigLogContext) {
-    this.info(`[CONFIG] ${message}`, { component: "Config", ...context });
+    this.debug(`[CONFIG] ${message}`, context ? { component: "Config", ...context } : undefined);
+  }
+
+  configInfo(message: string, context?: ConfigLogContext) {
+    this.info(`[CONFIG] ${message}`, context ? { component: "Config", ...context } : undefined);
   }
 
   configError(message: string, error: Error, context?: ConfigLogContext) {
     this.error(
       `[CONFIG] ${message}`,
-      { component: "Config", ...context },
+      context ? { component: "Config", ...context } : undefined,
       error,
     );
   }

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
       WHERE p.filename LIKE ? OR f.name LIKE ? OR f.path LIKE ?
-      ORDER BY p.created_at DESC
+      ORDER BY p.filename COLLATE NOCASE
       LIMIT 50
     `;
 

@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { Photo } from "@/types";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import PhotoViewer from "./PhotoViewer";
 import PhotoSkeleton from "./PhotoSkeleton";
 import PhotoItem from "./PhotoItem";
+import { useLayout } from "@/contexts/LayoutContext";
 
 interface PhotoGridProps {
   photos: Photo[];
@@ -12,6 +14,7 @@ interface PhotoGridProps {
 }
 
 export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
+  const { isFullWidth, setIsFullWidth } = useLayout();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [photosState, setPhotosState] = useState<Photo[]>(photos);
 
@@ -46,11 +49,32 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
   // Show skeletons while loading
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">
-          Loading photos...
-        </h2>
-        <div className="photo-mosaic grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      <div className={`bg-white shadow ${
+        isFullWidth 
+          ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6" 
+          : "rounded-lg p-6"
+      }`}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-medium text-gray-900">
+            Loading photos...
+          </h2>
+          <button
+            onClick={() => setIsFullWidth(!isFullWidth)}
+            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+            title={isFullWidth ? "Compress gallery" : "Expand gallery"}
+          >
+            {isFullWidth ? (
+              <ChevronsLeft className="w-5 h-5" />
+            ) : (
+              <ChevronsRight className="w-5 h-5" />
+            )}
+          </button>
+        </div>
+        <div className={`photo-mosaic ${
+          isFullWidth 
+            ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
+            : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+        }`}>
           {Array.from({ length: 12 }).map((_, index) => (
             <PhotoSkeleton key={index} />
           ))}
@@ -66,11 +90,32 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
 
   return (
     <>
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">
-          Photos ({photos.length})
-        </h2>
-        <div className="photo-mosaic grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      <div className={`bg-white shadow ${
+        isFullWidth 
+          ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6" 
+          : "rounded-lg p-6"
+      }`}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-medium text-gray-900">
+            Photos ({photos.length})
+          </h2>
+          <button
+            onClick={() => setIsFullWidth(!isFullWidth)}
+            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
+            title={isFullWidth ? "Compress gallery" : "Expand gallery"}
+          >
+            {isFullWidth ? (
+              <ChevronsLeft className="w-5 h-5" />
+            ) : (
+              <ChevronsRight className="w-5 h-5" />
+            )}
+          </button>
+        </div>
+        <div className={`photo-mosaic ${
+          isFullWidth 
+            ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
+            : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+        }`}>
           {photosState.map((photo) => (
             <PhotoItem
               key={photo.id}

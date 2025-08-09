@@ -42,6 +42,7 @@ export default function AppLayout({
               <div className="relative">
                 <SearchBar placeholder="Search photos..." />
               </div>
+              
               {/* Favorites Button */}
               {pathname !== "/favorites" && (
                 <button

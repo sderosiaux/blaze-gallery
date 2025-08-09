@@ -27,6 +27,7 @@ export default function FolderPage({ params }: FolderPageProps) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bucketName, setBucketName] = useState("Root");
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
     { name: "Root", path: "" },
   ]);
@@ -35,6 +36,7 @@ export default function FolderPage({ params }: FolderPageProps) {
   const currentPath = params.path ? params.path.join("/") : "";
 
   useEffect(() => {
+    loadBucketName();
     if (currentPath === "") {
       loadRootFolders();
     } else {
@@ -42,9 +44,21 @@ export default function FolderPage({ params }: FolderPageProps) {
     }
   }, [currentPath]);
 
+  const loadBucketName = async () => {
+    try {
+      const response = await fetch("/api/bucket");
+      const data = await response.json();
+      if (data.success && data.bucket) {
+        setBucketName(data.bucket);
+      }
+    } catch (error) {
+      console.error("[CLIENT] Failed to load bucket name:", error);
+    }
+  };
+
   // Update page title dynamically
   useEffect(() => {
-    const folderName = currentPath ? currentPath.split("/").pop() : "Root";
+    const folderName = currentPath ? currentPath.split("/").pop() : bucketName;
     document.title = `${folderName} - Blaze Gallery`;
   }, [currentPath]);
 
@@ -56,7 +70,7 @@ export default function FolderPage({ params }: FolderPageProps) {
       setCurrentFolder(null);
       setFolders(data.folders || []);
       setPhotos(data.photos || []);
-      setBreadcrumbs([{ name: "Root", path: "" }]);
+      setBreadcrumbs([{ name: bucketName, path: "" }]);
     } catch (error) {
       console.error("[CLIENT] Failed to load folders:", error);
     } finally {
@@ -85,7 +99,7 @@ export default function FolderPage({ params }: FolderPageProps) {
 
       // Build breadcrumbs from the folder path
       const pathParts = folderPath.split("/").filter((part) => part);
-      const newBreadcrumbs: BreadcrumbItem[] = [{ name: "Root", path: "" }];
+      const newBreadcrumbs: BreadcrumbItem[] = [{ name: bucketName, path: "" }];
 
       let currentPath = "";
       for (const part of pathParts) {

@@ -8,7 +8,7 @@ export async function getConfig(): Promise<Config> {
     return cachedConfig;
   }
 
-  logger.configOperation("Loading configuration from environment and database");
+  logger.configInfo("Loading configuration from environment and database");
 
   const defaultConfig: Config = {
     backblaze_endpoint: process.env.BACKBLAZE_ENDPOINT || "",
@@ -41,19 +41,17 @@ export async function getConfig(): Promise<Config> {
     SYNC_THROTTLE_SECONDS: !!process.env.SYNC_THROTTLE_SECONDS,
   };
 
-  logger.configOperation("Environment variables loaded", {
-    source: "env",
-    varsSet: envVarsSet,
-  });
+  logger.configOperation(
+    `Environment variables loaded - ${Object.entries(envVarsSet).filter(([_, set]) => set).map(([key]) => key).join(', ') || 'none'}`
+  );
 
   try {
     const db = await import("./database");
     const dbConfig = await db.getConfig();
 
-    logger.configOperation("Database configuration loaded", {
-      source: "database",
-      dbConfigKeys: Object.keys(dbConfig),
-    });
+    logger.configOperation(
+      `Database configuration loaded - keys: ${Object.keys(dbConfig).join(', ') || 'none'}`
+    );
 
     cachedConfig = {
       ...defaultConfig,
@@ -74,60 +72,41 @@ export async function getConfig(): Promise<Config> {
   const validationErrors = validateConfig(cachedConfig);
   if (validationErrors.length > 0) {
     logger.configError(
-      "Configuration validation failed",
-      new Error("Invalid configuration"),
-      {
-        validationErrors,
-        endpoint: cachedConfig.backblaze_endpoint,
-      },
+      `Configuration validation failed: ${validationErrors.join(', ')}`,
+      new Error("Invalid configuration")
     );
     // Don't throw here - let the app start but log warnings
-    logger.configOperation(
-      "Configuration has validation errors but proceeding",
-      {
-        validationErrors,
-      },
+    logger.configInfo(
+      `Configuration has validation errors but proceeding: ${validationErrors.join(', ')}`
     );
   }
 
-  logger.configOperation("Configuration loaded successfully", {
-    hasEndpoint: !!cachedConfig.backblaze_endpoint,
-    hasBucket: !!cachedConfig.backblaze_bucket,
-    hasAccessKey: !!cachedConfig.backblaze_access_key,
-    hasSecretKey: !!cachedConfig.backblaze_secret_key,
-    thumbnailMaxAge: cachedConfig.thumbnail_max_age_days,
-    syncInterval: cachedConfig.sync_interval_hours,
-    autoMetadataThreshold: cachedConfig.auto_metadata_threshold_mb,
-    autoThumbnailThreshold: cachedConfig.auto_thumbnail_threshold_mb,
-    syncThrottleSeconds: cachedConfig.sync_throttle_seconds,
-    validationErrors:
-      validationErrors.length > 0 ? validationErrors : undefined,
-  });
+  logger.configInfo(
+    `Configuration loaded successfully - endpoint:${!!cachedConfig.backblaze_endpoint} bucket:${!!cachedConfig.backblaze_bucket} credentials:${!!cachedConfig.backblaze_access_key && !!cachedConfig.backblaze_secret_key}${validationErrors.length > 0 ? ' (with validation errors)' : ''}`
+  );
 
   return cachedConfig;
 }
 
 export async function updateConfig(updates: Partial<Config>): Promise<void> {
   try {
-    logger.configOperation("Updating configuration", {
-      source: "api",
-      updatedKeys: Object.keys(updates),
-    });
+    logger.configInfo(
+      `Updating configuration - keys: ${Object.keys(updates).join(', ')}`
+    );
 
     const db = await import("./database");
     await db.updateConfig(updates);
 
     cachedConfig = null;
 
-    logger.configOperation("Configuration updated successfully", {
-      source: "api",
-      updatedKeys: Object.keys(updates),
-    });
+    logger.configInfo(
+      `Configuration updated successfully - keys: ${Object.keys(updates).join(', ')}`
+    );
   } catch (error) {
-    logger.configError("Failed to update configuration", error as Error, {
-      source: "api",
-      updatedKeys: Object.keys(updates),
-    });
+    logger.configError(
+      `Failed to update configuration - keys: ${Object.keys(updates).filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')).join(', ') || 'sensitive keys'}`,
+      error as Error
+    );
     throw error;
   }
 }
@@ -195,7 +174,7 @@ export async function testS3Connection(): Promise<{
   isReadOnly?: boolean;
 }> {
   try {
-    logger.configOperation("Testing S3 connection (read-only mode)");
+    logger.configInfo("Testing S3 connection (read-only mode)");
 
     const config = await getConfig();
     const validationErrors = validateConfig(config);
@@ -226,16 +205,8 @@ export async function testS3Connection(): Promise<{
     const result = await listObjects(config.backblaze_bucket, "", undefined, 1);
     const duration = Date.now() - startTime;
 
-    logger.configOperation(
-      "S3 connection test successful (read-only access confirmed)",
-      {
-        operation: "testConnection",
-        endpoint: config.backblaze_endpoint,
-        bucket: config.backblaze_bucket,
-        duration,
-        objectsFound: result.objects.length,
-        bucketAccessMode: "read-only",
-      },
+    logger.configInfo(
+      `S3 connection test successful (read-only) - ${config.backblaze_bucket} at ${config.backblaze_endpoint} (${duration}ms, ${result.objects.length} objects)`
     );
 
     return { success: true, isReadOnly: true };
