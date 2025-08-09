@@ -12,6 +12,68 @@ import crypto from "crypto";
 // Initialize audit middleware
 const auditMiddleware = createS3AuditMiddleware();
 
+// Presigned URL cache interface
+interface CachedUrl {
+  url: string;
+  expiresAt: number; // Unix timestamp
+  createdAt: number; // Unix timestamp
+}
+
+// In-memory cache for presigned URLs
+const urlCache = new Map<string, CachedUrl>();
+
+// Cache cleanup interval (run every 5 minutes)
+const CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000;
+let cleanupInterval: NodeJS.Timeout | null = null;
+
+// Initialize cache cleanup
+function initializeCacheCleanup() {
+  if (cleanupInterval) return;
+  
+  cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    for (const [key, cached] of urlCache.entries()) {
+      if (now >= cached.expiresAt) {
+        urlCache.delete(key);
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      logger.debug(`Cleaned up ${cleanedCount} expired presigned URLs from cache`);
+    }
+  }, CACHE_CLEANUP_INTERVAL);
+}
+
+// Generate cache key for presigned URLs
+function getCacheKey(bucket: string, key: string, expiresIn: number): string {
+  return `${bucket}:${key}:${expiresIn}`;
+}
+
+// Get cache statistics for monitoring
+export function getUrlCacheStats() {
+  const now = Date.now();
+  let validCount = 0;
+  let expiredCount = 0;
+  
+  for (const cached of urlCache.values()) {
+    if (now < cached.expiresAt) {
+      validCount++;
+    } else {
+      expiredCount++;
+    }
+  }
+  
+  return {
+    totalCached: urlCache.size,
+    validUrls: validCount,
+    expiredUrls: expiredCount,
+    memoryUsage: urlCache.size * 200, // Rough estimate: ~200 bytes per cached URL
+  };
+}
+
 export interface S3Config {
   endpoint: string;
   bucket: string;
@@ -371,6 +433,29 @@ export async function getSignedDownloadUrl(
   expiresIn: number = 3600,
   request?: Request,
 ): Promise<string> {
+  // Initialize cache cleanup on first use
+  initializeCacheCleanup();
+  
+  const cacheKey = getCacheKey(bucket, key, expiresIn);
+  const now = Date.now();
+  
+  // Check if we have a cached URL that's still valid with 10% buffer
+  const cached = urlCache.get(cacheKey);
+  if (cached) {
+    const bufferTime = (cached.expiresAt - cached.createdAt) * 0.1; // 10% of original expiry time
+    const effectiveExpiry = cached.expiresAt - bufferTime;
+    
+    if (now < effectiveExpiry) {
+      logger.debug(
+        `Using cached presigned URL for ${key} (expires in ${Math.round((cached.expiresAt - now) / 1000)}s)`,
+      );
+      return cached.url;
+    } else {
+      // Remove expired URL from cache
+      urlCache.delete(cacheKey);
+    }
+  }
+
   const client = getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
@@ -378,7 +463,7 @@ export async function getSignedDownloadUrl(
 
   try {
     logger.s3Connection(
-      `Generating signed download URL for ${key} (expires in ${expiresIn}s)`,
+      `Generating new signed download URL for ${key} (expires in ${expiresIn}s)`,
     );
 
     const command = new GetObjectCommand({
@@ -387,6 +472,14 @@ export async function getSignedDownloadUrl(
     });
 
     const signedUrl = await getSignedUrl(client, command, { expiresIn });
+    
+    // Cache the new URL
+    const expiresAt = now + (expiresIn * 1000);
+    urlCache.set(cacheKey, {
+      url: signedUrl,
+      expiresAt,
+      createdAt: now,
+    });
 
     // Audit logging
     await auditMiddleware.log({
@@ -401,7 +494,7 @@ export async function getSignedDownloadUrl(
     });
 
     logger.debug(
-      `Successfully generated signed download URL for ${key} (${signedUrl.length} chars)`,
+      `Successfully generated and cached signed download URL for ${key} (${signedUrl.length} chars)`,
     );
 
     return signedUrl;
