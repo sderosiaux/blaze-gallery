@@ -58,9 +58,12 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **📂 Folder Navigation** - Clickable breadcrumbs and intelligent folder browsing
 - **📅 EXIF Metadata** - View photo details, GPS location, and camera settings
 - **📈 Gallery Statistics** - Track your collection size, growth, and storage distribution
-- **🔍 Duplicate Detection** - Identify duplicate photos and folders to optimize storage
-- **📊 Performance Monitoring** - Comprehensive audit dashboard with B2 analytics
-- **🗂️ Storage Heatmaps** - Visual representation of folder sizes and photo distribution
+- **🔍 Intelligent Duplicate Detection** - Identify duplicate photos by filename + size across all folders
+- **📁 Folder Duplicate Detection** - Find backup copies and synchronized directories with identical contents
+- **📊 Performance Monitoring** - Comprehensive audit dashboard with B2 analytics and thumbnail metrics
+- **🗂️ Interactive Storage Heatmaps** - Visual representation of folder sizes and photo distribution
+- **🧹 Smart Cleanup Insights** - Calculate exact space savings potential from duplicate removal
+- **🚫 System File Management** - Automatic filtering of Synology @eaDir, thumbnails, and system files
 
 ### 🔧 Self-Hosted & Configurable
 - **🐳 Docker Ready** - Complete Docker Compose setup for easy deployment
@@ -220,10 +223,13 @@ Canon (.CR2, .CR3), Nikon (.NEF), Sony (.ARW), Adobe (.DNG), Fujifilm (.RAF), Ol
 ## 🆕 Latest Features (v1.2)
 
 ### Gallery Analytics Dashboard
-- **Duplicate Detection**: Automatically identify duplicate photos and folders
-- **Storage Optimization**: Calculate potential space savings from cleanup
-- **Visual Analytics**: Heatmaps showing storage distribution across folders
-- **Smart Filtering**: Exclude system files (@eaDir, thumbnails) from analysis
+- **Intelligent Duplicate Detection**: Automatically identify duplicate photos by filename + file size
+- **Folder Duplicate Detection**: Find entire folders with identical contents (perfect for backup copies)
+- **Storage Optimization**: Calculate exact potential space savings from duplicate cleanup
+- **Visual Storage Heatmaps**: Interactive charts showing folder size distribution across your collection
+- **Smart System File Filtering**: Automatically exclude Synology @eaDir folders, thumbnails, and system files
+- **Ignored Files Transparency**: Full visibility into what files are excluded and why
+- **Actionable Insights**: Clear recommendations for storage optimization and cleanup
 
 ### Performance Monitoring
 - **B2 API Analytics**: Track response times, cache hits, and error rates
