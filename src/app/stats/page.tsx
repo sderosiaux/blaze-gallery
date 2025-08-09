@@ -29,21 +29,68 @@ interface DuplicateStats {
   duplicates: DuplicateGroup[];
 }
 
+interface IgnoredFilesStats {
+  summary: {
+    total_ignored_files: number;
+    total_ignored_size_bytes: number;
+    categories: {
+      synology_thumbnails: number;
+      system_files: number;
+      small_files: number;
+      eadir_folders: number;
+    };
+  };
+  breakdown: {
+    category: string;
+    count: number;
+    total_size_bytes: number;
+    examples: string[];
+  }[];
+}
+
+interface DuplicateFoldersStats {
+  summary: {
+    total_duplicate_folder_groups: number;
+    total_duplicate_folders: number;
+    potential_space_saved_bytes: number;
+  };
+  duplicates: {
+    folder_signature: string;
+    count: number;
+    file_count: number;
+    total_size_bytes: number;
+    folders: {
+      id: number;
+      path: string;
+      name: string;
+      photo_count: number;
+      total_size_bytes: number;
+    }[];
+  }[];
+}
+
 export default function StatsPage() {
   const [stats, setStats] = useState<GalleryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('overview');
   const [duplicates, setDuplicates] = useState<DuplicateStats | null>(null);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
+  const [ignoredFiles, setIgnoredFiles] = useState<IgnoredFilesStats | null>(null);
+  const [ignoredFilesLoading, setIgnoredFilesLoading] = useState(false);
+  const [duplicateFolders, setDuplicateFolders] = useState<DuplicateFoldersStats | null>(null);
+  const [duplicateFoldersLoading, setDuplicateFoldersLoading] = useState(false);
 
   useEffect(() => {
     loadStats();
+    loadDuplicates();
+    loadIgnoredFiles();
+    loadDuplicateFolders();
   }, []);
 
   // Track which section is currently visible using scroll position
   useEffect(() => {
     const handleScroll = () => {
-      const sections = ['overview', 'activity', 'storage', 'content', 'duplicates', 'system'];
+      const sections = ['overview', 'activity', 'storage', 'content', 'duplicates', 'ignored', 'system'];
       const scrollTop = window.scrollY + 150; // Offset for fixed header
       
       let currentSection = 'overview';
@@ -126,12 +173,43 @@ export default function StatsPage() {
     }
   };
 
+  const loadIgnoredFiles = async () => {
+    setIgnoredFilesLoading(true);
+    try {
+      const response = await fetch('/api/stats/ignored-files');
+      if (response.ok) {
+        const data = await response.json();
+        setIgnoredFiles(data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load ignored files:', error);
+    } finally {
+      setIgnoredFilesLoading(false);
+    }
+  };
+
+  const loadDuplicateFolders = async () => {
+    setDuplicateFoldersLoading(true);
+    try {
+      const response = await fetch('/api/stats/duplicate-folders');
+      if (response.ok) {
+        const data = await response.json();
+        setDuplicateFolders(data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load duplicate folders:', error);
+    } finally {
+      setDuplicateFoldersLoading(false);
+    }
+  };
+
   const navigationItems = [
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'activity', label: 'Activity', icon: '👁️' },
     { id: 'storage', label: 'Storage', icon: '🗂️' },
     { id: 'content', label: 'Content', icon: '📷' },
     { id: 'duplicates', label: 'Duplicates', icon: '🔍' },
+    { id: 'ignored', label: 'Ignored Files', icon: '🚫' },
     { id: 'system', label: 'System', icon: '⚙️' },
   ];
 
@@ -429,23 +507,9 @@ export default function StatsPage() {
 
         {/* Duplicates Section */}
         <section id="duplicates" className="space-y-6 scroll-mt-24">
-          <div className="flex justify-between items-center border-b-2 border-gray-200 pb-2">
-            <h2 className="text-xl font-semibold text-gray-800">
-              🔍 Duplicate Detection
-            </h2>
-            <button
-              onClick={loadDuplicates}
-              disabled={duplicatesLoading}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {duplicatesLoading ? (
-                <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-              ) : (
-                <Copy className="w-4 h-4 mr-2" />
-              )}
-              Find Duplicates
-            </button>
-          </div>
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            🔍 Duplicate Detection
+          </h2>
 
           {duplicates && (
             <>
@@ -483,21 +547,14 @@ export default function StatsPage() {
               {/* Duplicate Groups */}
               {duplicates.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                      <Copy className="w-5 h-5 mr-2" />
-                      Duplicate Files ({duplicates.duplicates.length} groups)
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Photos with identical filenames found in different locations
-                    </p>
-                  </div>
                   <div className="p-6">
                     <div className="space-y-6">
                       {duplicates.duplicates.slice(0, 10).map((group, index) => (
                         <div key={index} className="border-l-4 border-yellow-400 pl-4">
                           <div className="flex justify-between items-start mb-3">
-                            <h4 className="font-medium text-gray-900">{group.filename}</h4>
+                            <h4 className="font-medium text-gray-900">
+                              {group.filename} <span className="text-gray-500">({formatBytes(group.photos[0].size)})</span>
+                            </h4>
                             <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
                               {group.count} copies
                             </span>
@@ -543,20 +600,241 @@ export default function StatsPage() {
             </>
           )}
 
-          {!duplicates && !duplicatesLoading && (
+          {duplicatesLoading && (
             <div className="bg-white rounded-lg shadow p-8 text-center">
-              <Copy className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Duplicate Detection</h3>
-              <p className="text-gray-500 mb-4">
-                Find photos with identical filenames that might be duplicates taking up unnecessary space.
+              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Photos...</h3>
+              <p className="text-gray-500">
+                Scanning your gallery for photos with identical filenames.
               </p>
-              <button
-                onClick={loadDuplicates}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Start Analysis
-              </button>
             </div>
+          )}
+        </section>
+
+        {/* Duplicate Folders Section */}
+        <section id="folders" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            📁 Duplicate Folders
+          </h2>
+          
+          {duplicateFoldersLoading && (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Folder Duplicates...</h3>
+              <p className="text-gray-500">
+                Comparing folder contents to identify duplicate directories.
+              </p>
+            </div>
+          )}
+
+          {duplicateFolders && (
+            <>
+              {/* Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <AlertTriangle className="w-8 h-8 text-yellow-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Duplicate Folder Groups</p>
+                      <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folder_groups}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <Copy className="w-8 h-8 text-red-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Total Duplicate Folders</p>
+                      <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folders}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <HardDrive className="w-8 h-8 text-green-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Potential Space Saved</p>
+                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Duplicate Folder Groups */}
+              {duplicateFolders.duplicates.length > 0 ? (
+                <div className="bg-white rounded-lg shadow">
+                  <div className="p-6">
+                    <div className="space-y-6">
+                      {duplicateFolders.duplicates.slice(0, 10).map((group, index) => (
+                        <div key={index} className="border-l-4 border-yellow-400 pl-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <h4 className="font-medium text-gray-900">
+                              {group.file_count} files <span className="text-gray-500">({formatBytes(group.total_size_bytes)})</span>
+                            </h4>
+                            <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                              {group.count} copies
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {group.folders.map((folder) => (
+                              <div key={folder.id} className="flex justify-between items-center text-sm bg-gray-50 p-3 rounded">
+                                <div className="flex-1">
+                                  <a 
+                                    href={folder.path === '' ? '/' : `/folder/${folder.path}`}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    📁 {folder.path || '/'}
+                                  </a>
+                                </div>
+                                <div className="text-gray-500 text-xs ml-4">
+                                  {folder.photo_count} files • {formatBytes(folder.total_size_bytes)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {duplicateFolders.duplicates.length > 10 && (
+                        <div className="text-center py-4 text-gray-500">
+                          ... and {duplicateFolders.duplicates.length - 10} more duplicate folder groups
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow p-8 text-center">
+                  <div className="text-green-600 mb-4">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Duplicate Folders Found!</h3>
+                  <p className="text-gray-500">Your gallery doesn't have any folders with identical contents.</p>
+                </div>
+              )}
+
+              {/* Info Box */}
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="flex">
+                  <div className="text-blue-600 mr-3">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="text-sm">
+                    <h4 className="text-blue-800 font-medium mb-1">How are duplicate folders detected?</h4>
+                    <p className="text-blue-700">
+                      Folders are considered duplicates when they contain the exact same set of files (by filename and size). 
+                      This helps identify backup copies, synchronized directories, or folders that were accidentally duplicated.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* Ignored Files Section */}
+        <section id="ignored" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            🚫 Ignored Files
+          </h2>
+          
+          {ignoredFilesLoading && (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Ignored Files...</h3>
+              <p className="text-gray-500">
+                Scanning for system files and thumbnails that are excluded from duplicate detection.
+              </p>
+            </div>
+          )}
+
+          {ignoredFiles && (
+            <>
+              {/* Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <AlertTriangle className="w-8 h-8 text-orange-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Total Ignored Files</p>
+                      <p className="text-2xl font-bold text-gray-900">{ignoredFiles.summary.total_ignored_files.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <HardDrive className="w-8 h-8 text-purple-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Space Used by Ignored Files</p>
+                      <p className="text-2xl font-bold text-gray-900">{formatBytes(ignoredFiles.summary.total_ignored_size_bytes)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown */}
+              {ignoredFiles.breakdown.length > 0 && (
+                <div className="bg-white rounded-lg shadow">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Breakdown by Category
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Files excluded from duplicate detection and gallery display
+                    </p>
+                  </div>
+                  <div className="p-6">
+                    <div className="space-y-6">
+                      {ignoredFiles.breakdown.map((category, index) => (
+                        <div key={index} className="border-l-4 border-orange-400 pl-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-medium text-gray-900">{category.category}</h4>
+                            <div className="text-right text-sm text-gray-500">
+                              <div>{category.count.toLocaleString()} files</div>
+                              <div>{formatBytes(category.total_size_bytes)}</div>
+                            </div>
+                          </div>
+                          {category.examples.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs text-gray-600 mb-1">Examples:</p>
+                              <div className="space-y-1">
+                                {category.examples.map((example, i) => (
+                                  <div key={i} className="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded truncate">
+                                    {example}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Info Box */}
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="flex">
+                  <div className="text-blue-600 mr-3">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="text-sm">
+                    <h4 className="text-blue-800 font-medium mb-1">Why are files ignored?</h4>
+                    <p className="text-blue-700">
+                      These files are automatically excluded from duplicate detection to focus on actual photo duplicates. 
+                      This includes system thumbnails, metadata files, and very small files that are likely not photos.
+                      Future updates may include cleanup options for these files.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </section>
 

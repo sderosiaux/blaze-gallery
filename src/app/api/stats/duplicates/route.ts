@@ -18,7 +18,7 @@ export async function GET() {
   try {
     const db = getDatabase();
     
-    // Find photos with duplicate filenames
+    // Find photos with duplicate filename+size combinations, excluding system/thumbnail files
     const duplicatePhotos = db.prepare(`
       SELECT 
         p.id,
@@ -29,13 +29,26 @@ export async function GET() {
         f.path as folder_path
       FROM photos p
       JOIN folders f ON p.folder_id = f.id
-      WHERE p.filename IN (
-        SELECT filename 
-        FROM photos 
-        GROUP BY filename 
+      WHERE (p.filename || '|' || p.size) IN (
+        SELECT (p2.filename || '|' || p2.size) as file_key
+        FROM photos p2
+        JOIN folders f2 ON p2.folder_id = f2.id
+        WHERE f2.path NOT LIKE '%/@eaDir/%'
+          AND f2.path NOT LIKE '%@eaDir%'
+          AND p2.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
+          AND p2.filename NOT LIKE 'Thumbs.db'
+          AND p2.filename NOT LIKE '.DS_Store'
+          AND p2.size > 10240
+        GROUP BY p2.filename, p2.size 
         HAVING COUNT(*) > 1
       )
-      ORDER BY p.filename, p.created_at
+      AND f.path NOT LIKE '%/@eaDir/%'
+      AND f.path NOT LIKE '%@eaDir%'
+      AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
+      AND p.filename NOT LIKE 'Thumbs.db'
+      AND p.filename NOT LIKE '.DS_Store'
+      AND p.size > 10240
+      ORDER BY p.filename, p.size, p.created_at
     `).all() as {
       id: number;
       filename: string;
@@ -45,26 +58,28 @@ export async function GET() {
       folder_path: string;
     }[];
 
-    // Group duplicates by filename
+    // Group duplicates by filename and size
     const duplicateGroups: Record<string, DuplicateGroup> = {};
     
     for (const photo of duplicatePhotos) {
-      if (!duplicateGroups[photo.filename]) {
-        duplicateGroups[photo.filename] = {
+      const groupKey = `${photo.filename}|${photo.size}`;
+      
+      if (!duplicateGroups[groupKey]) {
+        duplicateGroups[groupKey] = {
           filename: photo.filename,
           count: 0,
           photos: []
         };
       }
       
-      duplicateGroups[photo.filename].photos.push({
+      duplicateGroups[groupKey].photos.push({
         id: photo.id,
         s3_key: photo.s3_key,
         size: photo.size,
         folder_path: photo.folder_path,
         created_at: photo.created_at
       });
-      duplicateGroups[photo.filename].count++;
+      duplicateGroups[groupKey].count++;
     }
 
     // Convert to array and sort by count (most duplicates first)

@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Heart, Search, FolderOpen, Activity, BarChart3, Shuffle, Loader2 } from "lucide-react";
+import { Heart, Search, FolderOpen, Activity, BarChart3, Sparkles, Loader2 } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -89,7 +89,7 @@ export default function AppLayout({
                 {randomFolderLoading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
-                  <Shuffle className="w-5 h-5" />
+                  <Sparkles className="w-5 h-5" />
                 )}
               </button>
 
