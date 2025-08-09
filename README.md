@@ -26,7 +26,7 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/blaze-gallery.git
+   git clone https://github.com/sderosiaux/blaze-gallery.git
    cd blaze-gallery
    ```
 
