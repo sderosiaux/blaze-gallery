@@ -46,7 +46,6 @@ export default function PhotoViewer({
   const [fullImageLoaded, setFullImageLoaded] = useState(false);
   
   // Blob URLs for shared images (when session authentication is required)
-  const [thumbnailBlobUrl, setThumbnailBlobUrl] = useState<string | null>(null);
   const [fullImageBlobUrl, setFullImageBlobUrl] = useState<string | null>(null);
 
   // Helper functions to get correct URLs for shared vs regular views
@@ -99,6 +98,39 @@ export default function PhotoViewer({
     }
   }, [photo.id, photos]);
 
+  // Load full image with session authentication for shared views
+  const loadFullImageWithSession = useCallback(async (photoId: number) => {
+    if (isSharedView && shareToken && sessionToken) {
+      try {
+        const response = await fetch(`/api/shares/${shareToken}/view/${photoId}`, {
+          headers: { 'x-share-session': sessionToken }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Clean up previous blob URL
+        if (fullImageBlobUrl) {
+          URL.revokeObjectURL(fullImageBlobUrl);
+        }
+        
+        setFullImageBlobUrl(blobUrl);
+        setImageLoading(false);
+        setFullImageLoaded(true);
+        clearLoadingTimeout();
+      } catch (error) {
+        console.error('Failed to load full image with session:', error);
+        setImageLoading(false);
+        setImageError(true);
+        clearLoadingTimeout();
+      }
+    }
+  }, [isSharedView, shareToken, sessionToken, fullImageBlobUrl, clearLoadingTimeout]);
+
   // Handle photo change - only reset loading when the photo actually changes
   useEffect(() => {
     setCurrentPhoto(photo);
@@ -110,14 +142,25 @@ export default function PhotoViewer({
     setThumbnailLoaded(false);
     setFullImageLoaded(false);
     
+    // Clean up previous blob URL
+    if (fullImageBlobUrl) {
+      URL.revokeObjectURL(fullImageBlobUrl);
+      setFullImageBlobUrl(null);
+    }
+    
     setLoadingWithDelay();
+    
+    // Load full image for shared views with session
+    if (isSharedView && shareToken && sessionToken) {
+      loadFullImageWithSession(photo.id);
+    }
     
     return () => {
       if (loadingTimeoutRef) {
         clearTimeout(loadingTimeoutRef);
       }
     };
-  }, [photo.id]); // Only depend on photo.id, not the full photo object
+  }, [photo.id, loadFullImageWithSession]); // Only depend on photo.id, not the full photo object
 
   // Preload nearby images for smooth navigation
   const preloadImages = useCallback((centerIndex: number) => {
@@ -163,10 +206,21 @@ export default function PhotoViewer({
     setThumbnailLoaded(false);
     setFullImageLoaded(false);
     
+    // Clean up previous blob URL
+    if (fullImageBlobUrl) {
+      URL.revokeObjectURL(fullImageBlobUrl);
+      setFullImageBlobUrl(null);
+    }
+    
     setLoadingWithDelay();
     
+    // Load full image for shared views with session
+    if (isSharedView && shareToken && sessionToken) {
+      loadFullImageWithSession(newPhoto.id);
+    }
+    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay, fullImageBlobUrl, isSharedView, shareToken, sessionToken, loadFullImageWithSession]);
 
   const goToNext = useCallback(() => {
     if (!photos || currentIndex >= photos.length - 1) return;
@@ -182,10 +236,21 @@ export default function PhotoViewer({
     setThumbnailLoaded(false);
     setFullImageLoaded(false);
     
+    // Clean up previous blob URL
+    if (fullImageBlobUrl) {
+      URL.revokeObjectURL(fullImageBlobUrl);
+      setFullImageBlobUrl(null);
+    }
+    
     setLoadingWithDelay();
     
+    // Load full image for shared views with session
+    if (isSharedView && shareToken && sessionToken) {
+      loadFullImageWithSession(newPhoto.id);
+    }
+    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay, fullImageBlobUrl, isSharedView, shareToken, sessionToken, loadFullImageWithSession]);
 
   // Auto-advance for slideshow
   useEffect(() => {
@@ -283,8 +348,13 @@ export default function PhotoViewer({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "unset";
+      
+      // Clean up blob URL on unmount
+      if (fullImageBlobUrl) {
+        URL.revokeObjectURL(fullImageBlobUrl);
+      }
     };
-  }, [onClose, goToPrevious, goToNext, handleFavoriteToggle]);
+  }, [onClose, goToPrevious, goToNext, handleFavoriteToggle, fullImageBlobUrl]);
 
   const handleDownload = async () => {
     try {
@@ -636,7 +706,7 @@ export default function PhotoViewer({
             
             {/* Full Resolution Image - loads in background, sized to match thumbnail */}
             <img
-              src={getFullImageUrl(currentPhoto.id)}
+              src={fullImageBlobUrl || getFullImageUrl(currentPhoto.id)}
               alt={currentPhoto.filename}
               className={`transition-all duration-500 ${
                 isExpanded
@@ -655,9 +725,12 @@ export default function PhotoViewer({
               }}
               loading="eager"
               onLoad={() => {
-                setImageLoading(false);
-                setFullImageLoaded(true);
-                clearLoadingTimeout();
+                // Only handle onLoad for non-shared views or when using blob URLs
+                if (!isSharedView || fullImageBlobUrl) {
+                  setImageLoading(false);
+                  setFullImageLoaded(true);
+                  clearLoadingTimeout();
+                }
               }}
               onError={(e) => {
                 console.log('PhotoViewer full image error:', {
