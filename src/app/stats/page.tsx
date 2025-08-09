@@ -511,47 +511,52 @@ export default function StatsPage() {
             🔍 Duplicates Detection
           </h2>
 
-          {/* All Duplicate KPIs */}
-          {(duplicates || duplicateFolders) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {duplicates && (
-                <>
-                  <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-center">
-                      <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Files</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
-                    </div>
+          {/* Duplicate KPIs Grouped */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* File Duplicates Group */}
+            {duplicates && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <Image className="w-5 h-5 mr-2" />
+                  File Duplicates
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                    <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Files</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
                   </div>
-                  <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-center">
-                      <HardDrive className="w-8 h-8 text-green-600 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-gray-600 mb-1">Files Space Saved</p>
-                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes)}</p>
-                    </div>
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <HardDrive className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-gray-600 mb-1">Space Saved</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes)}</p>
                   </div>
-                </>
-              )}
-              {duplicateFolders && (
-                <>
-                  <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-center">
-                      <Folder className="w-8 h-8 text-purple-600 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Folders</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folder_groups}</p>
-                    </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Folder Duplicates Group */}
+            {duplicateFolders && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <Folder className="w-5 h-5 mr-2" />
+                  Folder Duplicates
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <Folder className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Folders</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folder_groups}</p>
                   </div>
-                  <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-center">
-                      <HardDrive className="w-8 h-8 text-blue-600 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-gray-600 mb-1">Folders Space Saved</p>
-                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes)}</p>
-                    </div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <HardDrive className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-gray-600 mb-1">Space Saved</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes)}</p>
                   </div>
-                </>
-              )}
-            </div>
-          )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Loading States */}
           {(duplicatesLoading || duplicateFoldersLoading) && (
@@ -567,10 +572,6 @@ export default function StatsPage() {
           {/* Duplicate Files List */}
           {duplicates && !duplicatesLoading && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                <Image className="w-5 h-5 mr-2" />
-                Duplicate Files
-              </h3>
               {duplicates.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
                   <div className="p-6">
@@ -628,11 +629,6 @@ export default function StatsPage() {
 
           {/* Duplicate Folders List */}
           {duplicateFolders && !duplicateFoldersLoading && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                <Folder className="w-5 h-5 mr-2" />
-                Duplicate Folders
-              </h3>
               {duplicateFolders.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
                   <div className="p-6">
