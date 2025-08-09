@@ -32,17 +32,11 @@ export default function HeroSection() {
             transition={{ delay: 0.5, duration: 0.8 }}
           >
             <div className="font-mono text-green-400 text-lg space-y-2">
-              <div className="text-gray-500"># Clone and setup</div>
               <div>git clone https://github.com/sderosiaux/blaze-gallery.git</div>
               <div>cd blaze-gallery</div>
-              <div className="text-gray-500"># Create .env with your B2 credentials</div>
-              <div>echo &quot;B2_APPLICATION_KEY_ID=your_key_id&quot; &gt; .env</div>
-              <div>echo &quot;B2_APPLICATION_KEY=your_key&quot; &gt;&gt; .env</div>
-              <div>echo &quot;B2_BUCKET_NAME=your_bucket_name&quot; &gt;&gt; .env</div>
-              <div className="text-gray-500"># Install and run</div>
-              <div>npm install</div>
+              <div className="text-gray-500"># Edit .env to setup your B2 bucket</div>
               <div>npm run dev</div>
-              <div className="text-gray-500"># Open localhost:3000 - you're live!</div>
+              <div className="text-gray-500"># Done!</div>
             </div>
           </motion.div>
 
