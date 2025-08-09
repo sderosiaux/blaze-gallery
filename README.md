@@ -78,44 +78,6 @@ cp .env.template .env
 npm run dev
 ```
 
-### Available Commands
-
-```bash
-npm run dev          # Development server
-npm run build        # Production build
-npm run start        # Production server
-npm run lint         # Code linting
-npm run type-check   # TypeScript validation
-```
-
-## Architecture
-
-- **Frontend**: Next.js 14 with React and TypeScript
-- **Backend**: Node.js API routes with SQLite database
-- **Storage**: Backblaze B2 via S3-compatible API
-- **Image Processing**: Sharp for thumbnail generation
-- **Deployment**: Docker containerized
-
-## Troubleshooting
-
-### Connection Issues
-- Verify Backblaze credentials and endpoint URL
-- Check bucket permissions and region
-- Set `LOG_LEVEL=DEBUG` for detailed logs
-
-### Performance Issues
-- Adjust `AUTO_THUMBNAIL_THRESHOLD_MB` to skip large files
-- Monitor disk space for thumbnail cache
-- Check system resources during sync operations
-
-### Monitoring
-```bash
-# View logs
-docker-compose logs -f blaze-gallery
-
-# Health check
-curl http://localhost:3000/api/health
-```
 
 ## Contributing
 
