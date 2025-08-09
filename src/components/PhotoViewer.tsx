@@ -194,13 +194,21 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
           <div className="flex-1 mr-4">
             <h3 className="text-lg font-medium mb-1">{currentPhoto.filename}</h3>
             
-            {/* Folder path - shown especially useful in favorites */}
+            {/* Folder path - clickable breadcrumb, especially useful in favorites */}
             {(() => {
               const folderPath = getFolderPath(currentPhoto.s3_key);
               return folderPath && (
                 <div className="text-sm text-gray-400 mb-3 flex items-center">
                   <span className="mr-1">📁</span>
-                  <span className="opacity-75">{folderPath}</span>
+                  <a 
+                    href={`/folder/${folderPath}`}
+                    className="opacity-75 hover:opacity-100 hover:text-blue-300 transition-colors underline-offset-2 hover:underline"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent photo viewer from closing
+                    }}
+                  >
+                    {folderPath}
+                  </a>
                 </div>
               );
             })()}
