@@ -1,5 +1,7 @@
 'use client'
 
+import { motion } from 'framer-motion'
+
 interface PhotoService {
   name: string
   logo: string
@@ -88,77 +90,109 @@ export default function CostComparison() {
     switch (color) {
       case 'blaze':
         return isRecommended 
-          ? 'border-blaze-500 bg-blaze-50 shadow-lg shadow-blaze-200' 
-          : 'border-blaze-200 hover:border-blaze-400'
+          ? 'border-orange-200 shadow-2xl shadow-orange-500/10 ring-2 ring-orange-200' 
+          : 'border-orange-200 hover:border-orange-300'
       case 'blue':
-        return 'border-blue-200 hover:border-blue-400'
+        return 'border-gray-200 hover:border-blue-300'
       case 'gray':
-        return 'border-gray-200 hover:border-gray-400'
+        return 'border-gray-200 hover:border-gray-300'
       default:
-        return 'border-gray-200'
+        return 'border-gray-200 hover:border-gray-300'
     }
   }
 
   const getTrustBadge = (trustLevel: string, privacy: string) => {
     if (trustLevel === 'high' && privacy === 'full') {
       return (
-        <div className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-          <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+        <div className="inline-flex items-center px-4 py-2 bg-emerald-50 text-emerald-700 rounded-full text-sm font-medium border border-emerald-200">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span>
           Complete Trust
         </div>
       )
     } else if (trustLevel === 'medium') {
       return (
-        <div className="inline-flex items-center px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
-          <span className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
+        <div className="inline-flex items-center px-4 py-2 bg-amber-50 text-amber-700 rounded-full text-sm font-medium border border-amber-200">
+          <span className="w-2 h-2 bg-amber-500 rounded-full mr-2"></span>
           Limited Trust
         </div>
       )
     } else {
       return (
-        <div className="inline-flex items-center px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
-          <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+        <div className="inline-flex items-center px-4 py-2 bg-red-50 text-red-700 rounded-full text-sm font-medium border border-red-200">
+          <span className="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></span>
           Privacy Risk
         </div>
       )
     }
   }
 
+  const fadeInUp = {
+    initial: { opacity: 0, y: 40 },
+    whileInView: { opacity: 1, y: 0 },
+    transition: { duration: 0.6, ease: "easeOut" }
+  }
+
+  const staggerChildren = {
+    initial: { opacity: 0 },
+    whileInView: { opacity: 1 },
+    transition: {
+      staggerChildren: 0.2
+    }
+  }
+
   return (
-    <section id="privacy" className="py-20 bg-white">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            Your Family Photos Deserve Better
+    <section id="privacy" className="py-24 bg-gray-50/50">
+      <div className="container mx-auto px-6 max-w-7xl">
+        <motion.div 
+          className="text-center mb-20" 
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+        >
+          <h2 className="text-5xl md:text-6xl font-light text-gray-900 mb-8 leading-tight">
+            Your Family Photos <br className="hidden sm:block" />
+            <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-normal">Deserve Better</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-4xl mx-auto mb-8">
-            Your memories are precious and private. <span className="font-semibold text-green-600">Blaze Gallery is 100% free and open source</span> - 
+          <p className="text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-12 font-light leading-relaxed">
+            Your memories are precious and private. <span className="text-gray-900 font-medium">Blaze Gallery is 100% free and open source</span> - 
             compare what happens to your family photos and who really controls them.
           </p>
           
-          <div className="bg-gray-50 p-6 rounded-xl max-w-3xl mx-auto">
-            <h3 className="font-bold text-gray-900 mb-2">The Real Question Isn't Price</h3>
-            <p className="text-gray-600">
+          <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 p-8 rounded-2xl max-w-4xl mx-auto shadow-sm">
+            <h3 className="text-xl font-medium text-gray-900 mb-4">The Real Question Isn't Price</h3>
+            <p className="text-gray-600 text-lg font-light leading-relaxed">
               It's: <em>"Do I trust this company with my most intimate family moments? 
               Do I know what they do with my photos? Can they lock me out tomorrow?"</em>
             </p>
           </div>
-        </div>
+        </motion.div>
 
         {/* Privacy Comparison Cards */}
-        <div className="grid lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+        <motion.div 
+          className="grid lg:grid-cols-3 gap-8 max-w-7xl mx-auto"
+          variants={staggerChildren}
+          initial="initial"
+          whileInView="whileInView"
+          viewport={{ once: true, margin: "-100px" }}
+        >
           {photoServices.map((service, index) => {
             const isRecommended = service.color === 'blaze'
             
             return (
-              <div 
+              <motion.div 
                 key={service.name}
-                className={`relative p-8 rounded-xl border-2 transition-all duration-300 ${getColorClasses(service.color, isRecommended)}`}
+                className={`relative p-8 rounded-2xl border transition-all duration-500 bg-white/80 backdrop-blur-sm hover:bg-white hover:shadow-xl hover:-translate-y-2 ${getColorClasses(service.color, isRecommended)}`}
+                initial={{ opacity: 0, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1, duration: 0.6 }}
+                viewport={{ once: true }}
+                whileHover={{ y: -8, transition: { duration: 0.3 } }}
               >
                 {isRecommended && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                    <span className="bg-blaze-600 text-white px-6 py-2 rounded-full text-sm font-semibold">
-                      Recommended
+                    <span className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-2 rounded-full text-sm font-medium shadow-lg">
+                      ⭐ Recommended
                     </span>
                   </div>
                 )}
@@ -208,12 +242,14 @@ export default function CostComparison() {
                 {/* CTA */}
                 <div className="pt-6 border-t border-gray-200">
                   {isRecommended ? (
-                    <a
+                    <motion.a
                       href="https://github.com/sderosiaux/blaze-gallery"
-                      className="w-full bg-blaze-600 hover:bg-blaze-700 text-white py-3 px-6 rounded-lg font-semibold text-center block transition-colors"
+                      className="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white py-3 px-6 rounded-xl font-medium text-center block transition-all duration-300 shadow-lg hover:shadow-xl"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                     >
                       Get Blaze Gallery →
-                    </a>
+                    </motion.a>
                   ) : (
                     <div className="text-center">
                       <div className="text-sm text-gray-500 italic">
@@ -222,35 +258,44 @@ export default function CostComparison() {
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
             )
           })}
-        </div>
+        </motion.div>
 
         {/* Bottom CTA */}
-        <div className="text-center mt-16">
-          <div className="bg-gradient-to-r from-blaze-50 to-orange-50 p-8 rounded-xl max-w-5xl mx-auto border border-blaze-200">
-            <h3 className="text-3xl font-bold text-gray-900 mb-4">
-              Your Memories. Your Server. Your Peace of Mind.
+        <motion.div 
+          className="text-center mt-20"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+        >
+          <div className="bg-gradient-to-r from-gray-50 to-white p-12 rounded-3xl max-w-5xl mx-auto border border-gray-200/50 shadow-sm">
+            <h3 className="text-4xl md:text-5xl font-light text-gray-900 mb-6 leading-tight">
+              Your Memories. Your Server. <br className="hidden sm:block" />
+              <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">Your Peace of Mind.</span>
             </h3>
-            <p className="text-xl text-gray-600 mb-6 leading-relaxed">
+            <p className="text-xl md:text-2xl text-gray-600 mb-8 leading-relaxed font-light max-w-4xl mx-auto">
               Stop wondering what happens to your family photos behind closed doors. 
               With Blaze Gallery, you know exactly where they are, who can see them, and that they'll always be yours.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <a
+            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
+              <motion.a
                 href="https://github.com/sderosiaux/blaze-gallery"
-                className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+                className="bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white px-10 py-4 rounded-2xl font-medium text-lg transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-orange-500/25"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 Get Blaze Gallery →
-              </a>
-              <div className="flex items-center text-gray-600">
-                <span className="mr-2">🔓</span>
-                <span className="font-medium">100% Free & Open Source</span>
+              </motion.a>
+              <div className="flex items-center text-gray-600 text-lg">
+                <span className="mr-3 text-xl">🔓</span>
+                <span className="font-light">100% Free & Open Source</span>
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     </section>
   )
