@@ -1,4 +1,5 @@
 import HeroSection from '@/components/HeroSection'
+import ProductShowcase from '@/components/ProductShowcase'
 import CostComparison from '@/components/CostComparison'
 import ArchitectureDiagram from '@/components/ArchitectureDiagram'
 import InteractiveDemo from '@/components/InteractiveDemo'
@@ -13,6 +14,9 @@ export default function Home() {
       
       {/* Hero Section */}
       <HeroSection />
+      
+      {/* Product Showcase */}
+      <ProductShowcase />
       
       {/* Cost Comparison */}
       <CostComparison />
