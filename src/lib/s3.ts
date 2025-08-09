@@ -638,71 +638,44 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
   }
 }
 
+// Centralized image format definitions
+const IMAGE_FORMATS: Record<string, string> = {
+  // Standard image formats
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".webp": "image/webp",
+  ".tiff": "image/tiff",
+  ".tif": "image/tiff",
+  ".svg": "image/svg+xml",
+  // RAW camera formats
+  ".nef": "image/x-nikon-nef",    // Nikon
+  ".cr2": "image/x-canon-cr2",    // Canon
+  ".cr3": "image/x-canon-cr3",    // Canon (newer)
+  ".arw": "image/x-sony-arw",     // Sony
+  ".dng": "image/x-adobe-dng",    // Adobe Digital Negative
+  ".raf": "image/x-fuji-raf",     // Fujifilm
+  ".orf": "image/x-olympus-orf",  // Olympus
+  ".rw2": "image/x-panasonic-rw2", // Panasonic
+  ".pef": "image/x-pentax-pef",   // Pentax
+  ".srw": "image/x-samsung-srw",  // Samsung
+  ".x3f": "image/x-sigma-x3f",    // Sigma
+  // Modern formats
+  ".heic": "image/heic",          // Apple
+  ".heif": "image/heif",          // High Efficiency Image Format
+  ".avif": "image/avif",          // AV1 Image File Format
+};
+
 export function isImageFile(filename: string): boolean {
-  const imageExtensions = [
-    // Standard image formats
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".bmp",
-    ".webp",
-    ".tiff",
-    ".tif",
-    ".svg",
-    // RAW camera formats
-    ".nef",    // Nikon
-    ".cr2",    // Canon
-    ".cr3",    // Canon (newer)
-    ".arw",    // Sony
-    ".dng",    // Adobe Digital Negative
-    ".raf",    // Fujifilm
-    ".orf",    // Olympus
-    ".rw2",    // Panasonic
-    ".pef",    // Pentax
-    ".srw",    // Samsung
-    ".x3f",    // Sigma
-    // Modern formats
-    ".heic",   // Apple
-    ".heif",   // High Efficiency Image Format
-    ".avif",   // AV1 Image File Format
-  ];
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
-  return imageExtensions.includes(ext);
+  return ext in IMAGE_FORMATS;
 }
 
 export function getMimeType(filename: string): string {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
-  const mimeTypes: Record<string, string> = {
-    // Standard image formats
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-    ".webp": "image/webp",
-    ".tiff": "image/tiff",
-    ".tif": "image/tiff",
-    ".svg": "image/svg+xml",
-    // RAW camera formats - use generic image MIME type
-    ".nef": "image/x-nikon-nef",
-    ".cr2": "image/x-canon-cr2", 
-    ".cr3": "image/x-canon-cr3",
-    ".arw": "image/x-sony-arw",
-    ".dng": "image/x-adobe-dng",
-    ".raf": "image/x-fuji-raf",
-    ".orf": "image/x-olympus-orf",
-    ".rw2": "image/x-panasonic-rw2",
-    ".pef": "image/x-pentax-pef",
-    ".srw": "image/x-samsung-srw",
-    ".x3f": "image/x-sigma-x3f",
-    // Modern formats
-    ".heic": "image/heic",
-    ".heif": "image/heif",
-    ".avif": "image/avif",
-  };
-
-  return mimeTypes[ext] || "application/octet-stream";
+  return IMAGE_FORMATS[ext] || "application/octet-stream";
 }
 
 export function getFolderFromKey(key: string): string {
