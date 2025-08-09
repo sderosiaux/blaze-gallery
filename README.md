@@ -51,17 +51,6 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 4. **Access your gallery**
    Open http://localhost:3000 and your photos will be automatically scanned and indexed
 
-## Optional Configuration
-
-You can customize behavior by adding these optional variables to your `.env` file:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AUTO_THUMBNAIL_THRESHOLD_MB` | Max file size for automatic thumbnails | `30` |
-| `AUTO_METADATA_THRESHOLD_MB` | Max file size for EXIF extraction | `5` |
-| `THUMBNAIL_MAX_AGE_DAYS` | Days to keep thumbnails before cleanup | `30` |
-| `LOG_LEVEL` | Logging level: DEBUG, INFO, WARN, ERROR | `INFO` |
-
 ## Development
 
 ### Local Development
