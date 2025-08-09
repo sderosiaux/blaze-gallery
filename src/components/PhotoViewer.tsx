@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
-import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle } from "lucide-react";
+import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon } from "lucide-react";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -164,10 +164,16 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     }
   };
 
-  const getFolderPath = (s3Key: string) => {
+  const getFolderBreadcrumbs = (s3Key: string) => {
     const pathParts = s3Key.split('/');
     pathParts.pop(); // Remove filename
-    return pathParts.length > 0 ? pathParts.join('/') : '';
+    
+    if (pathParts.length === 0) return [];
+    
+    return pathParts.map((folderName, index) => ({
+      name: folderName,
+      path: pathParts.slice(0, index + 1).join('/'),
+    }));
   };
 
   const formatFileSize = (bytes: number) => {
@@ -194,21 +200,27 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
           <div className="flex-1 mr-4">
             <h3 className="text-lg font-medium mb-1">{currentPhoto.filename}</h3>
             
-            {/* Folder path - clickable breadcrumb, especially useful in favorites */}
+            {/* Folder breadcrumb - clickable path navigation, especially useful in favorites */}
             {(() => {
-              const folderPath = getFolderPath(currentPhoto.s3_key);
-              return folderPath && (
-                <div className="text-sm text-gray-400 mb-3 flex items-center">
-                  <span className="mr-1">📁</span>
-                  <a 
-                    href={`/folder/${folderPath}`}
-                    className="opacity-75 hover:opacity-100 hover:text-blue-300 transition-colors underline-offset-2 hover:underline"
-                    onClick={(e) => {
-                      e.stopPropagation(); // Prevent photo viewer from closing
-                    }}
-                  >
-                    {folderPath}
-                  </a>
+              const breadcrumbs = getFolderBreadcrumbs(currentPhoto.s3_key);
+              return breadcrumbs.length > 0 && (
+                <div className="text-sm text-gray-400 mb-3 flex items-center flex-wrap">
+                  <span className="mr-2">📁</span>
+                  {breadcrumbs.map((crumb, index) => (
+                    <div key={crumb.path} className="flex items-center">
+                      {index > 0 && <ChevronRightIcon className="w-3 h-3 mx-1 text-gray-500" />}
+                      <a 
+                        href={`/folder/${crumb.path}`}
+                        className="opacity-75 hover:opacity-100 hover:text-blue-300 transition-colors underline-offset-2 hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent photo viewer from closing
+                        }}
+                        title={`Go to ${crumb.name} folder`}
+                      >
+                        {crumb.name}
+                      </a>
+                    </div>
+                  ))}
                 </div>
               );
             })()}
