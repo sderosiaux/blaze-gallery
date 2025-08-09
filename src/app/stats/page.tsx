@@ -508,47 +508,92 @@ export default function StatsPage() {
         {/* Duplicates Section */}
         <section id="duplicates" className="space-y-6 scroll-mt-24">
           <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
-            🔍 Duplicate Detection
+            🔍 Duplicates Detection
           </h2>
 
-          {duplicates && (
-            <>
-              {/* Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <AlertTriangle className="w-8 h-8 text-yellow-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Duplicate Filenames</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <Copy className="w-8 h-8 text-red-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Total Duplicate Photos</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_photos}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <HardDrive className="w-8 h-8 text-green-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Potential Space Saved</p>
-                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes)}</p>
-                    </div>
+          {/* All KPIs Combined */}
+          {(duplicates || duplicateFolders) && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <AlertTriangle className="w-8 h-8 text-yellow-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Duplicate Files</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_filenames || 0}</p>
                   </div>
                 </div>
               </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Copy className="w-8 h-8 text-red-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Duplicate Photos</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_photos || 0}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Folder className="w-8 h-8 text-purple-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Duplicate Folders</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folder_groups || 0}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Copy className="w-8 h-8 text-orange-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Total Folders</p>
+                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folders || 0}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <HardDrive className="w-8 h-8 text-green-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Files Space Saved</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates?.summary.potential_space_saved_bytes || 0)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <HardDrive className="w-8 h-8 text-blue-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Folders Space Saved</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders?.summary.potential_space_saved_bytes || 0)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-              {/* Duplicate Groups */}
+          {/* Loading States */}
+          {(duplicatesLoading || duplicateFoldersLoading) && (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Duplicates...</h3>
+              <p className="text-gray-500">
+                Scanning your gallery for duplicate files and folders.
+              </p>
+            </div>
+          )}
+
+          {/* Duplicate Files List */}
+          {duplicates && !duplicatesLoading && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                <Image className="w-5 h-5 mr-2" />
+                Duplicate Files
+              </h3>
               {duplicates.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
                   <div className="p-6">
                     <div className="space-y-6">
+
                       {duplicates.duplicates.slice(0, 10).map((group, index) => (
                         <div key={index} className="border-l-4 border-yellow-400 pl-4">
                           <div className="flex justify-between items-start mb-3">
@@ -580,93 +625,38 @@ export default function StatsPage() {
                       ))}
                       {duplicates.duplicates.length > 10 && (
                         <div className="text-center py-4 text-gray-500">
-                          ... and {duplicates.duplicates.length - 10} more duplicate groups
+                          ... and {duplicates.duplicates.length - 10} more duplicate file groups
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="bg-white rounded-lg shadow p-8 text-center">
-                  <div className="text-green-600 mb-4">
-                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+                  <div className="text-green-600 mb-2">
+                    <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Duplicates Found!</h3>
-                  <p className="text-gray-500">Your gallery doesn't have any photos with identical filenames.</p>
+                  <p>No duplicate files found</p>
                 </div>
               )}
-            </>
-          )}
-
-          {duplicatesLoading && (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Photos...</h3>
-              <p className="text-gray-500">
-                Scanning your gallery for photos with identical filenames.
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* Duplicate Folders Section */}
-        <section id="folders" className="space-y-6 scroll-mt-24">
-          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
-            📁 Duplicate Folders
-          </h2>
-          
-          {duplicateFoldersLoading && (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Analyzing Folder Duplicates...</h3>
-              <p className="text-gray-500">
-                Comparing folder contents to identify duplicate directories.
-              </p>
             </div>
           )}
 
-          {duplicateFolders && (
-            <>
-              {/* Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <AlertTriangle className="w-8 h-8 text-yellow-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Duplicate Folder Groups</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folder_groups}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <Copy className="w-8 h-8 text-red-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Total Duplicate Folders</p>
-                      <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folders}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="flex items-center">
-                    <HardDrive className="w-8 h-8 text-green-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Potential Space Saved</p>
-                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Duplicate Folder Groups */}
+          {/* Duplicate Folders List */}
+          {duplicateFolders && !duplicateFoldersLoading && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                <Folder className="w-5 h-5 mr-2" />
+                Duplicate Folders
+              </h3>
               {duplicateFolders.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
                   <div className="p-6">
                     <div className="space-y-6">
                       {duplicateFolders.duplicates.slice(0, 10).map((group, index) => (
-                        <div key={index} className="border-l-4 border-yellow-400 pl-4">
+                        <div key={index} className="border-l-4 border-purple-400 pl-4">
                           <div className="flex justify-between items-start mb-3">
                             <h4 className="font-medium text-gray-900">
                               {group.file_count} files <span className="text-gray-500">({formatBytes(group.total_size_bytes)})</span>
@@ -703,35 +693,37 @@ export default function StatsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white rounded-lg shadow p-8 text-center">
-                  <div className="text-green-600 mb-4">
-                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+                  <div className="text-green-600 mb-2">
+                    <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Duplicate Folders Found!</h3>
-                  <p className="text-gray-500">Your gallery doesn't have any folders with identical contents.</p>
+                  <p>No duplicate folders found</p>
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Info Box */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <div className="flex">
-                  <div className="text-blue-600 mr-3">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="text-sm">
-                    <h4 className="text-blue-800 font-medium mb-1">How are duplicate folders detected?</h4>
-                    <p className="text-blue-700">
-                      Folders are considered duplicates when they contain the exact same set of files (by filename and size). 
-                      This helps identify backup copies, synchronized directories, or folders that were accidentally duplicated.
-                    </p>
-                  </div>
+          {/* Info Box */}
+          {(duplicates || duplicateFolders) && (
+            <div className="bg-blue-50 rounded-lg p-4">
+              <div className="flex">
+                <div className="text-blue-600 mr-3">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="text-sm">
+                  <h4 className="text-blue-800 font-medium mb-1">How are duplicates detected?</h4>
+                  <p className="text-blue-700">
+                    Files are identified as duplicates when they have identical names and sizes. 
+                    Folders are considered duplicates when they contain the exact same set of files. 
+                    System files and thumbnails are automatically excluded from detection.
+                  </p>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </section>
 
