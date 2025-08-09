@@ -167,10 +167,14 @@ export async function validateSharedThumbnailAccess(
   token: string,
   photoId: string
 ): Promise<ShareValidationResult> {
+  console.log(`[VALIDATE_SHARED_THUMBNAIL] token=${token}, photoId=${photoId}`);
+  
   // Get the shared folder
   const share = await getSharedFolder(token);
+  console.log(`[VALIDATE_SHARED_THUMBNAIL] share found:`, !!share);
   
   if (!share) {
+    console.log(`[VALIDATE_SHARED_THUMBNAIL] No share found for token=${token}`);
     return {
       share: null,
       photo: null,
@@ -186,7 +190,9 @@ export async function validateSharedThumbnailAccess(
 
   // Get the photo and verify it belongs to the shared folder
   const photo = await getPhoto(parseInt(photoId));
+  console.log(`[VALIDATE_SHARED_THUMBNAIL] photo found:`, !!photo);
   if (!photo) {
+    console.log(`[VALIDATE_SHARED_THUMBNAIL] No photo found for photoId=${photoId}`);
     return {
       share,
       photo: null,

@@ -12,10 +12,13 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
+    
+    console.log(`[SHARED_THUMBNAIL] Request for token=${token}, photoId=${photoId}`);
 
     // Validate shared thumbnail access (allows password-protected shares)
     const validation = await validateSharedThumbnailAccess(request, token, photoId);
     if (validation.error) {
+      console.log(`[SHARED_THUMBNAIL] Validation failed:`, validation.error);
       return validation.error;
     }
     
