@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { getDatabase } from "@/lib/database";
 import { logger } from "@/lib/logger";
+import { normalizeTextForSearch } from "@/lib/textUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,16 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
     const database = getDatabase();
 
-    // Search photos by filename
+    // Register a custom SQLite function for accent normalization
+    database.function('normalize_text', (text: string | null) => {
+      if (!text) return '';
+      return normalizeTextForSearch(text);
+    });
+
+    const normalizedQuery = normalizeTextForSearch(query);
+    const searchTerm = `%${normalizedQuery}%`;
+
+    // Search photos by filename using normalized text
     const photoQuery = `
       SELECT 
         p.*,
@@ -28,17 +38,18 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         f.path as folder_path
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE p.filename LIKE ? OR f.name LIKE ? OR f.path LIKE ?
+      WHERE normalize_text(p.filename) LIKE ? 
+         OR normalize_text(f.name) LIKE ? 
+         OR normalize_text(f.path) LIKE ?
       ORDER BY p.filename COLLATE NOCASE
       LIMIT 50
     `;
 
-    const searchTerm = `%${query}%`;
     const photoResults = database
       .prepare(photoQuery)
       .all(searchTerm, searchTerm, searchTerm);
 
-    // Search folders by name or path
+    // Search folders by name or path using normalized text
     const folderQuery = `
       SELECT 
         *,
@@ -48,7 +59,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
           ELSE 0
         END as thumbnails_generated
       FROM folders
-      WHERE name LIKE ? OR path LIKE ?
+      WHERE normalize_text(name) LIKE ? 
+         OR normalize_text(path) LIKE ?
       ORDER BY name COLLATE NOCASE
       LIMIT 20
     `;
