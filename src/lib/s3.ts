@@ -604,6 +604,7 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
 
 export function isImageFile(filename: string): boolean {
   const imageExtensions = [
+    // Standard image formats
     ".jpg",
     ".jpeg",
     ".png",
@@ -611,7 +612,24 @@ export function isImageFile(filename: string): boolean {
     ".bmp",
     ".webp",
     ".tiff",
+    ".tif",
     ".svg",
+    // RAW camera formats
+    ".nef",    // Nikon
+    ".cr2",    // Canon
+    ".cr3",    // Canon (newer)
+    ".arw",    // Sony
+    ".dng",    // Adobe Digital Negative
+    ".raf",    // Fujifilm
+    ".orf",    // Olympus
+    ".rw2",    // Panasonic
+    ".pef",    // Pentax
+    ".srw",    // Samsung
+    ".x3f",    // Sigma
+    // Modern formats
+    ".heic",   // Apple
+    ".heif",   // High Efficiency Image Format
+    ".avif",   // AV1 Image File Format
   ];
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
   return imageExtensions.includes(ext);
@@ -620,6 +638,7 @@ export function isImageFile(filename: string): boolean {
 export function getMimeType(filename: string): string {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
   const mimeTypes: Record<string, string> = {
+    // Standard image formats
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
@@ -627,7 +646,24 @@ export function getMimeType(filename: string): string {
     ".bmp": "image/bmp",
     ".webp": "image/webp",
     ".tiff": "image/tiff",
+    ".tif": "image/tiff",
     ".svg": "image/svg+xml",
+    // RAW camera formats - use generic image MIME type
+    ".nef": "image/x-nikon-nef",
+    ".cr2": "image/x-canon-cr2", 
+    ".cr3": "image/x-canon-cr3",
+    ".arw": "image/x-sony-arw",
+    ".dng": "image/x-adobe-dng",
+    ".raf": "image/x-fuji-raf",
+    ".orf": "image/x-olympus-orf",
+    ".rw2": "image/x-panasonic-rw2",
+    ".pef": "image/x-pentax-pef",
+    ".srw": "image/x-samsung-srw",
+    ".x3f": "image/x-sigma-x3f",
+    // Modern formats
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".avif": "image/avif",
   };
 
   return mimeTypes[ext] || "application/octet-stream";
