@@ -98,8 +98,9 @@ export default function PhotoViewer({
     }
   }, [photo.id, photos]);
 
-  // Load full image with session authentication for shared views
+  // Load full image with session authentication for password-protected shared views
   const loadFullImageWithSession = useCallback(async (photoId: number) => {
+    // Only use session loading for shared views that have session tokens (password-protected)
     if (isSharedView && shareToken && sessionToken) {
       try {
         const response = await fetch(`/api/shares/${shareToken}/view/${photoId}`, {
@@ -129,7 +130,7 @@ export default function PhotoViewer({
         clearLoadingTimeout();
       }
     }
-  }, [isSharedView, shareToken, sessionToken, fullImageBlobUrl, clearLoadingTimeout]);
+  }, [isSharedView, shareToken, sessionToken, clearLoadingTimeout]);
 
   // Handle photo change - only reset loading when the photo actually changes
   useEffect(() => {
@@ -150,17 +151,50 @@ export default function PhotoViewer({
     
     setLoadingWithDelay();
     
-    // Load full image for shared views with session
-    if (isSharedView && shareToken && sessionToken) {
-      loadFullImageWithSession(photo.id);
-    }
-    
     return () => {
       if (loadingTimeoutRef) {
         clearTimeout(loadingTimeoutRef);
       }
     };
-  }, [photo.id, loadFullImageWithSession]); // Only depend on photo.id, not the full photo object
+  }, [photo.id]); // Only depend on photo.id to prevent loops
+  
+  // Separate effect for session-based loading
+  useEffect(() => {
+    // Load full image for password-protected shared views only
+    if (isSharedView && shareToken && sessionToken && photo.id) {
+      const loadSessionImage = async () => {
+        try {
+          const response = await fetch(`/api/shares/${shareToken}/view/${photo.id}`, {
+            headers: { 'x-share-session': sessionToken }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          
+          // Clean up previous blob URL
+          if (fullImageBlobUrl) {
+            URL.revokeObjectURL(fullImageBlobUrl);
+          }
+          
+          setFullImageBlobUrl(blobUrl);
+          setImageLoading(false);
+          setFullImageLoaded(true);
+          clearLoadingTimeout();
+        } catch (error) {
+          console.error('Failed to load full image with session:', error);
+          setImageLoading(false);
+          setImageError(true);
+          clearLoadingTimeout();
+        }
+      };
+      
+      loadSessionImage();
+    }
+  }, [photo.id, isSharedView, shareToken, sessionToken]);
 
   // Preload nearby images for smooth navigation
   const preloadImages = useCallback((centerIndex: number) => {
@@ -214,13 +248,8 @@ export default function PhotoViewer({
     
     setLoadingWithDelay();
     
-    // Load full image for shared views with session
-    if (isSharedView && shareToken && sessionToken) {
-      loadFullImageWithSession(newPhoto.id);
-    }
-    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay, fullImageBlobUrl, isSharedView, shareToken, sessionToken, loadFullImageWithSession]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
 
   const goToNext = useCallback(() => {
     if (!photos || currentIndex >= photos.length - 1) return;
@@ -244,13 +273,8 @@ export default function PhotoViewer({
     
     setLoadingWithDelay();
     
-    // Load full image for shared views with session
-    if (isSharedView && shareToken && sessionToken) {
-      loadFullImageWithSession(newPhoto.id);
-    }
-    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay, fullImageBlobUrl, isSharedView, shareToken, sessionToken, loadFullImageWithSession]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
 
   // Auto-advance for slideshow
   useEffect(() => {
@@ -725,8 +749,14 @@ export default function PhotoViewer({
               }}
               loading="eager"
               onLoad={() => {
-                // Only handle onLoad for non-shared views or when using blob URLs
-                if (!isSharedView || fullImageBlobUrl) {
+                // Handle onLoad for regular image loading:
+                // 1. Non-shared views (always)
+                // 2. Shared views without passwords (no session needed)
+                // For password-protected shares, loadFullImageWithSession handles the loading
+                const isPasswordProtectedShare = isSharedView && sessionToken;
+                const isUsingBlobUrl = fullImageBlobUrl !== null;
+                
+                if (!isPasswordProtectedShare || isUsingBlobUrl) {
                   setImageLoading(false);
                   setFullImageLoaded(true);
                   clearLoadingTimeout();
