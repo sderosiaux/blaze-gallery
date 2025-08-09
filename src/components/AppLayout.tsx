@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Heart, Search, FolderOpen, Activity, BarChart3 } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
@@ -17,6 +18,17 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const [scrolled, setScrolled] = useState(false);
+
+  // Track scroll position to add shadow effect
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 10);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const getPageTitle = () => {
     if (title) return title;
@@ -26,7 +38,13 @@ export default function AppLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
+      <header className={`
+        fixed top-0 left-0 right-0 z-50 bg-white border-b transition-all duration-200
+        ${scrolled 
+          ? 'shadow-lg backdrop-blur-sm bg-white/95' 
+          : 'shadow-sm'
+        }
+      `}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
@@ -98,7 +116,8 @@ export default function AppLayout({
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Add top padding to account for fixed header */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
         {children}
       </main>
     </div>

@@ -9,10 +9,41 @@ import { GalleryStats } from '@/types/stats';
 export default function StatsPage() {
   const [stats, setStats] = useState<GalleryStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState('overview');
 
   useEffect(() => {
     loadStats();
   }, []);
+
+  // Track which section is currently visible using scroll position
+  useEffect(() => {
+    const handleScroll = () => {
+      const sections = ['overview', 'activity', 'storage', 'content', 'system'];
+      const scrollTop = window.scrollY + 150; // Offset for fixed header
+      
+      let currentSection = 'overview';
+      
+      for (const sectionId of sections) {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          const rect = element.getBoundingClientRect();
+          const elementTop = rect.top + window.scrollY;
+          
+          if (scrollTop >= elementTop) {
+            currentSection = sectionId;
+          }
+        }
+      }
+      
+      setActiveSection(currentSection);
+    };
+
+    // Initial check
+    handleScroll();
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [stats]);
 
   const loadStats = async () => {
     try {
@@ -41,6 +72,28 @@ export default function StatsPage() {
     return date.toLocaleDateString();
   };
 
+  const scrollToSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      const headerOffset = 120; // Account for fixed header
+      const elementPosition = element.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+      
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const navigationItems = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
+    { id: 'activity', label: 'Activity', icon: '👁️' },
+    { id: 'storage', label: 'Storage', icon: '🗂️' },
+    { id: 'content', label: 'Content', icon: '📷' },
+    { id: 'system', label: 'System', icon: '⚙️' },
+  ];
+
   if (loading) {
     return (
       <AppLayout title="Blaze Gallery">
@@ -63,7 +116,32 @@ export default function StatsPage() {
 
   return (
     <AppLayout title="Blaze Gallery">
-      <div className="space-y-6">
+      {/* Floating Navigation Menu */}
+      <div className="fixed left-4 top-1/2 transform -translate-y-1/2 z-30 hidden lg:block">
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">
+          <nav className="space-y-1">
+            {navigationItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => scrollToSection(item.id)}
+                className={`
+                  w-full flex items-center px-3 py-2 text-sm rounded-lg transition-all duration-200
+                  ${activeSection === item.id 
+                    ? 'bg-blue-50 text-blue-700 shadow-sm border border-blue-200' 
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }
+                `}
+                title={`Go to ${item.label} section`}
+              >
+                <span className="text-base mr-2">{item.icon}</span>
+                <span className="font-medium">{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      <div className="space-y-8">
         {/* Header */}
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900 flex items-center">
@@ -75,7 +153,11 @@ export default function StatsPage() {
           </div>
         </div>
 
-        {/* Basic Stats Cards */}
+        {/* Overview Section */}
+        <section id="overview" className="space-y-4 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            📊 Gallery Overview
+          </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
@@ -127,15 +209,20 @@ export default function StatsPage() {
             </div>
           </div>
         </div>
+        </section>
 
-        {/* Most Viewed Folders */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-              <Eye className="w-5 h-5 mr-2" />
-              Most Recently Viewed Folders
-            </h2>
-          </div>
+        {/* Folder Activity Section */}
+        <section id="activity" className="space-y-4 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            👁️ Recent Activity
+          </h2>
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Eye className="w-5 h-5 mr-2" />
+                Most Recently Viewed Folders
+              </h3>
+            </div>
           <div className="p-6">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -176,16 +263,21 @@ export default function StatsPage() {
               </table>
             </div>
           </div>
-        </div>
+          </div>
+        </section>
 
-        {/* Folder Size Heatmaps */}
+        {/* Storage Analysis Section */}
+        <section id="storage" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            🗂️ Storage & Distribution Analysis
+          </h2>
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <HardDrive className="w-5 h-5 mr-2" />
                 Folder Storage Heatmap
-              </h2>
+              </h3>
               <p className="text-sm text-gray-600 mt-1">
                 Visual overview of folder sizes - darker/redder colors indicate larger storage usage
               </p>
@@ -197,10 +289,10 @@ export default function StatsPage() {
 
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Image className="w-5 h-5 mr-2" />
                 Folder Photo Count Heatmap
-              </h2>
+              </h3>
               <p className="text-sm text-gray-600 mt-1">
                 Visual overview of photo distribution - darker/redder colors indicate more photos
               </p>
@@ -210,15 +302,20 @@ export default function StatsPage() {
             </div>
           </div>
         </div>
+        </section>
 
-        {/* File Type Distribution & Top Cameras */}
+        {/* Content Analysis Section */}
+        <section id="content" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            📷 Content Analysis
+          </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Image className="w-5 h-5 mr-2" />
                 File Types
-              </h2>
+              </h3>
             </div>
             <div className="p-6">
               <div className="space-y-3">
@@ -250,10 +347,10 @@ export default function StatsPage() {
 
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Camera className="w-5 h-5 mr-2" />
                 Top Cameras
-              </h2>
+              </h3>
             </div>
             <div className="p-6">
               <div className="space-y-3">
@@ -285,15 +382,20 @@ export default function StatsPage() {
             </div>
           </div>
         </div>
+        </section>
 
-        {/* Metadata & Sync Health */}
+        {/* System Health Section */}
+        <section id="system" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            ⚙️ System Health & Metadata
+          </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Database className="w-5 h-5 mr-2" />
                 Metadata Coverage
-              </h2>
+              </h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
@@ -339,10 +441,10 @@ export default function StatsPage() {
 
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Zap className="w-5 h-5 mr-2" />
                 Sync Health
-              </h2>
+              </h3>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-2 gap-4">
@@ -366,6 +468,7 @@ export default function StatsPage() {
             </div>
           </div>
         </div>
+        </section>
       </div>
     </AppLayout>
   );
