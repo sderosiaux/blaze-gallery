@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Calendar, Eye, Zap } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import FolderHeatmap from '@/components/FolderHeatmap';
 import { GalleryStats } from '@/types/stats';
 
 export default function StatsPage() {
@@ -173,6 +174,39 @@ export default function StatsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Folder Size Heatmaps */}
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                <HardDrive className="w-5 h-5 mr-2" />
+                Folder Storage Heatmap
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Visual overview of folder sizes - darker/redder colors indicate larger storage usage
+              </p>
+            </div>
+            <div className="p-6">
+              <FolderHeatmap folders={stats.largest_folders_by_size} type="size" maxItems={20} />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Image className="w-5 h-5 mr-2" />
+                Folder Photo Count Heatmap
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Visual overview of photo distribution - darker/redder colors indicate more photos
+              </p>
+            </div>
+            <div className="p-6">
+              <FolderHeatmap folders={stats.largest_folders_by_count} type="count" maxItems={20} />
             </div>
           </div>
         </div>
