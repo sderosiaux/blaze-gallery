@@ -40,7 +40,6 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.json",
   appleWebApp: {
-    capable: true,
     statusBarStyle: "default",
     title: "Blaze Gallery",
   },
@@ -83,6 +82,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
       <body className="min-h-screen bg-gray-50">
         <LayoutProvider>
           <StartupManager />

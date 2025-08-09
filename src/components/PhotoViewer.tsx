@@ -181,9 +181,6 @@ export default function PhotoViewer({
           }
           
           setFullImageBlobUrl(blobUrl);
-          setImageLoading(false);
-          setFullImageLoaded(true);
-          clearLoadingTimeout();
         } catch (error) {
           console.error('Failed to load full image with session:', error);
           setImageLoading(false);
@@ -199,6 +196,12 @@ export default function PhotoViewer({
   // Preload nearby images for smooth navigation
   const preloadImages = useCallback((centerIndex: number) => {
     if (!photos) return;
+    
+    // Skip preloading for password-protected shares since they need session authentication
+    // Regular img tags can't send custom headers, so they would fail with 401
+    if (isSharedView && sessionToken) {
+      return;
+    }
     
     // Preload 2-3 images ahead and 1 behind
     const indicesToPreload = [
@@ -218,7 +221,7 @@ export default function PhotoViewer({
         };
       }
     });
-  }, [photos, preloadedImages]);
+  }, [photos, preloadedImages, isSharedView, sessionToken]);
 
   // Preload images when current index changes
   useEffect(() => {
@@ -730,7 +733,13 @@ export default function PhotoViewer({
             
             {/* Full Resolution Image - loads in background, sized to match thumbnail */}
             <img
-              src={fullImageBlobUrl || getFullImageUrl(currentPhoto.id)}
+              src={
+                // For password-protected shares, don't load until blob URL is ready
+                // This prevents the img tag from failing before session authentication
+                isSharedView && sessionToken && !fullImageBlobUrl 
+                  ? '' // Empty src prevents loading attempt
+                  : (fullImageBlobUrl || getFullImageUrl(currentPhoto.id))
+              }
               alt={currentPhoto.filename}
               className={`transition-all duration-500 ${
                 isExpanded
@@ -752,7 +761,7 @@ export default function PhotoViewer({
                 // Handle onLoad for regular image loading:
                 // 1. Non-shared views (always)
                 // 2. Shared views without passwords (no session needed)
-                // For password-protected shares, loadFullImageWithSession handles the loading
+                // 3. Password-protected shares using blob URLs (after session loading completes)
                 const isPasswordProtectedShare = isSharedView && sessionToken;
                 const isUsingBlobUrl = fullImageBlobUrl !== null;
                 
@@ -763,20 +772,27 @@ export default function PhotoViewer({
                 }
               }}
               onError={(e) => {
-                console.log('PhotoViewer full image error:', {
-                  filename: currentPhoto.filename,
-                  src: e.currentTarget.src,
-                  naturalWidth: e.currentTarget.naturalWidth,
-                  naturalHeight: e.currentTarget.naturalHeight,
-                  isSharedView: isSharedView
-                });
+                // Only show error if this is not a password-protected share waiting for blob URL
+                const isWaitingForSessionLoad = isSharedView && sessionToken && !fullImageBlobUrl;
                 
-                // Add a small delay before showing error to avoid flash
-                setTimeout(() => {
-                  setImageLoading(false);
-                  setImageError(true);
-                  clearLoadingTimeout();
-                }, 100);
+                if (!isWaitingForSessionLoad) {
+                  console.log('PhotoViewer full image error:', {
+                    filename: currentPhoto.filename,
+                    src: e.currentTarget.src,
+                    naturalWidth: e.currentTarget.naturalWidth,
+                    naturalHeight: e.currentTarget.naturalHeight,
+                    isSharedView: isSharedView,
+                    sessionToken: !!sessionToken,
+                    fullImageBlobUrl: !!fullImageBlobUrl
+                  });
+                  
+                  // Add a small delay before showing error to avoid flash
+                  setTimeout(() => {
+                    setImageLoading(false);
+                    setImageError(true);
+                    clearLoadingTimeout();
+                  }, 100);
+                }
               }}
             />
           </div>

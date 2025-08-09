@@ -7,8 +7,15 @@ interface ShareSession {
   expiresAt: number;
 }
 
-// In-memory session store (consider Redis for production)
-const sessions: Map<string, ShareSession> = new Map();
+// Persistent session store that survives hot reloads in development
+// Using global to avoid losing sessions during development server reloads
+const globalForSessions = globalThis as unknown as {
+  sessions: Map<string, ShareSession> | undefined;
+};
+
+const sessions: Map<string, ShareSession> = 
+  globalForSessions.sessions ?? (globalForSessions.sessions = new Map());
+
 
 // Session duration: 24 hours
 const SESSION_DURATION = 24 * 60 * 60 * 1000;

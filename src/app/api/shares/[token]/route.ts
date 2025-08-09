@@ -8,7 +8,7 @@ import {
   getFolderByPath
 } from '@/lib/database';
 import { shouldCountView } from '@/lib/shareHelpers';
-import { createShareSession } from '@/lib/shareSession';
+import { createShareSession, validateShareSession } from '@/lib/shareSession';
 
 interface RouteParams {
   params: { token: string };
@@ -177,6 +177,62 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         success: false,
         error: 'Invalid password'
       }, { status: 401 });
+    }
+
+    if (action === 'validate_session') {
+      const sessionToken = request.headers.get('x-share-session');
+      
+      if (!sessionToken) {
+        return NextResponse.json(
+          { error: 'Session token required' },
+          { status: 401 }
+        );
+      }
+
+      const validatedShareToken = validateShareSession(sessionToken);
+      if (!validatedShareToken || validatedShareToken !== token) {
+        return NextResponse.json(
+          { error: 'Invalid or expired session' },
+          { status: 401 }
+        );
+      }
+
+      // Session is valid, return share data
+      const share = await getSharedFolder(token);
+      if (!share) {
+        return NextResponse.json(
+          { error: 'Share not found or expired' },
+          { status: 404 }
+        );
+      }
+
+      const folder = await getFolderByPath(share.folder_path);
+      if (!folder) {
+        return NextResponse.json(
+          { error: 'Shared folder no longer exists' },
+          { status: 404 }
+        );
+      }
+
+      const photos = await getPhotosInFolder(folder.id);
+
+      const { password_hash, ...shareResponse } = share;
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          share: {
+            ...shareResponse,
+            has_password: !!password_hash
+          },
+          folder: {
+            name: folder.name,
+            path: folder.path,
+            photo_count: photos.length
+          },
+          photos: photos
+        }
+      });
     }
 
     return NextResponse.json(

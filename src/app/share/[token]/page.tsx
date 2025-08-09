@@ -42,6 +42,47 @@ export default function SharePage() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
+  // Helper functions for localStorage session management
+  const getStoredSessionToken = (shareToken: string): string | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = localStorage.getItem(`share_session_${shareToken}`);
+      if (!stored) return null;
+      
+      const { token, expiresAt } = JSON.parse(stored);
+      if (Date.now() > expiresAt) {
+        localStorage.removeItem(`share_session_${shareToken}`);
+        return null;
+      }
+      return token;
+    } catch {
+      return null;
+    }
+  };
+
+  const storeSessionToken = (shareToken: string, sessionToken: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      // Store session token with 24 hour expiration
+      const data = {
+        token: sessionToken,
+        expiresAt: Date.now() + (24 * 60 * 60 * 1000)
+      };
+      localStorage.setItem(`share_session_${shareToken}`, JSON.stringify(data));
+    } catch {
+      // Ignore localStorage errors
+    }
+  };
+
+  const removeStoredSessionToken = (shareToken: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(`share_session_${shareToken}`);
+    } catch {
+      // Ignore localStorage errors
+    }
+  };
+
   useEffect(() => {
     if (token) {
       loadShare();
@@ -53,6 +94,9 @@ export default function SharePage() {
       setLoading(true);
       setError(null);
       
+      // First, check for stored session token
+      const storedSessionToken = getStoredSessionToken(token);
+      
       const url = new URL(`/api/shares/${token}`, window.location.origin);
       if (sharePassword) {
         url.searchParams.set('password', sharePassword);
@@ -62,6 +106,40 @@ export default function SharePage() {
       const data = await response.json();
 
       if (response.status === 401 && data.requires_password) {
+        // If we have a stored session token, try to validate it
+        if (storedSessionToken) {
+          try {
+            const sessionResponse = await fetch(`/api/shares/${token}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-share-session': storedSessionToken
+              },
+              body: JSON.stringify({
+                action: 'validate_session'
+              })
+            });
+            
+            if (sessionResponse.ok) {
+              const sessionResult = await sessionResponse.json();
+              if (sessionResult.success) {
+                // Session is valid, use the stored data
+                setSessionToken(storedSessionToken);
+                setShareData(sessionResult.data);
+                setPasswordRequired(false);
+                document.title = `${sessionResult.data.folder.name} - Shared Photos`;
+                setLoading(false);
+                return;
+              }
+            }
+            // If session validation failed, remove the invalid token
+            removeStoredSessionToken(token);
+          } catch {
+            // If session validation failed, remove the invalid token
+            removeStoredSessionToken(token);
+          }
+        }
+        
         setPasswordRequired(true);
         setLoading(false);
         return;
@@ -110,7 +188,12 @@ export default function SharePage() {
 
       if (result.success) {
         // Password validated and session created
-        setSessionToken(result.data.session_token);
+        const sessionToken = result.data.session_token;
+        
+        // Store session token in localStorage for persistence
+        storeSessionToken(token, sessionToken);
+        
+        setSessionToken(sessionToken);
         setShareData(result.data);
         setPasswordRequired(false);
         document.title = `${result.data.folder.name} - Shared Photos`;
@@ -174,6 +257,7 @@ export default function SharePage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter password"
+                  autoComplete="current-password"
                   disabled={passwordLoading}
                 />
                 <button
