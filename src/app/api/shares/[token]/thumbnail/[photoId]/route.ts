@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { thumbnailService } from '@/lib/thumbnails';
 import { validateSharedThumbnailAccess } from '@/lib/shareHelpers';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
   params: { token: string; photoId: string };
 }

@@ -8,6 +8,9 @@ import {
   getFolderByPath
 } from '@/lib/database';
 import { shouldCountView } from '@/lib/shareHelpers';
+
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
 import { createShareSession, validateShareSession } from '@/lib/shareSession';
 
 interface RouteParams {

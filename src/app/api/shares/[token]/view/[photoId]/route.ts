@@ -3,6 +3,9 @@ import { logShareAccess } from '@/lib/database';
 import { getObjectStreamAuto } from '@/lib/s3';
 import { validateSharedPhotoAccess } from '@/lib/shareHelpers';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
   params: { token: string; photoId: string };
 }
