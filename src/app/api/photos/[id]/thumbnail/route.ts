@@ -71,87 +71,41 @@ export const GET = requireAuth(async function GET(
       });
     }
 
-    if (photo.thumbnail_path) {
-      const thumbnailBuffer = await thumbnailService.getThumbnailBuffer(
-        photo.thumbnail_path,
-      );
-
-      if (thumbnailBuffer) {
-        return new NextResponse(thumbnailBuffer as any, {
-          headers: {
-            "Content-Type": "image/jpeg",
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "Content-Length": thumbnailBuffer.length.toString(),
-            "ETag": etag,
-            "Last-Modified": new Date(photo.modified_at).toUTCString(),
-          },
-        });
-      }
-    }
-
-    const config = getConfig();
-
     // Debug logging for large files
     if (photo.size > 10 * 1024 * 1024) { // Files over 10MB
       const sizeMB = photo.size / (1024 * 1024);
+      const config = getConfig();
       console.log(`Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`);
     }
 
-    // S3 client will be auto-initialized by thumbnail service when needed
-
-    let thumbnailPath;
-    try {
-      thumbnailPath = await thumbnailService.generateThumbnail(
-        config.backblaze_bucket,
-        photo.s3_key,
-        photo.id,
-        {},
-        forceGenerate,
-        request,
-      );
-    } catch (error) {
-      // Handle unsupported format as expected behavior, not an error
-      if (error instanceof Error && error.message.includes("Unsupported image format")) {
-        logger.thumbnailOperation(
-          `Thumbnail request for unsupported format: ${photo.s3_key.toLowerCase().split('.').pop() || 'unknown'}`,
-          {
-            photoId: photo.id,
-            s3Key: photo.s3_key,
-          },
-        );
+    // Use the common thumbnail serving logic
+    const result = await thumbnailService.serveThumbnail(photo, request, forceGenerate);
+    
+    if ('error' in result) {
+      // Return detailed JSON errors for regular endpoint (like the old behavior)
+      if (result.status === 415) {
         return new NextResponse(
           JSON.stringify({
             error: "Unsupported image format",
-            message: error.message,
+            message: result.error,
             fileExtension: photo.s3_key.toLowerCase().split('.').pop() || 'unknown'
           }),
           { 
-            status: 415, // Unsupported Media Type
+            status: 415,
             headers: {
               "Content-Type": "application/json"
             }
           }
         );
       }
-
-      // Handle size limit as expected behavior, not an error
-      if (error instanceof Error && error.message.includes("Photo too large for automatic thumbnail generation")) {
-        const sizeMB = photo.size / (1024 * 1024);
-        logger.thumbnailOperation(
-          `Thumbnail request for large photo (${sizeMB.toFixed(1)}MB > ${config.auto_thumbnail_threshold_mb}MB) - user can force generation`,
-          {
-            photoId: photo.id,
-            sizeMB,
-            thresholdMB: config.auto_thumbnail_threshold_mb,
-            s3Key: photo.s3_key,
-          },
-        );
+      
+      if (result.status === 413) {
         return new NextResponse(
           JSON.stringify({
             error: "Photo too large for automatic thumbnail generation",
-            message: `This photo is ${sizeMB.toFixed(1)}MB, which exceeds the ${config.auto_thumbnail_threshold_mb}MB threshold. Add ?force=true to generate anyway.`,
-            sizeMB: sizeMB,
-            thresholdMB: config.auto_thumbnail_threshold_mb
+            message: result.error,
+            sizeMB: photo.size / (1024 * 1024),
+            thresholdMB: getConfig().auto_thumbnail_threshold_mb
           }),
           { 
             status: 413,
@@ -161,23 +115,19 @@ export const GET = requireAuth(async function GET(
           }
         );
       }
-      // Re-throw other errors to be handled by the outer catch block
-      throw error;
+      
+      return new NextResponse(result.error, { status: result.status });
     }
 
-    const thumbnailBuffer =
-      await thumbnailService.getThumbnailBuffer(thumbnailPath);
+    // Add ETag and Last-Modified for regular endpoint caching
+    const enhancedHeaders = {
+      ...result.headers,
+      "ETag": etag,
+      "Last-Modified": new Date(photo.modified_at).toUTCString(),
+    };
 
-    if (!thumbnailBuffer) {
-      return new NextResponse("Failed to generate thumbnail", { status: 500 });
-    }
-
-    return new NextResponse(thumbnailBuffer as any, {
-      headers: {
-        "Content-Type": "image/jpeg",
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "Content-Length": thumbnailBuffer.length.toString(),
-      },
+    return new NextResponse(result.buffer as any, {
+      headers: enhancedHeaders,
     });
   } catch (error) {
     const photoId = parseInt(params.id);

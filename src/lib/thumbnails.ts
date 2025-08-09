@@ -362,6 +362,96 @@ export class ThumbnailService {
       };
     }
   }
+
+  /**
+   * Common thumbnail serving logic for both regular and shared endpoints
+   * Tries existing thumbnail first, generates on-demand if missing
+   */
+  async serveThumbnail(
+    photo: any, 
+    request?: Request,
+    forceGenerate: boolean = false
+  ): Promise<{ buffer: Buffer; headers: Record<string, string> } | { error: string; status: number }> {
+    const config = getConfig();
+    
+    // First try to serve existing thumbnail
+    if (photo.thumbnail_path) {
+      const thumbnailBuffer = await this.getThumbnailBuffer(photo.thumbnail_path);
+      if (thumbnailBuffer) {
+        return {
+          buffer: thumbnailBuffer,
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Content-Length": thumbnailBuffer.length.toString(),
+          }
+        };
+      }
+    }
+
+    // If no existing thumbnail, generate one on-demand
+    let thumbnailPath;
+    try {
+      thumbnailPath = await this.generateThumbnail(
+        config.backblaze_bucket,
+        photo.s3_key,
+        photo.id,
+        {},
+        forceGenerate,
+        request,
+      );
+    } catch (error) {
+      // Handle unsupported format gracefully
+      if (error instanceof Error && error.message.includes("Unsupported image format")) {
+        logger.thumbnailOperation(
+          `Thumbnail request for unsupported format: ${photo.s3_key.toLowerCase().split('.').pop() || 'unknown'}`,
+          {
+            photoId: photo.id,
+            s3Key: photo.s3_key,
+          },
+        );
+        return { error: 'Unsupported image format', status: 415 };
+      }
+
+      // Handle large files
+      if (error instanceof Error && error.message.includes("Photo too large")) {
+        const sizeMB = photo.size / (1024 * 1024);
+        logger.thumbnailOperation(
+          `Thumbnail request for large photo (${sizeMB.toFixed(1)}MB) - not generating`,
+          {
+            photoId: photo.id,
+            sizeMB,
+            s3Key: photo.s3_key,
+          },
+        );
+        
+        if (forceGenerate) {
+          return { 
+            error: `This photo is ${sizeMB.toFixed(1)}MB, which exceeds the ${config.auto_thumbnail_threshold_mb}MB threshold. Add ?force=true to generate anyway.`,
+            status: 413 
+          };
+        } else {
+          return { error: 'Photo too large for thumbnail generation', status: 413 };
+        }
+      }
+      
+      throw error; // Re-throw other errors
+    }
+
+    const thumbnailBuffer = await this.getThumbnailBuffer(thumbnailPath);
+    if (!thumbnailBuffer) {
+      return { error: 'Failed to generate thumbnail', status: 500 };
+    }
+
+    return {
+      buffer: thumbnailBuffer,
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Length": thumbnailBuffer.length.toString(),
+      }
+    };
+  }
 }
 
 export const thumbnailService = new ThumbnailService();

@@ -24,28 +24,30 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     
     const { photo } = validation;
 
-    // Get the thumbnail using the same service as the regular endpoint
-    if (photo.thumbnail_path) {
-      const thumbnailBuffer = await thumbnailService.getThumbnailBuffer(
-        photo.thumbnail_path
+    console.log(`[SHARED_THUMBNAIL] Using common serveThumbnail for photo ${photo.id}`);
+    
+    // Use the common thumbnail serving logic
+    const result = await thumbnailService.serveThumbnail(photo, request, false);
+    
+    if ('error' in result) {
+      console.log(`[SHARED_THUMBNAIL] serveThumbnail returned error:`, result.error);
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status }
       );
-
-      if (thumbnailBuffer) {
-        return new NextResponse(thumbnailBuffer as any, {
-          headers: {
-            "Content-Type": "image/jpeg",
-            "Cache-Control": "private, max-age=86400", // 24 hours for shared content
-            "Content-Length": thumbnailBuffer.length.toString(),
-          },
-        });
-      }
     }
 
-    // If no thumbnail exists, return error
-    return NextResponse.json(
-      { error: 'Thumbnail not available' },
-      { status: 404 }
-    );
+    console.log(`[SHARED_THUMBNAIL] serveThumbnail success, buffer size:`, result.buffer.length);
+    
+    // Override cache control for shared content (shorter than regular thumbnails)
+    const sharedHeaders = {
+      ...result.headers,
+      "Cache-Control": "private, max-age=86400", // 24 hours for shared content
+    };
+    
+    return new NextResponse(result.buffer as any, {
+      headers: sharedHeaders,
+    });
 
   } catch (error) {
     console.error('[API] Error serving shared thumbnail:', error);
