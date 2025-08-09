@@ -25,6 +25,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
   const [isExpanded, setIsExpanded] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
   const [loadingTimeoutRef, setLoadingTimeoutRef] = useState<NodeJS.Timeout | null>(null);
+  
+  // Progressive loading states
+  const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
+  const [fullImageLoaded, setFullImageLoaded] = useState(false);
 
   // Helper function to manage loading timeout
   const setLoadingWithDelay = () => {
@@ -64,6 +68,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setCurrentFavoriteState(photo.is_favorite);
     setImageLoading(true);
     setImageError(false);
+    
+    // Reset progressive loading states
+    setThumbnailLoaded(false);
+    setFullImageLoaded(false);
     
     setLoadingWithDelay();
     
@@ -114,6 +122,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setImageLoading(true);
     setImageError(false);
     
+    // Reset progressive loading states
+    setThumbnailLoaded(false);
+    setFullImageLoaded(false);
+    
     setLoadingWithDelay();
     
     onPhotoChange?.(newPhoto);
@@ -128,6 +140,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setCurrentFavoriteState(newPhoto.is_favorite);
     setImageLoading(true);
     setImageError(false);
+    
+    // Reset progressive loading states
+    setThumbnailLoaded(false);
+    setFullImageLoaded(false);
     
     setLoadingWithDelay();
     
@@ -430,8 +446,8 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
         </div>
 
         <div className="flex-1 flex items-center justify-center min-h-0 relative group">
-          {/* Loading skeleton - only show after delay */}
-          {showLoading && (
+          {/* Loading skeleton - only show when no images are loaded yet and after delay */}
+          {showLoading && !thumbnailLoaded && !fullImageLoaded && (
             <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
               <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
             </div>
@@ -439,7 +455,8 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
 
           {/* Error state */}
           {imageError && (
-            <div className="text-white text-center p-8 max-w-md mx-auto">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-white text-center p-8 max-w-md mx-auto">
               {(() => {
                 const filename = currentPhoto.filename.toLowerCase();
                 const rawFormats = ['.nef', '.cr2', '.cr3', '.arw', '.dng', '.raf', '.orf', '.rw2', '.pef', '.srw', '.x3f'];
@@ -477,11 +494,12 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
                   );
                 }
               })()}
+              </div>
             </div>
           )}
 
           {/* Navigation hints */}
-          {photos && photos.length > 1 && !imageLoading && !imageError && (
+          {photos && photos.length > 1 && (thumbnailLoaded || fullImageLoaded) && !imageError && (
             <>
               {/* Previous photo hint */}
               {currentIndex > 0 && (
@@ -511,39 +529,78 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
             </>
           )}
 
-          {/* Main image */}
-          <img
-            src={`/api/photos/${currentPhoto.id}/download`}
-            alt={currentPhoto.filename}
-            className={`transition-all duration-300 ${
-              isExpanded
-                ? "max-w-none max-h-none object-contain" 
-                : "max-w-full max-h-full object-contain"
-            } ${
-              imageLoading || imageError ? "opacity-0" : "opacity-100"
-            }`}
-            style={{
-              imageRendering: isExpanded ? 'crisp-edges' : 'auto',
-              width: isExpanded ? '90vw' : 'auto',
-              height: isExpanded ? '90vh' : 'auto',
-            }}
-            loading="eager"
-            onLoad={() => {
-              setImageLoading(false);
-              clearLoadingTimeout();
-            }}
-            onError={(e) => {
-              console.log('PhotoViewer image error:', {
-                filename: currentPhoto.filename,
-                src: e.currentTarget.src,
-                naturalWidth: e.currentTarget.naturalWidth,
-                naturalHeight: e.currentTarget.naturalHeight
-              });
-              setImageLoading(false);
-              setImageError(true);
-              clearLoadingTimeout();
-            }}
-          />
+          {/* Progressive Loading Images */}
+          <div className="relative w-full h-full flex items-center justify-center">
+            {/* Thumbnail - loads first and shows immediately, sized to match final image */}
+            <img
+              src={`/api/photos/${currentPhoto.id}/thumbnail`}
+              alt={`${currentPhoto.filename} thumbnail`}
+              className={`absolute transition-all duration-500 ${
+                isExpanded
+                  ? "max-w-none max-h-none object-contain" 
+                  : "max-w-full max-h-full object-contain"
+              } ${
+                thumbnailLoaded && !fullImageLoaded ? "opacity-100" : "opacity-0"
+              } ${
+                fullImageLoaded ? "scale-110 blur-sm" : "scale-100 blur-0"
+              }`}
+              style={{
+                imageRendering: 'auto',
+                width: isExpanded ? '90vw' : '100%',
+                height: isExpanded ? '90vh' : '100%',
+                maxWidth: isExpanded ? '90vw' : '100%',
+                maxHeight: isExpanded ? '90vh' : '100%',
+                objectFit: 'contain',
+              }}
+              loading="eager"
+              onLoad={() => {
+                setThumbnailLoaded(true);
+                // Clear loading timeout when thumbnail loads
+                clearLoadingTimeout();
+              }}
+              onError={() => {
+                console.log('Thumbnail load error for:', currentPhoto.filename);
+              }}
+            />
+            
+            {/* Full Resolution Image - loads in background, sized to match thumbnail */}
+            <img
+              src={`/api/photos/${currentPhoto.id}/download`}
+              alt={currentPhoto.filename}
+              className={`transition-all duration-500 ${
+                isExpanded
+                  ? "max-w-none max-h-none object-contain" 
+                  : "max-w-full max-h-full object-contain"
+              } ${
+                fullImageLoaded ? "opacity-100" : "opacity-0"
+              }`}
+              style={{
+                imageRendering: isExpanded ? 'crisp-edges' : 'auto',
+                width: isExpanded ? '90vw' : '100%',
+                height: isExpanded ? '90vh' : '100%',
+                maxWidth: isExpanded ? '90vw' : '100%',
+                maxHeight: isExpanded ? '90vh' : '100%',
+                objectFit: 'contain',
+              }}
+              loading="eager"
+              onLoad={() => {
+                setImageLoading(false);
+                setFullImageLoaded(true);
+                clearLoadingTimeout();
+              }}
+              onError={(e) => {
+                console.log('PhotoViewer full image error:', {
+                  filename: currentPhoto.filename,
+                  src: e.currentTarget.src,
+                  naturalWidth: e.currentTarget.naturalWidth,
+                  naturalHeight: e.currentTarget.naturalHeight
+                });
+                setImageLoading(false);
+                setImageError(true);
+                clearLoadingTimeout();
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

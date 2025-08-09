@@ -6,7 +6,7 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 
 ## Features
 
-- **Fast browsing** with smart caching and lazy loading
+- **Fast browsing** with smart caching, lazy loading, and progressive image loading
 - **Backblaze B2 integration** using S3-compatible API
 - **Read-only mode** - never modifies your original photos
 - **Responsive design** - works on desktop, tablet, and mobile
@@ -17,6 +17,7 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 - **Gallery statistics** with duplicate detection and space optimization
 - **Audit dashboard** with performance monitoring and thumbnail analytics
 - **Search functionality** across your entire photo collection
+- **Random photo discovery** to rediscover forgotten memories
 - **RAW file support** with intelligent handling (see limitations below)
 
 ## Quick Start

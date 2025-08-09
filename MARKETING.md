@@ -32,6 +32,7 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 ## ✨ Key Features
 
 ### 🚀 Lightning Fast Performance
+- **Progressive Image Loading** - Thumbnails appear instantly while full images load in background
 - **Smart Caching** - Thumbnails cached locally for instant loading
 - **Lazy Loading** - Photos load as you scroll for smooth browsing
 - **Optimized Database** - SQLite with proper indexing for fast queries
@@ -55,6 +56,7 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 ### 📊 Smart Organization & Analytics
 - **❤️ Favorites System** - Mark and organize your favorite photos with instant feedback
 - **🔍 Powerful Search** - Find photos by filename, date, or metadata
+- **✨ Random Photo Discovery** - Homepage teaser showing 32 random photos to rediscover forgotten memories
 - **📂 Folder Navigation** - Clickable breadcrumbs and intelligent folder browsing
 - **📅 EXIF Metadata** - View photo details, GPS location, and camera settings
 - **📈 Gallery Statistics** - Track your collection size, growth, and storage distribution
@@ -83,9 +85,10 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **Deployment**: Docker containerized with multi-architecture support
 
 ### Performance Optimizations
+- **Progressive Loading** - Instagram-style thumbnail-to-full image transitions for instant visual feedback
 - **Thumbnail Caching** - Local disk caching with automatic cleanup
 - **Database Indexing** - Optimized queries for large photo collections
-- **Lazy Loading** - Progressive image loading as you browse
+- **Lazy Loading** - Smart image loading as you browse and scroll
 - **Connection Pooling** - Efficient S3 API usage with connection reuse
 - **Memory Management** - Smart garbage collection and resource cleanup
 
@@ -238,7 +241,10 @@ Canon (.CR2, .CR3), Nikon (.NEF), Sony (.ARW), Adobe (.DNG), Fujifilm (.RAF), Ol
 - **Audit Logging**: Comprehensive activity tracking for troubleshooting
 
 ### Enhanced User Experience
-- **Instant Favorites**: Optimistic updates for immediate feedback
+- **Progressive Image Loading**: Instagram-style thumbnail-to-full transitions eliminate loading delays
+- **Random Photo Discovery**: 32-photo homepage teaser to rediscover forgotten memories
+- **Advanced Keyboard Shortcuts**: F for favorites, E for expand, enhanced navigation
+- **Instant Favorites**: Optimistic updates with heart animation effects
 - **Improved Navigation**: Floating menus and better responsive design
 - **Better Error Handling**: Graceful RAW file messaging and error recovery
 - **Performance Optimization**: Faster loading and smoother interactions
