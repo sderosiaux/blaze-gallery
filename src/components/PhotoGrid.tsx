@@ -11,9 +11,11 @@ import { useLayout } from "@/contexts/LayoutContext";
 interface PhotoGridProps {
   photos: Photo[];
   loading?: boolean;
+  selectedPhotoId?: string | null;
+  onPhotoUrlChange?: (photoId: string | null) => void;
 }
 
-export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
+export default function PhotoGrid({ photos, loading = false, selectedPhotoId, onPhotoUrlChange }: PhotoGridProps) {
   const { isFullWidth, setIsFullWidth } = useLayout();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [photosState, setPhotosState] = useState<Photo[]>(photos);
@@ -22,6 +24,28 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
   useEffect(() => {
     setPhotosState(photos);
   }, [photos]);
+
+  // Handle initial photo selection from URL params
+  useEffect(() => {
+    if (selectedPhotoId && photos.length > 0) {
+      const photo = photos.find(p => p.id.toString() === selectedPhotoId);
+      if (photo) {
+        setSelectedPhoto(photo);
+      }
+    }
+  }, [selectedPhotoId, photos]);
+
+  // Handle photo selection and URL updates
+  const handlePhotoSelect = (photo: Photo) => {
+    setSelectedPhoto(photo);
+    onPhotoUrlChange?.(photo.id.toString());
+  };
+
+  // Handle photo close and URL updates
+  const handlePhotoClose = () => {
+    setSelectedPhoto(null);
+    onPhotoUrlChange?.(null);
+  };
 
   const toggleFavorite = async (photo: Photo, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent opening the photo viewer
@@ -120,7 +144,7 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
             <PhotoItem
               key={photo.id}
               photo={photo}
-              onPhotoClick={setSelectedPhoto}
+              onPhotoClick={handlePhotoSelect}
               onToggleFavorite={toggleFavorite}
               priority={index < 20 ? 10 - Math.floor(index / 2) : 0} // First 20 images get higher priority
             />
@@ -132,7 +156,7 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
         <PhotoViewer
           photo={selectedPhoto}
           photos={photosState}
-          onClose={() => setSelectedPhoto(null)}
+          onClose={handlePhotoClose}
           onFavoriteToggle={(updatedPhoto) => {
             // Update the photo in the local state
             setPhotosState((prevPhotos) =>
@@ -145,6 +169,7 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
           }}
           onPhotoChange={(newPhoto) => {
             setSelectedPhoto(newPhoto);
+            onPhotoUrlChange?.(newPhoto.id.toString());
           }}
         />
       )}

@@ -1,16 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Photo } from "@/types";
 import PhotoGrid from "@/components/PhotoGrid";
 import { FolderOpen, Heart } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 
-export default function FavoritesPage() {
+function FavoritesContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Get selected photo ID from URL search params
+  const selectedPhotoId = searchParams.get("photo");
+
+  // Handle photo URL changes
+  const handlePhotoUrlChange = (photoId: string | null) => {
+    const url = new URL(window.location.href);
+    if (photoId) {
+      url.searchParams.set("photo", photoId);
+    } else {
+      url.searchParams.delete("photo");
+    }
+    router.push(url.pathname + url.search, { scroll: false });
+  };
 
   useEffect(() => {
     loadFavorites();
@@ -91,9 +106,29 @@ export default function FavoritesPage() {
               {photos.length} favorite photo{photos.length !== 1 ? "s" : ""}
             </h2>
           </div>
-          <PhotoGrid photos={photos} />
+          <PhotoGrid 
+            photos={photos}
+            selectedPhotoId={selectedPhotoId}
+            onPhotoUrlChange={handlePhotoUrlChange}
+          />
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function FavoritesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppLayout>
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+          </div>
+        </AppLayout>
+      }
+    >
+      <FavoritesContent />
+    </Suspense>
   );
 }

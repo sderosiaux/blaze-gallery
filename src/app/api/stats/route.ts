@@ -98,15 +98,16 @@ export async function GET(request: NextRequest) {
       actual_total_size: number;
     }>;
 
-    // File type distribution
+    // File type distribution - get file extensions (up to 6 chars after the last dot)
     const fileTypeStats = db.prepare(`
       SELECT 
-        LOWER(SUBSTR(filename, -4)) as file_extension,
+        LOWER(SUBSTR(filename, -6)) as file_extension,
         COUNT(*) as count,
         SUM(size) as total_size_bytes,
         AVG(size) as avg_size_bytes
       FROM photos
-      GROUP BY LOWER(SUBSTR(filename, -4))
+      WHERE filename LIKE '%.%' AND LENGTH(SUBSTR(filename, -6)) <= 6
+      GROUP BY file_extension
       HAVING count > 0
       ORDER BY count DESC
     `).all() as Array<{

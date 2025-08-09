@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Folder, Photo } from "@/types";
 import FolderBrowser from "@/components/FolderBrowser";
@@ -21,8 +21,9 @@ interface FolderPageProps {
 // Note: generateMetadata would need to be in a server component
 // For now, we'll handle page titles dynamically in the client component
 
-export default function FolderPage({ params }: FolderPageProps) {
+function FolderContent({ params }: FolderPageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -32,6 +33,20 @@ export default function FolderPage({ params }: FolderPageProps) {
 
   // Get the current folder path from URL params
   const currentPath = params.path ? params.path.join("/") : "";
+  
+  // Get selected photo ID from URL search params
+  const selectedPhotoId = searchParams.get("photo");
+
+  // Handle photo URL changes
+  const handlePhotoUrlChange = (photoId: string | null) => {
+    const url = new URL(window.location.href);
+    if (photoId) {
+      url.searchParams.set("photo", photoId);
+    } else {
+      url.searchParams.delete("photo");
+    }
+    router.push(url.pathname + url.search, { scroll: false });
+  };
 
   useEffect(() => {
     loadBucketName();
@@ -158,9 +173,30 @@ export default function FolderPage({ params }: FolderPageProps) {
             onFolderSelect={navigateToFolder}
             onBreadcrumbClick={navigateToBreadcrumb}
           />
-          <PhotoGrid photos={photos} loading={loading} />
+          <PhotoGrid 
+            photos={photos} 
+            loading={loading}
+            selectedPhotoId={selectedPhotoId}
+            onPhotoUrlChange={handlePhotoUrlChange}
+          />
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function FolderPage({ params }: FolderPageProps) {
+  return (
+    <Suspense
+      fallback={
+        <AppLayout title="Loading...">
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        </AppLayout>
+      }
+    >
+      <FolderContent params={params} />
+    </Suspense>
   );
 }

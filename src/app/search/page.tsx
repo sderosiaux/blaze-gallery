@@ -18,6 +18,7 @@ function SearchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const query = searchParams?.get("q") || "";
+  const selectedPhotoId = searchParams?.get("photo");
 
   const [results, setResults] = useState<SearchResults>({
     photos: [],
@@ -26,6 +27,17 @@ function SearchContent() {
   });
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState(query);
+
+  // Handle photo URL changes
+  const handlePhotoUrlChange = (photoId: string | null) => {
+    const url = new URL(window.location.href);
+    if (photoId) {
+      url.searchParams.set("photo", photoId);
+    } else {
+      url.searchParams.delete("photo");
+    }
+    router.push(url.pathname + url.search, { scroll: false });
+  };
 
   useEffect(() => {
     if (query) {
@@ -159,7 +171,12 @@ function SearchContent() {
 
           {/* Photos Results */}
           {results.photos.length > 0 && (
-            <PhotoGrid photos={results.photos} loading={loading} />
+            <PhotoGrid 
+              photos={results.photos} 
+              loading={loading}
+              selectedPhotoId={selectedPhotoId}
+              onPhotoUrlChange={handlePhotoUrlChange}
+            />
           )}
         </div>
       )}
