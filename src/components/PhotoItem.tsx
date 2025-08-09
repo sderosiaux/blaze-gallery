@@ -1,31 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Photo } from "@/types";
 import { Heart } from "lucide-react";
 import PhotoTooltip from "./PhotoTooltip";
+import { useIntersectionObserver } from "@/hooks/useIntersectionObserver";
+import { useThumbnailLoader } from "@/hooks/useThumbnailLoader";
 
 interface PhotoItemProps {
   photo: Photo;
   onPhotoClick: (photo: Photo) => void;
   onToggleFavorite: (photo: Photo, event: React.MouseEvent) => void;
+  priority?: number;
 }
 
 export default function PhotoItem({
   photo,
   onPhotoClick,
   onToggleFavorite,
+  priority = 0,
 }: PhotoItemProps) {
-  const [imageLoading, setImageLoading] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const { elementRef, shouldLoad } = useIntersectionObserver({
+    rootMargin: '200px', // Start loading when 200px away
+    threshold: 0.1,
+  });
+
+  const { blob, isLoading } = useThumbnailLoader(
+    shouldLoad ? photo.thumbnail_url : '',
+    priority
+  );
+
+  useEffect(() => {
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      setImageUrl(url);
+      
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    }
+  }, [blob]);
 
   return (
     <PhotoTooltip photo={photo}>
       <div
+        ref={elementRef as any}
         className="photo-mosaic-item group relative aspect-square bg-gray-100 overflow-hidden cursor-pointer"
         onClick={() => onPhotoClick(photo)}
       >
         {/* Loading skeleton */}
-        {imageLoading && (
+        {(isLoading || !imageUrl) && (
           <div className="absolute inset-0 bg-slate-100 overflow-hidden">
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="grid grid-cols-3 gap-1.5">
@@ -43,14 +68,13 @@ export default function PhotoItem({
           </div>
         )}
 
-        <img
-          src={photo.thumbnail_url}
-          alt={photo.filename}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-          loading="lazy"
-          onLoad={() => setImageLoading(false)}
-          onError={() => setImageLoading(false)}
-        />
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt={photo.filename}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+          />
+        )}
         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity duration-200" />
 
         {/* Favorite heart icon - always visible if favorited, only on hover if not */}

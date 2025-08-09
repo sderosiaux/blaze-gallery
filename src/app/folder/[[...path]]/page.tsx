@@ -27,10 +27,8 @@ export default function FolderPage({ params }: FolderPageProps) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [bucketName, setBucketName] = useState("Root");
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
-    { name: "Root", path: "" },
-  ]);
+  const [bucketName, setBucketName] = useState("");
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
 
   // Get the current folder path from URL params
   const currentPath = params.path ? params.path.join("/") : "";
@@ -56,11 +54,33 @@ export default function FolderPage({ params }: FolderPageProps) {
     }
   };
 
+  // Rebuild breadcrumbs when bucket name loads (regardless of when it loads)
+  useEffect(() => {
+    if (!bucketName) return; // Wait until we have the bucket name
+    
+    if (currentPath === "") {
+      // We're at root
+      setBreadcrumbs([{ name: bucketName, path: "" }]);
+    } else {
+      // We're in a folder - rebuild breadcrumbs with bucket name at root
+      const pathParts = currentPath.split("/").filter((part) => part);
+      const newBreadcrumbs: BreadcrumbItem[] = [{ name: bucketName, path: "" }];
+      
+      let buildPath = "";
+      for (const part of pathParts) {
+        buildPath = buildPath ? `${buildPath}/${part}` : part;
+        newBreadcrumbs.push({ name: part, path: buildPath });
+      }
+      
+      setBreadcrumbs(newBreadcrumbs);
+    }
+  }, [bucketName, currentPath]); // Trigger when bucket loads OR when path changes
+
   // Update page title dynamically
   useEffect(() => {
-    const folderName = currentPath ? currentPath.split("/").pop() : bucketName;
+    const folderName = currentPath ? currentPath.split("/").pop() : (bucketName || "Gallery");
     document.title = `${folderName} - Blaze Gallery`;
-  }, [currentPath]);
+  }, [currentPath, bucketName]);
 
   const loadRootFolders = async () => {
     try {
@@ -70,7 +90,7 @@ export default function FolderPage({ params }: FolderPageProps) {
       setCurrentFolder(null);
       setFolders(data.folders || []);
       setPhotos(data.photos || []);
-      setBreadcrumbs([{ name: bucketName, path: "" }]);
+      // Breadcrumb is set by loadBucketName
     } catch (error) {
       console.error("[CLIENT] Failed to load folders:", error);
     } finally {
@@ -96,18 +116,8 @@ export default function FolderPage({ params }: FolderPageProps) {
       setCurrentFolder(data.folder);
       setFolders(data.subfolders || []);
       setPhotos(data.photos || []);
-
-      // Build breadcrumbs from the folder path
-      const pathParts = folderPath.split("/").filter((part) => part);
-      const newBreadcrumbs: BreadcrumbItem[] = [{ name: bucketName, path: "" }];
-
-      let currentPath = "";
-      for (const part of pathParts) {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        newBreadcrumbs.push({ name: part, path: currentPath });
-      }
-
-      setBreadcrumbs(newBreadcrumbs);
+      
+      // Breadcrumbs are now handled by the useEffect that watches bucketName and currentPath
     } catch (error) {
       console.error("[CLIENT] Failed to load folder:", error);
       // Redirect to root on error

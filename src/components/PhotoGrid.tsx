@@ -116,12 +116,13 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
             ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
             : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
         }`}>
-          {photosState.map((photo) => (
+          {photosState.map((photo, index) => (
             <PhotoItem
               key={photo.id}
               photo={photo}
               onPhotoClick={setSelectedPhoto}
               onToggleFavorite={toggleFavorite}
+              priority={index < 20 ? 10 - Math.floor(index / 2) : 0} // First 20 images get higher priority
             />
           ))}
         </div>

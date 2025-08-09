@@ -18,10 +18,8 @@ export default function HomePage() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [bucketName, setBucketName] = useState("Root");
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
-    { name: "Root", path: "" },
-  ]);
+  const [bucketName, setBucketName] = useState("");
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
 
   useEffect(() => {
     loadBucketName();
@@ -34,6 +32,7 @@ export default function HomePage() {
       const data = await response.json();
       if (data.success && data.bucket) {
         setBucketName(data.bucket);
+        setBreadcrumbs([{ name: data.bucket, path: "" }]);
       }
     } catch (error) {
       console.error("[CLIENT] Failed to load bucket name:", error);
@@ -48,7 +47,7 @@ export default function HomePage() {
       setCurrentFolder(null);
       setFolders(data.folders || []);
       setPhotos(data.photos || []);
-      setBreadcrumbs([{ name: bucketName, path: "" }]);
+      // Breadcrumb is set by loadBucketName
     } catch (error) {
       console.error("[CLIENT] Failed to load folders:", error);
     } finally {

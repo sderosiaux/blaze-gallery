@@ -4,12 +4,31 @@ import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { initializeS3Client } from "@/lib/s3";
 import { logger } from "@/lib/logger";
+import { thumbnailRateLimiter } from "@/lib/rateLimiter";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
+    // Rate limiting by IP address
+    const clientIP = request.headers.get("x-forwarded-for") || 
+                    request.headers.get("x-real-ip") || 
+                    "127.0.0.1";
+    
+    if (!thumbnailRateLimiter.isAllowed(clientIP)) {
+      const stats = thumbnailRateLimiter.getStats(clientIP);
+      return new NextResponse("Rate limit exceeded", { 
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((stats.resetTime - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': '200',
+          'X-RateLimit-Remaining': stats.remaining.toString(),
+          'X-RateLimit-Reset': stats.resetTime.toString(),
+        }
+      });
+    }
+
     // Validate photo ID parameter
     if (!params.id || typeof params.id !== "string") {
       return new NextResponse("Photo ID is required", { status: 400 });
@@ -38,6 +57,20 @@ export async function GET(
       return new NextResponse("Photo not found", { status: 404 });
     }
 
+    // Check conditional requests for cached thumbnails
+    const ifNoneMatch = request.headers.get('if-none-match');
+    const etag = `"thumb-${photo.id}-${photo.modified_at}"`;
+
+    if (ifNoneMatch === etag) {
+      return new NextResponse(null, { 
+        status: 304,
+        headers: {
+          'ETag': etag,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        }
+      });
+    }
+
     if (photo.thumbnail_path) {
       const thumbnailBuffer = await thumbnailService.getThumbnailBuffer(
         photo.thumbnail_path,
@@ -49,6 +82,8 @@ export async function GET(
             "Content-Type": "image/jpeg",
             "Cache-Control": "public, max-age=31536000, immutable",
             "Content-Length": thumbnailBuffer.length.toString(),
+            "ETag": etag,
+            "Last-Modified": new Date(photo.modified_at).toUTCString(),
           },
         });
       }
