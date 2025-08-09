@@ -518,19 +518,12 @@ export default function StatsPage() {
                 <Image className="w-5 h-5 mr-2" />
                 File Duplicates
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-white rounded-lg shadow p-6">
                   <div className="text-center">
                     <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate File Groups</p>
+                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Files</p>
                     <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-center">
-                    <Copy className="w-8 h-8 text-red-600 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-1">Total Duplicate Photos</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_photos}</p>
                   </div>
                 </div>
                 <div className="bg-white rounded-lg shadow p-6">
@@ -551,19 +544,12 @@ export default function StatsPage() {
                 <Folder className="w-5 h-5 mr-2" />
                 Folder Duplicates
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-white rounded-lg shadow p-6">
                   <div className="text-center">
                     <Folder className="w-8 h-8 text-purple-600 mx-auto mb-3" />
                     <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Folders</p>
                     <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folder_groups}</p>
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-center">
-                    <Copy className="w-8 h-8 text-orange-600 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-1">Total Folders</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders.summary.total_duplicate_folders}</p>
                   </div>
                 </div>
                 <div className="bg-white rounded-lg shadow p-6">
