@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
 import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon, Expand, Minimize2 } from "lucide-react";
+import { loadImageWithSession, revokeBlobUrl } from "@/lib/shareClient";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -13,7 +14,7 @@ interface PhotoViewerProps {
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
-  sharePassword?: string;
+  sessionToken?: string;
 }
 
 export default function PhotoViewer({ 
@@ -25,7 +26,7 @@ export default function PhotoViewer({
   isSharedView = false,
   shareToken,
   allowDownload = true,
-  sharePassword
+  sessionToken
 }: PhotoViewerProps) {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -43,15 +44,15 @@ export default function PhotoViewer({
   // Progressive loading states
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [fullImageLoaded, setFullImageLoaded] = useState(false);
+  
+  // Blob URLs for shared images (when session authentication is required)
+  const [thumbnailBlobUrl, setThumbnailBlobUrl] = useState<string | null>(null);
+  const [fullImageBlobUrl, setFullImageBlobUrl] = useState<string | null>(null);
 
   // Helper functions to get correct URLs for shared vs regular views
   const getThumbnailUrl = (photoId: number) => {
     if (isSharedView && shareToken) {
-      const url = new URL(`/api/shares/${shareToken}/thumbnail/${photoId}`, window.location.origin);
-      if (sharePassword) {
-        url.searchParams.set('password', sharePassword);
-      }
-      return url.toString();
+      return `/api/shares/${shareToken}/thumbnail/${photoId}`;
     } else {
       return `/api/photos/${photoId}/thumbnail`;
     }
@@ -60,11 +61,7 @@ export default function PhotoViewer({
   const getFullImageUrl = (photoId: number) => {
     if (isSharedView && shareToken) {
       // Use view endpoint for displaying images (always allowed)
-      const url = new URL(`/api/shares/${shareToken}/view/${photoId}`, window.location.origin);
-      if (sharePassword) {
-        url.searchParams.set('password', sharePassword);
-      }
-      return url.toString();
+      return `/api/shares/${shareToken}/view/${photoId}`;
     } else {
       return `/api/photos/${photoId}/download`;
     }
@@ -291,36 +288,43 @@ export default function PhotoViewer({
 
   const handleDownload = async () => {
     try {
-      let downloadUrl: string;
-      
       if (isSharedView && shareToken) {
-        // Use shared download endpoint
-        const url = new URL(`/api/shares/${shareToken}/download/${currentPhoto.id}`, window.location.origin);
-        if (sharePassword) {
-          url.searchParams.set('password', sharePassword);
+        // For shared downloads, use fetch with session token then create blob URL for download
+        const response = await fetch(`/api/shares/${shareToken}/download/${currentPhoto.id}`, {
+          headers: sessionToken ? { 'x-share-session': sessionToken } : {}
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        downloadUrl = url.toString();
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = currentPhoto.filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Clean up the blob URL
+        URL.revokeObjectURL(url);
       } else {
-        // Use regular download endpoint
-        downloadUrl = `/api/photos/${currentPhoto.id}/download`;
+        // Regular download
+        const a = document.createElement("a");
+        a.href = `/api/photos/${currentPhoto.id}/download`;
+        a.download = currentPhoto.filename;
+        a.target = "_blank";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       }
-      
-      // Create a temporary anchor element to trigger download
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = currentPhoto.filename;
-      a.target = "_blank";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
     } catch (error) {
       console.error("[CLIENT] Download failed:", error);
-      // Fallback: open in new tab
-      const fallbackUrl = isSharedView && shareToken 
-        ? `/api/shares/${shareToken}/download/${currentPhoto.id}`
-        : `/api/photos/${currentPhoto.id}/download`;
-      window.open(fallbackUrl, '_blank');
+      alert('Download failed. Please try again.');
     }
   };
 

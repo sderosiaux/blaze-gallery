@@ -4,6 +4,7 @@ import {
   validateSharePassword, 
   getPhoto
 } from '@/lib/database';
+import { validateShareSession } from '@/lib/shareSession';
 
 export interface ShareValidationResult {
   share: any;
@@ -67,7 +68,7 @@ export function shouldCountView(request: NextRequest, token: string): boolean {
 
 /**
  * Common validation logic for shared photo endpoints
- * Handles share validation, password checking, and photo verification
+ * Handles share validation, session checking, and photo verification
  */
 export async function validateSharedPhotoAccess(
   request: NextRequest,
@@ -75,8 +76,7 @@ export async function validateSharedPhotoAccess(
   photoId: string,
   requireDownloadPermission = false
 ): Promise<ShareValidationResult> {
-  const searchParams = request.nextUrl.searchParams;
-  const password = searchParams.get('password');
+  const sessionToken = request.headers.get('x-share-session');
 
   // Get the shared folder
   const share = await getSharedFolder(token);
@@ -104,31 +104,85 @@ export async function validateSharedPhotoAccess(
     };
   }
 
-  // Check password if required
+  // Check session if password protection is enabled
   if (share.password_hash) {
-    if (!password) {
+    if (!sessionToken) {
       return {
         share,
         photo: null,
         error: NextResponse.json(
-          { error: 'Password required' },
+          { error: 'Session token required' },
           { status: 401 }
         )
       };
     }
 
-    const isValidPassword = await validateSharePassword(token, password);
-    if (!isValidPassword) {
+    const validatedToken = validateShareSession(sessionToken);
+    if (!validatedToken || validatedToken !== token) {
       return {
         share,
         photo: null,
         error: NextResponse.json(
-          { error: 'Invalid password' },
+          { error: 'Invalid or expired session' },
           { status: 401 }
         )
       };
     }
   }
+
+  // Get the photo and verify it belongs to the shared folder
+  const photo = await getPhoto(parseInt(photoId));
+  if (!photo) {
+    return {
+      share,
+      photo: null,
+      error: NextResponse.json(
+        { error: 'Photo not found' },
+        { status: 404 }
+      )
+    };
+  }
+
+  // Verify the photo is in the shared folder
+  if (!photo.s3_key.startsWith(share.folder_path)) {
+    return {
+      share,
+      photo,
+      error: NextResponse.json(
+        { error: 'Photo not accessible through this share' },
+        { status: 403 }
+      )
+    };
+  }
+
+  return { share, photo };
+}
+
+/**
+ * Thumbnail-specific validation - allows thumbnails even for password-protected shares
+ * since thumbnails are lower resolution and needed for the gallery view
+ */
+export async function validateSharedThumbnailAccess(
+  request: NextRequest,
+  token: string,
+  photoId: string
+): Promise<ShareValidationResult> {
+  // Get the shared folder
+  const share = await getSharedFolder(token);
+  
+  if (!share) {
+    return {
+      share: null,
+      photo: null,
+      error: NextResponse.json(
+        { error: 'Share not found or expired' },
+        { status: 404 }
+      )
+    };
+  }
+
+  // For thumbnails, we don't require session authentication
+  // This allows the basic gallery view to work with simple img tags
 
   // Get the photo and verify it belongs to the shared folder
   const photo = await getPhoto(parseInt(photoId));

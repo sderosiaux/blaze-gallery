@@ -16,7 +16,7 @@ interface PhotoGridProps {
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
-  sharePassword?: string;
+  sessionToken?: string;
 }
 
 export default function PhotoGrid({ 
@@ -27,7 +27,7 @@ export default function PhotoGrid({
   isSharedView = false,
   shareToken,
   allowDownload = true,
-  sharePassword
+  sessionToken
 }: PhotoGridProps) {
   const { isFullWidth, setIsFullWidth } = useLayout();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -41,8 +41,11 @@ export default function PhotoGrid({
   // Keyboard navigation for gallery expand/compress
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle if no photo viewer is open
-      if (!selectedPhoto && (e.key === "e" || e.key === "E")) {
+      // Only handle if no photo viewer is open and no modal is visible
+      const hasModal = document.querySelector('[role="dialog"], .fixed.inset-0.z-50, .fixed.inset-0.bg-black');
+      const isInputFocused = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      
+      if (!selectedPhoto && !hasModal && !isInputFocused && (e.key === "e" || e.key === "E")) {
         e.preventDefault();
         setIsFullWidth(!isFullWidth);
       }
@@ -187,7 +190,7 @@ export default function PhotoGrid({
               priority={index < 20 ? 10 - Math.floor(index / 2) : 0} // First 20 images get higher priority
               isSharedView={isSharedView}
               shareToken={shareToken}
-              sharePassword={sharePassword}
+              sessionToken={sessionToken}
             />
           ))}
         </div>
@@ -215,7 +218,7 @@ export default function PhotoGrid({
           isSharedView={isSharedView}
           shareToken={shareToken}
           allowDownload={allowDownload}
-          sharePassword={sharePassword}
+          sessionToken={sessionToken}
         />
       )}
     </>

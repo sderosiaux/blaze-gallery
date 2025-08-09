@@ -8,6 +8,7 @@ import {
   getFolderByPath
 } from '@/lib/database';
 import { shouldCountView } from '@/lib/shareHelpers';
+import { createShareSession } from '@/lib/shareSession';
 
 interface RouteParams {
   params: { token: string };
@@ -136,10 +137,46 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         success: isValid
       });
 
+      if (isValid) {
+        // Create session token for authenticated access
+        const sessionToken = createShareSession(token);
+        
+        // Get folder and photos for authenticated access
+        const folder = await getFolderByPath(share.folder_path);
+        if (!folder) {
+          return NextResponse.json(
+            { error: 'Shared folder no longer exists' },
+            { status: 404 }
+          );
+        }
+
+        const photos = await getPhotosInFolder(folder.id);
+
+        // Return complete share data with session token
+        const { password_hash, ...shareResponse } = share;
+        
+        return NextResponse.json({
+          success: true,
+          data: {
+            session_token: sessionToken,
+            share: {
+              ...shareResponse,
+              has_password: !!password_hash
+            },
+            folder: {
+              name: folder.name,
+              path: folder.path,
+              photo_count: photos.length
+            },
+            photos: photos
+          }
+        });
+      }
+
       return NextResponse.json({
-        success: true,
-        valid: isValid
-      });
+        success: false,
+        error: 'Invalid password'
+      }, { status: 401 });
     }
 
     return NextResponse.json(

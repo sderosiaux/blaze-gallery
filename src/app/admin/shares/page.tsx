@@ -140,7 +140,7 @@ export default function SharesManagementPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Share Management">
+      <AppLayout>
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
@@ -149,7 +149,7 @@ export default function SharesManagementPage() {
   }
 
   return (
-    <AppLayout title="Share Management">
+    <AppLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">

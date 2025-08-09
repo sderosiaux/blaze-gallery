@@ -9,12 +9,10 @@ import SearchBar from "@/components/SearchBar";
 
 interface AppLayoutProps {
   children: React.ReactNode;
-  title?: string;
 }
 
 export default function AppLayout({
   children,
-  title,
 }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -53,7 +51,6 @@ export default function AppLayout({
   };
 
   const getPageTitle = () => {
-    if (title) return title;
     return "Blaze Gallery";
   };
 

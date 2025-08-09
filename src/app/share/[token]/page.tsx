@@ -40,6 +40,7 @@ export default function SharePage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (token) {
@@ -107,27 +108,14 @@ export default function SharePage() {
         throw new Error(result.error || 'Failed to validate password');
       }
 
-      if (result.valid) {
-        // Password is valid, load the share data without incrementing view count again
-        try {
-          const url = new URL(`/api/shares/${token}`, window.location.origin);
-          url.searchParams.set('password', password.trim());
-          
-          const shareResponse = await fetch(url);
-          const shareData = await shareResponse.json();
-          
-          if (shareResponse.ok) {
-            setShareData(shareData);
-            setPasswordRequired(false);
-            document.title = `${shareData.folder.name} - Shared Folder`;
-          } else {
-            throw new Error(shareData.error || 'Failed to load shared folder');
-          }
-        } catch (shareError) {
-          setError(shareError instanceof Error ? shareError.message : 'Failed to load shared folder');
-        }
+      if (result.success) {
+        // Password validated and session created
+        setSessionToken(result.data.session_token);
+        setShareData(result.data);
+        setPasswordRequired(false);
+        document.title = `${result.data.folder.name} - Shared Photos`;
       } else {
-        setError('Invalid password');
+        setError(result.error || 'Invalid password');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Password validation failed');
@@ -164,7 +152,7 @@ export default function SharePage() {
             </div>
             <h1 className="text-xl font-semibold text-gray-900">Password Required</h1>
             <p className="text-gray-600 mt-2">
-              This shared folder is password protected. Please enter the password to continue.
+              This photo collection is password protected. Please enter the password to view the photos.
             </p>
           </div>
 
@@ -209,7 +197,7 @@ export default function SharePage() {
                   Verifying...
                 </div>
               ) : (
-                'Access Folder'
+                'Access Photos'
               )}
             </button>
           </form>
@@ -307,7 +295,7 @@ export default function SharePage() {
             isSharedView={true}
             shareToken={token}
             allowDownload={shareData.share.allow_download}
-            sharePassword={password}
+            sessionToken={sessionToken || undefined}
           />
         ) : (
           <div className="text-center py-12">

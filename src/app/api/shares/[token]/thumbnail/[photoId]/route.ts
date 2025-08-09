@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { thumbnailService } from '@/lib/thumbnails';
-import { validateSharedPhotoAccess } from '@/lib/shareHelpers';
+import { validateSharedThumbnailAccess } from '@/lib/shareHelpers';
 
 interface RouteParams {
   params: { token: string; photoId: string };
@@ -10,8 +10,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
 
-    // Validate shared photo access (no download permission required for thumbnails)
-    const validation = await validateSharedPhotoAccess(request, token, photoId, false);
+    // Validate shared thumbnail access (allows password-protected shares)
+    const validation = await validateSharedThumbnailAccess(request, token, photoId);
     if (validation.error) {
       return validation.error;
     }

@@ -215,7 +215,7 @@ export default function StatsPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Blaze Gallery">
+      <AppLayout>
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
@@ -225,7 +225,7 @@ export default function StatsPage() {
 
   if (!stats) {
     return (
-      <AppLayout title="Blaze Gallery">
+      <AppLayout>
         <div className="text-center py-12">
           <p className="text-gray-500">Failed to load statistics</p>
         </div>
@@ -234,7 +234,7 @@ export default function StatsPage() {
   }
 
   return (
-    <AppLayout title="Blaze Gallery">
+    <AppLayout>
       {/* Floating Navigation Menu */}
       <div className="fixed left-[calc(50%-32rem-20rem)] top-32 z-30 hidden xl:block">
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">

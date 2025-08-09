@@ -14,7 +14,7 @@ interface PhotoItemProps {
   priority?: number;
   isSharedView?: boolean;
   shareToken?: string;
-  sharePassword?: string;
+  sessionToken?: string;
 }
 
 export default function PhotoItem({
@@ -24,7 +24,7 @@ export default function PhotoItem({
   priority = 0,
   isSharedView = false,
   shareToken,
-  sharePassword,
+  sessionToken,
 }: PhotoItemProps) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const { elementRef, shouldLoad } = useIntersectionObserver({
@@ -37,12 +37,8 @@ export default function PhotoItem({
     if (!shouldLoad) return '';
     
     if (isSharedView && shareToken) {
-      // Use shared thumbnail endpoint (always allowed for viewing)
-      const url = new URL(`/api/shares/${shareToken}/thumbnail/${photo.id}`, window.location.origin);
-      if (sharePassword) {
-        url.searchParams.set('password', sharePassword);
-      }
-      return url.toString();
+      // Use shared thumbnail endpoint (no auth needed for thumbnails in shared view)
+      return `/api/shares/${shareToken}/thumbnail/${photo.id}`;
     } else {
       // Use regular thumbnail URL
       return photo.thumbnail_url;
