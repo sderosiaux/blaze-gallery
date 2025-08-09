@@ -1,36 +1,41 @@
 <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="blazeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF4500;stop-opacity:1" />
-      <stop offset="40%" style="stop-color:#FF6B35;stop-opacity:1" />
-      <stop offset="70%" style="stop-color:#F7931E;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#FFD700;stop-opacity:1" />
+    <linearGradient id="primaryGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1D4ED8;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="frameGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D97706;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="greenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
     </linearGradient>
   </defs>
   
-  <rect width="32" height="32" rx="5" fill="#1F2937"/>
+  <rect width="32" height="32" rx="5" fill="#F8FAFC"/>
   
-  <g transform="translate(16, 16)">
-    <!-- Simplified photo stack -->
-    <g transform="translate(-8, -6)">
-      <rect x="2" y="2" width="8" height="6" rx="1" fill="url(#frameGradient)" opacity="0.4" transform="rotate(8 6 5)"/>
-      <rect x="4" y="4" width="8" height="6" rx="1" fill="url(#frameGradient)" opacity="0.7" transform="rotate(-4 8 7)"/>
-      <rect x="6" y="6" width="8" height="6" rx="1" fill="url(#frameGradient)"/>
-      <rect x="6.5" y="6.5" width="7" height="5" rx="0.5" fill="white"/>
-    </g>
+  <!-- Photo Gallery Grid 2x2 for favicon clarity -->
+  <g>
+    <!-- Top row -->
+    <rect x="4" y="4" width="10" height="8" rx="1.5" fill="url(#primaryGradient)"/>
+    <rect x="5" y="5" width="8" height="6" rx="1" fill="white" opacity="0.95"/>
+    <rect x="6" y="6" width="6" height="4" rx="0.5" fill="url(#greenGradient)" opacity="0.3"/>
+    <circle cx="9" cy="7.5" r="0.8" fill="#FCD34D"/>
     
-    <!-- Simplified flame -->
-    <g transform="translate(4, -4)">
-      <path d="M0 8 Q-2 5 0 3 Q2 1 4 2 Q6 3 6 5 Q5 7 3 8 Q1 8 0 8 Z" fill="url(#blazeGradient)"/>
-      <ellipse cx="2.5" cy="3" rx="1" ry="1.5" fill="#FFF" opacity="0.4"/>
-    </g>
+    <rect x="18" y="4" width="10" height="8" rx="1.5" fill="url(#accentGradient)"/>
+    <rect x="19" y="5" width="8" height="6" rx="1" fill="white" opacity="0.95"/>
+    <circle cx="23" cy="8" r="1.2" fill="url(#primaryGradient)" opacity="0.4"/>
     
-    <!-- Tiny sparks -->
-    <circle cx="8" cy="-2" r="0.5" fill="#FFD700" opacity="0.8"/>
-    <circle cx="6" cy="4" r="0.3" fill="#FF6B35" opacity="0.8"/>
+    <!-- Bottom row -->
+    <rect x="4" y="16" width="10" height="8" rx="1.5" fill="url(#greenGradient)"/>
+    <rect x="5" y="17" width="8" height="6" rx="1" fill="white" opacity="0.95"/>
+    <path d="M5 23 Q8 20 11 21 Q13 22 13 21 V23 H5 Z" fill="#94A3B8" opacity="0.5"/>
+    
+    <rect x="18" y="16" width="10" height="8" rx="1.5" fill="url(#primaryGradient)"/>
+    <rect x="19" y="17" width="8" height="6" rx="1" fill="white" opacity="0.95"/>
+    <rect x="20" y="18" width="6" height="4" rx="0.3" fill="#EC4899" opacity="0.4"/>
+    <circle cx="22" cy="19" r="0.5" fill="#FFF"/>
   </g>
 </svg>

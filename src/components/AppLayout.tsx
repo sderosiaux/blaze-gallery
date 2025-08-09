@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import { Heart, Search, FolderOpen } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
+import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
 
 interface AppLayoutProps {
@@ -37,22 +38,28 @@ export default function AppLayout({
                 {getPageTitle()}
               </button>
             </div>
-            <div className="flex items-center space-x-4">
-              {/* Integrated Search Bar */}
-              <div className="relative">
-                <SearchBar placeholder="Search photos..." />
-              </div>
-              
+            <div className="flex items-center space-x-2">
               {/* Favorites Button */}
               {pathname !== "/favorites" && (
                 <button
                   onClick={() => router.push("/favorites")}
-                  className="flex items-center px-3 py-2 text-gray-600 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex items-center p-2 text-gray-600 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
+                  title="View your favorite photos"
                 >
-                  <Heart className="w-5 h-5 mr-2" />
-                  Favorites
+                  <Heart className="w-5 h-5" />
                 </button>
               )}
+              
+              {/* GitHub Link */}
+              <a
+                href="https://github.com/sderosiaux/blaze-gallery"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+                title="View source code and give us a ⭐ on GitHub"
+              >
+                <GitHubIcon size={20} />
+              </a>
               {/* Back to Folders Button (for favorites and search pages) */}
               {(pathname === "/favorites" || pathname === "/search") && (
                 <button
@@ -63,6 +70,11 @@ export default function AppLayout({
                   {pathname === "/favorites" ? "Back to Folders" : "Browse"}
                 </button>
               )}
+
+              {/* Search Bar - positioned after icons */}
+              <div className="relative">
+                <SearchBar placeholder="Search photos..." />
+              </div>
             </div>
           </div>
         </div>
