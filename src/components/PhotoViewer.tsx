@@ -19,6 +19,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isSlideshow, setIsSlideshow] = useState(false);
   const [preloadedImages, setPreloadedImages] = useState<Set<string>>(new Set());
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
 
   // Initialize current index based on selected photo
   useEffect(() => {
@@ -146,21 +147,48 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     }
   };
 
-  const handleFavoriteToggle = async () => {
+  const handleFavoriteToggle = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (favoriteLoading) return; // Prevent multiple clicks
+    
+    setFavoriteLoading(true);
+    const originalState = currentPhoto.is_favorite;
+    
     try {
+      // Optimistically update the UI
+      const optimisticPhoto = { ...currentPhoto, is_favorite: !currentPhoto.is_favorite };
+      setCurrentPhoto(optimisticPhoto);
+      
       const response = await fetch(`/api/photos/${currentPhoto.id}/favorite`, {
         method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
 
       if (data.success) {
         const updatedPhoto = { ...currentPhoto, is_favorite: data.is_favorite };
         setCurrentPhoto(updatedPhoto);
         onFavoriteToggle?.(updatedPhoto);
+      } else {
+        // Revert on server error
+        setCurrentPhoto({ ...currentPhoto, is_favorite: originalState });
+        console.error("Server error toggling favorite:", data.error);
       }
     } catch (error) {
+      // Revert on network error
+      setCurrentPhoto({ ...currentPhoto, is_favorite: originalState });
       console.error("Failed to toggle favorite:", error);
+    } finally {
+      setFavoriteLoading(false);
     }
   };
 
@@ -277,16 +305,23 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
 
             <button
               onClick={handleFavoriteToggle}
-              className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-              title={currentPhoto.is_favorite ? "Remove from favorites" : "Add to favorites"}
+              disabled={favoriteLoading}
+              className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
+                favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+              title={favoriteLoading ? "Updating..." : currentPhoto.is_favorite ? "Remove from favorites" : "Add to favorites"}
             >
-              <Heart
-                className={`w-5 h-5 transition-colors ${
-                  currentPhoto.is_favorite
-                    ? "text-red-500 fill-current"
-                    : "text-white hover:text-red-400"
-                }`}
-              />
+              {favoriteLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Heart
+                  className={`w-5 h-5 transition-colors ${
+                    currentPhoto.is_favorite
+                      ? "text-red-500 fill-current"
+                      : "text-white hover:text-red-400"
+                  }`}
+                />
+              )}
             </button>
             <button
               onClick={handleDownload}
