@@ -164,6 +164,12 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     }
   };
 
+  const getFolderPath = (s3Key: string) => {
+    const pathParts = s3Key.split('/');
+    pathParts.pop(); // Remove filename
+    return pathParts.length > 0 ? pathParts.join('/') : '';
+  };
+
   const formatFileSize = (bytes: number) => {
     const sizes = ["Bytes", "KB", "MB", "GB"];
     if (bytes === 0) return "0 Bytes";
@@ -186,7 +192,18 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       <div className="relative max-w-4xl max-h-full w-full h-full flex flex-col cursor-default">
         <div className="flex justify-between items-start p-4 bg-black bg-opacity-50 text-white">
           <div className="flex-1 mr-4">
-            <h3 className="text-lg font-medium mb-3">{currentPhoto.filename}</h3>
+            <h3 className="text-lg font-medium mb-1">{currentPhoto.filename}</h3>
+            
+            {/* Folder path - shown especially useful in favorites */}
+            {(() => {
+              const folderPath = getFolderPath(currentPhoto.s3_key);
+              return folderPath && (
+                <div className="text-sm text-gray-400 mb-3 flex items-center">
+                  <span className="mr-1">📁</span>
+                  <span className="opacity-75">{folderPath}</span>
+                </div>
+              );
+            })()}
 
             {/* Metadata section moved to top */}
             <div className="flex flex-wrap items-center gap-4 text-sm text-gray-300">
