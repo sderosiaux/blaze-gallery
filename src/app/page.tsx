@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Folder, Photo } from "@/types";
 import FolderBrowser from "@/components/FolderBrowser";
 import PhotoGrid from "@/components/PhotoGrid";
+import RandomPhotosTeaser from "@/components/RandomPhotosTeaser";
 import AppLayout from "@/components/AppLayout";
 
 interface BreadcrumbItem {
@@ -12,14 +13,18 @@ interface BreadcrumbItem {
   path: string;
 }
 
-export default function HomePage() {
+function HomePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [bucketName, setBucketName] = useState("");
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  
+  // Get photo ID from URL params
+  const selectedPhotoId = searchParams?.get("photo");
 
   useEffect(() => {
     loadBucketName();
@@ -67,6 +72,21 @@ export default function HomePage() {
     }
   };
 
+  // Handle photo URL changes
+  const handlePhotoUrlChange = (photoId: string | null) => {
+    const currentUrl = new URL(window.location.href);
+    if (photoId) {
+      currentUrl.searchParams.set("photo", photoId);
+    } else {
+      currentUrl.searchParams.delete("photo");
+    }
+    router.replace(currentUrl.pathname + currentUrl.search);
+  };
+
+  // Check if we should show random photos teaser
+  // Show it when we're at root level with folders but no photos
+  const showRandomPhotosTeaser = !loading && folders.length > 0 && photos.length === 0;
+
   return (
     <AppLayout>
       {loading ? (
@@ -82,9 +102,38 @@ export default function HomePage() {
             onFolderSelect={navigateToFolder}
             onBreadcrumbClick={navigateToBreadcrumb}
           />
-          <PhotoGrid photos={photos} loading={loading} />
+          
+          {/* Show photos in root if any exist */}
+          <PhotoGrid 
+            photos={photos} 
+            loading={loading} 
+            selectedPhotoId={selectedPhotoId}
+            onPhotoUrlChange={handlePhotoUrlChange}
+          />
+          
+          {/* Show random photos teaser when at root with folders but no photos */}
+          {showRandomPhotosTeaser && (
+            <RandomPhotosTeaser
+              selectedPhotoId={selectedPhotoId}
+              onPhotoUrlChange={handlePhotoUrlChange}
+            />
+          )}
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <AppLayout>
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        </div>
+      </AppLayout>
+    }>
+      <HomePageContent />
+    </Suspense>
   );
 }
