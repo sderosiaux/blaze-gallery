@@ -4,8 +4,10 @@ const nextConfig = {
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
   distDir: 'out',
-  basePath: '/blaze-gallery',
-  assetPrefix: '/blaze-gallery/',
+  ...(process.env.NODE_ENV === 'production' && {
+    basePath: '/blaze-gallery',
+    assetPrefix: '/blaze-gallery/',
+  }),
   images: {
     unoptimized: true
   }
