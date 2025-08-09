@@ -522,14 +522,14 @@ export default function StatsPage() {
                 <div className="bg-white rounded-lg shadow p-6">
                   <div className="text-center">
                     <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Files</p>
+                    <p className="text-sm font-medium text-gray-600 mb-1">Duplicate File Groups</p>
                     <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
                   </div>
                 </div>
                 <div className="bg-white rounded-lg shadow p-6">
                   <div className="text-center">
                     <Copy className="w-8 h-8 text-red-600 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-600 mb-1">Total Photos</p>
+                    <p className="text-sm font-medium text-gray-600 mb-1">Total Duplicate Photos</p>
                     <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_photos}</p>
                   </div>
                 </div>
@@ -703,26 +703,6 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Info Box */}
-          {(duplicates || duplicateFolders) && (
-            <div className="bg-blue-50 rounded-lg p-4">
-              <div className="flex">
-                <div className="text-blue-600 mr-3">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="text-sm">
-                  <h4 className="text-blue-800 font-medium mb-1">How are duplicates detected?</h4>
-                  <p className="text-blue-700">
-                    Files are identified as duplicates when they have identical names and sizes. 
-                    Folders are considered duplicates when they contain the exact same set of files. 
-                    System files and thumbnails are automatically excluded from detection.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         {/* Ignored Files Section */}
