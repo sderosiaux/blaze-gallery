@@ -1,8 +1,8 @@
 # Blaze Gallery
 
-A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Browse and organize your photo collection with a modern web interface that never modifies your original files.
+A self-hosted photo gallery that integrates with *Backblaze B2* cloud storage (or any S3 storage actually). Browse and organize your photo collection with a modern web interface that never modifies your original files.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<img width="1623" height="839" alt="Screenshot 2025-08-09 at 20 11 30" src="https://github.com/user-attachments/assets/138a5e6a-2133-495c-a398-aafc1607a4c3" />
 
 ## Features
 
