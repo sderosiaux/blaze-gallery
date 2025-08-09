@@ -1,7 +1,5 @@
 import {
-  listObjects,
-  getS3Client,
-  initializeS3Client,
+  listObjectsAuto,
   isImageFile,
   getMimeType,
   getFolderFromKey,
@@ -297,13 +295,7 @@ export class SyncService {
 
   private async performFullScan(job: SyncJob) {
     const config = await getConfig();
-
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
+    // S3 client auto-initializes with config
 
     logger.syncOperation("Starting full bucket scan (read-only mode)", {
       jobId: job.id,
@@ -325,8 +317,7 @@ export class SyncService {
     const BATCH_SIZE = 100;
 
     do {
-      const { objects, nextContinuationToken, isTruncated } = await listObjects(
-        config.backblaze_bucket,
+      const { objects, nextContinuationToken, isTruncated } = await listObjectsAuto(
         "",
         continuationToken,
         1000,
@@ -474,13 +465,7 @@ export class SyncService {
     }
 
     const config = await getConfig();
-
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
+    // S3 client auto-initializes with config
 
     let folder = null;
 
@@ -511,8 +496,7 @@ export class SyncService {
         objects,
         nextContinuationToken,
         isTruncated: truncated,
-      } = await listObjects(
-        config.backblaze_bucket,
+      } = await listObjectsAuto(
         prefix,
         continuationToken,
         1000,
@@ -674,13 +658,7 @@ export class SyncService {
     }
 
     const config = await getConfig();
-
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
+    // S3 client auto-initializes with config
 
     const folder = await getFolderByPath(job.folder_path);
     if (!folder) {
