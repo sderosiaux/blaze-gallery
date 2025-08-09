@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Photo } from "@/types";
-import { Heart } from "lucide-react";
+import { Heart, AlertTriangle, ImageOff } from "lucide-react";
 import PhotoTooltip from "./PhotoTooltip";
 import { useIntersectionObserver } from "@/hooks/useIntersectionObserver";
 import { useThumbnailLoader } from "@/hooks/useThumbnailLoader";
@@ -26,10 +26,11 @@ export default function PhotoItem({
     threshold: 0.1,
   });
 
-  const { blob, isLoading } = useThumbnailLoader(
+  const { blob, isLoading, error } = useThumbnailLoader(
     shouldLoad ? photo.thumbnail_url : '',
     priority
   );
+
 
   useEffect(() => {
     if (blob) {
@@ -49,8 +50,35 @@ export default function PhotoItem({
         className="photo-mosaic-item group relative aspect-square bg-gray-100 overflow-hidden cursor-pointer"
         onClick={() => onPhotoClick(photo)}
       >
+        {/* Error state */}
+        {error && !imageUrl && (
+          <div className="absolute inset-0 bg-slate-100 overflow-hidden">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 p-2">
+              <ImageOff className="w-5 h-5 mb-1.5" />
+              <span className="text-xs text-center leading-tight font-medium mb-1">
+                {(() => {
+                  const filename = photo.filename.toLowerCase();
+                  const rawFormats = ['.nef', '.cr2', '.cr3', '.arw', '.dng', '.raf', '.orf', '.rw2', '.pef', '.srw', '.x3f'];
+                  const isRawFormat = rawFormats.some(ext => filename.endsWith(ext));
+                  
+                  if (isRawFormat) {
+                    return 'RAW';
+                  } else if (error?.message?.includes('Unsupported image format')) {
+                    return 'Unsupported';
+                  } else {
+                    return 'No preview';
+                  }
+                })()}
+              </span>
+              <span className="text-xs text-center text-slate-500 opacity-75 truncate max-w-full">
+                {photo.filename}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Loading skeleton */}
-        {(isLoading || !imageUrl) && (
+        {(isLoading || (!imageUrl && !error)) && (
           <div className="absolute inset-0 bg-slate-100 overflow-hidden">
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="grid grid-cols-3 gap-1.5">

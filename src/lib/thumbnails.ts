@@ -124,6 +124,36 @@ export class ThumbnailService {
 
       return thumbnailPath;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Check for unsupported format errors
+      if (errorMessage.includes('Input file contains unsupported image format') || 
+          errorMessage.includes('unsupported image format') ||
+          errorMessage.includes('Input buffer contains unsupported image format')) {
+        
+        const fileExt = s3Key.toLowerCase().split('.').pop() || 'unknown';
+        
+        logger.thumbnailOperation(
+          `Thumbnail generation skipped - unsupported format`,
+          {
+            photoId,
+            s3Key,
+            fileExtension: fileExt,
+            errorMessage,
+            sharpVersion: require('sharp').versions.sharp,
+          },
+        );
+
+        // Update status to indicate it was skipped due to unsupported format
+        const { updatePhotoStatus } = await import("./database");
+        await updatePhotoStatus(photoId, {
+          thumbnail_status: "unsupported_format",
+        });
+
+        throw new Error(`Unsupported image format: ${fileExt.toUpperCase()} files are not supported by Sharp for thumbnail generation`);
+      }
+
+      // Log other errors as before
       logger.thumbnailError(
         "Error generating thumbnail for photo",
         error as Error,

@@ -3,6 +3,7 @@
 import { Folder } from "@/types";
 import { Folder as FolderIcon, FolderCheck, ChevronRight } from "lucide-react";
 import FolderTooltip from "./FolderTooltip";
+import Link from "next/link";
 
 interface BreadcrumbItem {
   name: string;
@@ -32,20 +33,21 @@ export default function FolderBrowser({
           {breadcrumbs.map((item, index) => (
             <div key={item.path} className="flex items-center">
               {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
-              <button
-                onClick={() => onBreadcrumbClick(item.path)}
-                className={`hover:text-gray-700 transition-colors ${
-                  index === breadcrumbs.length - 1
-                    ? "text-gray-900 font-medium cursor-default"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-                disabled={index === breadcrumbs.length - 1}
-              >
-                <div className="flex items-center">
+              {index === breadcrumbs.length - 1 ? (
+                <span className="text-gray-900 font-medium flex items-center">
                   {index === 0 && <FolderIcon className="w-4 h-4 mr-1" />}
                   {item.name}
-                </div>
-              </button>
+                </span>
+              ) : (
+                <Link
+                  href={item.path === '' ? '/' : `/folder/${item.path}`}
+                  className="text-gray-500 hover:text-gray-700 transition-colors flex items-center"
+                  onClick={() => onBreadcrumbClick(item.path)}
+                >
+                  {index === 0 && <FolderIcon className="w-4 h-4 mr-1" />}
+                  {item.name}
+                </Link>
+              )}
             </div>
           ))}
         </nav>

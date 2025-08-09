@@ -91,6 +91,12 @@ export async function GET(
 
     const config = await getConfig();
 
+    // Debug logging for large files
+    if (photo.size > 10 * 1024 * 1024) { // Files over 10MB
+      const sizeMB = photo.size / (1024 * 1024);
+      console.log(`Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`);
+    }
+
     // Initialize S3 client (reuses connection if config unchanged)
     initializeS3Client({
       endpoint: config.backblaze_endpoint,
@@ -99,14 +105,72 @@ export async function GET(
       secretAccessKey: config.backblaze_secret_key,
     });
 
-    const thumbnailPath = await thumbnailService.generateThumbnail(
-      config.backblaze_bucket,
-      photo.s3_key,
-      photo.id,
-      {},
-      forceGenerate,
-      request,
-    );
+    let thumbnailPath;
+    try {
+      thumbnailPath = await thumbnailService.generateThumbnail(
+        config.backblaze_bucket,
+        photo.s3_key,
+        photo.id,
+        {},
+        forceGenerate,
+        request,
+      );
+    } catch (error) {
+      // Handle unsupported format as expected behavior, not an error
+      if (error instanceof Error && error.message.includes("Unsupported image format")) {
+        logger.thumbnailOperation(
+          `Thumbnail request for unsupported format`,
+          {
+            photoId: photo.id,
+            s3Key: photo.s3_key,
+            fileExtension: photo.s3_key.toLowerCase().split('.').pop() || 'unknown',
+          },
+        );
+        return new NextResponse(
+          JSON.stringify({
+            error: "Unsupported image format",
+            message: error.message,
+            fileExtension: photo.s3_key.toLowerCase().split('.').pop() || 'unknown'
+          }),
+          { 
+            status: 415, // Unsupported Media Type
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+
+      // Handle size limit as expected behavior, not an error
+      if (error instanceof Error && error.message.includes("Photo too large for automatic thumbnail generation")) {
+        const sizeMB = photo.size / (1024 * 1024);
+        logger.thumbnailOperation(
+          `Thumbnail request for large photo (${sizeMB.toFixed(1)}MB > ${config.auto_thumbnail_threshold_mb}MB) - user can force generation`,
+          {
+            photoId: photo.id,
+            sizeMB,
+            thresholdMB: config.auto_thumbnail_threshold_mb,
+            s3Key: photo.s3_key,
+          },
+        );
+        return new NextResponse(
+          JSON.stringify({
+            error: "Photo too large for automatic thumbnail generation",
+            message: `This photo is ${sizeMB.toFixed(1)}MB, which exceeds the ${config.auto_thumbnail_threshold_mb}MB threshold. Add ?force=true to generate anyway.`,
+            sizeMB: sizeMB,
+            thresholdMB: config.auto_thumbnail_threshold_mb
+          }),
+          { 
+            status: 413,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      // Re-throw other errors to be handled by the outer catch block
+      throw error;
+    }
 
     const thumbnailBuffer =
       await thumbnailService.getThumbnailBuffer(thumbnailPath);

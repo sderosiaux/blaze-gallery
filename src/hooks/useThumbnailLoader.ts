@@ -4,6 +4,7 @@ interface ThumbnailRequest {
   url: string;
   priority: number;
   resolve: (blob: Blob | null) => void;
+  reject: (error: Error) => void;
 }
 
 class ThumbnailQueue {
@@ -26,13 +27,13 @@ class ThumbnailQueue {
 
     // Check if already loading
     if (this.activeRequests.has(url)) {
-      return new Promise(resolve => {
-        this.queue.push({ url, priority, resolve });
+      return new Promise((resolve, reject) => {
+        this.queue.push({ url, priority, resolve, reject });
       });
     }
 
-    return new Promise(resolve => {
-      this.queue.push({ url, priority, resolve });
+    return new Promise((resolve, reject) => {
+      this.queue.push({ url, priority, resolve, reject });
       this.processQueue();
     });
   }
@@ -45,6 +46,10 @@ class ThumbnailQueue {
 
       if (this.cache.has(request.url)) {
         request.resolve(this.cache.get(request.url)!);
+        // Also resolve any pending requests for this URL
+        const pendingRequests = this.queue.filter(r => r.url === request.url);
+        this.queue = this.queue.filter(r => r.url !== request.url);
+        pendingRequests.forEach(r => r.resolve(this.cache.get(request.url)!));
         continue;
       }
 
@@ -59,8 +64,18 @@ class ThumbnailQueue {
         signal: AbortSignal.timeout(10000), // 10s timeout
       });
 
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        // Try to parse JSON error response for better error messages
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            throw new Error(`${errorData.error}: ${errorData.message || ''}`);
+          }
+        } catch (parseError) {
+          // Fall back to HTTP status if JSON parsing fails
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const blob = await response.blob();
@@ -85,12 +100,12 @@ class ThumbnailQueue {
     } catch (error) {
       console.warn(`Failed to load thumbnail ${request.url}:`, error);
       
-      // Resolve all pending requests for this URL with null
+      // Reject all pending requests for this URL with the error
       const pendingRequests = this.queue.filter(r => r.url === request.url);
       this.queue = this.queue.filter(r => r.url !== request.url);
       
-      request.resolve(null);
-      pendingRequests.forEach(r => r.resolve(null));
+      request.reject(error as Error);
+      pendingRequests.forEach(r => r.reject(error as Error));
       
     } finally {
       this.activeRequests.delete(request.url);

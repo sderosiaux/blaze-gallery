@@ -23,7 +23,7 @@ export async function getConfig(): Promise<Config> {
       process.env.AUTO_METADATA_THRESHOLD_MB || "5",
     ),
     auto_thumbnail_threshold_mb: parseInt(
-      process.env.AUTO_THUMBNAIL_THRESHOLD_MB || "10",
+      process.env.AUTO_THUMBNAIL_THRESHOLD_MB || "30",
     ),
     sync_throttle_seconds: parseInt(process.env.SYNC_THROTTLE_SECONDS || "30"),
   };

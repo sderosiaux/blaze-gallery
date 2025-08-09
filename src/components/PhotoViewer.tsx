@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
-import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
+import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle } from "lucide-react";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -126,18 +126,23 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
 
   const handleDownload = async () => {
     try {
-      const response = await fetch(`/api/photos/${currentPhoto.id}/download`);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      // Use a simple window.open or direct link approach for downloads
+      // This is more reliable for large files and redirects
+      const downloadUrl = `/api/photos/${currentPhoto.id}/download`;
+      
+      // Create a temporary anchor element to trigger download
       const a = document.createElement("a");
-      a.href = url;
+      a.href = downloadUrl;
       a.download = currentPhoto.filename;
+      a.target = "_blank";
+      a.style.display = "none";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("[CLIENT] Download failed:", error);
+      // Fallback: open in new tab
+      window.open(`/api/photos/${currentPhoto.id}/download`, '_blank');
     }
   };
 
@@ -273,10 +278,44 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
 
           {/* Error state */}
           {imageError && (
-            <div className="text-white text-center p-8">
-              <div className="text-6xl mb-4">⚠️</div>
-              <p className="text-lg">Failed to load image</p>
-              <p className="text-sm text-gray-400 mt-2">{currentPhoto.filename}</p>
+            <div className="text-white text-center p-8 max-w-md mx-auto">
+              {(() => {
+                const filename = currentPhoto.filename.toLowerCase();
+                const rawFormats = ['.nef', '.cr2', '.cr3', '.arw', '.dng', '.raf', '.orf', '.rw2', '.pef', '.srw', '.x3f'];
+                const isRawFormat = rawFormats.some(ext => filename.endsWith(ext));
+                
+                if (isRawFormat) {
+                  return (
+                    <>
+                      <ImageOff className="w-16 h-16 mx-auto mb-6 text-yellow-500" />
+                      <h3 className="text-xl font-medium mb-2">RAW File Preview Unavailable</h3>
+                      <p className="text-gray-300 mb-4">
+                        This is a camera RAW file ({currentPhoto.filename.split('.').pop()?.toUpperCase()}) which cannot be displayed directly in the browser.
+                      </p>
+                      <div className="bg-gray-800 rounded-lg p-4 text-sm text-left space-y-2">
+                        <p className="text-gray-300">To view this image:</p>
+                        <ul className="list-disc list-inside space-y-1 text-gray-400">
+                          <li>Download the file using the button above</li>
+                          <li>Open with photo editing software (Lightroom, Photoshop, etc.)</li>
+                          <li>Use RAW processing tools to convert and edit</li>
+                        </ul>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-4">{currentPhoto.filename}</p>
+                    </>
+                  );
+                } else {
+                  return (
+                    <>
+                      <AlertCircle className="w-16 h-16 mx-auto mb-6 text-red-500" />
+                      <h3 className="text-xl font-medium mb-2">Failed to Load Image</h3>
+                      <p className="text-gray-300 mb-4">
+                        There was an error loading this image. It may be corrupted or in an unsupported format.
+                      </p>
+                      <p className="text-xs text-gray-400">{currentPhoto.filename}</p>
+                    </>
+                  );
+                }
+              })()}
             </div>
           )}
 
@@ -316,7 +355,13 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
             }`}
             loading="eager"
             onLoad={() => setImageLoading(false)}
-            onError={() => {
+            onError={(e) => {
+              console.log('PhotoViewer image error:', {
+                filename: currentPhoto.filename,
+                src: e.currentTarget.src,
+                naturalWidth: e.currentTarget.naturalWidth,
+                naturalHeight: e.currentTarget.naturalHeight
+              });
               setImageLoading(false);
               setImageError(true);
             }}
