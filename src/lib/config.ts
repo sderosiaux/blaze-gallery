@@ -88,28 +88,6 @@ export async function getConfig(): Promise<Config> {
   return cachedConfig;
 }
 
-export async function updateConfig(updates: Partial<Config>): Promise<void> {
-  try {
-    logger.configInfo(
-      `Updating configuration - keys: ${Object.keys(updates).join(', ')}`
-    );
-
-    const db = await import("./database");
-    await db.updateConfig(updates);
-
-    cachedConfig = null;
-
-    logger.configInfo(
-      `Configuration updated successfully - keys: ${Object.keys(updates).join(', ')}`
-    );
-  } catch (error) {
-    logger.configError(
-      `Failed to update configuration - keys: ${Object.keys(updates).filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')).join(', ') || 'sensitive keys'}`,
-      error as Error
-    );
-    throw error;
-  }
-}
 
 export function validateConfig(config: Config): string[] {
   const errors: string[] = [];

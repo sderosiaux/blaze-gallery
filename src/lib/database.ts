@@ -777,24 +777,6 @@ export async function getConfig(): Promise<Partial<Config>> {
   return config;
 }
 
-export async function updateConfig(updates: Partial<Config>): Promise<void> {
-  const database = getDatabase();
-  const stmt = database.prepare(`
-    INSERT INTO config (key, value, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-
-  const transaction = database.transaction(() => {
-    for (const [key, value] of Object.entries(updates)) {
-      stmt.run(key, String(value));
-    }
-  });
-
-  transaction();
-}
 
 export async function deleteOldThumbnails(
   maxAgeDays: number,
