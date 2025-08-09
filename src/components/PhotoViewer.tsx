@@ -10,9 +10,23 @@ interface PhotoViewerProps {
   onClose: () => void;
   onFavoriteToggle?: (photo: Photo) => void;
   onPhotoChange?: (photo: Photo) => void; // Callback when photo changes
+  isSharedView?: boolean;
+  shareToken?: string;
+  allowDownload?: boolean;
+  sharePassword?: string;
 }
 
-export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, onPhotoChange }: PhotoViewerProps) {
+export default function PhotoViewer({ 
+  photo, 
+  photos, 
+  onClose, 
+  onFavoriteToggle, 
+  onPhotoChange,
+  isSharedView = false,
+  shareToken,
+  allowDownload = true,
+  sharePassword
+}: PhotoViewerProps) {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [currentPhoto, setCurrentPhoto] = useState(photo);
@@ -29,6 +43,32 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
   // Progressive loading states
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [fullImageLoaded, setFullImageLoaded] = useState(false);
+
+  // Helper functions to get correct URLs for shared vs regular views
+  const getThumbnailUrl = (photoId: number) => {
+    if (isSharedView && shareToken) {
+      const url = new URL(`/api/shares/${shareToken}/thumbnail/${photoId}`, window.location.origin);
+      if (sharePassword) {
+        url.searchParams.set('password', sharePassword);
+      }
+      return url.toString();
+    } else {
+      return `/api/photos/${photoId}/thumbnail`;
+    }
+  };
+
+  const getFullImageUrl = (photoId: number) => {
+    if (isSharedView && shareToken) {
+      // Use view endpoint for displaying images (always allowed)
+      const url = new URL(`/api/shares/${shareToken}/view/${photoId}`, window.location.origin);
+      if (sharePassword) {
+        url.searchParams.set('password', sharePassword);
+      }
+      return url.toString();
+    } else {
+      return `/api/photos/${photoId}/download`;
+    }
+  };
 
   // Helper function to manage loading timeout
   const setLoadingWithDelay = () => {
@@ -98,7 +138,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       const photoId = photos[index].id.toString();
       if (!preloadedImages.has(photoId)) {
         const img = new Image();
-        img.src = `/api/photos/${photos[index].id}/download`;
+        img.src = getFullImageUrl(photos[index].id);
         img.onload = () => {
           setPreloadedImages(prev => new Set([...prev, photoId]));
         };
@@ -170,7 +210,8 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     e.preventDefault();
     e.stopPropagation();
     
-    if (favoriteLoading) return; // Prevent multiple clicks
+    // Don't allow favorite toggling in shared view
+    if (isSharedView || favoriteLoading) return; // Prevent multiple clicks
     
     setFavoriteLoading(true);
     const originalState = currentFavoriteState;
@@ -250,9 +291,19 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
 
   const handleDownload = async () => {
     try {
-      // Use a simple window.open or direct link approach for downloads
-      // This is more reliable for large files and redirects
-      const downloadUrl = `/api/photos/${currentPhoto.id}/download`;
+      let downloadUrl: string;
+      
+      if (isSharedView && shareToken) {
+        // Use shared download endpoint
+        const url = new URL(`/api/shares/${shareToken}/download/${currentPhoto.id}`, window.location.origin);
+        if (sharePassword) {
+          url.searchParams.set('password', sharePassword);
+        }
+        downloadUrl = url.toString();
+      } else {
+        // Use regular download endpoint
+        downloadUrl = `/api/photos/${currentPhoto.id}/download`;
+      }
       
       // Create a temporary anchor element to trigger download
       const a = document.createElement("a");
@@ -266,7 +317,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     } catch (error) {
       console.error("[CLIENT] Download failed:", error);
       // Fallback: open in new tab
-      window.open(`/api/photos/${currentPhoto.id}/download`, '_blank');
+      const fallbackUrl = isSharedView && shareToken 
+        ? `/api/shares/${shareToken}/download/${currentPhoto.id}`
+        : `/api/photos/${currentPhoto.id}/download`;
+      window.open(fallbackUrl, '_blank');
     }
   };
 
@@ -345,42 +399,49 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
                 {isExpanded ? <Minimize2 className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
               </button>
 
-              <button
-                onClick={handleFavoriteToggle}
-                disabled={favoriteLoading}
-                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
-                  favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-                title={favoriteLoading ? "Updating..." : currentFavoriteState ? "Remove from favorites (F)" : "Add to favorites (F)"}
-              >
-                {favoriteLoading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Heart
-                    className={`w-5 h-5 transition-all duration-300 ease-out ${
-                      currentFavoriteState
-                        ? "text-red-500 fill-current"
-                        : "text-white hover:text-red-400"
-                    } ${
-                      heartAnimating
-                        ? "transform scale-125 rotate-12"
-                        : "transform scale-100 rotate-0"
-                    }`}
-                    style={{
-                      filter: heartAnimating 
-                        ? 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))' 
-                        : 'none'
-                    }}
-                  />
-                )}
-              </button>
-              <button
-                onClick={handleDownload}
-                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-                title="Download original"
-              >
-                <Download className="w-5 h-5" />
-              </button>
+              {/* Favorite button - only show in regular view */}
+              {!isSharedView && (
+                <button
+                  onClick={handleFavoriteToggle}
+                  disabled={favoriteLoading}
+                  className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
+                    favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                  title={favoriteLoading ? "Updating..." : currentFavoriteState ? "Remove from favorites (F)" : "Add to favorites (F)"}
+                >
+                  {favoriteLoading ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Heart
+                      className={`w-5 h-5 transition-all duration-300 ease-out ${
+                        currentFavoriteState
+                          ? "text-red-500 fill-current"
+                          : "text-white hover:text-red-400"
+                      } ${
+                        heartAnimating
+                          ? "transform scale-125 rotate-12"
+                          : "transform scale-100 rotate-0"
+                      }`}
+                      style={{
+                        filter: heartAnimating 
+                          ? 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))' 
+                          : 'none'
+                      }}
+                    />
+                  )}
+                </button>
+              )}
+              
+              {/* Download button - only show if downloads are allowed */}
+              {allowDownload && (
+                <button
+                  onClick={handleDownload}
+                  className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+                  title="Download original"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
@@ -533,7 +594,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
           <div className="relative w-full h-full flex items-center justify-center">
             {/* Thumbnail - loads first and shows immediately, sized to match final image */}
             <img
-              src={`/api/photos/${currentPhoto.id}/thumbnail`}
+              src={getThumbnailUrl(currentPhoto.id)}
               alt={`${currentPhoto.filename} thumbnail`}
               className={`absolute transition-all duration-500 ${
                 isExpanded
@@ -559,13 +620,19 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
                 clearLoadingTimeout();
               }}
               onError={() => {
-                console.log('Thumbnail load error for:', currentPhoto.filename);
+                // For shared views, silently handle thumbnail errors and proceed to full image
+                if (isSharedView) {
+                  setThumbnailLoaded(false);
+                  clearLoadingTimeout();
+                } else {
+                  console.log('Thumbnail load error for:', currentPhoto.filename);
+                }
               }}
             />
             
             {/* Full Resolution Image - loads in background, sized to match thumbnail */}
             <img
-              src={`/api/photos/${currentPhoto.id}/download`}
+              src={getFullImageUrl(currentPhoto.id)}
               alt={currentPhoto.filename}
               className={`transition-all duration-500 ${
                 isExpanded
@@ -593,11 +660,16 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
                   filename: currentPhoto.filename,
                   src: e.currentTarget.src,
                   naturalWidth: e.currentTarget.naturalWidth,
-                  naturalHeight: e.currentTarget.naturalHeight
+                  naturalHeight: e.currentTarget.naturalHeight,
+                  isSharedView: isSharedView
                 });
-                setImageLoading(false);
-                setImageError(true);
-                clearLoadingTimeout();
+                
+                // Add a small delay before showing error to avoid flash
+                setTimeout(() => {
+                  setImageLoading(false);
+                  setImageError(true);
+                  clearLoadingTimeout();
+                }, 100);
               }}
             />
           </div>

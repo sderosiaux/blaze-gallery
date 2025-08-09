@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Folder } from "@/types";
-import { Folder as FolderIcon, FolderCheck, ChevronRight } from "lucide-react";
+import { Folder as FolderIcon, FolderCheck, ChevronRight, Share2 } from "lucide-react";
 import FolderTooltip from "./FolderTooltip";
+import ShareDialog from "./ShareDialog";
 import Link from "next/link";
 
 interface BreadcrumbItem {
@@ -25,10 +27,25 @@ export default function FolderBrowser({
   onFolderSelect,
   onBreadcrumbClick,
 }: FolderBrowserProps) {
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  
+  // Get current folder path for sharing
+  const getCurrentFolderPath = () => {
+    if (breadcrumbs.length === 0) return "";
+    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
+    return lastBreadcrumb.path;
+  };
+
+  const getCurrentFolderName = () => {
+    if (breadcrumbs.length === 0) return "";
+    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
+    return lastBreadcrumb.name;
+  };
+
   return (
     <div className="bg-white rounded-lg shadow p-6">
-      {/* Breadcrumb Navigation */}
-      <div className="mb-4">
+      {/* Breadcrumb Navigation with Share Button */}
+      <div className="mb-4 flex items-center justify-between">
         <nav className="flex items-center space-x-1 text-sm text-gray-500">
           {breadcrumbs.map((item, index) => (
             <div key={item.path} className="flex items-center">
@@ -51,6 +68,18 @@ export default function FolderBrowser({
             </div>
           ))}
         </nav>
+        
+        {/* Share Button - only show if we're in a specific folder */}
+        {breadcrumbs.length > 0 && getCurrentFolderPath() && (
+          <button
+            onClick={() => setShareDialogOpen(true)}
+            className="flex items-center px-3 py-1.5 text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+            title="Share this folder"
+          >
+            <Share2 className="w-4 h-4 mr-1" />
+            Share
+          </button>
+        )}
       </div>
 
       {folders.length > 0 && (
@@ -85,6 +114,14 @@ export default function FolderBrowser({
           ))}
         </div>
       )}
+      
+      {/* Share Dialog */}
+      <ShareDialog
+        isOpen={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        folderPath={getCurrentFolderPath()}
+        folderName={getCurrentFolderName()}
+      />
     </div>
   );
 }

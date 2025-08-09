@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Heart, Search, FolderOpen, Gauge, BarChart3, Sparkles, Loader2 } from "lucide-react";
+import { Heart, Search, FolderOpen, Gauge, BarChart3, Sparkles, Loader2, Share2 } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -109,6 +109,15 @@ export default function AppLayout({
                 title="View B2 performance audit"
               >
                 <Gauge className="w-5 h-5" />
+              </a>
+              
+              {/* Share Management Link */}
+              <a
+                href="/admin/shares"
+                className="flex items-center p-2 text-gray-600 hover:text-green-500 hover:bg-gray-50 rounded-lg transition-colors"
+                title="Manage folder shares"
+              >
+                <Share2 className="w-5 h-5" />
               </a>
 
               {/* Favorites Link */}

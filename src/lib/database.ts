@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { Folder, Photo, Config, PhotoMetadata } from "@/types";
+import crypto from "crypto";
 import {
   CreatePhotoData,
   CreateFolderData,
@@ -230,6 +231,52 @@ function runMigrations(database: Database.Database) {
       database.pragma("user_version = 1");
     } catch (error) {
       // Columns might already exist, continue
+    }
+  }
+
+  // Migration 2: Add folder sharing tables
+  if (schemaVersion < 2) {
+    try {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS shared_folders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          folder_path TEXT NOT NULL,
+          folder_id INTEGER,
+          share_token TEXT UNIQUE NOT NULL,
+          password_hash TEXT,
+          expires_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          description TEXT,
+          view_count INTEGER DEFAULT 0,
+          last_accessed DATETIME,
+          allow_download BOOLEAN DEFAULT 1,
+          is_active BOOLEAN DEFAULT 1,
+          created_by TEXT DEFAULT 'admin',
+          FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS share_access_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          share_id INTEGER NOT NULL,
+          ip_address TEXT,
+          user_agent TEXT,
+          access_type TEXT NOT NULL DEFAULT 'view' CHECK (access_type IN ('view', 'download', 'password_attempt')),
+          accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          success BOOLEAN DEFAULT 1,
+          FOREIGN KEY (share_id) REFERENCES shared_folders (id) ON DELETE CASCADE
+        );
+
+        -- Indexes for sharing performance
+        CREATE INDEX IF NOT EXISTS idx_shared_folders_token ON shared_folders (share_token);
+        CREATE INDEX IF NOT EXISTS idx_shared_folders_folder_path ON shared_folders (folder_path);
+        CREATE INDEX IF NOT EXISTS idx_shared_folders_active_expires ON shared_folders (is_active, expires_at);
+        CREATE INDEX IF NOT EXISTS idx_share_access_logs_share_id ON share_access_logs (share_id, accessed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_share_access_logs_ip ON share_access_logs (ip_address, accessed_at DESC);
+      `);
+
+      database.pragma("user_version = 2");
+    } catch (error) {
+      console.error('Failed to create sharing tables:', error);
     }
   }
 }
@@ -772,4 +819,232 @@ export async function deleteOldThumbnails(
   updateStmt.run(maxAgeDays);
 
   return thumbnailPaths;
+}
+
+// ============================================================================
+// FOLDER SHARING FUNCTIONS
+// ============================================================================
+
+export interface SharedFolder {
+  id: number;
+  folder_path: string;
+  folder_id: number | null;
+  share_token: string;
+  password_hash: string | null;
+  expires_at: string | null;
+  created_at: string;
+  description: string | null;
+  view_count: number;
+  last_accessed: string | null;
+  allow_download: boolean;
+  is_active: boolean;
+  created_by: string;
+}
+
+export interface ShareAccessLog {
+  id: number;
+  share_id: number;
+  ip_address: string | null;
+  user_agent: string | null;
+  access_type: 'view' | 'download' | 'password_attempt';
+  accessed_at: string;
+  success: boolean;
+}
+
+export interface CreateShareData {
+  folder_path: string;
+  folder_id?: number;
+  password?: string;
+  expires_at?: string;
+  description?: string;
+  allow_download?: boolean;
+}
+
+export async function createFolderShare(shareData: CreateShareData): Promise<SharedFolder> {
+  const database = getDatabase();
+  
+  // Generate cryptographically secure token
+  const shareToken = crypto.randomUUID();
+  
+  // Hash password if provided
+  let passwordHash = null;
+  if (shareData.password) {
+    const bcrypt = require('bcrypt');
+    passwordHash = await bcrypt.hash(shareData.password, 12);
+  }
+  
+  // Get folder ID if not provided
+  let folderId = shareData.folder_id;
+  if (!folderId && shareData.folder_path) {
+    const folder = await getFolderByPath(shareData.folder_path);
+    folderId = folder?.id || undefined;
+  }
+  
+  const stmt = database.prepare(`
+    INSERT INTO shared_folders (
+      folder_path, folder_id, share_token, password_hash, 
+      expires_at, description, allow_download
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    RETURNING *
+  `);
+  
+  const share = stmt.get(
+    shareData.folder_path,
+    folderId,
+    shareToken,
+    passwordHash,
+    shareData.expires_at || null,
+    shareData.description || null,
+    shareData.allow_download !== false ? 1 : 0
+  ) as SharedFolder;
+  
+  return {
+    ...share,
+    allow_download: Boolean(share.allow_download),
+    is_active: Boolean(share.is_active)
+  };
+}
+
+export async function getSharedFolder(shareToken: string): Promise<SharedFolder | null> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    SELECT * FROM shared_folders 
+    WHERE share_token = ? AND is_active = 1
+  `);
+  
+  const share = stmt.get(shareToken) as SharedFolder | undefined;
+  
+  if (!share) return null;
+  
+  // Check if share has expired
+  if (share.expires_at && new Date(share.expires_at) < new Date()) {
+    return null;
+  }
+  
+  return {
+    ...share,
+    allow_download: Boolean(share.allow_download),
+    is_active: Boolean(share.is_active)
+  };
+}
+
+export async function validateSharePassword(shareToken: string, password: string): Promise<boolean> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    SELECT password_hash FROM shared_folders 
+    WHERE share_token = ? AND is_active = 1
+  `);
+  
+  const result = stmt.get(shareToken) as { password_hash: string | null } | undefined;
+  
+  if (!result || !result.password_hash) {
+    return true; // No password required
+  }
+  
+  const bcrypt = require('bcrypt');
+  return await bcrypt.compare(password, result.password_hash);
+}
+
+export async function incrementShareViewCount(shareToken: string): Promise<void> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    UPDATE shared_folders 
+    SET view_count = view_count + 1, last_accessed = CURRENT_TIMESTAMP
+    WHERE share_token = ? AND is_active = 1
+  `);
+  
+  stmt.run(shareToken);
+}
+
+export async function logShareAccess(
+  shareId: number, 
+  accessData: {
+    ip_address?: string;
+    user_agent?: string;
+    access_type: 'view' | 'download' | 'password_attempt';
+    success?: boolean;
+  }
+): Promise<void> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    INSERT INTO share_access_logs (
+      share_id, ip_address, user_agent, access_type, success
+    )
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  
+  stmt.run(
+    shareId,
+    accessData.ip_address || null,
+    accessData.user_agent || null,
+    accessData.access_type,
+    accessData.success !== false ? 1 : 0
+  );
+}
+
+export async function getAllSharedFolders(): Promise<SharedFolder[]> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    SELECT sf.*, f.name as folder_name
+    FROM shared_folders sf
+    LEFT JOIN folders f ON sf.folder_id = f.id
+    ORDER BY sf.created_at DESC
+  `);
+  
+  const shares = stmt.all() as (SharedFolder & { folder_name: string })[];
+  
+  return shares.map(share => ({
+    ...share,
+    allow_download: Boolean(share.allow_download),
+    is_active: Boolean(share.is_active)
+  }));
+}
+
+export async function deactivateShare(shareToken: string): Promise<void> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    UPDATE shared_folders 
+    SET is_active = 0
+    WHERE share_token = ?
+  `);
+  
+  stmt.run(shareToken);
+}
+
+export async function deleteExpiredShares(): Promise<number> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    DELETE FROM shared_folders 
+    WHERE expires_at IS NOT NULL 
+    AND expires_at < CURRENT_TIMESTAMP
+  `);
+  
+  const result = stmt.run();
+  return result.changes;
+}
+
+export async function getShareAccessLogs(shareId: number, limit: number = 100): Promise<ShareAccessLog[]> {
+  const database = getDatabase();
+  
+  const stmt = database.prepare(`
+    SELECT * FROM share_access_logs 
+    WHERE share_id = ?
+    ORDER BY accessed_at DESC
+    LIMIT ?
+  `);
+  
+  const logs = stmt.all(shareId, limit) as ShareAccessLog[];
+  
+  return logs.map(log => ({
+    ...log,
+    success: Boolean(log.success)
+  }));
 }

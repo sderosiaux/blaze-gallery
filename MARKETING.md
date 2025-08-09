@@ -75,6 +75,15 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **📊 Built-in Monitoring** - Health endpoints, audit dashboard, and comprehensive logging
 - **🔧 Thumbnail Analytics** - Monitor cache performance, generation rates, and storage usage
 
+### 🤝 Secure Sharing & Collaboration
+- **📁 Folder Sharing** - Share entire folders with family, friends, or clients
+- **🔐 Password Protection** - Optional password security for sensitive content
+- **⏰ Expiration Dates** - Automatic link expiration for temporary access
+- **👁️ Access Controls** - Control download permissions and view-only access
+- **📊 Share Analytics** - Track views, access patterns, and usage statistics
+- **🛡️ Security Logging** - Comprehensive audit trail of all share activity
+- **🚫 Granular Permissions** - Fine-tune what recipients can access and download
+
 ## 🏗️ Technical Excellence
 
 ### Modern Tech Stack
@@ -223,7 +232,19 @@ Canon (.CR2, .CR3), Nikon (.NEF), Sony (.ARW), Adobe (.DNG), Fujifilm (.RAF), Ol
 
 ---
 
-## 🆕 Latest Features (v1.2)
+## 🆕 Latest Features (v1.3)
+
+### Secure Folder Sharing
+- **Complete Sharing System**: Share entire folders with secure, shareable links
+- **Password Protection**: Optional password security for sensitive albums
+- **Expiration Controls**: Set automatic expiration dates for temporary access  
+- **Access Management**: Control download permissions and view-only access
+- **Share Dashboard**: Comprehensive management interface for all your shares
+- **Security Logging**: Full audit trail with IP tracking and access analytics
+- **Public Gallery View**: Beautiful, read-only interface for shared folders
+- **Progressive Loading**: Shared folders use the same fast loading as the main gallery
+
+## 🔄 Previous Features (v1.2)
 
 ### Gallery Analytics Dashboard
 - **Intelligent Duplicate Detection**: Automatically identify duplicate photos by filename + file size

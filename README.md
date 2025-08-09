@@ -18,6 +18,8 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 - **Audit dashboard** with performance monitoring and thumbnail analytics
 - **Search functionality** across your entire photo collection
 - **Random photo discovery** to rediscover forgotten memories
+- **Folder sharing** with password protection and expiration dates
+- **Share management** dashboard with access logs and analytics
 - **RAW file support** with intelligent handling (see limitations below)
 
 ## Quick Start

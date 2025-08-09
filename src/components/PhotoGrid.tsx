@@ -13,9 +13,22 @@ interface PhotoGridProps {
   loading?: boolean;
   selectedPhotoId?: string | null;
   onPhotoUrlChange?: (photoId: string | null) => void;
+  isSharedView?: boolean;
+  shareToken?: string;
+  allowDownload?: boolean;
+  sharePassword?: string;
 }
 
-export default function PhotoGrid({ photos, loading = false, selectedPhotoId, onPhotoUrlChange }: PhotoGridProps) {
+export default function PhotoGrid({ 
+  photos, 
+  loading = false, 
+  selectedPhotoId, 
+  onPhotoUrlChange,
+  isSharedView = false,
+  shareToken,
+  allowDownload = true,
+  sharePassword
+}: PhotoGridProps) {
   const { isFullWidth, setIsFullWidth } = useLayout();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [photosState, setPhotosState] = useState<Photo[]>(photos);
@@ -49,6 +62,11 @@ export default function PhotoGrid({ photos, loading = false, selectedPhotoId, on
 
   const toggleFavorite = async (photo: Photo, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent opening the photo viewer
+
+    // Don't allow favorite toggling in shared view
+    if (isSharedView) {
+      return;
+    }
 
     try {
       const response = await fetch(`/api/photos/${photo.id}/favorite`, {
@@ -147,6 +165,9 @@ export default function PhotoGrid({ photos, loading = false, selectedPhotoId, on
               onPhotoClick={handlePhotoSelect}
               onToggleFavorite={toggleFavorite}
               priority={index < 20 ? 10 - Math.floor(index / 2) : 0} // First 20 images get higher priority
+              isSharedView={isSharedView}
+              shareToken={shareToken}
+              sharePassword={sharePassword}
             />
           ))}
         </div>
@@ -157,7 +178,7 @@ export default function PhotoGrid({ photos, loading = false, selectedPhotoId, on
           photo={selectedPhoto}
           photos={photosState}
           onClose={handlePhotoClose}
-          onFavoriteToggle={(updatedPhoto) => {
+          onFavoriteToggle={!isSharedView ? (updatedPhoto) => {
             // Update the photo in the local state
             setPhotosState((prevPhotos) =>
               prevPhotos.map((p) =>
@@ -166,11 +187,15 @@ export default function PhotoGrid({ photos, loading = false, selectedPhotoId, on
             );
             // DON'T update selectedPhoto here - it causes image reload in PhotoViewer
             // The PhotoViewer manages its own favorite state separately to prevent this issue
-          }}
+          } : undefined}
           onPhotoChange={(newPhoto) => {
             setSelectedPhoto(newPhoto);
             onPhotoUrlChange?.(newPhoto.id.toString());
           }}
+          isSharedView={isSharedView}
+          shareToken={shareToken}
+          allowDownload={allowDownload}
+          sharePassword={sharePassword}
         />
       )}
     </>
