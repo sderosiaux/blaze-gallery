@@ -61,7 +61,7 @@ export class ThumbnailService {
       const { getConfig } = await import("./config");
       const { getPhoto } = await import("./database");
 
-      const config = await getConfig();
+      const config = getConfig();
       const photo = await getPhoto(photoId);
 
       if (photo) {
@@ -206,7 +206,7 @@ export class ThumbnailService {
 
   async generateMissingThumbnails(): Promise<void> {
     const { getPhoto } = await import("./database");
-    const config = await getConfig();
+    const config = getConfig();
 
     const fs = require("fs");
     const path = require("path");

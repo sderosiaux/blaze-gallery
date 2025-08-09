@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const config = await getConfig();
+    const config = getConfig();
 
     const sanitizedConfig = {
       backblaze_endpoint: config.backblaze_endpoint,

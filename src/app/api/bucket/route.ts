@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 
 export async function GET() {
   try {
-    const config = await getConfig();
+    const config = getConfig();
     
     return NextResponse.json({
       success: true,

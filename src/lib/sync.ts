@@ -94,7 +94,7 @@ export class SyncService {
   // Add method to sync a specific folder on-demand
   async syncFolder(folderPath: string): Promise<void> {
     try {
-      const config = await getConfig();
+      const config = getConfig();
       const throttleMs = config.sync_throttle_seconds * 1000;
 
       // Check if we recently synced this folder (configurable threshold)
@@ -294,7 +294,7 @@ export class SyncService {
   }
 
   private async performFullScan(job: SyncJob) {
-    const config = await getConfig();
+    const config = getConfig();
     // S3 client auto-initializes with config
 
     logger.syncOperation("Starting full bucket scan (read-only mode)", {
@@ -464,7 +464,7 @@ export class SyncService {
       throw new Error("Folder scan job missing folder_path");
     }
 
-    const config = await getConfig();
+    const config = getConfig();
     // S3 client auto-initializes with config
 
     let folder = null;
@@ -657,7 +657,7 @@ export class SyncService {
       throw new Error("Metadata scan job missing folder_path");
     }
 
-    const config = await getConfig();
+    const config = getConfig();
     // S3 client auto-initializes with config
 
     const folder = await getFolderByPath(job.folder_path);
@@ -770,7 +770,7 @@ export class SyncService {
   }
 
   private async performCleanup(job: SyncJob) {
-    const config = await getConfig();
+    const config = getConfig();
     const { deleteOldThumbnails } = await import("./database");
     const fs = await import("fs");
     const path = await import("path");

@@ -117,14 +117,13 @@ class S3Manager {
    * Get S3 client with auto-initialization
    * Fetches config and initializes client transparently if needed
    */
-  async getS3Client(): Promise<S3Client> {
+  getS3Client(): S3Client {
     if (this.isInitialized && this.s3Client) {
       return this.s3Client;
     }
 
-    // Dynamic import to avoid circular dependency with config.ts
-    const { getConfig } = await import('./config');
-    const config = await getConfig();
+    const { getConfig } = require('./config');
+    const config = getConfig();
     
     return this.initializeClient({
       endpoint: config.backblaze_endpoint,
@@ -138,10 +137,9 @@ class S3Manager {
    * Get the configured bucket name
    * Used by auto-initializing functions that need bucket parameter
    */
-  async getBucketName(): Promise<string> {
-    // Dynamic import to avoid circular dependency with config.ts
-    const { getConfig } = await import('./config');
-    const config = await getConfig();
+  getBucketName(): string {
+    const { getConfig } = require('./config');
+    const config = getConfig();
     return config.backblaze_bucket;
   }
 
@@ -231,7 +229,7 @@ export function initializeS3Client(config: S3Config): S3Client {
  * Get S3 client with auto-initialization
  * This is the recommended way to get S3 client in endpoints
  */
-export async function getS3Client(): Promise<S3Client> {
+export function getS3Client(): S3Client {
   return S3Manager.getInstance().getS3Client();
 }
 
@@ -258,7 +256,7 @@ export async function listObjects(
   nextContinuationToken?: string;
   isTruncated: boolean;
 }> {
-  const client = await getS3Client();
+  const client = getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -396,7 +394,7 @@ export async function listObjects(
 }
 
 export async function getObjectMetadata(bucket: string, key: string, request?: Request) {
-  const client = await S3Manager.getInstance().getS3Client();
+  const client = S3Manager.getInstance().getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -492,7 +490,7 @@ export async function getSignedDownloadUrl(
     }
   }
 
-  const client = await S3Manager.getInstance().getS3Client();
+  const client = S3Manager.getInstance().getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -571,7 +569,7 @@ export async function getSignedDownloadUrl(
 }
 
 export async function getObjectStream(bucket: string, key: string, request?: Request) {
-  const client = await S3Manager.getInstance().getS3Client();
+  const client = S3Manager.getInstance().getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -701,8 +699,8 @@ export function getFilenameFromKey(key: string): string {
  * No need to manually initialize S3 client or fetch config
  */
 export async function getObjectStreamAuto(key: string, request?: Request) {
-  await getS3Client();
-  const bucket = await S3Manager.getInstance().getBucketName();
+  getS3Client();
+  const bucket = S3Manager.getInstance().getBucketName();
   return getObjectStream(bucket, key, request);
 }
 
@@ -717,8 +715,8 @@ export async function listObjectsAuto(
   pageNumber: number = 1,
   request?: Request,
 ) {
-  await getS3Client();
-  const bucket = await S3Manager.getInstance().getBucketName();
+  getS3Client();
+  const bucket = S3Manager.getInstance().getBucketName();
   return listObjects(bucket, prefix, continuationToken, maxKeys, pageNumber, request);
 }
 
@@ -731,8 +729,8 @@ export async function getSignedDownloadUrlAuto(
   expiresIn: number = 3600,
   request?: Request,
 ): Promise<string> {
-  await getS3Client();
-  const bucket = await S3Manager.getInstance().getBucketName();
+  getS3Client();
+  const bucket = S3Manager.getInstance().getBucketName();
   return getSignedDownloadUrl(bucket, key, expiresIn, request);
 }
 

@@ -37,7 +37,7 @@ async function performStartup(): Promise<void> {
 
   try {
     logger.info("Testing configuration...");
-    const config = await getConfig();
+    const config = getConfig();
 
     const configKeys = [
       "backblaze_endpoint",

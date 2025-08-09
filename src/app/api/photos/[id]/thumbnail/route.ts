@@ -88,7 +88,7 @@ export async function GET(
       }
     }
 
-    const config = await getConfig();
+    const config = getConfig();
 
     // Debug logging for large files
     if (photo.size > 10 * 1024 * 1024) { // Files over 10MB

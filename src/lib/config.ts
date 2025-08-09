@@ -3,7 +3,7 @@ import { logger } from "./logger";
 
 let cachedConfig: Config | null = null;
 
-export async function getConfig(): Promise<Config> {
+export function getConfig(): Config {
   if (cachedConfig) {
     return cachedConfig;
   }
@@ -135,7 +135,7 @@ export async function testS3Connection(): Promise<{
   try {
     logger.configInfo("Testing S3 connection (read-only mode)");
 
-    const config = await getConfig();
+    const config = getConfig();
     const validationErrors = validateConfig(config);
 
     if (validationErrors.length > 0) {
