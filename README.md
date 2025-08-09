@@ -51,23 +51,6 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 4. **Access your gallery**
    Open http://localhost:3000 and your photos will be automatically scanned and indexed
 
-## Development
-
-### Local Development
-
-```bash
-# Install dependencies
-npm install
-
-# Copy and configure environment
-cp .env.template .env
-# Edit .env with your credentials
-
-# Start development server
-npm run dev
-```
-
-
 ## Contributing
 
 1. Fork the repository
@@ -75,7 +58,3 @@ npm run dev
 3. Commit your changes (`git commit -m 'Add feature'`)
 4. Push to the branch (`git push origin feature/name`)
 5. Open a Pull Request
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
