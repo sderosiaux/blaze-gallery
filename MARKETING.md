@@ -8,10 +8,12 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 
 ### For Photography Enthusiasts
 - **Professional Workflow** compatible with Lightroom/Capture One exports
-- **RAW + JPEG Support** for professional camera formats (.NEF, .CR2, .ARW, etc.)
+- **RAW File Detection** for professional camera formats (.NEF, .CR2, .ARW, etc.)
 - **EXIF Preservation** including GPS coordinates and camera settings
 - **Folder Organization** maintains your existing structure
 - **High-Quality Thumbnails** with configurable generation thresholds
+- **Duplicate Detection** to optimize storage and eliminate redundant files
+- **Performance Analytics** to monitor your gallery's health and efficiency
 
 ### For Families & Personal Use
 - **Simple Setup** - Running in 5 minutes with Docker
@@ -50,19 +52,23 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **Folder Navigation** - Browse your existing folder structure naturally
 - **Keyboard Shortcuts** - Power user navigation (←/→, Space, Esc)
 
-### 📊 Smart Organization
-- **❤️ Favorites System** - Mark and organize your favorite photos
+### 📊 Smart Organization & Analytics
+- **❤️ Favorites System** - Mark and organize your favorite photos with instant feedback
 - **🔍 Powerful Search** - Find photos by filename, date, or metadata
-- **📂 Folder Tooltips** - See folder stats and last visit information
+- **📂 Folder Navigation** - Clickable breadcrumbs and intelligent folder browsing
 - **📅 EXIF Metadata** - View photo details, GPS location, and camera settings
-- **📈 Gallery Statistics** - Track your collection size and growth
+- **📈 Gallery Statistics** - Track your collection size, growth, and storage distribution
+- **🔍 Duplicate Detection** - Identify duplicate photos and folders to optimize storage
+- **📊 Performance Monitoring** - Comprehensive audit dashboard with B2 analytics
+- **🗂️ Storage Heatmaps** - Visual representation of folder sizes and photo distribution
 
 ### 🔧 Self-Hosted & Configurable
 - **🐳 Docker Ready** - Complete Docker Compose setup for easy deployment
 - **🔒 Privacy First** - All data stays on your infrastructure
 - **⚙️ Highly Configurable** - Tune performance and behavior via environment variables
 - **🧹 Automatic Cleanup** - Manages disk space with configurable retention policies
-- **📊 Built-in Monitoring** - Health endpoints and comprehensive logging
+- **📊 Built-in Monitoring** - Health endpoints, audit dashboard, and comprehensive logging
+- **🔧 Thumbnail Analytics** - Monitor cache performance, generation rates, and storage usage
 
 ## 🏗️ Technical Excellence
 
@@ -85,7 +91,8 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **Minimal Permissions** - Requires only List and Read access to B2
 - **Local Processing** - All image processing happens on your server
 - **No Telemetry** - No data collection or external tracking
-- **Audit Logging** - Track all API usage and system activities
+- **Comprehensive Audit Logging** - Track all API usage and system activities
+- **Performance Monitoring** - Built-in dashboard for system health and optimization
 
 ## 📈 Perfect For
 
@@ -131,7 +138,7 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 | **Read-Only Safety** | ✅ | ❌ | ❌ | ❌ |
 | **Backblaze B2 Native** | ✅ | ❌ | ❌ | ❌ |
 | **5-Minute Setup** | ✅ | ✅ | ❌ | ❌ |
-| **RAW File Support** | ✅ | Limited | ✅ | ✅ |
+| **RAW File Detection** | ✅ | Limited | ✅ | ✅ |
 | **Original Folder Structure** | ✅ | ❌ | ✅ | ❌ |
 | **No ML/AI Processing** | ✅ | ❌ | ✅ | ❌ |
 | **Resource Usage** | Low | N/A | Medium | High |
@@ -166,6 +173,28 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - 🔄 **Updates**: Regular feature releases and security updates
 - 🤝 **Contributing**: Welcoming community for code contributions
 
+## ⚠️ Important Limitations
+
+### RAW File Display
+While Blaze Gallery fully supports RAW files for cataloging and download, **RAW files cannot be displayed directly in web browsers** due to technical limitations:
+
+**What Works:**
+- ✅ RAW file detection and cataloging
+- ✅ EXIF metadata extraction and display
+- ✅ File download for external editing
+- ✅ Folder organization and navigation
+- ✅ Search and filtering capabilities
+
+**What Doesn't Work:**
+- ❌ Direct RAW preview in browser (shows helpful message instead)
+- ❌ Thumbnail generation for RAW files
+- ❌ Slideshow mode with RAW files
+
+**Supported RAW Formats:**
+Canon (.CR2, .CR3), Nikon (.NEF), Sony (.ARW), Adobe (.DNG), Fujifilm (.RAF), Olympus (.ORF), Panasonic (.RW2), Pentax (.PEF), Samsung (.SRW), Sigma (.X3F)
+
+**Recommendation:** Keep both RAW and JPEG versions in your B2 bucket. Blaze Gallery will display JPEGs while preserving access to your RAW originals for professional editing.
+
 ## 🎁 Value Proposition
 
 ### Cost Savings
@@ -185,6 +214,28 @@ A lightning-fast, self-hosted photo gallery that seamlessly integrates with Back
 - **Full Control** - Your photos, your server, your rules
 - **Privacy Protected** - No cloud provider access to your memories
 - **Open Source** - Audit the code, modify as needed
+
+---
+
+## 🆕 Latest Features (v1.2)
+
+### Gallery Analytics Dashboard
+- **Duplicate Detection**: Automatically identify duplicate photos and folders
+- **Storage Optimization**: Calculate potential space savings from cleanup
+- **Visual Analytics**: Heatmaps showing storage distribution across folders
+- **Smart Filtering**: Exclude system files (@eaDir, thumbnails) from analysis
+
+### Performance Monitoring
+- **B2 API Analytics**: Track response times, cache hits, and error rates
+- **Thumbnail System**: Monitor generation, storage usage, and performance
+- **System Health**: Database optimization and sync status tracking
+- **Audit Logging**: Comprehensive activity tracking for troubleshooting
+
+### Enhanced User Experience
+- **Instant Favorites**: Optimistic updates for immediate feedback
+- **Improved Navigation**: Floating menus and better responsive design
+- **Better Error Handling**: Graceful RAW file messaging and error recovery
+- **Performance Optimization**: Faster loading and smoother interactions
 
 ---
 
