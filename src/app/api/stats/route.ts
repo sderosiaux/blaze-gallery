@@ -98,17 +98,41 @@ export async function GET(request: NextRequest) {
       actual_total_size: number;
     }>;
 
-    // File type distribution - get file extensions (up to 6 chars after the last dot)
+    // File type distribution - simple approach that works reliably
     const fileTypeStats = db.prepare(`
       SELECT 
-        LOWER(SUBSTR(filename, -6)) as file_extension,
+        LOWER(
+          CASE 
+            WHEN filename LIKE '%.jpg' THEN '.jpg'
+            WHEN filename LIKE '%.jpeg' THEN '.jpeg'
+            WHEN filename LIKE '%.png' THEN '.png'
+            WHEN filename LIKE '%.gif' THEN '.gif'
+            WHEN filename LIKE '%.bmp' THEN '.bmp'
+            WHEN filename LIKE '%.webp' THEN '.webp'
+            WHEN filename LIKE '%.tiff' THEN '.tiff'
+            WHEN filename LIKE '%.tif' THEN '.tif'
+            WHEN filename LIKE '%.nef' THEN '.nef'
+            WHEN filename LIKE '%.cr2' THEN '.cr2'
+            WHEN filename LIKE '%.cr3' THEN '.cr3'
+            WHEN filename LIKE '%.arw' THEN '.arw'
+            WHEN filename LIKE '%.dng' THEN '.dng'
+            WHEN filename LIKE '%.raf' THEN '.raf'
+            WHEN filename LIKE '%.orf' THEN '.orf'
+            WHEN filename LIKE '%.rw2' THEN '.rw2'
+            WHEN filename LIKE '%.pef' THEN '.pef'
+            WHEN filename LIKE '%.srw' THEN '.srw'
+            WHEN filename LIKE '%.x3f' THEN '.x3f'
+            WHEN filename LIKE '%.heic' THEN '.heic'
+            WHEN filename LIKE '%.avif' THEN '.avif'
+            ELSE 'other'
+          END
+        ) as file_extension,
         COUNT(*) as count,
         SUM(size) as total_size_bytes,
         AVG(size) as avg_size_bytes
       FROM photos
-      WHERE filename LIKE '%.%' AND LENGTH(SUBSTR(filename, -6)) <= 6
       GROUP BY file_extension
-      HAVING count > 0
+      HAVING count > 0 AND file_extension != 'other'
       ORDER BY count DESC
     `).all() as Array<{
       file_extension: string;
