@@ -131,6 +131,7 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
       {selectedPhoto && (
         <PhotoViewer
           photo={selectedPhoto}
+          photos={photosState}
           onClose={() => setSelectedPhoto(null)}
           onFavoriteToggle={(updatedPhoto) => {
             // Update the photo in the local state
@@ -141,6 +142,9 @@ export default function PhotoGrid({ photos, loading = false }: PhotoGridProps) {
             );
             // Update the selected photo as well
             setSelectedPhoto(updatedPhoto);
+          }}
+          onPhotoChange={(newPhoto) => {
+            setSelectedPhoto(newPhoto);
           }}
         />
       )}

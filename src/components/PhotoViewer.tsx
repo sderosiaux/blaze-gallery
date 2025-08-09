@@ -1,39 +1,128 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
-import { X, Download, Calendar, MapPin, HardDrive, Heart } from "lucide-react";
+import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
 
 interface PhotoViewerProps {
   photo: Photo;
+  photos?: Photo[]; // Array of all photos for navigation
   onClose: () => void;
   onFavoriteToggle?: (photo: Photo) => void;
+  onPhotoChange?: (photo: Photo) => void; // Callback when photo changes
 }
 
-export default function PhotoViewer({ photo, onClose, onFavoriteToggle }: PhotoViewerProps) {
+export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, onPhotoChange }: PhotoViewerProps) {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [currentPhoto, setCurrentPhoto] = useState(photo);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isSlideshow, setIsSlideshow] = useState(false);
+  const [preloadedImages, setPreloadedImages] = useState<Set<string>>(new Set());
 
+  // Initialize current index based on selected photo
   useEffect(() => {
+    if (photos) {
+      const index = photos.findIndex(p => p.id === photo.id);
+      setCurrentIndex(index !== -1 ? index : 0);
+    }
     setCurrentPhoto(photo);
-  }, [photo]);
+    setImageLoading(true);
+    setImageError(false);
+  }, [photo, photos]);
 
+  // Preload nearby images for smooth navigation
+  const preloadImages = useCallback((centerIndex: number) => {
+    if (!photos) return;
+    
+    // Preload 2-3 images ahead and 1 behind
+    const indicesToPreload = [
+      centerIndex + 1,
+      centerIndex + 2,
+      centerIndex + 3,
+      centerIndex - 1
+    ].filter(index => index >= 0 && index < photos.length);
+
+    indicesToPreload.forEach(index => {
+      const photoId = photos[index].id.toString();
+      if (!preloadedImages.has(photoId)) {
+        const img = new Image();
+        img.src = `/api/photos/${photos[index].id}/download`;
+        img.onload = () => {
+          setPreloadedImages(prev => new Set([...prev, photoId]));
+        };
+      }
+    });
+  }, [photos, preloadedImages]);
+
+  // Preload images when current index changes
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    preloadImages(currentIndex);
+  }, [currentIndex, preloadImages]);
+
+  // Navigation functions
+  const goToPrevious = useCallback(() => {
+    if (!photos || currentIndex <= 0) return;
+    const newIndex = currentIndex - 1;
+    const newPhoto = photos[newIndex];
+    setCurrentIndex(newIndex);
+    setCurrentPhoto(newPhoto);
+    setImageLoading(true);
+    setImageError(false);
+    onPhotoChange?.(newPhoto);
+  }, [photos, currentIndex, onPhotoChange]);
+
+  const goToNext = useCallback(() => {
+    if (!photos || currentIndex >= photos.length - 1) return;
+    const newIndex = currentIndex + 1;
+    const newPhoto = photos[newIndex];
+    setCurrentIndex(newIndex);
+    setCurrentPhoto(newPhoto);
+    setImageLoading(true);
+    setImageError(false);
+    onPhotoChange?.(newPhoto);
+  }, [photos, currentIndex, onPhotoChange]);
+
+  // Auto-advance for slideshow
+  useEffect(() => {
+    if (!isSlideshow || !photos) return;
+    
+    const interval = setInterval(() => {
+      if (currentIndex < photos.length - 1) {
+        goToNext();
+      } else {
+        setIsSlideshow(false); // Stop at the end
+      }
+    }, 3000); // 3 seconds per photo
+
+    return () => clearInterval(interval);
+  }, [isSlideshow, currentIndex, photos, goToNext]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goToPrevious();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goToNext();
+      } else if (e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        setIsSlideshow(prev => !prev);
       }
     };
 
-    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "unset";
     };
-  }, [onClose]);
+  }, [onClose, goToPrevious, goToNext]);
 
   const handleDownload = async () => {
     try {
@@ -124,6 +213,26 @@ export default function PhotoViewer({ photo, onClose, onFavoriteToggle }: PhotoV
           </div>
 
           <div className="flex items-center space-x-2 flex-shrink-0">
+            {/* Photo counter */}
+            {photos && photos.length > 1 && (
+              <div className="text-sm text-gray-300 bg-black bg-opacity-30 px-3 py-1 rounded-lg">
+                {currentIndex + 1} of {photos.length}
+              </div>
+            )}
+
+            {/* Slideshow controls */}
+            {photos && photos.length > 1 && (
+              <button
+                onClick={() => setIsSlideshow(prev => !prev)}
+                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
+                  isSlideshow ? "bg-white bg-opacity-20" : ""
+                }`}
+                title={isSlideshow ? "Pause slideshow (Space)" : "Start slideshow (Space)"}
+              >
+                {isSlideshow ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+              </button>
+            )}
+
             <button
               onClick={handleFavoriteToggle}
               className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
@@ -154,7 +263,7 @@ export default function PhotoViewer({ photo, onClose, onFavoriteToggle }: PhotoV
           </div>
         </div>
 
-        <div className="flex-1 flex items-center justify-center min-h-0 relative">
+        <div className="flex-1 flex items-center justify-center min-h-0 relative group">
           {/* Loading skeleton */}
           {imageLoading && (
             <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
@@ -169,6 +278,33 @@ export default function PhotoViewer({ photo, onClose, onFavoriteToggle }: PhotoV
               <p className="text-lg">Failed to load image</p>
               <p className="text-sm text-gray-400 mt-2">{currentPhoto.filename}</p>
             </div>
+          )}
+
+          {/* Navigation hints */}
+          {photos && photos.length > 1 && !imageLoading && !imageError && (
+            <>
+              {/* Previous photo hint */}
+              {currentIndex > 0 && (
+                <button
+                  onClick={goToPrevious}
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-opacity-70 z-10"
+                  title="Previous photo (←)"
+                >
+                  <ChevronLeft className="w-8 h-8" />
+                </button>
+              )}
+              
+              {/* Next photo hint */}
+              {currentIndex < photos.length - 1 && (
+                <button
+                  onClick={goToNext}
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-opacity-70 z-10"
+                  title="Next photo (→)"
+                >
+                  <ChevronRight className="w-8 h-8" />
+                </button>
+              )}
+            </>
           )}
 
           {/* Main image */}

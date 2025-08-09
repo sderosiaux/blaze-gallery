@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { Heart, Search, FolderOpen, Activity } from "lucide-react";
+import { Heart, Search, FolderOpen, Activity, BarChart3 } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -39,6 +39,15 @@ export default function AppLayout({
               </a>
             </div>
             <div className="flex items-center space-x-2">
+              {/* Statistics Link */}
+              <a
+                href="/stats"
+                className="flex items-center p-2 text-gray-600 hover:text-purple-500 hover:bg-gray-50 rounded-lg transition-colors"
+                title="View gallery statistics"
+              >
+                <BarChart3 className="w-5 h-5" />
+              </a>
+
               {/* Audit Dashboard Link */}
               <a
                 href="/audit"
