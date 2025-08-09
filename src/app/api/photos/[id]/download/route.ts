@@ -61,6 +61,7 @@ export async function GET(
       config.backblaze_bucket,
       photo.s3_key,
       3600,
+      request,
     );
 
     return NextResponse.redirect(signedUrl);

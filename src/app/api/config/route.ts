@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
           secretAccessKey: newConfig.backblaze_secret_key,
         });
 
-        await listObjects(newConfig.backblaze_bucket, "", undefined, 1);
+        await listObjects(newConfig.backblaze_bucket, "", undefined, 1, 1, request);
       } catch (error) {
         return NextResponse.json(
           {

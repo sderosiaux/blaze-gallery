@@ -37,6 +37,7 @@ export class ThumbnailService {
     photoId: number,
     options: ThumbnailOptions = {},
     bypassSizeCheck: boolean = false,
+    request?: Request,
   ): Promise<string> {
     const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
     const thumbnailPath = this.getThumbnailPath(photoId, opts.format);
@@ -84,7 +85,7 @@ export class ThumbnailService {
       const filename = s3Key.split('/').pop() || s3Key;
       logger.debug(`[THUMBNAIL] Generating thumbnail for ${filename} (ID: ${photoId})`);
 
-      const stream = await getObjectStream(bucket, s3Key);
+      const stream = await getObjectStream(bucket, s3Key, request);
       if (!stream) {
         throw new Error("Failed to get object stream from S3");
       }

@@ -6,7 +6,11 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "./logger";
+import { createS3AuditMiddleware } from "./s3Audit";
 import crypto from "crypto";
+
+// Initialize audit middleware
+const auditMiddleware = createS3AuditMiddleware();
 
 export interface S3Config {
   endpoint: string;
@@ -150,14 +154,16 @@ export async function listObjects(
   continuationToken?: string,
   maxKeys: number = 1000,
   pageNumber: number = 1,
+  request?: Request,
 ): Promise<{
   objects: S3Object[];
   nextContinuationToken?: string;
   isTruncated: boolean;
 }> {
   const client = getS3Client();
-
   const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
 
   try {
     const folderDesc = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
@@ -180,6 +186,24 @@ export async function listObjects(
       size: obj.Size!,
       etag: obj.ETag!.replace(/"/g, ""),
     }));
+
+    // Calculate actual response size
+    const responseSize = JSON.stringify(objects).length + 
+                        JSON.stringify({
+                          nextContinuationToken: response.NextContinuationToken,
+                          isTruncated: response.IsTruncated
+                        }).length;
+    
+    await auditMiddleware.log({
+      operation: 'ListObjects',
+      method: 'GET',
+      bucket,
+      key: prefix,
+      startTime,
+      statusCode,
+      bytesTransferred: responseSize,
+      request
+    });
 
     const logContext = {
       bucket,
@@ -239,6 +263,32 @@ export async function listObjects(
   } catch (error) {
     const duration = Date.now() - startTime;
     const folderDesc = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
+    
+    // Extract status code from error
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (typeof error === 'object' && error !== null) {
+      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+    
+    // Audit logging for error
+    await auditMiddleware.log({
+      operation: 'ListObjects',
+      method: 'GET',
+      bucket,
+      key: prefix,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request
+    });
+
     logger.s3Error(
       `Failed to list objects from ${folderDesc} after ${duration}ms`,
       error as Error,
@@ -247,8 +297,11 @@ export async function listObjects(
   }
 }
 
-export async function getObjectMetadata(bucket: string, key: string) {
+export async function getObjectMetadata(bucket: string, key: string, request?: Request) {
   const client = getS3Client();
+  const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
 
   try {
     logger.s3Connection(`Getting metadata for ${key}`);
@@ -260,12 +313,49 @@ export async function getObjectMetadata(bucket: string, key: string) {
 
     const result = await client.send(command);
 
+    // Audit logging
+    await auditMiddleware.log({
+      operation: 'HeadObject',
+      method: 'HEAD',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred: 0, // HEAD requests don't transfer body data
+      request
+    });
+
     logger.debug(
       `Successfully retrieved metadata for ${key} (${result.ContentLength} bytes)`,
     );
 
     return result;
   } catch (error) {
+    // Extract status code from error
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (typeof error === 'object' && error !== null) {
+      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    // Audit logging for error
+    await auditMiddleware.log({
+      operation: 'HeadObject',
+      method: 'HEAD',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request
+    });
+
     logger.s3Error("Failed to get object metadata", error as Error, {
       bucket,
       key,
@@ -279,8 +369,12 @@ export async function getSignedDownloadUrl(
   bucket: string,
   key: string,
   expiresIn: number = 3600,
+  request?: Request,
 ): Promise<string> {
   const client = getS3Client();
+  const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
 
   try {
     logger.s3Connection(
@@ -294,12 +388,49 @@ export async function getSignedDownloadUrl(
 
     const signedUrl = await getSignedUrl(client, command, { expiresIn });
 
+    // Audit logging
+    await auditMiddleware.log({
+      operation: 'GeneratePresignedUrl',
+      method: 'GET',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred: signedUrl.length, // Size of the generated URL
+      request
+    });
+
     logger.debug(
       `Successfully generated signed download URL for ${key} (${signedUrl.length} chars)`,
     );
 
     return signedUrl;
   } catch (error) {
+    // Extract status code from error
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (typeof error === 'object' && error !== null) {
+      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    // Audit logging for error
+    await auditMiddleware.log({
+      operation: 'GeneratePresignedUrl',
+      method: 'GET',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request
+    });
+
     logger.s3Error("Failed to generate signed download URL", error as Error, {
       bucket,
       key,
@@ -310,8 +441,11 @@ export async function getSignedDownloadUrl(
   }
 }
 
-export async function getObjectStream(bucket: string, key: string) {
+export async function getObjectStream(bucket: string, key: string, request?: Request) {
   const client = getS3Client();
+  const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
 
   try {
     logger.debug(`[S3] Getting stream for ${key}`);
@@ -323,12 +457,49 @@ export async function getObjectStream(bucket: string, key: string) {
 
     const response = await client.send(command);
 
+    // Audit logging
+    await auditMiddleware.log({
+      operation: 'GetObject',
+      method: 'GET',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred: response.ContentLength,
+      request
+    });
+
     logger.debug(
       `Successfully retrieved stream for ${key} (${response.ContentType}, ${response.ContentLength} bytes)`,
     );
 
     return response.Body;
   } catch (error) {
+    // Extract status code from error
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (typeof error === 'object' && error !== null) {
+      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    // Audit logging for error
+    await auditMiddleware.log({
+      operation: 'GetObject',
+      method: 'GET',
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request
+    });
+
     logger.s3Error("Failed to get object stream", error as Error, {
       bucket,
       key,

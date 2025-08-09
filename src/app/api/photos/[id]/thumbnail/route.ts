@@ -105,6 +105,7 @@ export async function GET(
       photo.id,
       {},
       forceGenerate,
+      request,
     );
 
     const thumbnailBuffer =

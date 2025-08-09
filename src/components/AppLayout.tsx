@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { Heart, Search, FolderOpen } from "lucide-react";
+import { Heart, Search, FolderOpen, Activity } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -31,23 +31,32 @@ export default function AppLayout({
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
               <BlazeIcon size={32} className="mr-3" />
-              <button
-                onClick={() => router.push("/")}
+              <a
+                href="/"
                 className="text-2xl font-bold text-gray-900 hover:text-primary-600 transition-colors"
               >
                 {getPageTitle()}
-              </button>
+              </a>
             </div>
             <div className="flex items-center space-x-2">
-              {/* Favorites Button */}
+              {/* Audit Dashboard Link */}
+              <a
+                href="/audit"
+                className="flex items-center p-2 text-gray-600 hover:text-blue-500 hover:bg-gray-50 rounded-lg transition-colors"
+                title="View B2 performance audit"
+              >
+                <Activity className="w-5 h-5" />
+              </a>
+
+              {/* Favorites Link */}
               {pathname !== "/favorites" && (
-                <button
-                  onClick={() => router.push("/favorites")}
+                <a
+                  href="/favorites"
                   className="flex items-center p-2 text-gray-600 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
                   title="View your favorite photos"
                 >
                   <Heart className="w-5 h-5" />
-                </button>
+                </a>
               )}
               
               {/* GitHub Link */}
