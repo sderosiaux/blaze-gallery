@@ -326,7 +326,7 @@ export class S3AuditLogger {
       FROM s3_audit_logs 
       WHERE timestamp >= ? AND timestamp <= ?
       GROUP BY ${timeFormat}
-      ORDER BY time_period DESC
+      ORDER BY time_period ASC
     `);
     
     const rows = stmt.all(startDate, endDate) as any[];
