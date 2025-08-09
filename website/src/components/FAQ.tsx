@@ -10,9 +10,9 @@ interface FAQItem {
 
 const faqs: FAQItem[] = [
   {
-    question: 'How much does it really cost compared to Google Photos?',
-    answer: 'With Backblaze B2, you pay about $6/TB/month vs $120/TB/month for Google Photos (2TB plan). For a family with 5TB of photos, that\'s $30/month vs $600/month - a massive 20x cost difference. Plus you own your data completely.',
-    category: 'cost'
+    question: 'Why should I trust Blaze Gallery with my family photos?',
+    answer: 'Blaze Gallery is 100% open source - you can audit every line of code yourself. Your photos never leave your own Backblaze B2 storage. We can\'t access, scan, or analyze your photos because they\'re stored in YOUR account, not ours. The software runs on YOUR server. There\'s no mystery about what happens to your memories.',
+    category: 'security'
   },
   {
     question: 'Is it really just 5 minutes to set up?',
@@ -40,9 +40,14 @@ const faqs: FAQItem[] = [
     category: 'security'
   },
   {
-    question: 'What about bandwidth costs with Backblaze B2?',
-    answer: 'B2 includes 3x your storage in free bandwidth monthly. For 1TB storage, you get 3TB free bandwidth. After that, it\'s $0.01/GB. Even heavy users typically pay under $5/month total, still far cheaper than other solutions.',
-    category: 'cost'
+    question: 'What exactly does Google Photos do with my family photos?',
+    answer: 'Google scans every photo with AI to build advertising profiles. They analyze faces, objects, locations, and activities to understand your family\'s life patterns. This data helps them target ads and build their AI models. While convenient, your intimate family moments become their business intelligence.',
+    category: 'security'
+  },
+  {
+    question: 'Can I really share unlimited photos with Blaze Gallery?',
+    answer: 'Yes! Create password-protected share links for any folder or individual photos. No limits on recipients, no expiration unless you set one, no restrictions on download counts. Share wedding albums with hundreds of guests, or create family links that work forever. Your sharing, your rules.',
+    category: 'setup'
   },
   {
     question: 'Can I share photos with family who aren\'t technical?',
@@ -61,7 +66,7 @@ const faqs: FAQItem[] = [
   },
   {
     question: 'Can I add new photos without re-syncing everything?',
-    answer: 'Yes. Just upload new photos to your B2 bucket (using Backblaze web interface, B2 CLI, or any tool), then click "Sync" in Blaze Gallery. It only processes new/changed files, keeping sync fast even with large collections.',
+    answer: 'Yes. Just upload new photos to your B2 bucket (using Backblaze web interface, B2 CLI, or any tool). Blaze Gallery automatically detects and processes new/changed files when you refresh the page, keeping sync fast even with large collections.',
     category: 'technical'
   },
   {
@@ -159,13 +164,13 @@ export default function FAQ() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a
-                href="https://github.com/your-username/blaze-gallery/discussions"
+                href="https://github.com/sderosiaux/blaze-gallery/discussions"
                 className="bg-blaze-600 hover:bg-blaze-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
               >
                 Ask on GitHub
               </a>
               <a
-                href="https://github.com/your-username/blaze-gallery/blob/main/docs/README.md"
+                href="https://github.com/sderosiaux/blaze-gallery/blob/main/README.md"
                 className="text-blaze-600 hover:text-blaze-700 px-6 py-3 font-semibold transition-colors"
               >
                 Read Documentation

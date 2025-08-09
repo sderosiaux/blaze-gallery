@@ -37,8 +37,8 @@ export default function FeaturesGrid() {
     },
     {
       icon: '💰',
-      title: 'Massive Savings',
-      description: 'Pay $6/TB with B2 instead of $120/TB with Google Photos. Save thousands on large photo collections.'
+      title: 'Affordable Storage',
+      description: 'Use cost-effective Backblaze B2 storage with transparent per-GB pricing. No subscription tiers or surprise fees.'
     },
     {
       icon: '🔄',
@@ -70,7 +70,7 @@ export default function FeaturesGrid() {
             Everything You Need for Photo Management
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Blaze Gallery combines the best of self-hosted control with cloud storage economics. 
+            <span className="font-semibold text-green-600">Blaze Gallery is 100% free and open source.</span> It combines the best of self-hosted control with Backblaze B2's affordable cloud storage. 
             Here's what makes it special:
           </p>
         </div>
@@ -96,17 +96,16 @@ export default function FeaturesGrid() {
               Ready to Take Control of Your Photos?
             </h3>
             <p className="text-gray-600 mb-6">
-              Join hundreds of users who've moved from expensive cloud subscriptions to affordable, 
-              self-hosted photo management.
+              Join users who've taken control of their photo storage with transparent pricing and complete privacy.
             </p>
             <a
-              href="#quick-start"
+              href="https://github.com/sderosiaux/blaze-gallery"
               className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-3 rounded-lg font-semibold inline-block transition-colors mr-4"
             >
-              Start Free Setup
+              Get Blaze Gallery
             </a>
             <a
-              href="https://github.com/your-username/blaze-gallery"
+              href="https://github.com/sderosiaux/blaze-gallery"
               className="text-blaze-600 hover:text-blaze-700 font-semibold inline-block transition-colors"
             >
               View Source Code →

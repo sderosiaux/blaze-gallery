@@ -25,7 +25,7 @@ export default function StickyGitHubStar() {
   return (
     <div className="fixed top-4 right-4 z-50 animate-fade-in-up">
       <a
-        href="https://github.com/your-username/blaze-gallery"
+        href="https://github.com/sderosiaux/blaze-gallery"
         target="_blank"
         rel="noopener noreferrer"
         className="bg-gray-900 hover:bg-black text-white px-4 py-3 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-3 group"

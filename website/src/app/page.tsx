@@ -3,7 +3,6 @@ import CostComparison from '@/components/CostComparison'
 import ArchitectureDiagram from '@/components/ArchitectureDiagram'
 import InteractiveDemo from '@/components/InteractiveDemo'
 import FeaturesGrid from '@/components/FeaturesGrid'
-import QuickStart from '@/components/QuickStart'
 import FAQ from '@/components/FAQ'
 import StickyGitHubStar from '@/components/StickyGitHubStar'
 
@@ -27,9 +26,6 @@ export default function Home() {
       {/* Features */}
       <FeaturesGrid />
       
-      {/* Quick Start */}
-      <QuickStart />
-      
       {/* FAQ */}
       <FAQ />
       
@@ -49,20 +45,20 @@ export default function Home() {
           </div>
           
           <div className="flex flex-wrap justify-center gap-6 mb-8">
-            <a href="https://github.com/your-username/blaze-gallery" className="text-gray-400 hover:text-white transition-colors">
+            <a href="https://github.com/sderosiaux/blaze-gallery" className="text-gray-400 hover:text-white transition-colors">
               GitHub
             </a>
-            <a href="https://github.com/your-username/blaze-gallery/blob/main/docs/installation.md" className="text-gray-400 hover:text-white transition-colors">
+            <a href="https://github.com/sderosiaux/blaze-gallery/blob/main/README.md" className="text-gray-400 hover:text-white transition-colors">
               Documentation
             </a>
-            <a href="https://github.com/your-username/blaze-gallery/issues" className="text-gray-400 hover:text-white transition-colors">
+            <a href="https://github.com/sderosiaux/blaze-gallery/issues" className="text-gray-400 hover:text-white transition-colors">
               Support
             </a>
           </div>
           
           <div className="border-t border-gray-800 pt-8">
             <p className="text-gray-400 text-sm">
-              © 2024 Blaze Gallery. Open source software released under the MIT License.
+              © 2025 Blaze Gallery. Open source software released under the MIT License.
             </p>
           </div>
         </div>

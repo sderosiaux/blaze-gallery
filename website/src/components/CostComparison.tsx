@@ -1,143 +1,159 @@
 'use client'
 
-import { useState } from 'react'
-
-interface StorageOption {
+interface PhotoService {
   name: string
   logo: string
   color: string
-  pricePerTB: number
+  tagline: string
+  privacy: 'full' | 'limited' | 'none'
+  control: 'complete' | 'limited' | 'none'
   features: string[]
-  limitations: string[]
+  whatTheyDo: string[]
+  trustLevel: 'high' | 'medium' | 'low'
 }
 
-const storageOptions: StorageOption[] = [
+const photoServices: PhotoService[] = [
   {
-    name: 'Backblaze B2 + Blaze Gallery',
+    name: 'Blaze Gallery',
     logo: '🔥',
     color: 'blaze',
-    pricePerTB: 6,
+    tagline: 'Your photos, your server, your rules',
+    privacy: 'full',
+    control: 'complete',
+    trustLevel: 'high',
     features: [
-      'Full control of your data',
-      'Self-hosted - no vendor lock-in', 
-      'Unlimited users and sharing',
+      '100% free and open source',
+      'No photo scanning or AI analysis',
+      'Complete privacy - photos never leave your storage',
+      'Unlimited sharing with anyone',
+      'No file count or user limits',
       'Advanced folder organization',
       'Password-protected sharing',
-      'No file count limits',
-      'Direct B2 integration'
+      'Self-hosted - you control everything'
     ],
-    limitations: [
-      'Requires Docker setup (5 min)',
-      'You manage updates'
+    whatTheyDo: [
+      'You know exactly where your photos are stored',
+      'Open source code you can audit yourself',
+      'No mystery algorithms or data mining',
+      'Your family memories stay private forever'
     ]
   },
   {
     name: 'Google Photos',
     logo: '📷',
     color: 'blue',
-    pricePerTB: 120,
+    tagline: 'Convenient, but at what cost?',
+    privacy: 'none',
+    control: 'limited',
+    trustLevel: 'low',
     features: [
+      'Easy setup and sync',
       'Automatic face recognition',
-      'Google AI search',
-      'Mobile app included',
-      'Easy setup'
+      'AI-powered search',
+      'Mobile app included'
     ],
-    limitations: [
-      '20x more expensive',
-      'Google scans your photos',
-      'Limited sharing options',
-      'Can lose access anytime',
-      'No folder organization',
-      'Compression may reduce quality'
+    whatTheyDo: [
+      'Scans every photo with AI for advertising data',
+      'Builds detailed profiles of your family',
+      'Can remove access to your photos anytime',
+      'Terms of service change without notice',
+      'Your intimate moments become their data'
     ]
   },
   {
     name: 'iCloud Photos',
     logo: '☁️',
     color: 'gray',
-    pricePerTB: 120,
+    tagline: 'Locked into Apple\'s ecosystem',
+    privacy: 'limited',
+    control: 'limited',
+    trustLevel: 'medium',
     features: [
-      'Seamless Apple integration',
-      'Device synchronization',
-      'Family sharing'
+      'Seamless Apple device sync',
+      'Family sharing options',
+      'Good privacy reputation'
     ],
-    limitations: [
-      '20x more expensive',
-      'Apple ecosystem only',
+    whatTheyDo: [
+      'Locks you into Apple devices only',
       'Limited sharing with non-Apple users',
-      'No advanced organization',
-      'Can\'t access raw files easily',
-      'Storage limits force upgrades'
+      'Can scan photos for illegal content (CSAM)',
+      'Apple controls access to your memories',
+      'Difficult to export your photos elsewhere'
     ]
   }
 ]
 
 export default function CostComparison() {
-  const [selectedStorage, setSelectedStorage] = useState(5) // 5TB default
-
-  const calculateYearlyCost = (pricePerTB: number, storage: number) => {
-    return Math.round(pricePerTB * storage * 12)
-  }
-
-  const getColorClasses = (color: string, isSelected = false) => {
+  const getColorClasses = (color: string, isRecommended = false) => {
     switch (color) {
       case 'blaze':
-        return isSelected 
+        return isRecommended 
           ? 'border-blaze-500 bg-blaze-50 shadow-lg shadow-blaze-200' 
           : 'border-blaze-200 hover:border-blaze-400'
       case 'blue':
-        return isSelected 
-          ? 'border-blue-500 bg-blue-50 shadow-lg shadow-blue-200' 
-          : 'border-blue-200 hover:border-blue-400'
+        return 'border-blue-200 hover:border-blue-400'
       case 'gray':
-        return isSelected 
-          ? 'border-gray-500 bg-gray-50 shadow-lg shadow-gray-200' 
-          : 'border-gray-200 hover:border-gray-400'
+        return 'border-gray-200 hover:border-gray-400'
       default:
         return 'border-gray-200'
     }
   }
 
+  const getTrustBadge = (trustLevel: string, privacy: string) => {
+    if (trustLevel === 'high' && privacy === 'full') {
+      return (
+        <div className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+          <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+          Complete Trust
+        </div>
+      )
+    } else if (trustLevel === 'medium') {
+      return (
+        <div className="inline-flex items-center px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
+          <span className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
+          Limited Trust
+        </div>
+      )
+    } else {
+      return (
+        <div className="inline-flex items-center px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
+          <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+          Privacy Risk
+        </div>
+      )
+    }
+  }
+
   return (
-    <section id="pricing" className="py-20 bg-white">
+    <section id="privacy" className="py-20 bg-white">
       <div className="container mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            Stop Paying 20x More for Photo Storage
+            Your Family Photos Deserve Better
           </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            Compare the real cost of storing your photos. Blaze Gallery + Backblaze B2 
-            delivers enterprise-grade storage at a fraction of the cost.
+          <p className="text-xl text-gray-600 max-w-4xl mx-auto mb-8">
+            Your memories are precious and private. <span className="font-semibold text-green-600">Blaze Gallery is 100% free and open source</span> - 
+            compare what happens to your family photos and who really controls them.
           </p>
           
-          {/* Storage Size Selector */}
-          <div className="inline-flex bg-gray-100 p-1 rounded-lg">
-            {[1, 2, 5, 10, 20].map((size) => (
-              <button
-                key={size}
-                onClick={() => setSelectedStorage(size)}
-                className={`px-4 py-2 rounded-md font-medium transition-all ${
-                  selectedStorage === size 
-                    ? 'bg-white text-blaze-600 shadow-sm' 
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {size}TB
-              </button>
-            ))}
+          <div className="bg-gray-50 p-6 rounded-xl max-w-3xl mx-auto">
+            <h3 className="font-bold text-gray-900 mb-2">The Real Question Isn't Price</h3>
+            <p className="text-gray-600">
+              It's: <em>"Do I trust this company with my most intimate family moments? 
+              Do I know what they do with my photos? Can they lock me out tomorrow?"</em>
+            </p>
           </div>
         </div>
 
-        {/* Comparison Cards */}
-        <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {storageOptions.map((option, index) => {
-            const yearlyCost = calculateYearlyCost(option.pricePerTB, selectedStorage)
-            const isRecommended = option.color === 'blaze'
+        {/* Privacy Comparison Cards */}
+        <div className="grid lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+          {photoServices.map((service, index) => {
+            const isRecommended = service.color === 'blaze'
             
             return (
               <div 
-                key={option.name}
-                className={`relative p-8 rounded-xl border-2 transition-all duration-300 ${getColorClasses(option.color, isRecommended)}`}
+                key={service.name}
+                className={`relative p-8 rounded-xl border-2 transition-all duration-300 ${getColorClasses(service.color, isRecommended)}`}
               >
                 {isRecommended && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
@@ -148,23 +164,18 @@ export default function CostComparison() {
                 )}
                 
                 {/* Header */}
-                <div className="text-center mb-8">
-                  <div className="text-4xl mb-4">{option.logo}</div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">{option.name}</h3>
-                  <div className="text-4xl font-bold text-gray-900 mb-2">
-                    ${yearlyCost}
-                    <span className="text-base font-normal text-gray-500">/year</span>
-                  </div>
-                  <p className="text-gray-600">
-                    ${option.pricePerTB}/TB/month • {selectedStorage}TB storage
-                  </p>
+                <div className="text-center mb-6">
+                  <div className="text-4xl mb-4">{service.logo}</div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{service.name}</h3>
+                  <p className="text-gray-600 font-medium mb-3">{service.tagline}</p>
+                  {getTrustBadge(service.trustLevel, service.privacy)}
                 </div>
 
-                {/* Features */}
+                {/* What you get */}
                 <div className="mb-6">
                   <h4 className="font-semibold text-gray-900 mb-3">What you get:</h4>
                   <ul className="space-y-2">
-                    {option.features.map((feature, idx) => (
+                    {service.features.map((feature, idx) => (
                       <li key={idx} className="flex items-start text-sm text-gray-700">
                         <span className="text-green-500 mr-2 mt-0.5">✓</span>
                         {feature}
@@ -173,36 +184,40 @@ export default function CostComparison() {
                   </ul>
                 </div>
 
-                {/* Limitations */}
-                {option.limitations.length > 0 && (
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-gray-900 mb-3">Consider:</h4>
-                    <ul className="space-y-2">
-                      {option.limitations.map((limitation, idx) => (
-                        <li key={idx} className="flex items-start text-sm text-gray-600">
-                          <span className="text-yellow-500 mr-2 mt-0.5">⚠</span>
-                          {limitation}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {/* What they do with your photos */}
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-3">
+                    {service.color === 'blaze' ? 'Why you can trust us:' : 'What happens to your photos:'}
+                  </h4>
+                  <ul className="space-y-2">
+                    {service.whatTheyDo.map((item, idx) => (
+                      <li key={idx} className="flex items-start text-sm">
+                        <span className={`mr-2 mt-0.5 ${
+                          service.color === 'blaze' ? 'text-green-500' : 'text-red-500'
+                        }`}>
+                          {service.color === 'blaze' ? '🛡️' : '⚠️'}
+                        </span>
+                        <span className={service.color === 'blaze' ? 'text-gray-700' : 'text-red-700'}>
+                          {item}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
                 {/* CTA */}
-                <div className="pt-4 border-t border-gray-200">
+                <div className="pt-6 border-t border-gray-200">
                   {isRecommended ? (
                     <a
-                      href="#quick-start"
+                      href="https://github.com/sderosiaux/blaze-gallery"
                       className="w-full bg-blaze-600 hover:bg-blaze-700 text-white py-3 px-6 rounded-lg font-semibold text-center block transition-colors"
                     >
-                      Get Started Free
+                      Get Blaze Gallery →
                     </a>
                   ) : (
                     <div className="text-center">
-                      <div className="text-sm text-gray-500">
-                        vs Blaze Gallery: <span className="font-bold text-red-600">
-                          {Math.round(yearlyCost / calculateYearlyCost(storageOptions[0].pricePerTB, selectedStorage))}x more expensive
-                        </span>
+                      <div className="text-sm text-gray-500 italic">
+                        "Convenient, but your family photos become their business data"
                       </div>
                     </div>
                   )}
@@ -214,19 +229,26 @@ export default function CostComparison() {
 
         {/* Bottom CTA */}
         <div className="text-center mt-16">
-          <div className="bg-blaze-50 p-8 rounded-xl max-w-4xl mx-auto">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">
-              Ready to save ${calculateYearlyCost(120, selectedStorage) - calculateYearlyCost(6, selectedStorage)} per year?
+          <div className="bg-gradient-to-r from-blaze-50 to-orange-50 p-8 rounded-xl max-w-5xl mx-auto border border-blaze-200">
+            <h3 className="text-3xl font-bold text-gray-900 mb-4">
+              Your Memories. Your Server. Your Peace of Mind.
             </h3>
-            <p className="text-gray-600 mb-6">
-              Join thousands of users who've taken control of their photo storage costs.
+            <p className="text-xl text-gray-600 mb-6 leading-relaxed">
+              Stop wondering what happens to your family photos behind closed doors. 
+              With Blaze Gallery, you know exactly where they are, who can see them, and that they'll always be yours.
             </p>
-            <a
-              href="#quick-start"
-              className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-3 rounded-lg font-semibold inline-block transition-colors"
-            >
-              Start Your Free Setup →
-            </a>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              <a
+                href="https://github.com/sderosiaux/blaze-gallery"
+                className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+              >
+                Get Blaze Gallery →
+              </a>
+              <div className="flex items-center text-gray-600">
+                <span className="mr-2">🔓</span>
+                <span className="font-medium">100% Free & Open Source</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

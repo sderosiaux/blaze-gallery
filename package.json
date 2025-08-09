@@ -11,7 +11,9 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "sync": "node dist/scripts/sync.js",
-    "cleanup": "node dist/scripts/cleanup.js"
+    "cleanup": "node dist/scripts/cleanup.js",
+    "website:dev": "cd website && npm run dev",
+    "website:build": "cd website && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.650.0",

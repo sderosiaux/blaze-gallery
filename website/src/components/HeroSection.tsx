@@ -40,18 +40,18 @@ export default function HeroSection() {
           
           {/* Subheadline */}
           <p className="text-xl md:text-2xl text-gray-700 mb-8 max-w-3xl mx-auto leading-relaxed text-balance">
-            Self-hosted photo gallery that connects directly to your{' '}
+            <span className="font-semibold text-green-600">Free & open source</span> self-hosted photo gallery that connects directly to your{' '}
             <span className="font-semibold text-blaze-700">Backblaze B2</span> storage. 
             View, organize, and share thousands of photos while maintaining complete control over your data.
           </p>
           
           {/* Key Benefits */}
           <div className="flex flex-wrap justify-center gap-4 mb-10 text-sm font-medium">
-            <span className="bg-white/80 text-blaze-700 px-4 py-2 rounded-full shadow-sm">
-              🔒 Fully Self-Hosted
+            <span className="bg-green-100 text-green-700 px-4 py-2 rounded-full shadow-sm">
+              💚 100% Free Software
             </span>
             <span className="bg-white/80 text-blaze-700 px-4 py-2 rounded-full shadow-sm">
-              💰 $6/TB vs $120/TB
+              🔒 Privacy vs Scanning
             </span>
             <span className="bg-white/80 text-blaze-700 px-4 py-2 rounded-full shadow-sm">
               🚀 Docker Deploy
@@ -61,23 +61,25 @@ export default function HeroSection() {
             </span>
           </div>
           
+          {/* Quick Start Commands */}
+          <div className="bg-gray-900 text-white p-6 rounded-xl max-w-3xl mx-auto mb-8">
+            <div className="text-center mb-4">
+              <span className="text-green-400 font-semibold">Copy, paste, done:</span>
+            </div>
+            <div className="bg-black/50 p-4 rounded-lg font-mono text-left overflow-x-auto">
+              <code className="text-green-400 text-sm block mb-2">git clone https://github.com/sderosiaux/blaze-gallery.git</code>
+              <code className="text-green-400 text-sm block mb-2">cd blaze-gallery</code>
+              <code className="text-green-400 text-sm block mb-2">cp .env.template .env</code>
+              <code className="text-gray-400 text-sm block mb-2"># Edit .env with your B2 credentials</code>
+              <code className="text-green-400 text-sm block">docker-compose up -d</code>
+            </div>
+          </div>
+
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <a 
-              href="#quick-start" 
-              className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              Get Started Now
-            </a>
-            <a 
-              href="#demo" 
-              className="bg-white hover:bg-gray-50 text-blaze-600 border-2 border-blaze-600 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              View Live Demo
-            </a>
-            <a 
-              href="https://github.com/your-username/blaze-gallery" 
-              className="text-gray-600 hover:text-gray-800 flex items-center space-x-2 px-4 py-2 transition-colors"
+              href="https://github.com/sderosiaux/blaze-gallery" 
+              className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center space-x-2"
             >
               <span>⭐</span>
               <span>Star on GitHub</span>
