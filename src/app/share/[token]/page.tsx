@@ -112,7 +112,6 @@ export default function SharePage() {
         try {
           const url = new URL(`/api/shares/${token}`, window.location.origin);
           url.searchParams.set('password', password.trim());
-          url.searchParams.set('skip_count', 'true'); // Don't increment view count for password reloads
           
           const shareResponse = await fetch(url);
           const shareData = await shareResponse.json();

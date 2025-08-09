@@ -7,6 +7,7 @@ import {
   getPhotosInFolder,
   getFolderByPath
 } from '@/lib/database';
+import { shouldCountView } from '@/lib/shareHelpers';
 
 interface RouteParams {
   params: { token: string };
@@ -17,7 +18,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { token } = params;
     const searchParams = request.nextUrl.searchParams;
     const password = searchParams.get('password');
-    const skipCount = searchParams.get('skip_count') === 'true';
 
     // Get the shared folder
     const share = await getSharedFolder(token);
@@ -66,8 +66,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const photos = await getPhotosInFolder(folder.id);
 
-    // Increment view count and log access (skip count increment if it's a password reload)
-    if (!skipCount) {
+    // Increment view count with rate limiting (1 view per IP per hour)
+    if (shouldCountView(request, token)) {
       await incrementShareViewCount(token);
     }
     await logShareAccess(share.id, {
