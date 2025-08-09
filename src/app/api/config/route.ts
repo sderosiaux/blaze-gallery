@@ -174,25 +174,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (testConnection) {
-      const { initializeS3Client, listObjects } = await import("@/lib/s3");
+      const { testS3ConnectionWith } = await import("@/lib/s3");
 
-      try {
-        // Initialize S3 client for connection test (will reuse if config unchanged)
-        initializeS3Client({
-          endpoint: newConfig.backblaze_endpoint,
-          bucket: newConfig.backblaze_bucket,
-          accessKeyId: newConfig.backblaze_access_key,
-          secretAccessKey: newConfig.backblaze_secret_key,
-        });
-
-        await listObjects(newConfig.backblaze_bucket, "", undefined, 1, 1, request);
-      } catch (error) {
+      const testResult = await testS3ConnectionWith({
+        endpoint: newConfig.backblaze_endpoint,
+        bucket: newConfig.backblaze_bucket,
+        accessKeyId: newConfig.backblaze_access_key,
+        secretAccessKey: newConfig.backblaze_secret_key,
+      }, request);
+      
+      if (!testResult.success) {
         return NextResponse.json(
           {
             success: false,
             error: "S3 connection test failed",
-            connectionError:
-              error instanceof Error ? error.message : "Unknown error",
+            connectionError: testResult.error,
           },
           { status: 400 },
         );

@@ -88,7 +88,7 @@ class S3Manager {
   private currentConfigHash: string | null = null;
   private isInitialized = false;
 
-  private constructor() {}
+  constructor() {}
 
   static getInstance(): S3Manager {
     if (!S3Manager.instance) {
@@ -761,4 +761,32 @@ export async function getSignedDownloadUrlAuto(
   await getS3Client();
   const bucket = await S3Manager.getInstance().getBucketName();
   return getSignedDownloadUrl(bucket, key, expiresIn, request);
+}
+
+/**
+ * Test S3 connection with specific configuration
+ * Used for testing new configurations before saving
+ */
+export async function testS3ConnectionWith(config: S3Config, request?: Request): Promise<{success: boolean, error?: string}> {
+  try {
+    // Create a temporary S3Manager instance for testing
+    const testManager = new S3Manager();
+    const client = testManager.initializeClient(config);
+    
+    // Test with a simple list operation (1 item max)
+    const command = new ListObjectsV2Command({
+      Bucket: config.bucket,
+      Prefix: "",
+      MaxKeys: 1,
+    });
+    
+    await client.send(command);
+    
+    return { success: true };
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
 }

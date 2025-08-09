@@ -192,21 +192,23 @@ export async function testS3Connection(): Promise<{
       return { success: false, error: errorMessage };
     }
 
-    const { initializeS3Client, listObjects } = await import("./s3");
+    const { testS3ConnectionWith } = await import("./s3");
 
-    initializeS3Client({
+    const startTime = Date.now();
+    const testResult = await testS3ConnectionWith({
       endpoint: config.backblaze_endpoint,
       bucket: config.backblaze_bucket,
       accessKeyId: config.backblaze_access_key,
       secretAccessKey: config.backblaze_secret_key,
     });
-
-    const startTime = Date.now();
-    const result = await listObjects(config.backblaze_bucket, "", undefined, 1);
     const duration = Date.now() - startTime;
+    
+    if (!testResult.success) {
+      throw new Error(testResult.error);
+    }
 
     logger.configInfo(
-      `S3 connection test successful (read-only) - ${config.backblaze_bucket} at ${config.backblaze_endpoint} (${duration}ms, ${result.objects.length} objects)`
+      `S3 connection test successful (read-only) - ${config.backblaze_bucket} at ${config.backblaze_endpoint} (${duration}ms)`
     );
 
     return { success: true, isReadOnly: true };
