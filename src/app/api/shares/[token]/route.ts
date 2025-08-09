@@ -17,6 +17,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { token } = params;
     const searchParams = request.nextUrl.searchParams;
     const password = searchParams.get('password');
+    const skipCount = searchParams.get('skip_count') === 'true';
 
     // Get the shared folder
     const share = await getSharedFolder(token);
@@ -65,8 +66,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const photos = await getPhotosInFolder(folder.id);
 
-    // Increment view count and log access
-    await incrementShareViewCount(token);
+    // Increment view count and log access (skip count increment if it's a password reload)
+    if (!skipCount) {
+      await incrementShareViewCount(token);
+    }
     await logShareAccess(share.id, {
       ip_address: request.ip || request.headers.get('x-forwarded-for') || 'unknown',
       user_agent: request.headers.get('user-agent') || 'unknown',

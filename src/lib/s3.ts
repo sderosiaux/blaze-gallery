@@ -113,6 +113,38 @@ class S3Manager {
     return !this.isInitialized || this.currentConfigHash !== newConfigHash;
   }
 
+  /**
+   * Auto-initialize S3 client with configuration from the database/environment
+   * This eliminates the need for endpoints to manually fetch config and initialize
+   */
+  async ensureInitialized(): Promise<S3Client> {
+    if (this.isInitialized && this.s3Client) {
+      return this.s3Client;
+    }
+
+    // Dynamic import to avoid circular dependency with config.ts
+    const { getConfig } = await import('./config');
+    const config = await getConfig();
+    
+    return this.initializeClient({
+      endpoint: config.backblaze_endpoint,
+      bucket: config.backblaze_bucket,
+      accessKeyId: config.backblaze_access_key,
+      secretAccessKey: config.backblaze_secret_key,
+    });
+  }
+
+  /**
+   * Get the configured bucket name
+   * Used by auto-initializing functions that need bucket parameter
+   */
+  async getBucketName(): Promise<string> {
+    // Dynamic import to avoid circular dependency with config.ts
+    const { getConfig } = await import('./config');
+    const config = await getConfig();
+    return config.backblaze_bucket;
+  }
+
   initializeClient(config: S3Config): S3Client {
     try {
       // Check if we need to reinitialize
@@ -360,7 +392,7 @@ export async function listObjects(
 }
 
 export async function getObjectMetadata(bucket: string, key: string, request?: Request) {
-  const client = getS3Client();
+  const client = await S3Manager.getInstance().ensureInitialized();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -456,7 +488,7 @@ export async function getSignedDownloadUrl(
     }
   }
 
-  const client = getS3Client();
+  const client = await S3Manager.getInstance().ensureInitialized();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -535,7 +567,7 @@ export async function getSignedDownloadUrl(
 }
 
 export async function getObjectStream(bucket: string, key: string, request?: Request) {
-  const client = getS3Client();
+  const client = await S3Manager.getInstance().ensureInitialized();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;
@@ -683,4 +715,46 @@ export function getFilenameFromKey(key: string): string {
     return key;
   }
   return key.substring(lastSlashIndex + 1);
+}
+
+// Auto-initializing wrapper functions that don't require manual config
+
+/**
+ * Get object stream with auto-initialization
+ * No need to manually initialize S3 client or fetch config
+ */
+export async function getObjectStreamAuto(key: string, request?: Request) {
+  await S3Manager.getInstance().ensureInitialized();
+  const bucket = await S3Manager.getInstance().getBucketName();
+  return getObjectStream(bucket, key, request);
+}
+
+/**
+ * List objects with auto-initialization
+ * No need to manually initialize S3 client or fetch config  
+ */
+export async function listObjectsAuto(
+  prefix?: string,
+  continuationToken?: string,
+  maxKeys: number = 1000,
+  pageNumber: number = 1,
+  request?: Request,
+) {
+  await S3Manager.getInstance().ensureInitialized();
+  const bucket = await S3Manager.getInstance().getBucketName();
+  return listObjects(bucket, prefix, continuationToken, maxKeys, pageNumber, request);
+}
+
+/**
+ * Get signed download URL with auto-initialization
+ * No need to manually initialize S3 client or fetch config
+ */
+export async function getSignedDownloadUrlAuto(
+  key: string,
+  expiresIn: number = 3600,
+  request?: Request,
+): Promise<string> {
+  await S3Manager.getInstance().ensureInitialized();
+  const bucket = await S3Manager.getInstance().getBucketName();
+  return getSignedDownloadUrl(bucket, key, expiresIn, request);
 }

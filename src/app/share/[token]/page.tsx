@@ -108,8 +108,25 @@ export default function SharePage() {
       }
 
       if (result.valid) {
-        // Password is valid, reload the share with the password
-        await loadShare(password.trim());
+        // Password is valid, load the share data without incrementing view count again
+        try {
+          const url = new URL(`/api/shares/${token}`, window.location.origin);
+          url.searchParams.set('password', password.trim());
+          url.searchParams.set('skip_count', 'true'); // Don't increment view count for password reloads
+          
+          const shareResponse = await fetch(url);
+          const shareData = await shareResponse.json();
+          
+          if (shareResponse.ok) {
+            setShareData(shareData);
+            setPasswordRequired(false);
+            document.title = `${shareData.folder.name} - Shared Folder`;
+          } else {
+            throw new Error(shareData.error || 'Failed to load shared folder');
+          }
+        } catch (shareError) {
+          setError(shareError instanceof Error ? shareError.message : 'Failed to load shared folder');
+        }
       } else {
         setError('Invalid password');
       }

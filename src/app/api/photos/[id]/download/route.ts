@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPhoto } from "@/lib/database";
-import { getSignedDownloadUrl, initializeS3Client } from "@/lib/s3";
-import { getConfig } from "@/lib/config";
+import { getSignedDownloadUrlAuto } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 import { ValidationPatterns } from "@/lib/validation";
 
@@ -47,18 +46,8 @@ export async function GET(
       );
     }
 
-    const config = await getConfig();
-
-    // Initialize S3 client (reuses connection if config unchanged)
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
-
-    const signedUrl = await getSignedDownloadUrl(
-      config.backblaze_bucket,
+    // Get signed download URL - S3 client auto-initializes
+    const signedUrl = await getSignedDownloadUrlAuto(
       photo.s3_key,
       3600,
       request,

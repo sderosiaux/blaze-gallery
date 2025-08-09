@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  getSharedFolder, 
-  validateSharePassword, 
-  logShareAccess,
-  getPhoto
-} from '@/lib/database';
-import { getObjectStream, initializeS3Client } from '@/lib/s3';
-import { getConfig } from '@/lib/config';
+import { logShareAccess } from '@/lib/database';
+import { getObjectStreamAuto } from '@/lib/s3';
+import { validateSharedPhotoAccess } from '@/lib/shareHelpers';
 
 interface RouteParams {
   params: { token: string; photoId: string };
@@ -15,53 +10,14 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
-    const searchParams = request.nextUrl.searchParams;
-    const password = searchParams.get('password');
 
-    // Get the shared folder
-    const share = await getSharedFolder(token);
+    // Validate shared photo access (no download permission required for viewing)
+    const validation = await validateSharedPhotoAccess(request, token, photoId, false);
+    if (validation.error) {
+      return validation.error;
+    }
     
-    if (!share) {
-      return NextResponse.json(
-        { error: 'Share not found or expired' },
-        { status: 404 }
-      );
-    }
-
-    // Check password if required
-    if (share.password_hash) {
-      if (!password) {
-        return NextResponse.json(
-          { error: 'Password required' },
-          { status: 401 }
-        );
-      }
-
-      const isValidPassword = await validateSharePassword(token, password);
-      if (!isValidPassword) {
-        return NextResponse.json(
-          { error: 'Invalid password' },
-          { status: 401 }
-        );
-      }
-    }
-
-    // Get the photo and verify it belongs to the shared folder
-    const photo = await getPhoto(parseInt(photoId));
-    if (!photo) {
-      return NextResponse.json(
-        { error: 'Photo not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify the photo is in the shared folder
-    if (!photo.s3_key.startsWith(share.folder_path)) {
-      return NextResponse.json(
-        { error: 'Photo not accessible through this share' },
-        { status: 403 }
-      );
-    }
+    const { share, photo } = validation;
 
     // Log view access (not download)
     await logShareAccess(share.id, {
@@ -71,19 +27,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       success: true
     });
 
-    // Initialize S3 client
-    const config = await getConfig();
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
-
-    // Get the photo from S3 for viewing (always allowed)
+    // Get the photo from S3 for viewing (always allowed) - S3 client auto-initializes
     try {
-      const stream = await getObjectStream(
-        config.backblaze_bucket,
+      const stream = await getObjectStreamAuto(
         photo.s3_key,
         request
       );

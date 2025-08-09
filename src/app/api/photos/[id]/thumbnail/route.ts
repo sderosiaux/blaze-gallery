@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPhoto } from "@/lib/database";
 import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
-import { initializeS3Client } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 import { thumbnailRateLimiter } from "@/lib/rateLimiter";
 
@@ -97,13 +96,7 @@ export async function GET(
       console.log(`Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`);
     }
 
-    // Initialize S3 client (reuses connection if config unchanged)
-    initializeS3Client({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
+    // S3 client will be auto-initialized by thumbnail service when needed
 
     let thumbnailPath;
     try {

@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  getSharedFolder, 
-  validateSharePassword, 
-  getPhoto
-} from '@/lib/database';
 import { thumbnailService } from '@/lib/thumbnails';
+import { validateSharedPhotoAccess } from '@/lib/shareHelpers';
 
 interface RouteParams {
   params: { token: string; photoId: string };
@@ -13,53 +9,14 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
-    const searchParams = request.nextUrl.searchParams;
-    const password = searchParams.get('password');
 
-    // Get the shared folder
-    const share = await getSharedFolder(token);
+    // Validate shared photo access (no download permission required for thumbnails)
+    const validation = await validateSharedPhotoAccess(request, token, photoId, false);
+    if (validation.error) {
+      return validation.error;
+    }
     
-    if (!share) {
-      return NextResponse.json(
-        { error: 'Share not found or expired' },
-        { status: 404 }
-      );
-    }
-
-    // Check password if required
-    if (share.password_hash) {
-      if (!password) {
-        return NextResponse.json(
-          { error: 'Password required' },
-          { status: 401 }
-        );
-      }
-
-      const isValidPassword = await validateSharePassword(token, password);
-      if (!isValidPassword) {
-        return NextResponse.json(
-          { error: 'Invalid password' },
-          { status: 401 }
-        );
-      }
-    }
-
-    // Get the photo and verify it belongs to the shared folder
-    const photo = await getPhoto(parseInt(photoId));
-    if (!photo) {
-      return NextResponse.json(
-        { error: 'Photo not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify the photo is in the shared folder
-    if (!photo.s3_key.startsWith(share.folder_path)) {
-      return NextResponse.json(
-        { error: 'Photo not accessible through this share' },
-        { status: 403 }
-      );
-    }
+    const { photo } = validation;
 
     // Get the thumbnail using the same service as the regular endpoint
     if (photo.thumbnail_path) {
