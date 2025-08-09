@@ -118,19 +118,8 @@ class S3Manager {
    * Fetches config and initializes client transparently if needed
    */
   getS3Client(): S3Client {
-    if (this.isInitialized && this.s3Client) {
-      return this.s3Client;
-    }
-
-    const { getConfig } = require('./config');
-    const config = getConfig();
-    
-    return this.initializeClient({
-      endpoint: config.backblaze_endpoint,
-      bucket: config.backblaze_bucket,
-      accessKeyId: config.backblaze_access_key,
-      secretAccessKey: config.backblaze_secret_key,
-    });
+    this.ensureInitialized();
+    return this.s3Client!;
   }
 
   /**
@@ -138,10 +127,7 @@ class S3Manager {
    * Auto-initializes S3Manager if needed and returns bucket name
    */
   getBucketName(): string {
-    // Ensure S3Manager is initialized (this will load config if needed)
-    if (!this.isInitialized) {
-      this.ensureInitialized();
-    }
+    this.ensureInitialized();
     
     const { getConfig } = require('./config');
     const config = getConfig();
@@ -150,19 +136,22 @@ class S3Manager {
 
   /**
    * Ensure S3Manager is initialized without returning the client
+   * Single source of truth for initialization logic
    */
   private ensureInitialized(): void {
-    if (!this.isInitialized) {
-      const { getConfig } = require('./config');
-      const config = getConfig();
-      
-      this.initializeClient({
-        endpoint: config.backblaze_endpoint,
-        bucket: config.backblaze_bucket,
-        accessKeyId: config.backblaze_access_key,
-        secretAccessKey: config.backblaze_secret_key,
-      });
+    if (this.isInitialized && this.s3Client) {
+      return; // Already initialized
     }
+
+    const { getConfig } = require('./config');
+    const config = getConfig();
+    
+    this.initializeClient({
+      endpoint: config.backblaze_endpoint,
+      bucket: config.backblaze_bucket,
+      accessKeyId: config.backblaze_access_key,
+      secretAccessKey: config.backblaze_secret_key,
+    });
   }
 
   initializeClient(config: S3Config): S3Client {
