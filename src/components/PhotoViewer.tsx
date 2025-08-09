@@ -158,21 +158,39 @@ export default function PhotoViewer({
     };
   }, [photo.id]); // Only depend on photo.id to prevent loops
   
-  // Separate effect for session-based loading
+  // Separate effect for session-based loading with race condition prevention
   useEffect(() => {
     // Load full image for password-protected shared views only
     if (isSharedView && shareToken && sessionToken && photo.id) {
+      let isCancelled = false; // Flag to prevent race conditions
+      const abortController = new AbortController(); // Cancel in-flight requests
+      
       const loadSessionImage = async () => {
         try {
           const response = await fetch(`/api/shares/${shareToken}/view/${photo.id}`, {
-            headers: { 'x-share-session': sessionToken }
+            headers: { 'x-share-session': sessionToken },
+            signal: abortController.signal // Cancel if component unmounts or photo changes
           });
+          
+          // Check if this request was cancelled before processing response
+          if (isCancelled) {
+            console.log('Session image load cancelled for photo:', photo.id);
+            return;
+          }
           
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           
           const blob = await response.blob();
+          
+          // Double-check cancellation after async operation
+          if (isCancelled) {
+            URL.revokeObjectURL(URL.createObjectURL(blob)); // Clean up blob
+            console.log('Session image load cancelled after blob creation for photo:', photo.id);
+            return;
+          }
+          
           const blobUrl = URL.createObjectURL(blob);
           
           // Clean up previous blob URL
@@ -182,14 +200,30 @@ export default function PhotoViewer({
           
           setFullImageBlobUrl(blobUrl);
         } catch (error) {
-          console.error('Failed to load full image with session:', error);
-          setImageLoading(false);
-          setImageError(true);
-          clearLoadingTimeout();
+          // Ignore aborted requests (expected when navigating quickly)
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            console.log('Session image load aborted for photo:', photo.id);
+            return;
+          }
+          
+          // Only set error if this request wasn't cancelled
+          if (!isCancelled) {
+            console.error('Failed to load full image with session:', error);
+            setImageLoading(false);
+            setImageError(true);
+            clearLoadingTimeout();
+          }
         }
       };
       
       loadSessionImage();
+      
+      // Cleanup function to cancel ongoing request
+      return () => {
+        isCancelled = true;
+        abortController.abort();
+        console.log('Cancelled session image load for photo:', photo.id);
+      };
     }
   }, [photo.id, isSharedView, shareToken, sessionToken]);
 
