@@ -28,11 +28,15 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       const index = photos.findIndex(p => p.id === photo.id);
       setCurrentIndex(index !== -1 ? index : 0);
     }
+  }, [photo.id, photos]);
+
+  // Handle photo change - only reset loading when the photo actually changes
+  useEffect(() => {
     setCurrentPhoto(photo);
     setCurrentFavoriteState(photo.is_favorite);
     setImageLoading(true);
     setImageError(false);
-  }, [photo, photos]);
+  }, [photo.id]); // Only depend on photo.id, not the full photo object
 
   // Preload nearby images for smooth navigation
   const preloadImages = useCallback((centerIndex: number) => {

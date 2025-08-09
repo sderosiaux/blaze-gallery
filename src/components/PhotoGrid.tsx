@@ -164,8 +164,8 @@ export default function PhotoGrid({ photos, loading = false, selectedPhotoId, on
                 p.id === updatedPhoto.id ? updatedPhoto : p
               )
             );
-            // Update the selected photo as well
-            setSelectedPhoto(updatedPhoto);
+            // DON'T update selectedPhoto here - it causes image reload in PhotoViewer
+            // The PhotoViewer manages its own favorite state separately to prevent this issue
           }}
           onPhotoChange={(newPhoto) => {
             setSelectedPhoto(newPhoto);

@@ -23,24 +23,20 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
   };
 
   const getHeatColor = (intensity: number) => {
-    // Beautiful gradient from cool teal to vibrant orange/red
-    if (intensity < 0.2) {
-      // Very low: Cool mint/teal
-      return `hsl(${180 - intensity * 30}, 65%, 88%)`;
-    } else if (intensity < 0.4) {
-      // Low: Light blue to cyan  
-      return `hsl(${190 - intensity * 40}, 70%, 82%)`;
-    } else if (intensity < 0.6) {
-      // Medium: Blue to purple
-      return `hsl(${220 - intensity * 80}, 75%, 75%)`;
-    } else if (intensity < 0.8) {
-      // High: Purple to magenta
-      return `hsl(${280 - intensity * 100}, 80%, 68%)`;
-    } else {
-      // Very high: Hot orange to red with gradient
-      const hotIntensity = (intensity - 0.8) / 0.2;
-      return `hsl(${25 - hotIntensity * 25}, 90%, ${65 - hotIntensity * 10}%)`;
-    }
+    // Smooth gradient from cool blue-green to warm red-orange
+    // Clamp intensity between 0 and 1
+    const clampedIntensity = Math.max(0, Math.min(1, intensity));
+    
+    // Smooth hue transition: 200° (cyan-blue) to 0° (red)
+    const hue = 200 - (clampedIntensity * 200);
+    
+    // Smooth saturation transition: starts moderate, peaks in middle, stays high at end
+    const saturation = 50 + (clampedIntensity * 45); // 50% to 95%
+    
+    // Smooth lightness transition: starts light, gets darker towards red
+    const lightness = 88 - (clampedIntensity * 28); // 88% to 60%
+    
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
   };
 
   const formatValue = (folder: FolderStats) => {
@@ -64,7 +60,7 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center text-sm text-gray-600">
-        <span>Folder {type === 'size' ? 'Storage' : 'Photo Count'} Heatmap</span>
+        <span>{type === 'size' ? 'Storage Usage' : 'Photo Distribution'} by Folder</span>
         <div className="flex items-center space-x-2">
           <span className="text-xs">Less</span>
           <div className="flex">

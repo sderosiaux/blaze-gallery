@@ -397,10 +397,10 @@ export default function StatsPage() {
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <HardDrive className="w-5 h-5 mr-2" />
-                Folder Storage Heatmap
+                Storage Usage by Folder
               </h3>
               <p className="text-sm text-gray-600 mt-1">
-                Visual overview of folder sizes - darker/redder colors indicate larger storage usage
+                Visual overview of which folders use the most space - darker colors indicate larger folders
               </p>
             </div>
             <div className="p-6">
@@ -412,10 +412,10 @@ export default function StatsPage() {
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Image className="w-5 h-5 mr-2" />
-                Folder Photo Count Heatmap
+                Photos by Folder
               </h3>
               <p className="text-sm text-gray-600 mt-1">
-                Visual overview of photo distribution - darker/redder colors indicate more photos
+                Visual overview of which folders contain the most photos - darker colors indicate more photos
               </p>
             </div>
             <div className="p-6">
