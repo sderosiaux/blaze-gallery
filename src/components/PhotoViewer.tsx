@@ -20,6 +20,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
   const [isSlideshow, setIsSlideshow] = useState(false);
   const [preloadedImages, setPreloadedImages] = useState<Set<string>>(new Set());
   const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const [currentFavoriteState, setCurrentFavoriteState] = useState(photo.is_favorite);
 
   // Initialize current index based on selected photo
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       setCurrentIndex(index !== -1 ? index : 0);
     }
     setCurrentPhoto(photo);
+    setCurrentFavoriteState(photo.is_favorite);
     setImageLoading(true);
     setImageError(false);
   }, [photo, photos]);
@@ -68,6 +70,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     const newPhoto = photos[newIndex];
     setCurrentIndex(newIndex);
     setCurrentPhoto(newPhoto);
+    setCurrentFavoriteState(newPhoto.is_favorite);
     setImageLoading(true);
     setImageError(false);
     onPhotoChange?.(newPhoto);
@@ -79,6 +82,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     const newPhoto = photos[newIndex];
     setCurrentIndex(newIndex);
     setCurrentPhoto(newPhoto);
+    setCurrentFavoriteState(newPhoto.is_favorite);
     setImageLoading(true);
     setImageError(false);
     onPhotoChange?.(newPhoto);
@@ -154,12 +158,11 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     if (favoriteLoading) return; // Prevent multiple clicks
     
     setFavoriteLoading(true);
-    const originalState = currentPhoto.is_favorite;
+    const originalState = currentFavoriteState;
     
     try {
-      // Optimistically update the UI
-      const optimisticPhoto = { ...currentPhoto, is_favorite: !currentPhoto.is_favorite };
-      setCurrentPhoto(optimisticPhoto);
+      // Optimistically update the UI - only the favorite state, not the whole photo object
+      setCurrentFavoriteState(!currentFavoriteState);
       
       const response = await fetch(`/api/photos/${currentPhoto.id}/favorite`, {
         method: "POST",
@@ -175,17 +178,19 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       const data = await response.json();
 
       if (data.success) {
+        // Update the separate favorite state
+        setCurrentFavoriteState(data.is_favorite);
+        // Create updated photo for the parent callback without affecting our state
         const updatedPhoto = { ...currentPhoto, is_favorite: data.is_favorite };
-        setCurrentPhoto(updatedPhoto);
         onFavoriteToggle?.(updatedPhoto);
       } else {
-        // Revert on server error
-        setCurrentPhoto({ ...currentPhoto, is_favorite: originalState });
+        // Revert favorite state on server error
+        setCurrentFavoriteState(originalState);
         console.error("Server error toggling favorite:", data.error);
       }
     } catch (error) {
-      // Revert on network error
-      setCurrentPhoto({ ...currentPhoto, is_favorite: originalState });
+      // Revert favorite state on network error
+      setCurrentFavoriteState(originalState);
       console.error("Failed to toggle favorite:", error);
     } finally {
       setFavoriteLoading(false);
@@ -309,14 +314,14 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
                 favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
               }`}
-              title={favoriteLoading ? "Updating..." : currentPhoto.is_favorite ? "Remove from favorites" : "Add to favorites"}
+              title={favoriteLoading ? "Updating..." : currentFavoriteState ? "Remove from favorites" : "Add to favorites"}
             >
               {favoriteLoading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <Heart
                   className={`w-5 h-5 transition-colors ${
-                    currentPhoto.is_favorite
+                    currentFavoriteState
                       ? "text-red-500 fill-current"
                       : "text-white hover:text-red-400"
                   }`}
