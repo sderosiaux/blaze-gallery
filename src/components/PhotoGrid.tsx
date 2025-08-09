@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Photo } from "@/types";
-import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Expand, Minimize2 } from "lucide-react";
 import PhotoViewer from "./PhotoViewer";
 import PhotoSkeleton from "./PhotoSkeleton";
 import PhotoItem from "./PhotoItem";
@@ -37,6 +37,22 @@ export default function PhotoGrid({
   useEffect(() => {
     setPhotosState(photos);
   }, [photos]);
+
+  // Keyboard navigation for gallery expand/compress
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if no photo viewer is open
+      if (!selectedPhoto && (e.key === "e" || e.key === "E")) {
+        e.preventDefault();
+        setIsFullWidth(!isFullWidth);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedPhoto, setIsFullWidth]);
 
   // Handle initial photo selection from URL params
   useEffect(() => {
@@ -102,13 +118,15 @@ export default function PhotoGrid({
           </h2>
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
-            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
-            title={isFullWidth ? "Compress gallery" : "Expand gallery"}
+            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
+              isFullWidth ? "bg-gray-100 text-blue-600" : "text-gray-600 hover:text-blue-600"
+            }`}
+            title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
           >
             {isFullWidth ? (
-              <ChevronsLeft className="w-5 h-5" />
+              <Minimize2 className="w-5 h-5" />
             ) : (
-              <ChevronsRight className="w-5 h-5" />
+              <Expand className="w-5 h-5" />
             )}
           </button>
         </div>
@@ -143,13 +161,15 @@ export default function PhotoGrid({
           </h2>
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
-            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded-lg transition-colors"
-            title={isFullWidth ? "Compress gallery" : "Expand gallery"}
+            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
+              isFullWidth ? "bg-gray-100 text-blue-600" : "text-gray-600 hover:text-blue-600"
+            }`}
+            title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
           >
             {isFullWidth ? (
-              <ChevronsLeft className="w-5 h-5" />
+              <Minimize2 className="w-5 h-5" />
             ) : (
-              <ChevronsRight className="w-5 h-5" />
+              <Expand className="w-5 h-5" />
             )}
           </button>
         </div>
