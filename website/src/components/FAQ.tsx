@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface FAQItem {
   question: string
@@ -80,6 +81,27 @@ export default function FAQ() {
   const [openFAQ, setOpenFAQ] = useState<number | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>('all')
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.5
+      }
+    }
+  }
+
   const categories = [
     { id: 'all', name: 'All Questions', icon: '💭' },
     { id: 'setup', name: 'Setup & Usage', icon: '🚀' },
@@ -93,91 +115,131 @@ export default function FAQ() {
     : faqs.filter(faq => faq.category === activeCategory)
 
   return (
-    <section className="py-20 bg-white">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            Frequently Asked Questions
+    <section className="py-24 bg-gray-50/50">
+      <div className="container mx-auto px-6 max-w-6xl">
+        <motion.div 
+          className="text-center mb-20"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+        >
+          <h2 className="text-5xl md:text-6xl font-light text-gray-900 mb-8 leading-tight">
+            Frequently Asked <br className="hidden sm:block" />
+            <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-normal">Questions</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto font-light leading-relaxed">
             Everything you need to know about Blaze Gallery, from setup to security. 
             Still have questions? Ask on GitHub or join our community.
           </p>
-        </div>
+        </motion.div>
 
         {/* Category Filter */}
-        <div className="flex flex-wrap justify-center gap-3 mb-12">
+        <motion.div 
+          className="flex flex-wrap justify-center gap-3 mb-16"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          viewport={{ once: true }}
+        >
           {categories.map((category) => (
             <button
               key={category.id}
               onClick={() => setActiveCategory(category.id)}
-              className={`px-4 py-2 rounded-full transition-all ${
+              className={`px-6 py-3 rounded-full font-medium transition-all duration-300 ${
                 activeCategory === category.id
-                  ? 'bg-blaze-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg'
+                  : 'bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:bg-white hover:shadow-md'
               }`}
             >
               <span className="mr-2">{category.icon}</span>
               {category.name}
             </button>
           ))}
-        </div>
+        </motion.div>
 
         {/* FAQ List */}
-        <div className="max-w-4xl mx-auto">
+        <motion.div 
+          className="max-w-4xl mx-auto"
+          variants={containerVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-50px" }}
+        >
           {filteredFAQs.map((faq, index) => (
-            <div 
+            <motion.div 
               key={index}
-              className="border border-gray-200 rounded-lg mb-4 overflow-hidden"
+              className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl mb-4 overflow-hidden hover:shadow-lg transition-all duration-300"
+              variants={itemVariants}
             >
               <button
                 onClick={() => setOpenFAQ(openFAQ === index ? null : index)}
-                className="w-full px-6 py-4 text-left bg-white hover:bg-gray-50 transition-colors flex justify-between items-center"
+                className="w-full px-8 py-6 text-left bg-transparent hover:bg-white/50 transition-all duration-300 flex justify-between items-center group"
               >
-                <span className="font-semibold text-gray-900 pr-4">
+                <span className="text-xl font-medium text-gray-900 pr-4 group-hover:text-gray-700 transition-colors">
                   {faq.question}
                 </span>
-                <span className={`text-blaze-600 transition-transform ${
-                  openFAQ === index ? 'rotate-45' : ''
-                }`}>
+                <motion.span 
+                  className="text-2xl text-orange-500 font-light"
+                  animate={{ rotate: openFAQ === index ? 45 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
                   +
-                </span>
+                </motion.span>
               </button>
-              {openFAQ === index && (
-                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-                  <p className="text-gray-700 leading-relaxed">{faq.answer}</p>
-                </div>
-              )}
-            </div>
+              <AnimatePresence>
+                {openFAQ === index && (
+                  <motion.div 
+                    className="px-8 py-6 bg-white/50 border-t border-gray-200/50"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                  >
+                    <p className="text-gray-700 leading-relaxed text-lg font-light">{faq.answer}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
 
         {/* Still Have Questions CTA */}
-        <div className="text-center mt-16">
-          <div className="bg-blaze-50 p-8 rounded-xl max-w-2xl mx-auto">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">
-              Still Have Questions?
+        <motion.div 
+          className="text-center mt-20"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+          viewport={{ once: true }}
+        >
+          <div className="bg-gray-50/50 border border-gray-200/50 p-12 rounded-3xl max-w-4xl mx-auto shadow-sm">
+            <h3 className="text-4xl md:text-5xl font-light text-gray-900 mb-6 leading-tight">
+              Still Have <br className="hidden sm:block" />
+              <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-normal">Questions?</span>
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-xl md:text-2xl text-gray-600 mb-8 font-light leading-relaxed max-w-3xl mx-auto">
               Join our community on GitHub or check out the comprehensive documentation 
               with step-by-step guides and troubleshooting.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a
+            <div className="flex flex-col sm:flex-row gap-6 justify-center">
+              <motion.a
                 href="https://github.com/sderosiaux/blaze-gallery/discussions"
-                className="bg-blaze-600 hover:bg-blaze-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                className="bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white px-8 py-4 rounded-2xl font-medium transition-all duration-300 shadow-lg hover:shadow-xl"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 Ask on GitHub
-              </a>
+              </motion.a>
               <a
                 href="https://github.com/sderosiaux/blaze-gallery/blob/main/README.md"
-                className="text-blaze-600 hover:text-blaze-700 px-6 py-3 font-semibold transition-colors"
+                className="text-gray-600 hover:text-gray-800 px-8 py-4 font-medium transition-colors inline-flex items-center space-x-2"
               >
-                Read Documentation
+                <span>Read Documentation</span>
+                <span>→</span>
               </a>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     </section>
   )

@@ -1,3 +1,7 @@
+'use client'
+
+import { motion } from 'framer-motion'
+
 export default function FeaturesGrid() {
   const features = [
     {
@@ -62,56 +66,103 @@ export default function FeaturesGrid() {
     }
   ]
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.5
+      }
+    }
+  }
+
   return (
-    <section className="py-20 bg-gray-50">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            Everything You Need for Photo Management
+    <section className="py-24 bg-white">
+      <div className="container mx-auto px-6 max-w-7xl">
+        <motion.div 
+          className="text-center mb-20"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+        >
+          <h2 className="text-5xl md:text-6xl font-light text-gray-900 mb-8 leading-tight">
+            Everything You Need for <br className="hidden sm:block" />
+            <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-normal">Photo Management</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            <span className="font-semibold text-green-600">Blaze Gallery is 100% free and open source.</span> It combines the best of self-hosted control with Backblaze B2's affordable cloud storage. 
+          <p className="text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto font-light leading-relaxed">
+            <span className="text-gray-900 font-medium">Blaze Gallery is 100% free and open source.</span> It combines the best of self-hosted control with Backblaze B2's affordable cloud storage. 
             Here's what makes it special:
           </p>
-        </div>
+        </motion.div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+        <motion.div 
+          className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto"
+          variants={containerVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-100px" }}
+        >
           {features.map((feature, index) => (
-            <div 
+            <motion.div 
               key={index}
-              className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 hover:-translate-y-1"
-              style={{ animationDelay: `${index * 50}ms` }}
+              className="group bg-white/80 backdrop-blur-sm border border-gray-200/50 p-8 rounded-2xl hover:bg-white hover:shadow-xl hover:shadow-gray-900/5 transition-all duration-500 cursor-pointer"
+              variants={itemVariants}
+              whileHover={{ y: -8, transition: { duration: 0.3 } }}
             >
-              <div className="text-4xl mb-4">{feature.icon}</div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
-              <p className="text-gray-600 leading-relaxed">{feature.description}</p>
-            </div>
+              <div className="text-5xl mb-6 group-hover:scale-110 transition-transform duration-300">{feature.icon}</div>
+              <h3 className="text-2xl font-medium text-gray-900 mb-4">{feature.title}</h3>
+              <p className="text-gray-600 leading-relaxed font-light text-lg">{feature.description}</p>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
 
         {/* Bottom CTA */}
-        <div className="text-center mt-16">
-          <div className="bg-white p-8 rounded-xl shadow-sm max-w-2xl mx-auto">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">
-              Ready to Take Control of Your Photos?
+        <motion.div 
+          className="text-center mt-20"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          viewport={{ once: true }}
+        >
+          <div className="bg-gray-50/50 border border-gray-200/50 p-12 rounded-3xl shadow-sm max-w-4xl mx-auto">
+            <h3 className="text-4xl md:text-5xl font-light text-gray-900 mb-6 leading-tight">
+              Ready to Take Control of <br className="hidden sm:block" />
+              <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-normal">Your Photos?</span>
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-xl md:text-2xl text-gray-600 mb-8 font-light leading-relaxed max-w-3xl mx-auto">
               Join users who've taken control of their photo storage with transparent pricing and complete privacy.
             </p>
-            <a
-              href="https://github.com/sderosiaux/blaze-gallery"
-              className="bg-blaze-600 hover:bg-blaze-700 text-white px-8 py-3 rounded-lg font-semibold inline-block transition-colors mr-4"
-            >
-              Get Blaze Gallery
-            </a>
-            <a
-              href="https://github.com/sderosiaux/blaze-gallery"
-              className="text-blaze-600 hover:text-blaze-700 font-semibold inline-block transition-colors"
-            >
-              View Source Code →
-            </a>
+            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
+              <motion.a
+                href="https://github.com/sderosiaux/blaze-gallery"
+                className="bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white px-10 py-4 rounded-2xl font-medium text-lg transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-orange-500/25"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                Get Blaze Gallery
+              </motion.a>
+              <a
+                href="https://github.com/sderosiaux/blaze-gallery"
+                className="text-gray-600 hover:text-gray-800 font-medium inline-flex items-center space-x-2 transition-colors text-lg"
+              >
+                <span>View Source Code</span>
+                <span>→</span>
+              </a>
+            </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     </section>
   )
