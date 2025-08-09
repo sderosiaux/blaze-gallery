@@ -58,3 +58,9 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
 3. Commit your changes (`git commit -m 'Add feature'`)
 4. Push to the branch (`git push origin feature/name`)
 5. Open a Pull Request
+
+---
+
+**⭐ If you find Blaze Gallery useful, please give it a star on GitHub!**
+
+Built with ❤️ for photographers and self-hosting enthusiasts who want to keep their memories safe and beautifully browsable.
