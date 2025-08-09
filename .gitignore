@@ -67,3 +67,7 @@ out/
 
 # Thumbnails
 /data/thumbnails/
+
+# Claude debug files (keep local only)
+CLAUDE_PROMPTS.md
+CLAUDE_DEBUG.md
