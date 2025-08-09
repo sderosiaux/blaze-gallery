@@ -629,6 +629,7 @@ export default function StatsPage() {
 
           {/* Duplicate Folders List */}
           {duplicateFolders && !duplicateFoldersLoading && (
+            <div className="space-y-6">
               {duplicateFolders.duplicates.length > 0 ? (
                 <div className="bg-white rounded-lg shadow">
                   <div className="p-6">

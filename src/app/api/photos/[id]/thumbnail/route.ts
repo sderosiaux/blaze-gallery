@@ -119,11 +119,10 @@ export async function GET(
       // Handle unsupported format as expected behavior, not an error
       if (error instanceof Error && error.message.includes("Unsupported image format")) {
         logger.thumbnailOperation(
-          `Thumbnail request for unsupported format`,
+          `Thumbnail request for unsupported format: ${photo.s3_key.toLowerCase().split('.').pop() || 'unknown'}`,
           {
             photoId: photo.id,
             s3Key: photo.s3_key,
-            fileExtension: photo.s3_key.toLowerCase().split('.').pop() || 'unknown',
           },
         );
         return new NextResponse(
