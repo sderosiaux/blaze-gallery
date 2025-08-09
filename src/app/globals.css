@@ -10,15 +10,64 @@
 
 @layer utilities {
   .animate-shimmer {
-    animation: shimmer 2s ease-in-out infinite;
+    animation: shimmer 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.6) 50%, transparent 100%);
+    background-size: 200% 100%;
   }
 
   @keyframes shimmer {
     0% {
-      background-position: 200% 0;
+      transform: translateX(-100%);
     }
     100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .animate-skeleton-wave {
+    animation: skeleton-wave 2s ease-in-out infinite;
+    background: linear-gradient(
+      110deg,
+      #e2e8f0 8%,
+      #f1f5f9 18%,
+      #e2e8f0 33%,
+      #cbd5e1 40%,
+      #e2e8f0 60%
+    );
+    background-size: 200% 100%;
+  }
+
+  @keyframes skeleton-wave {
+    0% {
       background-position: -200% 0;
     }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .animate-pulse-dots {
+    animation: pulse-dots 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dots {
+    0%, 100% {
+      opacity: 0.4;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+  }
+
+  .photo-mosaic {
+    display: grid;
+    gap: 1px;
+    background-color: #f3f4f6;
+  }
+  
+  .photo-mosaic-item {
+    background-color: white;
   }
 }

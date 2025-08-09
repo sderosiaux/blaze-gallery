@@ -81,11 +81,8 @@ export class ThumbnailService {
     }
 
     try {
-      logger.thumbnailOperation("Generating thumbnail for photo", {
-        photoId,
-        s3Key,
-        bucket,
-      });
+      const filename = s3Key.split('/').pop() || s3Key;
+      logger.debug(`[THUMBNAIL] Generating thumbnail for ${filename} (ID: ${photoId})`);
 
       const stream = await getObjectStream(bucket, s3Key);
       if (!stream) {
@@ -122,11 +119,7 @@ export class ThumbnailService {
 
       await updatePhotoThumbnail(photoId, thumbnailPath);
 
-      logger.thumbnailOperation("Thumbnail generated successfully", {
-        photoId,
-        s3Key,
-        thumbnailPath,
-      });
+      logger.debug(`[THUMBNAIL] Generated thumbnail for ${filename} (ID: ${photoId})`);
 
       return thumbnailPath;
     } catch (error) {

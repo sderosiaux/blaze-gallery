@@ -314,7 +314,7 @@ export async function getObjectStream(bucket: string, key: string) {
   const client = getS3Client();
 
   try {
-    logger.s3Connection(`Getting stream for ${key}`);
+    logger.debug(`[S3] Getting stream for ${key}`);
 
     const command = new GetObjectCommand({
       Bucket: bucket,

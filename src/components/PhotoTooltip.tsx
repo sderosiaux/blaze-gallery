@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { Photo } from "@/types";
 
 interface PhotoTooltipProps {
@@ -8,6 +9,7 @@ interface PhotoTooltipProps {
 
 export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
   const [showTooltip, setShowTooltip] = useState(false);
+  const pathname = usePathname();
 
   const formatFileSize = (bytes: number) => {
     const sizes = ["Bytes", "KB", "MB", "GB"];
@@ -16,8 +18,44 @@ export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
     return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
   };
 
+  const getFolderPath = (s3Key: string) => {
+    const folderPath = s3Key.substring(0, s3Key.lastIndexOf('/'));
+    return folderPath || "Root";
+  };
+
+  const getTooltipContentWithoutFolder = () => {
+    const parts = [];
+
+    if (photo.size) {
+      parts.push(formatFileSize(photo.size));
+    }
+
+    if (photo.metadata?.date_taken) {
+      parts.push(new Date(photo.metadata.date_taken).toLocaleDateString());
+    }
+
+    if (photo.metadata?.dimensions) {
+      parts.push(
+        `${photo.metadata.dimensions.width}×${photo.metadata.dimensions.height}`,
+      );
+    }
+
+    if (photo.metadata?.location) {
+      parts.push("📍 GPS");
+    }
+
+    return parts.length > 0 ? parts.join(" • ") : null;
+  };
+
   const getTooltipContent = () => {
     const parts = [];
+    const isSearchPage = pathname?.startsWith('/search');
+
+    // Add folder path if on search page
+    if (isSearchPage) {
+      const folderPath = getFolderPath(photo.s3_key);
+      parts.push(`📁 ${folderPath}`);
+    }
 
     if (photo.size) {
       parts.push(formatFileSize(photo.size));
@@ -56,7 +94,14 @@ export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
             <div className="font-medium mb-1 truncate max-w-xs">
               {photo.filename}
             </div>
-            <div className="text-gray-300">{tooltipContent}</div>
+            {pathname?.startsWith('/search') ? (
+              <div className="text-gray-300">
+                <div className="mb-1">{`📁 ${getFolderPath(photo.s3_key)}`}</div>
+                <div>{getTooltipContentWithoutFolder()}</div>
+              </div>
+            ) : (
+              <div className="text-gray-300">{tooltipContent}</div>
+            )}
             {/* Arrow */}
             <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
           </div>

@@ -8,38 +8,20 @@ import SearchBar from "@/components/SearchBar";
 interface AppLayoutProps {
   children: React.ReactNode;
   title?: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
 }
 
 export default function AppLayout({
   children,
   title,
-  subtitle,
-  icon,
 }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
 
   const getPageTitle = () => {
     if (title) return title;
-
-    if (pathname === "/") return "Blaze Gallery";
-    if (pathname === "/favorites") return "Favorites";
-    if (pathname === "/search") return "Search";
-    if (pathname?.startsWith("/folder")) return "Blaze Gallery";
     return "Blaze Gallery";
   };
 
-  const getPageIcon = () => {
-    if (icon) return icon;
-
-    if (pathname === "/favorites")
-      return <Heart className="w-6 h-6 text-red-500 mr-2" />;
-    if (pathname === "/search")
-      return <Search className="w-6 h-6 text-blue-600 mr-2" />;
-    return null;
-  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -48,27 +30,12 @@ export default function AppLayout({
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
               <BlazeIcon size={32} className="mr-3" />
-              <div className="flex items-center">
-                <button
-                  onClick={() => router.push("/")}
-                  className="text-2xl font-bold text-gray-900 hover:text-primary-600 transition-colors mr-2"
-                >
-                  {getPageTitle()}
-                </button>
-                {(subtitle || getPageIcon()) && (
-                  <>
-                    <span className="text-gray-400 text-xl font-light mx-2">
-                      /
-                    </span>
-                    {getPageIcon()}
-                    {subtitle && (
-                      <h1 className="text-2xl font-bold text-gray-900">
-                        {subtitle}
-                      </h1>
-                    )}
-                  </>
-                )}
-              </div>
+              <button
+                onClick={() => router.push("/")}
+                className="text-2xl font-bold text-gray-900 hover:text-primary-600 transition-colors"
+              >
+                {getPageTitle()}
+              </button>
             </div>
             <div className="flex items-center space-x-4">
               {/* Integrated Search Bar */}

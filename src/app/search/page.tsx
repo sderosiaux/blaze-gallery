@@ -82,7 +82,7 @@ function SearchContent() {
   };
 
   return (
-    <AppLayout subtitle="Search">
+    <AppLayout>
       {/* Search Form */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <form onSubmit={handleSearch} className="flex gap-4">
