@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
-import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon, Expand, Minimize2 } from "lucide-react";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -21,6 +21,34 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
   const [preloadedImages, setPreloadedImages] = useState<Set<string>>(new Set());
   const [favoriteLoading, setFavoriteLoading] = useState(false);
   const [currentFavoriteState, setCurrentFavoriteState] = useState(photo.is_favorite);
+  const [heartAnimating, setHeartAnimating] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [showLoading, setShowLoading] = useState(false);
+  const [loadingTimeoutRef, setLoadingTimeoutRef] = useState<NodeJS.Timeout | null>(null);
+
+  // Helper function to manage loading timeout
+  const setLoadingWithDelay = () => {
+    // Clear any existing timeout
+    if (loadingTimeoutRef) {
+      clearTimeout(loadingTimeoutRef);
+    }
+    
+    setShowLoading(false);
+    const timeout = setTimeout(() => {
+      setShowLoading(true);
+    }, 150);
+    
+    setLoadingTimeoutRef(timeout);
+  };
+
+  // Helper function to clear loading timeout
+  const clearLoadingTimeout = () => {
+    if (loadingTimeoutRef) {
+      clearTimeout(loadingTimeoutRef);
+      setLoadingTimeoutRef(null);
+    }
+    setShowLoading(false);
+  };
 
   // Initialize current index based on selected photo
   useEffect(() => {
@@ -36,6 +64,14 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setCurrentFavoriteState(photo.is_favorite);
     setImageLoading(true);
     setImageError(false);
+    
+    setLoadingWithDelay();
+    
+    return () => {
+      if (loadingTimeoutRef) {
+        clearTimeout(loadingTimeoutRef);
+      }
+    };
   }, [photo.id]); // Only depend on photo.id, not the full photo object
 
   // Preload nearby images for smooth navigation
@@ -77,8 +113,11 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setCurrentFavoriteState(newPhoto.is_favorite);
     setImageLoading(true);
     setImageError(false);
+    
+    setLoadingWithDelay();
+    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
 
   const goToNext = useCallback(() => {
     if (!photos || currentIndex >= photos.length - 1) return;
@@ -89,8 +128,11 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     setCurrentFavoriteState(newPhoto.is_favorite);
     setImageLoading(true);
     setImageError(false);
+    
+    setLoadingWithDelay();
+    
     onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange]);
+  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
 
   // Auto-advance for slideshow
   useEffect(() => {
@@ -107,55 +149,8 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     return () => clearInterval(interval);
   }, [isSlideshow, currentIndex, photos, goToNext]);
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        goToPrevious();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        goToNext();
-      } else if (e.key === " " || e.key === "Spacebar") {
-        e.preventDefault();
-        setIsSlideshow(prev => !prev);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "unset";
-    };
-  }, [onClose, goToPrevious, goToNext]);
-
-  const handleDownload = async () => {
-    try {
-      // Use a simple window.open or direct link approach for downloads
-      // This is more reliable for large files and redirects
-      const downloadUrl = `/api/photos/${currentPhoto.id}/download`;
-      
-      // Create a temporary anchor element to trigger download
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = currentPhoto.filename;
-      a.target = "_blank";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error("[CLIENT] Download failed:", error);
-      // Fallback: open in new tab
-      window.open(`/api/photos/${currentPhoto.id}/download`, '_blank');
-    }
-  };
-
-  const handleFavoriteToggle = async (e: React.MouseEvent) => {
+  // Handle favorite toggle (defined before keyboard navigation to avoid dependency issues)
+  const handleFavoriteToggle = useCallback(async (e: React.MouseEvent | KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
@@ -165,6 +160,10 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
     const originalState = currentFavoriteState;
     
     try {
+      // Trigger heart animation
+      setHeartAnimating(true);
+      setTimeout(() => setHeartAnimating(false), 300);
+      
       // Optimistically update the UI - only the favorite state, not the whole photo object
       setCurrentFavoriteState(!currentFavoriteState);
       
@@ -198,6 +197,60 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       console.error("Failed to toggle favorite:", error);
     } finally {
       setFavoriteLoading(false);
+    }
+  }, [favoriteLoading, currentFavoriteState, currentPhoto.id, onFavoriteToggle]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goToPrevious();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goToNext();
+      } else if (e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        setIsSlideshow(prev => !prev);
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        handleFavoriteToggle(e);
+      } else if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        setIsExpanded(prev => !prev);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "unset";
+    };
+  }, [onClose, goToPrevious, goToNext, handleFavoriteToggle]);
+
+  const handleDownload = async () => {
+    try {
+      // Use a simple window.open or direct link approach for downloads
+      // This is more reliable for large files and redirects
+      const downloadUrl = `/api/photos/${currentPhoto.id}/download`;
+      
+      // Create a temporary anchor element to trigger download
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = currentPhoto.filename;
+      a.target = "_blank";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("[CLIENT] Download failed:", error);
+      // Fallback: open in new tab
+      window.open(`/api/photos/${currentPhoto.id}/download`, '_blank');
     }
   };
 
@@ -233,9 +286,97 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
       onClick={handleBackgroundClick}
     >
       <div className="relative max-w-4xl max-h-full w-full h-full flex flex-col cursor-default">
-        <div className="flex justify-between items-start p-4 bg-black bg-opacity-50 text-white">
-          <div className="flex-1 mr-4">
-            <h3 className="text-lg font-medium mb-1">{currentPhoto.filename}</h3>
+        <div className="flex flex-col p-4 bg-black bg-opacity-50 text-white">
+          {/* Top row: filename, size, and buttons */}
+          <div className="flex justify-between items-start mb-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center flex-wrap gap-3">
+                <h3 className="text-lg font-medium truncate">{currentPhoto.filename}</h3>
+                <div className="flex items-center text-sm text-gray-300">
+                  <HardDrive className="w-4 h-4 mr-1" />
+                  {formatFileSize(currentPhoto.size)}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
+              {/* Photo counter */}
+              {photos && photos.length > 1 && (
+                <div className="text-sm text-gray-300 bg-black bg-opacity-30 px-3 py-1 rounded-lg">
+                  {currentIndex + 1} of {photos.length}
+                </div>
+              )}
+
+              {/* Slideshow controls */}
+              {photos && photos.length > 1 && (
+                <button
+                  onClick={() => setIsSlideshow(prev => !prev)}
+                  className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
+                    isSlideshow ? "bg-white bg-opacity-20" : ""
+                  }`}
+                  title={isSlideshow ? "Pause slideshow (Space)" : "Start slideshow (Space)"}
+                >
+                  {isSlideshow ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                </button>
+              )}
+
+              <button
+                onClick={() => setIsExpanded(prev => !prev)}
+                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
+                  isExpanded ? "bg-white bg-opacity-20" : ""
+                }`}
+                title={isExpanded ? "Fit to screen (E)" : "Expand image (E)"}
+              >
+                {isExpanded ? <Minimize2 className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
+              </button>
+
+              <button
+                onClick={handleFavoriteToggle}
+                disabled={favoriteLoading}
+                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
+                  favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+                title={favoriteLoading ? "Updating..." : currentFavoriteState ? "Remove from favorites (F)" : "Add to favorites (F)"}
+              >
+                {favoriteLoading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Heart
+                    className={`w-5 h-5 transition-all duration-300 ease-out ${
+                      currentFavoriteState
+                        ? "text-red-500 fill-current"
+                        : "text-white hover:text-red-400"
+                    } ${
+                      heartAnimating
+                        ? "transform scale-125 rotate-12"
+                        : "transform scale-100 rotate-0"
+                    }`}
+                    style={{
+                      filter: heartAnimating 
+                        ? 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))' 
+                        : 'none'
+                    }}
+                  />
+                )}
+              </button>
+              <button
+                onClick={handleDownload}
+                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+                title="Download original"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+                title="Close (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Full width breadcrumb row */}
+          <div className="w-full">
             
             {/* Folder breadcrumb - clickable path navigation, especially useful in favorites */}
             {(() => {
@@ -262,12 +403,8 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               );
             })()}
 
-            {/* Metadata section moved to top */}
+            {/* Metadata section */}
             <div className="flex flex-wrap items-center gap-4 text-sm text-gray-300">
-              <div className="flex items-center">
-                <HardDrive className="w-4 h-4 mr-1" />
-                {formatFileSize(currentPhoto.size)}
-              </div>
               {currentPhoto.metadata?.date_taken && (
                 <div className="flex items-center">
                   <Calendar className="w-4 h-4 mr-1" />
@@ -290,68 +427,11 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               )}
             </div>
           </div>
-
-          <div className="flex items-center space-x-2 flex-shrink-0">
-            {/* Photo counter */}
-            {photos && photos.length > 1 && (
-              <div className="text-sm text-gray-300 bg-black bg-opacity-30 px-3 py-1 rounded-lg">
-                {currentIndex + 1} of {photos.length}
-              </div>
-            )}
-
-            {/* Slideshow controls */}
-            {photos && photos.length > 1 && (
-              <button
-                onClick={() => setIsSlideshow(prev => !prev)}
-                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
-                  isSlideshow ? "bg-white bg-opacity-20" : ""
-                }`}
-                title={isSlideshow ? "Pause slideshow (Space)" : "Start slideshow (Space)"}
-              >
-                {isSlideshow ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-              </button>
-            )}
-
-            <button
-              onClick={handleFavoriteToggle}
-              disabled={favoriteLoading}
-              className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
-                favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-              title={favoriteLoading ? "Updating..." : currentFavoriteState ? "Remove from favorites" : "Add to favorites"}
-            >
-              {favoriteLoading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Heart
-                  className={`w-5 h-5 transition-colors ${
-                    currentFavoriteState
-                      ? "text-red-500 fill-current"
-                      : "text-white hover:text-red-400"
-                  }`}
-                />
-              )}
-            </button>
-            <button
-              onClick={handleDownload}
-              className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-              title="Download original"
-            >
-              <Download className="w-5 h-5" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-              title="Close (Esc)"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
         </div>
 
         <div className="flex-1 flex items-center justify-center min-h-0 relative group">
-          {/* Loading skeleton */}
-          {imageLoading && (
+          {/* Loading skeleton - only show after delay */}
+          {showLoading && (
             <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
               <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
             </div>
@@ -407,7 +487,9 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               {currentIndex > 0 && (
                 <button
                   onClick={goToPrevious}
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-opacity-70 z-10"
+                  className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
+                    isExpanded ? "-left-2" : "left-4"
+                  }`}
                   title="Previous photo (←)"
                 >
                   <ChevronLeft className="w-8 h-8" />
@@ -418,7 +500,9 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               {currentIndex < photos.length - 1 && (
                 <button
                   onClick={goToNext}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-opacity-70 z-10"
+                  className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
+                    isExpanded ? "-right-2" : "right-4"
+                  }`}
                   title="Next photo (→)"
                 >
                   <ChevronRight className="w-8 h-8" />
@@ -431,11 +515,23 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
           <img
             src={`/api/photos/${currentPhoto.id}/download`}
             alt={currentPhoto.filename}
-            className={`max-w-full max-h-full object-contain transition-opacity duration-200 ${
+            className={`transition-all duration-300 ${
+              isExpanded
+                ? "max-w-none max-h-none object-contain" 
+                : "max-w-full max-h-full object-contain"
+            } ${
               imageLoading || imageError ? "opacity-0" : "opacity-100"
             }`}
+            style={{
+              imageRendering: isExpanded ? 'crisp-edges' : 'auto',
+              width: isExpanded ? '90vw' : 'auto',
+              height: isExpanded ? '90vh' : 'auto',
+            }}
             loading="eager"
-            onLoad={() => setImageLoading(false)}
+            onLoad={() => {
+              setImageLoading(false);
+              clearLoadingTimeout();
+            }}
             onError={(e) => {
               console.log('PhotoViewer image error:', {
                 filename: currentPhoto.filename,
@@ -445,6 +541,7 @@ export default function PhotoViewer({ photo, photos, onClose, onFavoriteToggle, 
               });
               setImageLoading(false);
               setImageError(true);
+              clearLoadingTimeout();
             }}
           />
         </div>
