@@ -52,7 +52,7 @@ export default function PhotoGrid({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedPhoto, isFullWidth, setIsFullWidth]);
+  }, [selectedPhoto, isFullWidth]);
 
   // Handle initial photo selection from URL params
   useEffect(() => {
