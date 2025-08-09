@@ -49,34 +49,18 @@ A self-hosted photo gallery that integrates with Backblaze B2 cloud storage. Bro
    ```
 
 4. **Access your gallery**
-   Open http://localhost:3000 and click "Sync" to scan your photos
+   Open http://localhost:3000 and your photos will be automatically scanned and indexed
 
-## Configuration
+## Optional Configuration
 
-### Required Settings
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `BACKBLAZE_ENDPOINT` | Backblaze B2 S3-compatible endpoint | `https://s3.us-west-004.backblazeb2.com` |
-| `BACKBLAZE_BUCKET` | Your photo bucket name | `my-photos` |
-| `BACKBLAZE_ACCESS_KEY` | Application Key ID (READ-ONLY recommended) | `004a1b2c3d4e5f...` |
-| `BACKBLAZE_SECRET_KEY` | Application Key Secret | `K004abc123...` |
-
-### Optional Settings
+You can customize behavior by adding these optional variables to your `.env` file:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AUTO_THUMBNAIL_THRESHOLD_MB` | Max file size for automatic thumbnails | `30` |
 | `AUTO_METADATA_THRESHOLD_MB` | Max file size for EXIF extraction | `5` |
 | `THUMBNAIL_MAX_AGE_DAYS` | Days to keep thumbnails before cleanup | `30` |
-| `SYNC_THROTTLE_SECONDS` | Minimum seconds between sync requests | `30` |
 | `LOG_LEVEL` | Logging level: DEBUG, INFO, WARN, ERROR | `INFO` |
-
-### Backblaze B2 Setup
-
-1. Create a **READ-ONLY** Application Key in your Backblaze B2 console
-2. Allow permissions: List Buckets ✅, List Files ✅, Read Files ✅, Write Files ❌
-3. Use the correct regional endpoint for your bucket
 
 ## Development
 
