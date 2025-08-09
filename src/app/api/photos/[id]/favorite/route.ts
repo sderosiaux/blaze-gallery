@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { getDatabase } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
-export async function POST(
+export const POST = requireAuth(async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
@@ -58,4 +59,4 @@ export async function POST(
       { status: 500 },
     );
   }
-}
+});

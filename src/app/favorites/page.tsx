@@ -6,6 +6,7 @@ import { Photo } from "@/types";
 import PhotoGrid from "@/components/PhotoGrid";
 import { FolderOpen, Heart } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 function FavoritesContent() {
   const router = useRouter();
@@ -51,6 +52,7 @@ function FavoritesContent() {
 
   return (
     <AppLayout>
+        <ProtectedRoute>
       {loading ? (
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
@@ -113,7 +115,8 @@ function FavoritesContent() {
           />
         </div>
       )}
-    </AppLayout>
+            </ProtectedRoute>
+      </AppLayout>
   );
 }
 
@@ -122,10 +125,12 @@ export default function FavoritesPage() {
     <Suspense
       fallback={
         <AppLayout>
+        <ProtectedRoute>
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
           </div>
-        </AppLayout>
+                </ProtectedRoute>
+      </AppLayout>
       }
     >
       <FavoritesContent />

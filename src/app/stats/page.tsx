@@ -5,6 +5,7 @@ import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Cale
 import AppLayout from '@/components/AppLayout';
 import FolderHeatmap from '@/components/FolderHeatmap';
 import { GalleryStats } from '@/types/stats';
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 interface DuplicatePhoto {
   id: number;
@@ -216,9 +217,11 @@ export default function StatsPage() {
   if (loading) {
     return (
       <AppLayout>
+        <ProtectedRoute>
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
+              </ProtectedRoute>
       </AppLayout>
     );
   }
@@ -226,15 +229,18 @@ export default function StatsPage() {
   if (!stats) {
     return (
       <AppLayout>
+        <ProtectedRoute>
         <div className="text-center py-12">
           <p className="text-gray-500">Failed to load statistics</p>
         </div>
+              </ProtectedRoute>
       </AppLayout>
     );
   }
 
   return (
     <AppLayout>
+        <ProtectedRoute>
       {/* Floating Navigation Menu */}
       <div className="fixed left-[calc(50%-32rem-20rem)] top-32 z-30 hidden xl:block">
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">
@@ -875,6 +881,7 @@ export default function StatsPage() {
         </div>
         </section>
       </div>
-    </AppLayout>
+            </ProtectedRoute>
+      </AppLayout>
   );
 }

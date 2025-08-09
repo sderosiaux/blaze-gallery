@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { getActiveSyncJobs } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
 
-export async function GET(request: NextRequest) {
+// Force dynamic rendering for routes using auth
+export const dynamic = 'force-dynamic';
+
+export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const activeJobs = await getActiveSyncJobs();
     const currentJob = syncService.getCurrentJob();
@@ -29,4 +33,4 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

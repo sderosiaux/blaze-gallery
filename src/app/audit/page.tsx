@@ -5,6 +5,7 @@ import { Activity, BarChart3, Clock, Database, Download, Eye, AlertTriangle, Che
 import AppLayout from '@/components/AppLayout';
 import { S3AuditResponse, S3AuditStats, PerformanceMetrics, OperationAnalysis, S3AuditLog } from '@/types/audit';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 interface ThumbnailStats {
   thumbnail_generation: {
@@ -204,15 +205,18 @@ export default function AuditDashboard() {
   if (loading) {
     return (
       <AppLayout>
+        <ProtectedRoute>
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
+              </ProtectedRoute>
       </AppLayout>
     );
   }
 
   return (
     <AppLayout>
+        <ProtectedRoute>
       {/* Floating Navigation Menu */}
       <div className="fixed left-[calc(50%-32rem-20rem)] top-32 z-30 hidden xl:block">
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">
@@ -721,6 +725,7 @@ export default function AuditDashboard() {
         )}
         </section>
       </div>
-    </AppLayout>
+            </ProtectedRoute>
+      </AppLayout>
   );
 }

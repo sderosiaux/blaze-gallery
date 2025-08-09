@@ -135,6 +135,32 @@ export class ThumbnailService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
+      // Check for corrupted JPEG files
+      if (errorMessage.includes('VipsJpeg: Invalid SOS parameters') || 
+          errorMessage.includes('Invalid SOS parameters for sequential JPEG') ||
+          errorMessage.includes('VipsJpeg:') ||
+          errorMessage.includes('premature end of JPEG file') ||
+          errorMessage.includes('JPEG datastream contains no image')) {
+        
+        logger.thumbnailOperation(
+          `Thumbnail generation skipped - corrupted JPEG file`,
+          {
+            photoId,
+            s3Key,
+          },
+        );
+
+        // Update status to indicate it was skipped due to corruption
+        const { updatePhotoStatus } = await import("./database");
+        await updatePhotoStatus(photoId, {
+          thumbnail_status: "skipped_corrupted",
+        });
+
+        // Don't throw error - just skip this photo and continue
+        logger.debug(`[THUMBNAIL] Skipping corrupted JPEG: ${s3Key}`);
+        return '';
+      }
+      
       // Check for unsupported format errors
       if (errorMessage.includes('Input file contains unsupported image format') || 
           errorMessage.includes('unsupported image format') ||
@@ -153,7 +179,7 @@ export class ThumbnailService {
         // Update status to indicate it was skipped due to unsupported format
         const { updatePhotoStatus } = await import("./database");
         await updatePhotoStatus(photoId, {
-          thumbnail_status: "skipped_size",
+          thumbnail_status: "skipped_unsupported",
         });
 
         throw new Error(`Unsupported image format: ${fileExt.toUpperCase()} files are not supported by Sharp for thumbnail generation`);

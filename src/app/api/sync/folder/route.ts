@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { SyncJobType, SyncJobResponse } from "@/types/common";
 import { validateInput, CommonValidators } from "@/lib/validation";
 import { authenticateRequest } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async function POST(request: NextRequest) {
   // Authentication check for sync operations
   const authResult = authenticateRequest(request, { apiKeyRequired: true });
   if (!authResult.isAuthenticated) {
@@ -101,4 +102,4 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(errorResponse, { status: 500 });
   }
-}
+});

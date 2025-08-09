@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
+import { requireAuth } from "@/lib/auth/middleware";
 import { getDatabase } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
-export async function GET() {
+// Force dynamic rendering for routes using auth
+export const dynamic = 'force-dynamic';
+
+export const GET = requireAuth(async function GET() {
   try {
     const db = getDatabase();
     
@@ -59,4 +63,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { 
   Share2, 
   Eye, 
@@ -141,15 +142,18 @@ export default function SharesManagementPage() {
   if (loading) {
     return (
       <AppLayout>
+        <ProtectedRoute>
         <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
+              </ProtectedRoute>
       </AppLayout>
     );
   }
 
   return (
     <AppLayout>
+        <ProtectedRoute>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
@@ -432,6 +436,7 @@ export default function SharesManagementPage() {
           </div>
         )}
       </div>
-    </AppLayout>
+            </ProtectedRoute>
+      </AppLayout>
   );
 }

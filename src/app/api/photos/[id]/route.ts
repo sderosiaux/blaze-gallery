@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPhoto } from "@/lib/database";
 import { logger } from "@/lib/logger";
+import { requireAuth } from "@/lib/auth/middleware";
 
-export async function GET(
+export const GET = requireAuth(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
@@ -44,4 +45,4 @@ export async function GET(
       { status: 500 },
     );
   }
-}
+});

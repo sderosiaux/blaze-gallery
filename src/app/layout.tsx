@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import StartupManager from "@/components/StartupManager";
 import { LayoutProvider } from "@/contexts/LayoutContext";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -87,8 +88,10 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-gray-50">
         <LayoutProvider>
-          <StartupManager />
-          {children}
+          <AuthProvider>
+            <StartupManager />
+            {children}
+          </AuthProvider>
         </LayoutProvider>
       </body>
     </html>

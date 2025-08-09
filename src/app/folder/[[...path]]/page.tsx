@@ -6,6 +6,8 @@ import { Folder, Photo } from "@/types";
 import FolderBrowser from "@/components/FolderBrowser";
 import PhotoGrid from "@/components/PhotoGrid";
 import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface BreadcrumbItem {
   name: string;
@@ -24,6 +26,7 @@ interface FolderPageProps {
 function FolderContent({ params }: FolderPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -49,13 +52,19 @@ function FolderContent({ params }: FolderPageProps) {
   };
 
   useEffect(() => {
-    loadBucketName();
-    if (currentPath === "") {
-      loadRootFolders();
-    } else {
-      loadFolder(currentPath);
+    // Only load data if authenticated
+    if (isAuthenticated && !authLoading) {
+      loadBucketName();
+      if (currentPath === "") {
+        loadRootFolders();
+      } else {
+        loadFolder(currentPath);
+      }
+    } else if (!authLoading && !isAuthenticated) {
+      // Not authenticated and not loading - reset loading state
+      setLoading(false);
     }
-  }, [currentPath]);
+  }, [currentPath, isAuthenticated, authLoading]);
 
   const loadBucketName = async () => {
     try {
@@ -160,27 +169,29 @@ function FolderContent({ params }: FolderPageProps) {
 
   return (
     <AppLayout>
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <FolderBrowser
-            currentFolder={currentFolder}
-            folders={folders}
-            breadcrumbs={breadcrumbs}
-            onFolderSelect={navigateToFolder}
-            onBreadcrumbClick={navigateToBreadcrumb}
-          />
-          <PhotoGrid 
-            photos={photos} 
-            loading={loading}
-            selectedPhotoId={selectedPhotoId}
-            onPhotoUrlChange={handlePhotoUrlChange}
-          />
-        </div>
-      )}
+      <ProtectedRoute>
+        {loading ? (
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <FolderBrowser
+              currentFolder={currentFolder}
+              folders={folders}
+              breadcrumbs={breadcrumbs}
+              onFolderSelect={navigateToFolder}
+              onBreadcrumbClick={navigateToBreadcrumb}
+            />
+            <PhotoGrid 
+              photos={photos} 
+              loading={loading}
+              selectedPhotoId={selectedPhotoId}
+              onPhotoUrlChange={handlePhotoUrlChange}
+            />
+          </div>
+        )}
+      </ProtectedRoute>
     </AppLayout>
   );
 }

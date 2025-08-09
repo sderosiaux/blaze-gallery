@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { getPhoto } from "@/lib/database";
 import { getSignedDownloadUrlAuto } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 import { ValidationPatterns } from "@/lib/validation";
 
-export async function GET(
+export const GET = requireAuth(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
@@ -69,4 +70,4 @@ export async function GET(
       { status: 500 },
     );
   }
-}
+});

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { testS3Connection } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { authenticateRequest } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async function POST(request: NextRequest) {
   // Authentication check for sync operations
   const authResult = authenticateRequest(request, { apiKeyRequired: true });
   if (!authResult.isAuthenticated) {
@@ -54,4 +55,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

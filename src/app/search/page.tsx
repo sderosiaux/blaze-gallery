@@ -7,6 +7,7 @@ import PhotoGrid from "@/components/PhotoGrid";
 import FolderBrowser from "@/components/FolderBrowser";
 import { FolderOpen, Search } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 interface SearchResults {
   photos: Photo[];
@@ -95,6 +96,7 @@ function SearchContent() {
 
   return (
     <AppLayout>
+        <ProtectedRoute>
       {/* Search Form */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <form onSubmit={handleSearch} className="flex gap-4">
@@ -180,7 +182,8 @@ function SearchContent() {
           )}
         </div>
       )}
-    </AppLayout>
+            </ProtectedRoute>
+      </AppLayout>
   );
 }
 

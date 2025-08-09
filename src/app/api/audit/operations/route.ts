@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from "@/lib/auth/middleware";
 import { s3AuditLogger } from '@/lib/s3Audit';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     
@@ -55,4 +56,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

@@ -7,8 +7,9 @@ import {
 } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
+import { requireAuth } from "@/lib/auth/middleware";
 
-export async function GET(
+export const GET = requireAuth(async function GET(
   request: NextRequest,
   { params }: { params: { path: string[] } },
 ) {
@@ -62,4 +63,4 @@ export async function GET(
       { status: 500 },
     );
   }
-}
+});

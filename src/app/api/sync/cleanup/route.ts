@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async function POST(request: NextRequest) {
   try {
     const job = await createSyncJob({
       type: "cleanup",
@@ -31,4 +32,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

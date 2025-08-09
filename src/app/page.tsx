@@ -7,6 +7,8 @@ import FolderBrowser from "@/components/FolderBrowser";
 import PhotoGrid from "@/components/PhotoGrid";
 import RandomPhotosTeaser from "@/components/RandomPhotosTeaser";
 import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface BreadcrumbItem {
   name: string;
@@ -16,6 +18,7 @@ interface BreadcrumbItem {
 function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -27,9 +30,15 @@ function HomePageContent() {
   const selectedPhotoId = searchParams?.get("photo");
 
   useEffect(() => {
-    loadBucketName();
-    loadRootFolders();
-  }, []);
+    // Only load data if authenticated
+    if (isAuthenticated && !authLoading) {
+      loadBucketName();
+      loadRootFolders();
+    } else if (!authLoading && !isAuthenticated) {
+      // Not authenticated and not loading - reset loading state
+      setLoading(false);
+    }
+  }, [isAuthenticated, authLoading]);
 
   const loadBucketName = async () => {
     try {
@@ -89,37 +98,39 @@ function HomePageContent() {
 
   return (
     <AppLayout>
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <FolderBrowser
-            currentFolder={currentFolder}
-            folders={folders}
-            breadcrumbs={breadcrumbs}
-            onFolderSelect={navigateToFolder}
-            onBreadcrumbClick={navigateToBreadcrumb}
-          />
-          
-          {/* Show photos in root if any exist */}
-          <PhotoGrid 
-            photos={photos} 
-            loading={loading} 
-            selectedPhotoId={selectedPhotoId}
-            onPhotoUrlChange={handlePhotoUrlChange}
-          />
-          
-          {/* Show random photos teaser when at root with folders but no photos */}
-          {showRandomPhotosTeaser && (
-            <RandomPhotosTeaser
+      <ProtectedRoute>
+        {loading ? (
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <FolderBrowser
+              currentFolder={currentFolder}
+              folders={folders}
+              breadcrumbs={breadcrumbs}
+              onFolderSelect={navigateToFolder}
+              onBreadcrumbClick={navigateToBreadcrumb}
+            />
+            
+            {/* Show photos in root if any exist */}
+            <PhotoGrid 
+              photos={photos} 
+              loading={loading} 
               selectedPhotoId={selectedPhotoId}
               onPhotoUrlChange={handlePhotoUrlChange}
             />
-          )}
-        </div>
-      )}
+            
+            {/* Show random photos teaser when at root with folders but no photos */}
+            {showRandomPhotosTeaser && (
+              <RandomPhotosTeaser
+                selectedPhotoId={selectedPhotoId}
+                onPhotoUrlChange={handlePhotoUrlChange}
+              />
+            )}
+          </div>
+        )}
+      </ProtectedRoute>
     </AppLayout>
   );
 }

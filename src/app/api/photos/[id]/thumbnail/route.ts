@@ -4,8 +4,9 @@ import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { thumbnailRateLimiter } from "@/lib/rateLimiter";
+import { requireAuth } from "@/lib/auth/middleware";
 
-export async function GET(
+export const GET = requireAuth(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
@@ -187,4 +188,4 @@ export async function GET(
     });
     return new NextResponse("Internal server error", { status: 500 });
   }
-}
+});

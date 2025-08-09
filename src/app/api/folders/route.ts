@@ -6,10 +6,11 @@ import {
 } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
+import { requireAuth } from "@/lib/auth/middleware";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const parentPath = searchParams.get("parent");
@@ -58,4 +59,4 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

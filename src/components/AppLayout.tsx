@@ -6,6 +6,8 @@ import { Heart, Search, FolderOpen, Gauge, BarChart3, Sparkles, Loader2, Share2 
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
+import AuthButton from "@/components/auth/AuthButton";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -18,6 +20,30 @@ export default function AppLayout({
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [randomFolderLoading, setRandomFolderLoading] = useState(false);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
+
+  // Check auth config on client side only
+  useEffect(() => {
+    setMounted(true);
+    
+    // Fetch auth config from the client side
+    const checkAuthConfig = async () => {
+      try {
+        const response = await fetch('/api/auth/config');
+        if (response.ok) {
+          const { enabled } = await response.json();
+          setAuthEnabled(enabled);
+        }
+      } catch (error) {
+        console.warn('Failed to check auth config:', error);
+        setAuthEnabled(false);
+      }
+    };
+    
+    checkAuthConfig();
+  }, []);
 
   // Track scroll position to add shadow effect
   useEffect(() => {
@@ -54,6 +80,18 @@ export default function AppLayout({
     return "Blaze Gallery";
   };
 
+  // Helper function to determine if navigation should be shown
+  const shouldShowNavigation = () => {
+    // Don't show anything until mounted and auth check is complete
+    if (!mounted || authLoading) return false;
+    
+    // If auth is disabled, show everything
+    if (!authEnabled) return true;
+    
+    // If auth is enabled, only show if user is authenticated
+    return isAuthenticated;
+  };
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -76,59 +114,72 @@ export default function AppLayout({
               </a>
             </div>
             <div className="flex items-center space-x-2">
-              {/* Random Folder Button */}
-              <button
-                onClick={handleRandomFolder}
-                disabled={randomFolderLoading}
-                className="flex items-center p-2 text-gray-600 hover:text-orange-500 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Navigate to a random folder with photos"
-              >
-                {randomFolderLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Sparkles className="w-5 h-5" />
-                )}
-              </button>
+              {/* Search Bar - positioned first when available */}
+              {shouldShowNavigation() && (
+                <div className="relative mr-2">
+                  <SearchBar placeholder="Search photos..." />
+                </div>
+              )}
 
-              {/* Statistics Link */}
-              <a
-                href="/stats"
-                className="flex items-center p-2 text-gray-600 hover:text-purple-500 hover:bg-gray-50 rounded-lg transition-colors"
-                title="View gallery statistics"
-              >
-                <BarChart3 className="w-5 h-5" />
-              </a>
+              {/* Show navigation items based on auth state */}
+              {shouldShowNavigation() && (
+                <>
 
-              {/* Audit Dashboard Link */}
-              <a
-                href="/audit"
-                className="flex items-center p-2 text-gray-600 hover:text-blue-500 hover:bg-gray-50 rounded-lg transition-colors"
-                title="View B2 performance audit"
-              >
-                <Gauge className="w-5 h-5" />
-              </a>
-              
-              {/* Share Management Link */}
-              <a
-                href="/admin/shares"
-                className="flex items-center p-2 text-gray-600 hover:text-green-500 hover:bg-gray-50 rounded-lg transition-colors"
-                title="Manage folder shares"
-              >
-                <Share2 className="w-5 h-5" />
-              </a>
+                  {/* Random Folder Button */}
+                  <button
+                    onClick={handleRandomFolder}
+                    disabled={randomFolderLoading}
+                    className="flex items-center p-2 text-gray-600 hover:text-orange-500 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Navigate to a random folder with photos"
+                  >
+                    {randomFolderLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-5 h-5" />
+                    )}
+                  </button>
 
-              {/* Favorites Link */}
-              {pathname !== "/favorites" && (
-                <a
-                  href="/favorites"
-                  className="flex items-center p-2 text-gray-600 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
-                  title="View your favorite photos"
-                >
-                  <Heart className="w-5 h-5" />
-                </a>
+                  {/* Statistics Link */}
+                  <a
+                    href="/stats"
+                    className="flex items-center p-2 text-gray-600 hover:text-purple-500 hover:bg-gray-50 rounded-lg transition-colors"
+                    title="View gallery statistics"
+                  >
+                    <BarChart3 className="w-5 h-5" />
+                  </a>
+
+                  {/* Audit Dashboard Link */}
+                  <a
+                    href="/audit"
+                    className="flex items-center p-2 text-gray-600 hover:text-blue-500 hover:bg-gray-50 rounded-lg transition-colors"
+                    title="View B2 performance audit"
+                  >
+                    <Gauge className="w-5 h-5" />
+                  </a>
+                  
+                  {/* Share Management Link */}
+                  <a
+                    href="/admin/shares"
+                    className="flex items-center p-2 text-gray-600 hover:text-green-500 hover:bg-gray-50 rounded-lg transition-colors"
+                    title="Manage folder shares"
+                  >
+                    <Share2 className="w-5 h-5" />
+                  </a>
+
+                  {/* Favorites Link */}
+                  {pathname !== "/favorites" && (
+                    <a
+                      href="/favorites"
+                      className="flex items-center p-2 text-gray-600 hover:text-red-500 hover:bg-gray-50 rounded-lg transition-colors"
+                      title="View your favorite photos"
+                    >
+                      <Heart className="w-5 h-5" />
+                    </a>
+                  )}
+                </>
               )}
               
-              {/* GitHub Link */}
+              {/* GitHub Link - always visible */}
               <a
                 href="https://github.com/sderosiaux/blaze-gallery"
                 target="_blank"
@@ -138,21 +189,11 @@ export default function AppLayout({
               >
                 <GitHubIcon size={20} />
               </a>
-              {/* Back to Folders Button (for favorites and search pages) */}
-              {(pathname === "/favorites" || pathname === "/search") && (
-                <button
-                  onClick={() => router.push("/")}
-                  className="flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
-                >
-                  <FolderOpen className="w-5 h-5 mr-2" />
-                  {pathname === "/favorites" ? "Back to Folders" : "Browse"}
-                </button>
-              )}
 
-              {/* Search Bar - positioned after icons */}
-              <div className="relative">
-                <SearchBar placeholder="Search photos..." />
-              </div>
+              {/* Authentication - only show if enabled and mounted to prevent hydration mismatch */}
+              {mounted && authEnabled && (
+                <AuthButton />
+              )}
             </div>
           </div>
         </div>
