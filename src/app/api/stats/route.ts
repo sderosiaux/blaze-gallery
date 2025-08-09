@@ -213,8 +213,7 @@ export async function GET(request: NextRequest) {
         recent_activity: recentPhotos,
         metadata: exifStats,
         top_cameras: topCameras,
-        sync_health: syncStats,
-        generated_at: new Date().toISOString()
+        sync_health: syncStats
       }
     });
 

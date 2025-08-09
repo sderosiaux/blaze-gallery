@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Heart, Search, FolderOpen, Activity, BarChart3 } from "lucide-react";
+import { Heart, Search, FolderOpen, Activity, BarChart3, Shuffle, Loader2 } from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -19,6 +19,7 @@ export default function AppLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
+  const [randomFolderLoading, setRandomFolderLoading] = useState(false);
 
   // Track scroll position to add shadow effect
   useEffect(() => {
@@ -29,6 +30,27 @@ export default function AppLayout({
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const handleRandomFolder = async () => {
+    setRandomFolderLoading(true);
+    try {
+      const response = await fetch('/api/stats/random-folder');
+      const data = await response.json();
+      
+      if (data.success) {
+        const folderPath = data.data.path === '' ? '/' : `/folder/${data.data.path}`;
+        window.location.href = folderPath;
+      } else {
+        console.error('Failed to get random folder:', data.error);
+        alert('No folders with photos found!');
+      }
+    } catch (error) {
+      console.error('Error fetching random folder:', error);
+      alert('Failed to find a random folder');
+    } finally {
+      setRandomFolderLoading(false);
+    }
+  };
 
   const getPageTitle = () => {
     if (title) return title;
@@ -57,6 +79,20 @@ export default function AppLayout({
               </a>
             </div>
             <div className="flex items-center space-x-2">
+              {/* Random Folder Button */}
+              <button
+                onClick={handleRandomFolder}
+                disabled={randomFolderLoading}
+                className="flex items-center p-2 text-gray-600 hover:text-orange-500 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Navigate to a random folder with photos"
+              >
+                {randomFolderLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Shuffle className="w-5 h-5" />
+                )}
+              </button>
+
               {/* Statistics Link */}
               <a
                 href="/stats"

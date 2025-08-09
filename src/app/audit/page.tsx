@@ -1,19 +1,50 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { Activity, BarChart3, Clock, Database, Download, Eye, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Activity, BarChart3, Clock, Database, Download, Eye, AlertTriangle, CheckCircle, XCircle, Image, HardDrive, Zap } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { S3AuditResponse, S3AuditStats, PerformanceMetrics, OperationAnalysis, S3AuditLog } from '@/types/audit';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+
+interface ThumbnailStats {
+  thumbnail_generation: {
+    total_photos: number;
+    thumbnails_generated: number;
+    thumbnails_pending: number;
+    generation_rate: number;
+    avg_thumbnail_size_bytes: number;
+    total_thumbnail_storage_bytes: number;
+  };
+  cache_performance?: {
+    cache_hits: number;
+    cache_misses: number;
+    hit_rate: number;
+  };
+  thumbnail_storage: {
+    thumbnail_directory_size_bytes: number;
+    thumbnail_files_count: number;
+    oldest_thumbnail?: string;
+    newest_thumbnail?: string;
+  };
+  debug_info: {
+    thumbnail_directory_path: string;
+    directory_exists: boolean;
+    file_vs_db_discrepancy: number;
+    orphaned_files: string[];
+    missing_files: string[];
+  };
+}
 
 export default function AuditDashboard() {
   const [stats, setStats] = useState<S3AuditStats | null>(null);
   const [recentLogs, setRecentLogs] = useState<S3AuditLog[]>([]);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics[]>([]);
   const [operationAnalysis, setOperationAnalysis] = useState<OperationAnalysis[]>([]);
+  const [thumbnailStats, setThumbnailStats] = useState<ThumbnailStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('24h');
   const [pageSize, setPageSize] = useState<20 | 100 | 500>(20);
+  const [activeSection, setActiveSection] = useState('overview');
 
   const loadDashboardData = useCallback(async () => {
     try {
@@ -63,9 +94,74 @@ export default function AuditDashboard() {
     }
   }, [timeRange, pageSize]);
 
+  const loadThumbnailStats = async () => {
+    try {
+      const response = await fetch('/api/audit/thumbnails');
+      if (response.ok) {
+        const data = await response.json();
+        setThumbnailStats(data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load thumbnail stats:', error);
+    }
+  };
+
   useEffect(() => {
     loadDashboardData();
+    loadThumbnailStats();
   }, [loadDashboardData]);
+
+  // Track which section is currently visible using scroll position
+  useEffect(() => {
+    const handleScroll = () => {
+      const sections = ['overview', 'operations', 'activity', 'performance', 'thumbnails'];
+      const scrollTop = window.scrollY + 150; // Offset for fixed header
+      
+      let currentSection = 'overview';
+      
+      for (const sectionId of sections) {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          const rect = element.getBoundingClientRect();
+          const elementTop = rect.top + window.scrollY;
+          
+          if (scrollTop >= elementTop) {
+            currentSection = sectionId;
+          }
+        }
+      }
+      
+      setActiveSection(currentSection);
+    };
+
+    // Initial check
+    handleScroll();
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [stats]);
+
+  const scrollToSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      const headerOffset = 120; // Account for fixed header
+      const elementPosition = element.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+      
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const navigationItems = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
+    { id: 'operations', label: 'Operations', icon: '⚡' },
+    { id: 'activity', label: 'Activity', icon: '👁️' },
+    { id: 'performance', label: 'Performance', icon: '📈' },
+    { id: 'thumbnails', label: 'Thumbnails', icon: '🖼️' },
+  ];
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -117,6 +213,31 @@ export default function AuditDashboard() {
 
   return (
     <AppLayout title="Blaze Gallery">
+      {/* Floating Navigation Menu */}
+      <div className="fixed left-[calc(50%-32rem-20rem)] top-32 z-30 hidden xl:block">
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">
+          <nav className="space-y-1">
+            {navigationItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => scrollToSection(item.id)}
+                className={`
+                  w-full flex items-center px-3 py-2 text-sm rounded-lg transition-all duration-200
+                  ${activeSection === item.id 
+                    ? 'bg-blue-50 text-blue-700 shadow-sm border border-blue-200' 
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }
+                `}
+                title={`Go to ${item.label} section`}
+              >
+                <span className="text-base mr-2">{item.icon}</span>
+                <span className="font-medium">{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
       <div className="space-y-6">
         {/* Header Controls */}
         <div className="flex justify-between items-center">
@@ -139,6 +260,8 @@ export default function AuditDashboard() {
           </div>
         </div>
 
+        {/* Overview Section */}
+        <section id="overview" className="space-y-6 scroll-mt-24">
         {/* Stats Cards */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -183,7 +306,10 @@ export default function AuditDashboard() {
             </div>
           </div>
         )}
+        </section>
 
+        {/* Operations Section */}
+        <section id="operations" className="scroll-mt-24">
         {/* Operation Analysis */}
         {operationAnalysis.length > 0 && (
           <div className="bg-white rounded-lg shadow">
@@ -227,7 +353,10 @@ export default function AuditDashboard() {
             </div>
           </div>
         )}
+        </section>
 
+        {/* Activity Section */}
+        <section id="activity" className="scroll-mt-24">
         {/* Recent Logs */}
         {recentLogs.length > 0 && (
           <div className="bg-white rounded-lg shadow">
@@ -302,7 +431,10 @@ export default function AuditDashboard() {
             </div>
           </div>
         )}
+        </section>
 
+        {/* Performance Section */}
+        <section id="performance" className="scroll-mt-24">
         {/* Performance Chart */}
         {performanceMetrics.length > 0 && (
           <div className="bg-white rounded-lg shadow">
@@ -450,6 +582,144 @@ export default function AuditDashboard() {
             </div>
           </div>
         )}
+        </section>
+
+        {/* Thumbnails Section */}
+        <section id="thumbnails" className="scroll-mt-24">
+        {/* Thumbnail Monitoring */}
+        {thumbnailStats && (
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Image className="w-5 h-5 mr-2" />
+                Thumbnail Monitoring
+              </h2>
+            </div>
+            <div className="p-6">
+              {/* Generation Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <HardDrive className="w-8 h-8 text-blue-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Generation Rate</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {thumbnailStats.thumbnail_generation.generation_rate.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {thumbnailStats.thumbnail_generation.thumbnails_generated.toLocaleString()} of{' '}
+                        {thumbnailStats.thumbnail_generation.total_photos.toLocaleString()} photos
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <Clock className="w-8 h-8 text-yellow-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Without Thumbnails</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {thumbnailStats.thumbnail_generation.thumbnails_pending.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-green-50 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <Zap className="w-8 h-8 text-green-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Storage Used</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {formatBytes(thumbnailStats.thumbnail_storage.thumbnail_directory_size_bytes)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {thumbnailStats.thumbnail_storage.thumbnail_files_count.toLocaleString()} files
+                      </p>
+                      <p className={`text-xs font-mono mt-1 ${
+                        thumbnailStats.debug_info.directory_exists ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {thumbnailStats.debug_info.thumbnail_directory_path}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 rounded-lg p-4">
+                <div className="text-center">
+                  <p className="text-sm text-gray-600">Avg Size</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {thumbnailStats.thumbnail_generation.avg_thumbnail_size_bytes > 0 
+                      ? formatBytes(thumbnailStats.thumbnail_generation.avg_thumbnail_size_bytes)
+                      : 'No data'
+                    }
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-600">Files vs DB</p>
+                  <p className={`text-lg font-semibold ${
+                    Math.abs(thumbnailStats.debug_info.file_vs_db_discrepancy) > 0 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {thumbnailStats.debug_info.file_vs_db_discrepancy > 0 ? '+' : ''}{thumbnailStats.debug_info.file_vs_db_discrepancy}
+                  </p>
+                </div>
+                {thumbnailStats.thumbnail_storage.oldest_thumbnail && (
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Oldest</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {new Date(thumbnailStats.thumbnail_storage.oldest_thumbnail).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+                {thumbnailStats.thumbnail_storage.newest_thumbnail && (
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Newest</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {new Date(thumbnailStats.thumbnail_storage.newest_thumbnail).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Debug Information */}
+              {(thumbnailStats.debug_info.orphaned_files.length > 0 || thumbnailStats.debug_info.missing_files.length > 0) && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-md font-medium text-gray-900 mb-4">Integrity Issues</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {thumbnailStats.debug_info.orphaned_files.length > 0 && (
+                      <div className="bg-yellow-50 rounded-lg p-4">
+                        <h4 className="text-sm font-medium text-yellow-800 mb-2">
+                          Orphaned Files ({thumbnailStats.debug_info.orphaned_files.length})
+                        </h4>
+                        <div className="text-xs text-yellow-700 space-y-1">
+                          {thumbnailStats.debug_info.orphaned_files.map((file, i) => (
+                            <div key={i} className="truncate">{file}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {thumbnailStats.debug_info.missing_files.length > 0 && (
+                      <div className="bg-red-50 rounded-lg p-4">
+                        <h4 className="text-sm font-medium text-red-800 mb-2">
+                          Missing Files ({thumbnailStats.debug_info.missing_files.length})
+                        </h4>
+                        <div className="text-xs text-red-700 space-y-1">
+                          {thumbnailStats.debug_info.missing_files.map((file, i) => (
+                            <div key={i} className="truncate">{file}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        </section>
       </div>
     </AppLayout>
   );

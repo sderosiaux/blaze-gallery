@@ -7,6 +7,18 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 import { ThumbnailOptions, ThumbnailStats } from "@/types/common";
 
+export function getThumbnailsPath(customPath?: string): string {
+  return customPath ||
+         process.env.THUMBNAILS_PATH ||
+         path.join(process.cwd(), "data", "thumbnails");
+}
+
+export function getDatabasePath(customPath?: string): string {
+  return customPath ||
+         process.env.DATABASE_PATH ||
+         path.join(process.cwd(), "data", "database", "gallery.db");
+}
+
 const DEFAULT_THUMBNAIL_OPTIONS: Required<ThumbnailOptions> = {
   width: 400,
   height: 400,
@@ -18,10 +30,7 @@ export class ThumbnailService {
   private thumbnailsDir: string;
 
   constructor(thumbnailsDir?: string) {
-    this.thumbnailsDir =
-      thumbnailsDir ||
-      process.env.THUMBNAILS_PATH ||
-      path.join(process.cwd(), "data", "thumbnails");
+    this.thumbnailsDir = getThumbnailsPath(thumbnailsDir);
     this.ensureThumbnailsDirectory();
   }
 
@@ -209,9 +218,7 @@ export class ThumbnailService {
       logger.thumbnailOperation("Checking for photos without thumbnails");
 
       const Database = require("better-sqlite3");
-      const dbPath =
-        process.env.DATABASE_PATH ||
-        path.join(process.cwd(), "data", "database", "gallery.db");
+      const dbPath = getDatabasePath();
       const db = new Database(dbPath);
 
       const photosWithoutThumbnails = db

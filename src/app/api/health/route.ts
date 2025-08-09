@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { thumbnailService } from "@/lib/thumbnails";
+import { thumbnailService, getThumbnailsPath, getDatabasePath } from "@/lib/thumbnails";
 import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
     const fs = require("fs");
-    const path = require("path");
 
-    const dbPath =
-      process.env.DATABASE_PATH ||
-      path.join(process.cwd(), "data", "database", "gallery.db");
-    const thumbnailsPath =
-      process.env.THUMBNAILS_PATH ||
-      path.join(process.cwd(), "data", "thumbnails");
+    const dbPath = getDatabasePath();
+    const thumbnailsPath = getThumbnailsPath();
 
     const checks = {
       database: false,

@@ -88,10 +88,11 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
           const baseColor = getHeatColor(intensity);
           
           return (
-            <div
+            <a
               key={folder.path}
+              href={folder.path === '' ? '/' : `/folder/${folder.path}`}
               className={`
-                relative p-4 rounded-xl cursor-pointer transition-all duration-300 group
+                block relative p-4 rounded-xl cursor-pointer transition-all duration-300 group
                 ${isHovered 
                   ? 'transform scale-110 shadow-2xl z-10 ring-2 ring-white ring-opacity-60' 
                   : 'hover:scale-105 hover:shadow-lg shadow-md'
@@ -105,7 +106,7 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
               }}
               onMouseEnter={() => setHoveredFolder(folder.path)}
               onMouseLeave={() => setHoveredFolder(null)}
-              title={`${folder.path}\n${formatValue(folder)}`}
+              title={`${folder.path}\n${formatValue(folder)}\nClick to browse this folder`}
             >
               <div className="text-center relative z-10">
                 <div className="text-sm font-semibold text-gray-900 truncate mb-1 drop-shadow-sm">
@@ -147,7 +148,7 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
                   <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-transparent border-t-gray-900"></div>
                 </div>
               )}
-            </div>
+            </a>
           );
         })}
       </div>

@@ -59,5 +59,4 @@ export interface GalleryStats {
   metadata: MetadataStats;
   top_cameras: CameraStats[];
   sync_health: SyncHealth;
-  generated_at: string;
 }

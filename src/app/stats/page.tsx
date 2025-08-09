@@ -1,15 +1,40 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Calendar, Eye, Zap } from 'lucide-react';
+import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Calendar, Eye, Zap, Copy, AlertTriangle } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import FolderHeatmap from '@/components/FolderHeatmap';
 import { GalleryStats } from '@/types/stats';
+
+interface DuplicatePhoto {
+  id: number;
+  s3_key: string;
+  size: number;
+  folder_path: string;
+  created_at: string;
+}
+
+interface DuplicateGroup {
+  filename: string;
+  count: number;
+  photos: DuplicatePhoto[];
+}
+
+interface DuplicateStats {
+  summary: {
+    total_duplicate_filenames: number;
+    total_duplicate_photos: number;
+    potential_space_saved_bytes: number;
+  };
+  duplicates: DuplicateGroup[];
+}
 
 export default function StatsPage() {
   const [stats, setStats] = useState<GalleryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('overview');
+  const [duplicates, setDuplicates] = useState<DuplicateStats | null>(null);
+  const [duplicatesLoading, setDuplicatesLoading] = useState(false);
 
   useEffect(() => {
     loadStats();
@@ -18,7 +43,7 @@ export default function StatsPage() {
   // Track which section is currently visible using scroll position
   useEffect(() => {
     const handleScroll = () => {
-      const sections = ['overview', 'activity', 'storage', 'content', 'system'];
+      const sections = ['overview', 'activity', 'storage', 'content', 'duplicates', 'system'];
       const scrollTop = window.scrollY + 150; // Offset for fixed header
       
       let currentSection = 'overview';
@@ -86,11 +111,27 @@ export default function StatsPage() {
     }
   };
 
+  const loadDuplicates = async () => {
+    setDuplicatesLoading(true);
+    try {
+      const response = await fetch('/api/stats/duplicates');
+      if (response.ok) {
+        const data = await response.json();
+        setDuplicates(data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load duplicates:', error);
+    } finally {
+      setDuplicatesLoading(false);
+    }
+  };
+
   const navigationItems = [
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'activity', label: 'Activity', icon: '👁️' },
     { id: 'storage', label: 'Storage', icon: '🗂️' },
     { id: 'content', label: 'Content', icon: '📷' },
+    { id: 'duplicates', label: 'Duplicates', icon: '🔍' },
     { id: 'system', label: 'System', icon: '⚙️' },
   ];
 
@@ -117,7 +158,7 @@ export default function StatsPage() {
   return (
     <AppLayout title="Blaze Gallery">
       {/* Floating Navigation Menu */}
-      <div className="fixed left-4 top-1/2 transform -translate-y-1/2 z-30 hidden lg:block">
+      <div className="fixed left-[calc(50%-32rem-20rem)] top-32 z-30 hidden xl:block">
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-2">
           <nav className="space-y-1">
             {navigationItems.map((item) => (
@@ -148,9 +189,6 @@ export default function StatsPage() {
             <BarChart3 className="w-6 h-6 mr-2" />
             Gallery Statistics
           </h1>
-          <div className="text-sm text-gray-500">
-            Updated: {new Date(stats.generated_at).toLocaleString()}
-          </div>
         </div>
 
         {/* Overview Section */}
@@ -239,7 +277,12 @@ export default function StatsPage() {
                     <tr key={index}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         <div className="truncate max-w-xs" title={folder.path}>
-                          {folder.name}
+                          <a 
+                            href={folder.path === '' ? '/' : `/folder/${folder.path}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                          >
+                            {folder.name || 'Root'}
+                          </a>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -382,6 +425,139 @@ export default function StatsPage() {
             </div>
           </div>
         </div>
+        </section>
+
+        {/* Duplicates Section */}
+        <section id="duplicates" className="space-y-6 scroll-mt-24">
+          <div className="flex justify-between items-center border-b-2 border-gray-200 pb-2">
+            <h2 className="text-xl font-semibold text-gray-800">
+              🔍 Duplicate Detection
+            </h2>
+            <button
+              onClick={loadDuplicates}
+              disabled={duplicatesLoading}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {duplicatesLoading ? (
+                <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+              ) : (
+                <Copy className="w-4 h-4 mr-2" />
+              )}
+              Find Duplicates
+            </button>
+          </div>
+
+          {duplicates && (
+            <>
+              {/* Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <AlertTriangle className="w-8 h-8 text-yellow-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Duplicate Filenames</p>
+                      <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_filenames}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <Copy className="w-8 h-8 text-red-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Total Duplicate Photos</p>
+                      <p className="text-2xl font-bold text-gray-900">{duplicates.summary.total_duplicate_photos}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <HardDrive className="w-8 h-8 text-green-600" />
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Potential Space Saved</p>
+                      <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Duplicate Groups */}
+              {duplicates.duplicates.length > 0 ? (
+                <div className="bg-white rounded-lg shadow">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <Copy className="w-5 h-5 mr-2" />
+                      Duplicate Files ({duplicates.duplicates.length} groups)
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Photos with identical filenames found in different locations
+                    </p>
+                  </div>
+                  <div className="p-6">
+                    <div className="space-y-6">
+                      {duplicates.duplicates.slice(0, 10).map((group, index) => (
+                        <div key={index} className="border-l-4 border-yellow-400 pl-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <h4 className="font-medium text-gray-900">{group.filename}</h4>
+                            <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                              {group.count} copies
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {group.photos.map((photo) => (
+                              <div key={photo.id} className="flex justify-between items-center text-sm bg-gray-50 p-3 rounded">
+                                <div className="flex-1">
+                                  <a 
+                                    href={photo.folder_path === '' ? '/' : `/folder/${photo.folder_path}`}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    📁 {photo.folder_path || '/'}
+                                  </a>
+                                </div>
+                                <div className="text-gray-500 text-xs ml-4">
+                                  {formatBytes(photo.size)} • {new Date(photo.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {duplicates.duplicates.length > 10 && (
+                        <div className="text-center py-4 text-gray-500">
+                          ... and {duplicates.duplicates.length - 10} more duplicate groups
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow p-8 text-center">
+                  <div className="text-green-600 mb-4">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Duplicates Found!</h3>
+                  <p className="text-gray-500">Your gallery doesn't have any photos with identical filenames.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {!duplicates && !duplicatesLoading && (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <Copy className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Duplicate Detection</h3>
+              <p className="text-gray-500 mb-4">
+                Find photos with identical filenames that might be duplicates taking up unnecessary space.
+              </p>
+              <button
+                onClick={loadDuplicates}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Start Analysis
+              </button>
+            </div>
+          )}
         </section>
 
         {/* System Health Section */}
