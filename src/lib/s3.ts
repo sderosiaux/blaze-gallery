@@ -135,12 +135,34 @@ class S3Manager {
 
   /**
    * Get the configured bucket name
-   * Used by auto-initializing functions that need bucket parameter
+   * Auto-initializes S3Manager if needed and returns bucket name
    */
   getBucketName(): string {
+    // Ensure S3Manager is initialized (this will load config if needed)
+    if (!this.isInitialized) {
+      this.ensureInitialized();
+    }
+    
     const { getConfig } = require('./config');
     const config = getConfig();
     return config.backblaze_bucket;
+  }
+
+  /**
+   * Ensure S3Manager is initialized without returning the client
+   */
+  private ensureInitialized(): void {
+    if (!this.isInitialized) {
+      const { getConfig } = require('./config');
+      const config = getConfig();
+      
+      this.initializeClient({
+        endpoint: config.backblaze_endpoint,
+        bucket: config.backblaze_bucket,
+        accessKeyId: config.backblaze_access_key,
+        secretAccessKey: config.backblaze_secret_key,
+      });
+    }
   }
 
   initializeClient(config: S3Config): S3Client {
@@ -699,7 +721,6 @@ export function getFilenameFromKey(key: string): string {
  * No need to manually initialize S3 client or fetch config
  */
 export async function getObjectStreamAuto(key: string, request?: Request) {
-  getS3Client();
   const bucket = S3Manager.getInstance().getBucketName();
   return getObjectStream(bucket, key, request);
 }
@@ -715,7 +736,6 @@ export async function listObjectsAuto(
   pageNumber: number = 1,
   request?: Request,
 ) {
-  getS3Client();
   const bucket = S3Manager.getInstance().getBucketName();
   return listObjects(bucket, prefix, continuationToken, maxKeys, pageNumber, request);
 }
@@ -729,7 +749,6 @@ export async function getSignedDownloadUrlAuto(
   expiresIn: number = 3600,
   request?: Request,
 ): Promise<string> {
-  getS3Client();
   const bucket = S3Manager.getInstance().getBucketName();
   return getSignedDownloadUrl(bucket, key, expiresIn, request);
 }
