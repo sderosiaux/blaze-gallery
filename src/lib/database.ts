@@ -162,11 +162,6 @@ function initializeDatabase(database: Database.Database) {
       total_items INTEGER DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS config (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
 
     -- Basic indexes
     CREATE INDEX IF NOT EXISTS idx_folders_path ON folders (path);
@@ -756,26 +751,6 @@ export async function bulkUpdateFolderCounts(
   });
 }
 
-export async function getConfig(): Promise<Partial<Config>> {
-  const database = getDatabase();
-  const stmt = database.prepare("SELECT key, value FROM config");
-  const rows = stmt.all() as { key: string; value: string }[];
-
-  const config: Partial<Config> = {};
-
-  for (const row of rows) {
-    if (
-      row.key === "thumbnail_max_age_days" ||
-      row.key === "sync_interval_hours"
-    ) {
-      (config as any)[row.key] = parseInt(row.value);
-    } else {
-      (config as any)[row.key] = row.value;
-    }
-  }
-
-  return config;
-}
 
 
 export async function deleteOldThumbnails(

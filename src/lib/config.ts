@@ -8,7 +8,7 @@ export async function getConfig(): Promise<Config> {
     return cachedConfig;
   }
 
-  logger.configInfo("Loading configuration from environment and database");
+  logger.configInfo("Loading configuration from environment variables");
 
   const defaultConfig: Config = {
     backblaze_endpoint: process.env.BACKBLAZE_ENDPOINT || "",
@@ -45,28 +45,9 @@ export async function getConfig(): Promise<Config> {
     `Environment variables loaded - ${Object.entries(envVarsSet).filter(([_, set]) => set).map(([key]) => key).join(', ') || 'none'}`
   );
 
-  try {
-    const db = await import("./database");
-    const dbConfig = await db.getConfig();
-
-    logger.configOperation(
-      `Database configuration loaded - keys: ${Object.keys(dbConfig).join(', ') || 'none'}`
-    );
-
-    cachedConfig = {
-      ...defaultConfig,
-      ...dbConfig,
-    };
-  } catch (error) {
-    logger.configError(
-      "Could not load config from database, using environment variables only",
-      error as Error,
-      {
-        source: "database",
-      },
-    );
-    cachedConfig = defaultConfig;
-  }
+  // Configuration is now loaded entirely from environment variables
+  logger.configOperation("Configuration loaded from environment variables only");
+  cachedConfig = defaultConfig;
 
   // Validate the loaded configuration
   const validationErrors = validateConfig(cachedConfig);
