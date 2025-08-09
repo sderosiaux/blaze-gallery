@@ -513,59 +513,47 @@ export default function StatsPage() {
 
           {/* All KPIs Combined */}
           {(duplicates || duplicateFolders) && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <AlertTriangle className="w-8 h-8 text-yellow-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Duplicate Files</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_filenames || 0}</p>
-                  </div>
+                <div className="text-center">
+                  <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Files</p>
+                  <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_filenames || 0}</p>
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Copy className="w-8 h-8 text-red-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Duplicate Photos</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_photos || 0}</p>
-                  </div>
+                <div className="text-center">
+                  <Copy className="w-8 h-8 text-red-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Photos</p>
+                  <p className="text-2xl font-bold text-gray-900">{duplicates?.summary.total_duplicate_photos || 0}</p>
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Folder className="w-8 h-8 text-purple-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Duplicate Folders</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folder_groups || 0}</p>
-                  </div>
+                <div className="text-center">
+                  <Folder className="w-8 h-8 text-purple-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Duplicate Folders</p>
+                  <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folder_groups || 0}</p>
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Copy className="w-8 h-8 text-orange-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Total Folders</p>
-                    <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folders || 0}</p>
-                  </div>
+                <div className="text-center">
+                  <Copy className="w-8 h-8 text-orange-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Total Folders</p>
+                  <p className="text-2xl font-bold text-gray-900">{duplicateFolders?.summary.total_duplicate_folders || 0}</p>
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <HardDrive className="w-8 h-8 text-green-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Files Space Saved</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates?.summary.potential_space_saved_bytes || 0)}</p>
-                  </div>
+                <div className="text-center">
+                  <HardDrive className="w-8 h-8 text-green-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Files Space Saved</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates?.summary.potential_space_saved_bytes || 0)}</p>
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <HardDrive className="w-8 h-8 text-blue-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Folders Space Saved</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders?.summary.potential_space_saved_bytes || 0)}</p>
-                  </div>
+                <div className="text-center">
+                  <HardDrive className="w-8 h-8 text-blue-600 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-gray-600 mb-1">Folders Space Saved</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders?.summary.potential_space_saved_bytes || 0)}</p>
                 </div>
               </div>
             </div>
