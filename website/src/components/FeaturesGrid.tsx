@@ -110,19 +110,19 @@ export default function FeaturesGrid() {
 
             {/* Large Feature - Mobile */}
             <motion.div 
-              className="bg-white rounded-3xl p-12 flex flex-col justify-center"
+              className="bg-white rounded-3xl p-12 flex flex-col justify-center overflow-hidden"
               initial={{ opacity: 1, x: 40 }}
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
               viewport={{ once: true }}
             >
               <div className="text-8xl mb-8">📱</div>
-              <h4 className="text-5xl md:text-6xl font-semibold text-black mb-6 leading-none">
+              <h4 className="text-4xl font-semibold text-black mb-4 leading-none">
                 Works
                 <br />
                 everywhere.
               </h4>
-              <p className="text-2xl text-gray-600 font-light leading-relaxed max-w-xl">
+              <p className="text-xl text-gray-600 font-light">
                 Responsive design. Touch-friendly.
                 <br />Perfect on every device.
               </p>
@@ -132,61 +132,6 @@ export default function FeaturesGrid() {
         </div>
       </section>
 
-      {/* Additional Features Section */}
-      <section className="bg-white py-32">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <motion.div
-              initial={{ opacity: 1, x: -40 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8 }}
-              viewport={{ once: true }}
-            >
-              <h3 className="text-5xl md:text-6xl font-semibold text-black mb-8 leading-none">
-                Professional
-                <br />
-                grade.
-              </h3>
-              <div className="space-y-6 text-xl text-gray-700">
-                <div className="flex items-center">
-                  <span className="text-3xl mr-4">🎨</span>
-                  <span>RAW file support</span>
-                </div>
-                <div className="flex items-center">
-                  <span className="text-3xl mr-4">👥</span>
-                  <span>Multi-user access</span>
-                </div>
-                <div className="flex items-center">
-                  <span className="text-3xl mr-4">🔄</span>
-                  <span>Auto-sync new photos</span>
-                </div>
-                <div className="flex items-center">
-                  <span className="text-3xl mr-4">💰</span>
-                  <span>Transparent B2 pricing</span>
-                </div>
-              </div>
-            </motion.div>
-            
-            <motion.div
-              className="text-center"
-              initial={{ opacity: 1, x: 40 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-              viewport={{ once: true }}
-            >
-              <div className="text-9xl mb-8">🛡️</div>
-              <h4 className="text-4xl font-semibold text-black mb-4">
-                Privacy first.
-              </h4>
-              <p className="text-xl text-gray-600 font-light">
-                No telemetry. No tracking.
-                <br />
-                No data collection.
-              </p>
-            </motion.div>
-          </div>
-        </div>
-      </section>
     </>
   )
 }

@@ -27,7 +27,7 @@ export default function CostComparison() {
         </div>
       </section>
 
-      {/* Comparison Section - Apple Style */}
+      {/* Comparison Section - Apple Style Integrated */}
       <section className="bg-gray-50 py-32">
         <div className="max-w-7xl mx-auto px-6">
           {/* Question Section */}
@@ -45,61 +45,98 @@ export default function CostComparison() {
             </h3>
           </motion.div>
 
-          {/* Three Column Comparison */}
-          <div className="grid md:grid-cols-3 gap-16">
-            {/* Blaze Gallery */}
+          {/* Apple-style integrated comparison */}
+          <div className="space-y-8">
+            {/* Blaze Gallery - Hero Card */}
             <motion.div
-              className="text-center"
+              className="bg-white rounded-3xl p-12 shadow-lg relative overflow-hidden"
               initial={{ opacity: 1, y: 40 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
               viewport={{ once: true }}
             >
-              <div className="text-6xl mb-8">🔥</div>
-              <h4 className="text-3xl font-semibold text-black mb-6">Blaze Gallery</h4>
-              <div className="space-y-4 text-lg text-gray-700">
-                <p>✓ Stay in your cloud storage</p>
-                <p>✓ Zero photo scanning</p>
-                <p>✓ Open source code</p>
-                <p>✓ You control everything</p>
+              <div className="absolute top-8 right-8 text-6xl opacity-20">🔥</div>
+              <div className="max-w-4xl">
+                <h4 className="text-4xl md:text-5xl font-semibold text-black mb-6 leading-tight">
+                  With Blaze Gallery
+                </h4>
+                <div className="grid md:grid-cols-2 gap-8 text-xl text-gray-700">
+                  <div className="space-y-4">
+                    <p className="flex items-center">
+                      <span className="text-green-600 text-2xl mr-3">✓</span>
+                      Stay in your cloud storage
+                    </p>
+                    <p className="flex items-center">
+                      <span className="text-green-600 text-2xl mr-3">✓</span>
+                      Zero photo scanning
+                    </p>
+                  </div>
+                  <div className="space-y-4">
+                    <p className="flex items-center">
+                      <span className="text-green-600 text-2xl mr-3">✓</span>
+                      Open source code
+                    </p>
+                    <p className="flex items-center">
+                      <span className="text-green-600 text-2xl mr-3">✓</span>
+                      You control everything
+                    </p>
+                  </div>
+                </div>
               </div>
             </motion.div>
 
-            {/* Google Photos */}
-            <motion.div
-              className="text-center"
-              initial={{ opacity: 1, y: 40 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-              viewport={{ once: true }}
-            >
-              <div className="text-6xl mb-8">📷</div>
-              <h4 className="text-3xl font-semibold text-black mb-6">Google Photos</h4>
-              <div className="space-y-4 text-lg text-red-700">
-                <p>⚠️ AI scans every photo</p>
-                <p>⚠️ Builds advertising profiles</p>
-                <p>⚠️ Your data, their business</p>
-                <p>⚠️ Can lock you out anytime</p>
-              </div>
-            </motion.div>
+            {/* Versus Others - Side by side */}
+            <div className="grid md:grid-cols-2 gap-8">
+              <motion.div
+                className="bg-white rounded-3xl p-10 relative overflow-hidden"
+                initial={{ opacity: 1, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+                viewport={{ once: true }}
+              >
+                <div className="absolute top-6 right-6 text-4xl opacity-20">📷</div>
+                <h5 className="text-2xl font-semibold text-black mb-6">Google Photos</h5>
+                <div className="space-y-3 text-lg text-red-700">
+                  <p className="flex items-center">
+                    <span className="text-red-500 text-xl mr-3">⚠️</span>
+                    AI scans every photo
+                  </p>
+                  <p className="flex items-center">
+                    <span className="text-red-500 text-xl mr-3">⚠️</span>
+                    Builds advertising profiles
+                  </p>
+                  <p className="flex items-center">
+                    <span className="text-red-500 text-xl mr-3">⚠️</span>
+                    Your data, their business
+                  </p>
+                </div>
+              </motion.div>
 
-            {/* iCloud */}
-            <motion.div
-              className="text-center"
-              initial={{ opacity: 1, y: 40 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-              viewport={{ once: true }}
-            >
-              <div className="text-6xl mb-8">☁️</div>
-              <h4 className="text-3xl font-semibold text-black mb-6">iCloud Photos</h4>
-              <div className="space-y-4 text-lg text-amber-700">
-                <p>⚠️ Apple devices only</p>
-                <p>⚠️ Limited sharing</p>
-                <p>⚠️ CSAM scanning</p>
-                <p>⚠️ Export restrictions</p>
-              </div>
-            </motion.div>
+              <motion.div
+                className="bg-white rounded-3xl p-10 relative overflow-hidden"
+                initial={{ opacity: 1, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.3 }}
+                viewport={{ once: true }}
+              >
+                <div className="absolute top-6 right-6 text-4xl opacity-20">☁️</div>
+                <h5 className="text-2xl font-semibold text-black mb-6">iCloud Photos</h5>
+                <div className="space-y-3 text-lg text-amber-700">
+                  <p className="flex items-center">
+                    <span className="text-amber-500 text-xl mr-3">⚠️</span>
+                    Apple devices only
+                  </p>
+                  <p className="flex items-center">
+                    <span className="text-amber-500 text-xl mr-3">⚠️</span>
+                    Limited sharing
+                  </p>
+                  <p className="flex items-center">
+                    <span className="text-amber-500 text-xl mr-3">⚠️</span>
+                    CSAM scanning
+                  </p>
+                </div>
+              </motion.div>
+            </div>
           </div>
         </div>
       </section>

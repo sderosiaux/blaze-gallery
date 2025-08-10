@@ -20,7 +20,11 @@
       "Bash(echo:*)",
       "Bash(npx tsc:*)",
       "Bash(npx create-next-app:*)",
-      "Bash(npm run website:build:*)"
+      "Bash(npm run website:build:*)",
+      "mcp__puppeteer__puppeteer_screenshot",
+      "mcp__puppeteer__puppeteer_navigate",
+      "mcp__puppeteer__puppeteer_evaluate",
+      "WebFetch(domain:sderosiaux.github.io)"
     ],
     "deny": []
   }

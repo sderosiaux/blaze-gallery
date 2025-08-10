@@ -54,6 +54,26 @@ export default function HeroSection() {
           </motion.a>
         </motion.div>
       </div>
+      
+      {/* Large continuation arrow - always visible */}
+      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2">
+        <svg 
+          width="48" 
+          height="48" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          className="text-gray-300 hover:text-gray-500 transition-colors cursor-pointer"
+          onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
+        >
+          <path 
+            d="M7 10l5 5 5-5" 
+            stroke="currentColor" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
     </section>
   )
 }
