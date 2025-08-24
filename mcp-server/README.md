@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server that allows Claude and other AI assistant
 - **Metadata Queries**: Search photos based on EXIF data, GPS coordinates, camera information
 - **Favorites & Recents**: Quick access to favorited photos and recently added items
 - **Statistics**: Get insights about your photo collection size, organization, and metadata
+- **Structured Responses**: All tools include proper input/output schemas for reliable Claude integration
 
 ## Available Tools
 

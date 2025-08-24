@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { Photo, Folder, PhotoMetadata, SearchFilters, FolderSearchFilters } from './types.js';
 
-interface DatabasePhoto {
+interface RawPhotoRecord {
   id: number;
   folder_id: number;
   filename: string;
@@ -20,25 +21,42 @@ interface DatabasePhoto {
 }
 
 export class GalleryDatabase {
-  private db: Database.Database;
+  private sqliteConnection: Database.Database;
 
   constructor(dbPath?: string) {
     const defaultPath = path.join(process.cwd(), 'data', 'database', 'gallery.db');
-    this.db = new Database(dbPath || defaultPath, { readonly: true });
+    const finalPath = dbPath || defaultPath;
     
-    // Optimize for read performance
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('cache_size = 10000');
-    this.db.pragma('temp_store = MEMORY');
+    // Check if database file exists
+    if (!fs.existsSync(finalPath)) {
+      throw new Error(`Database file not found at ${finalPath}. Please ensure your Blaze Gallery has been synced and the database exists.`);
+    }
+    
+    // Check if directory exists
+    const dbDir = path.dirname(finalPath);
+    if (!fs.existsSync(dbDir)) {
+      throw new Error(`Database directory not found at ${dbDir}. Please ensure your Blaze Gallery has been synced.`);
+    }
+    
+    try {
+      this.sqliteConnection = new Database(finalPath, { readonly: true });
+      
+      // Optimize for read performance
+      this.sqliteConnection.pragma('journal_mode = WAL');
+      this.sqliteConnection.pragma('synchronous = NORMAL');
+      this.sqliteConnection.pragma('cache_size = 10000');
+      this.sqliteConnection.pragma('temp_store = MEMORY');
+    } catch (error) {
+      throw new Error(`Failed to open database at ${finalPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  private convertPhoto(dbPhoto: DatabasePhoto): Photo {
+  private convertPhoto(rawPhoto: RawPhotoRecord): Photo {
     return {
-      ...dbPhoto,
-      is_favorite: Boolean(dbPhoto.is_favorite),
-      thumbnail_url: `/api/photos/${dbPhoto.id}/thumbnail`,
-      metadata: dbPhoto.metadata ? JSON.parse(dbPhoto.metadata) : undefined,
+      ...rawPhoto,
+      is_favorite: Boolean(rawPhoto.is_favorite),
+      thumbnail_url: `/api/photos/${rawPhoto.id}/thumbnail`,
+      metadata: rawPhoto.metadata ? JSON.parse(rawPhoto.metadata) : undefined,
     };
   }
 
@@ -105,27 +123,27 @@ export class GalleryDatabase {
     `;
 
     params.push(limit, offset);
-    const stmt = this.db.prepare(query);
-    const results = stmt.all(params) as (DatabasePhoto & { folder_path: string; folder_name: string })[];
+    const stmt = this.sqliteConnection.prepare(query);
+    const results = stmt.all(params) as (RawPhotoRecord & { folder_path: string; folder_name: string })[];
 
     return results.map(photo => this.convertPhoto(photo));
   }
 
   async getPhoto(photoId: number): Promise<Photo | null> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
       WHERE p.id = ?
     `);
     
-    const result = stmt.get(photoId) as (DatabasePhoto & { folder_path: string; folder_name: string }) | undefined;
+    const result = stmt.get(photoId) as (RawPhotoRecord & { folder_path: string; folder_name: string }) | undefined;
     
     return result ? this.convertPhoto(result) : null;
   }
 
   async getPhotosByFolder(folderPath: string, limit: number = 100): Promise<Photo[]> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -134,7 +152,7 @@ export class GalleryDatabase {
       LIMIT ?
     `);
 
-    const results = stmt.all(folderPath, limit) as (DatabasePhoto & { folder_path: string; folder_name: string })[];
+    const results = stmt.all(folderPath, limit) as (RawPhotoRecord & { folder_path: string; folder_name: string })[];
     return results.map(photo => this.convertPhoto(photo));
   }
 
@@ -188,14 +206,14 @@ export class GalleryDatabase {
     `;
 
     params.push(limit, offset);
-    const stmt = this.db.prepare(query);
+    const stmt = this.sqliteConnection.prepare(query);
     const results = stmt.all(params) as Folder[];
 
     return results;
   }
 
   async getFolderByPath(folderPath: string): Promise<Folder | null> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT f.*, 
              COALESCE(SUM(p.size), 0) as total_size,
              COUNT(p.id) as actual_photo_count
@@ -237,12 +255,12 @@ export class GalleryDatabase {
       params = [rootPath];
     }
 
-    const stmt = this.db.prepare(query);
+    const stmt = this.sqliteConnection.prepare(query);
     return stmt.all(params) as Folder[];
   }
 
   async getFavoritePhotos(limit: number = 100): Promise<Photo[]> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -251,12 +269,12 @@ export class GalleryDatabase {
       LIMIT ?
     `);
 
-    const results = stmt.all(limit) as (DatabasePhoto & { folder_path: string; folder_name: string })[];
+    const results = stmt.all(limit) as (RawPhotoRecord & { folder_path: string; folder_name: string })[];
     return results.map(photo => this.convertPhoto(photo));
   }
 
   async getRecentPhotos(limit: number = 50): Promise<Photo[]> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -264,7 +282,7 @@ export class GalleryDatabase {
       LIMIT ?
     `);
 
-    const results = stmt.all(limit) as (DatabasePhoto & { folder_path: string; folder_name: string })[];
+    const results = stmt.all(limit) as (RawPhotoRecord & { folder_path: string; folder_name: string })[];
     return results.map(photo => this.convertPhoto(photo));
   }
 
@@ -275,7 +293,7 @@ export class GalleryDatabase {
     favorite_photos: number;
     photos_with_metadata: number;
   }> {
-    const stmt = this.db.prepare(`
+    const stmt = this.sqliteConnection.prepare(`
       SELECT 
         (SELECT COUNT(*) FROM photos) as total_photos,
         (SELECT COUNT(*) FROM folders) as total_folders,
@@ -294,6 +312,6 @@ export class GalleryDatabase {
   }
 
   close(): void {
-    this.db.close();
+    this.sqliteConnection.close();
   }
 }

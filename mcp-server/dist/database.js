@@ -6,23 +6,39 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GalleryDatabase = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 class GalleryDatabase {
-    db;
+    sqliteConnection;
     constructor(dbPath) {
         const defaultPath = path_1.default.join(process.cwd(), 'data', 'database', 'gallery.db');
-        this.db = new better_sqlite3_1.default(dbPath || defaultPath, { readonly: true });
-        // Optimize for read performance
-        this.db.pragma('journal_mode = WAL');
-        this.db.pragma('synchronous = NORMAL');
-        this.db.pragma('cache_size = 10000');
-        this.db.pragma('temp_store = MEMORY');
+        const finalPath = dbPath || defaultPath;
+        // Check if database file exists
+        if (!fs_1.default.existsSync(finalPath)) {
+            throw new Error(`Database file not found at ${finalPath}. Please ensure your Blaze Gallery has been synced and the database exists.`);
+        }
+        // Check if directory exists
+        const dbDir = path_1.default.dirname(finalPath);
+        if (!fs_1.default.existsSync(dbDir)) {
+            throw new Error(`Database directory not found at ${dbDir}. Please ensure your Blaze Gallery has been synced.`);
+        }
+        try {
+            this.sqliteConnection = new better_sqlite3_1.default(finalPath, { readonly: true });
+            // Optimize for read performance
+            this.sqliteConnection.pragma('journal_mode = WAL');
+            this.sqliteConnection.pragma('synchronous = NORMAL');
+            this.sqliteConnection.pragma('cache_size = 10000');
+            this.sqliteConnection.pragma('temp_store = MEMORY');
+        }
+        catch (error) {
+            throw new Error(`Failed to open database at ${finalPath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
-    convertPhoto(dbPhoto) {
+    convertPhoto(rawPhoto) {
         return {
-            ...dbPhoto,
-            is_favorite: Boolean(dbPhoto.is_favorite),
-            thumbnail_url: `/api/photos/${dbPhoto.id}/thumbnail`,
-            metadata: dbPhoto.metadata ? JSON.parse(dbPhoto.metadata) : undefined,
+            ...rawPhoto,
+            is_favorite: Boolean(rawPhoto.is_favorite),
+            thumbnail_url: `/api/photos/${rawPhoto.id}/thumbnail`,
+            metadata: rawPhoto.metadata ? JSON.parse(rawPhoto.metadata) : undefined,
         };
     }
     async searchPhotos(filters) {
@@ -76,12 +92,12 @@ class GalleryDatabase {
       LIMIT ? OFFSET ?
     `;
         params.push(limit, offset);
-        const stmt = this.db.prepare(query);
+        const stmt = this.sqliteConnection.prepare(query);
         const results = stmt.all(params);
         return results.map(photo => this.convertPhoto(photo));
     }
     async getPhoto(photoId) {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -91,7 +107,7 @@ class GalleryDatabase {
         return result ? this.convertPhoto(result) : null;
     }
     async getPhotosByFolder(folderPath, limit = 100) {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -145,12 +161,12 @@ class GalleryDatabase {
       LIMIT ? OFFSET ?
     `;
         params.push(limit, offset);
-        const stmt = this.db.prepare(query);
+        const stmt = this.sqliteConnection.prepare(query);
         const results = stmt.all(params);
         return results;
     }
     async getFolderByPath(folderPath) {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT f.*, 
              COALESCE(SUM(p.size), 0) as total_size,
              COUNT(p.id) as actual_photo_count
@@ -189,11 +205,11 @@ class GalleryDatabase {
       `;
             params = [rootPath];
         }
-        const stmt = this.db.prepare(query);
+        const stmt = this.sqliteConnection.prepare(query);
         return stmt.all(params);
     }
     async getFavoritePhotos(limit = 100) {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -205,7 +221,7 @@ class GalleryDatabase {
         return results.map(photo => this.convertPhoto(photo));
     }
     async getRecentPhotos(limit = 50) {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
@@ -216,7 +232,7 @@ class GalleryDatabase {
         return results.map(photo => this.convertPhoto(photo));
     }
     async getGalleryStats() {
-        const stmt = this.db.prepare(`
+        const stmt = this.sqliteConnection.prepare(`
       SELECT 
         (SELECT COUNT(*) FROM photos) as total_photos,
         (SELECT COUNT(*) FROM folders) as total_folders,
@@ -227,7 +243,7 @@ class GalleryDatabase {
         return stmt.get();
     }
     close() {
-        this.db.close();
+        this.sqliteConnection.close();
     }
 }
 exports.GalleryDatabase = GalleryDatabase;

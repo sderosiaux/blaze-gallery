@@ -1,6 +1,6 @@
 import { Photo, Folder, SearchFilters, FolderSearchFilters } from './types.js';
 export declare class GalleryDatabase {
-    private db;
+    private sqliteConnection;
     constructor(dbPath?: string);
     private convertPhoto;
     searchPhotos(filters: SearchFilters): Promise<Photo[]>;

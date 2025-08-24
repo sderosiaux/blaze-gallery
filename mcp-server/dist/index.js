@@ -6,6 +6,7 @@ const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
 const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const commander_1 = require("commander");
 const database_js_1 = require("./database.js");
+const schemas_js_1 = require("./schemas.js");
 class BlazeGalleryMCPServer {
     server;
     db;
@@ -18,9 +19,15 @@ class BlazeGalleryMCPServer {
                 tools: {},
             },
         });
-        this.db = new database_js_1.GalleryDatabase(dbPath);
-        this.setupToolHandlers();
-        this.setupErrorHandler();
+        try {
+            this.db = new database_js_1.GalleryDatabase(dbPath);
+            this.setupToolHandlers();
+            this.setupErrorHandler();
+        }
+        catch (error) {
+            console.error('[MCP Server Error] Failed to initialize database:', error instanceof Error ? error.message : String(error));
+            process.exit(1);
+        }
     }
     setupErrorHandler() {
         this.server.onerror = (error) => {
@@ -39,192 +46,56 @@ class BlazeGalleryMCPServer {
                     {
                         name: 'search_photos',
                         description: 'Search for photos in the gallery with various filters',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                folder_path: {
-                                    type: 'string',
-                                    description: 'Filter by folder path (supports nested paths)',
-                                },
-                                filename: {
-                                    type: 'string',
-                                    description: 'Filter by filename (partial match)',
-                                },
-                                mime_type: {
-                                    type: 'string',
-                                    description: 'Filter by MIME type (e.g., "image/jpeg")',
-                                },
-                                is_favorite: {
-                                    type: 'boolean',
-                                    description: 'Filter by favorite status',
-                                },
-                                has_metadata: {
-                                    type: 'boolean',
-                                    description: 'Filter by whether photo has EXIF metadata',
-                                },
-                                min_size: {
-                                    type: 'number',
-                                    description: 'Minimum file size in bytes',
-                                },
-                                max_size: {
-                                    type: 'number',
-                                    description: 'Maximum file size in bytes',
-                                },
-                                date_from: {
-                                    type: 'string',
-                                    description: 'Filter photos modified after this date (ISO format)',
-                                },
-                                date_to: {
-                                    type: 'string',
-                                    description: 'Filter photos modified before this date (ISO format)',
-                                },
-                                limit: {
-                                    type: 'number',
-                                    description: 'Maximum number of results (default: 100)',
-                                    default: 100,
-                                },
-                                offset: {
-                                    type: 'number',
-                                    description: 'Number of results to skip (for pagination)',
-                                    default: 0,
-                                },
-                            },
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.search_photos.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.search_photos.outputSchema,
                     },
                     {
                         name: 'get_photo',
                         description: 'Get detailed information about a specific photo by ID',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                photo_id: {
-                                    type: 'number',
-                                    description: 'The photo ID to retrieve',
-                                },
-                            },
-                            required: ['photo_id'],
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_photo.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_photo.outputSchema,
                     },
                     {
                         name: 'search_folders',
                         description: 'Search for folders in the gallery with various filters',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                parent_path: {
-                                    type: 'string',
-                                    description: 'Filter by parent folder path (use empty string for root folders)',
-                                },
-                                folder_name: {
-                                    type: 'string',
-                                    description: 'Filter by folder name (partial match)',
-                                },
-                                has_photos: {
-                                    type: 'boolean',
-                                    description: 'Filter by whether folder contains photos',
-                                },
-                                min_photo_count: {
-                                    type: 'number',
-                                    description: 'Minimum number of photos in folder',
-                                },
-                                max_photo_count: {
-                                    type: 'number',
-                                    description: 'Maximum number of photos in folder',
-                                },
-                                limit: {
-                                    type: 'number',
-                                    description: 'Maximum number of results (default: 100)',
-                                    default: 100,
-                                },
-                                offset: {
-                                    type: 'number',
-                                    description: 'Number of results to skip (for pagination)',
-                                    default: 0,
-                                },
-                            },
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.search_folders.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.search_folders.outputSchema,
                     },
                     {
                         name: 'get_folder',
                         description: 'Get detailed information about a specific folder by path',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                folder_path: {
-                                    type: 'string',
-                                    description: 'The folder path to retrieve',
-                                },
-                            },
-                            required: ['folder_path'],
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_folder.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_folder.outputSchema,
                     },
                     {
                         name: 'get_folder_photos',
                         description: 'Get all photos in a specific folder',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                folder_path: {
-                                    type: 'string',
-                                    description: 'The folder path to get photos from',
-                                },
-                                limit: {
-                                    type: 'number',
-                                    description: 'Maximum number of results (default: 100)',
-                                    default: 100,
-                                },
-                            },
-                            required: ['folder_path'],
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_folder_photos.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_folder_photos.outputSchema,
                     },
                     {
                         name: 'get_folder_tree',
                         description: 'Get the folder hierarchy/tree structure',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                root_path: {
-                                    type: 'string',
-                                    description: 'Root path to start the tree from (empty for root folders)',
-                                },
-                            },
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_folder_tree.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_folder_tree.outputSchema,
                     },
                     {
                         name: 'get_favorite_photos',
                         description: 'Get all favorite photos',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                limit: {
-                                    type: 'number',
-                                    description: 'Maximum number of results (default: 100)',
-                                    default: 100,
-                                },
-                            },
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_favorite_photos.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_favorite_photos.outputSchema,
                     },
                     {
                         name: 'get_recent_photos',
                         description: 'Get recently added/modified photos',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                limit: {
-                                    type: 'number',
-                                    description: 'Maximum number of results (default: 50)',
-                                    default: 50,
-                                },
-                            },
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_recent_photos.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_recent_photos.outputSchema,
                     },
                     {
                         name: 'get_gallery_stats',
                         description: 'Get overall gallery statistics and metrics',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {},
-                        },
+                        inputSchema: schemas_js_1.toolSchemas.get_gallery_stats.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_gallery_stats.outputSchema,
                     },
                 ],
             };
@@ -401,5 +272,5 @@ program
     const server = new BlazeGalleryMCPServer(options.dbPath);
     await server.run();
 });
-program.parse();
+program.parse([]);
 //# sourceMappingURL=index.js.map
