@@ -212,5 +212,103 @@ exports.toolSchemas = {
             required: ['total_photos', 'total_folders', 'total_size', 'favorite_photos', 'photos_with_metadata'],
         },
     },
+    get_photo_analytics: {
+        inputSchema: {
+            type: 'object',
+            properties: {
+                groupBy: {
+                    type: 'string',
+                    enum: ['year', 'month', 'year-month', 'folder'],
+                    description: 'How to group the analytics data',
+                },
+                orderBy: {
+                    type: 'string',
+                    enum: ['period', 'count', 'size'],
+                    description: 'How to order the results',
+                    default: 'period',
+                },
+                orderDirection: {
+                    type: 'string',
+                    enum: ['ASC', 'DESC'],
+                    description: 'Order direction',
+                    default: 'DESC',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum number of results (default: 100)',
+                    default: 100,
+                },
+            },
+            required: ['groupBy'],
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                analytics: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            period: { type: 'string' },
+                            photo_count: { type: 'number' },
+                            total_size: { type: 'number' },
+                            favorite_count: { type: 'number' },
+                            folders_involved: { type: 'number' },
+                        },
+                        required: ['period', 'photo_count', 'total_size', 'favorite_count'],
+                    },
+                },
+                groupBy: { type: 'string' },
+                count: { type: 'number' },
+            },
+            required: ['analytics', 'groupBy', 'count'],
+        },
+    },
+    get_photo_trends: {
+        inputSchema: {
+            type: 'object',
+            properties: {
+                timeRange: {
+                    type: 'string',
+                    enum: ['last-30-days', 'last-year', 'all-time'],
+                    description: 'Time range for trend analysis',
+                    default: 'last-year',
+                },
+                groupBy: {
+                    type: 'string',
+                    enum: ['day', 'week', 'month'],
+                    description: 'Time period grouping',
+                    default: 'month',
+                },
+                metric: {
+                    type: 'string',
+                    enum: ['count', 'size', 'favorites'],
+                    description: 'What metric to analyze',
+                    default: 'count',
+                },
+            },
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                trends: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            period: { type: 'string' },
+                            value: { type: 'number' },
+                        },
+                        required: ['period', 'value'],
+                    },
+                },
+                timeRange: { type: 'string' },
+                groupBy: { type: 'string' },
+                metric: { type: 'string' },
+                count: { type: 'number' },
+            },
+            required: ['trends', 'timeRange', 'groupBy', 'metric', 'count'],
+        },
+    },
 };
 //# sourceMappingURL=schemas.js.map

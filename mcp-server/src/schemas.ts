@@ -220,4 +220,104 @@ export const toolSchemas = {
       required: ['total_photos', 'total_folders', 'total_size', 'favorite_photos', 'photos_with_metadata'],
     },
   },
+
+  get_photo_analytics: {
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        groupBy: {
+          type: 'string' as const,
+          enum: ['year', 'month', 'year-month', 'folder'],
+          description: 'How to group the analytics data',
+        },
+        orderBy: {
+          type: 'string' as const,
+          enum: ['period', 'count', 'size'],
+          description: 'How to order the results',
+          default: 'period',
+        },
+        orderDirection: {
+          type: 'string' as const,
+          enum: ['ASC', 'DESC'],
+          description: 'Order direction',
+          default: 'DESC',
+        },
+        limit: {
+          type: 'number' as const,
+          description: 'Maximum number of results (default: 100)',
+          default: 100,
+        },
+      },
+      required: ['groupBy'],
+    },
+    outputSchema: {
+      type: 'object' as const,
+      properties: {
+        analytics: {
+          type: 'array' as const,
+          items: {
+            type: 'object' as const,
+            properties: {
+              period: { type: 'string' as const },
+              photo_count: { type: 'number' as const },
+              total_size: { type: 'number' as const },
+              favorite_count: { type: 'number' as const },
+              folders_involved: { type: 'number' as const },
+            },
+            required: ['period', 'photo_count', 'total_size', 'favorite_count'],
+          },
+        },
+        groupBy: { type: 'string' as const },
+        count: { type: 'number' as const },
+      },
+      required: ['analytics', 'groupBy', 'count'],
+    },
+  },
+
+  get_photo_trends: {
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        timeRange: {
+          type: 'string' as const,
+          enum: ['last-30-days', 'last-year', 'all-time'],
+          description: 'Time range for trend analysis',
+          default: 'last-year',
+        },
+        groupBy: {
+          type: 'string' as const,
+          enum: ['day', 'week', 'month'],
+          description: 'Time period grouping',
+          default: 'month',
+        },
+        metric: {
+          type: 'string' as const,
+          enum: ['count', 'size', 'favorites'],
+          description: 'What metric to analyze',
+          default: 'count',
+        },
+      },
+    },
+    outputSchema: {
+      type: 'object' as const,
+      properties: {
+        trends: {
+          type: 'array' as const,
+          items: {
+            type: 'object' as const,
+            properties: {
+              period: { type: 'string' as const },
+              value: { type: 'number' as const },
+            },
+            required: ['period', 'value'],
+          },
+        },
+        timeRange: { type: 'string' as const },
+        groupBy: { type: 'string' as const },
+        metric: { type: 'string' as const },
+        count: { type: 'number' as const },
+      },
+      required: ['trends', 'timeRange', 'groupBy', 'metric', 'count'],
+    },
+  },
 };

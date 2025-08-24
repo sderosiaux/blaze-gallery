@@ -97,6 +97,18 @@ class BlazeGalleryMCPServer {
                         inputSchema: schemas_js_1.toolSchemas.get_gallery_stats.inputSchema,
                         outputSchema: schemas_js_1.toolSchemas.get_gallery_stats.outputSchema,
                     },
+                    {
+                        name: 'get_photo_analytics',
+                        description: 'Get efficient analytics breakdown of photos by year, month, or folder (perfect for millions of photos)',
+                        inputSchema: schemas_js_1.toolSchemas.get_photo_analytics.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_photo_analytics.outputSchema,
+                    },
+                    {
+                        name: 'get_photo_trends',
+                        description: 'Get photo trends over time with various metrics and time ranges',
+                        inputSchema: schemas_js_1.toolSchemas.get_photo_trends.inputSchema,
+                        outputSchema: schemas_js_1.toolSchemas.get_photo_trends.outputSchema,
+                    },
                 ],
             };
         });
@@ -238,6 +250,52 @@ class BlazeGalleryMCPServer {
                                 {
                                     type: 'text',
                                     text: JSON.stringify(stats, null, 2),
+                                },
+                            ],
+                        };
+                    }
+                    case 'get_photo_analytics': {
+                        if (!args || typeof args.groupBy !== 'string') {
+                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, 'groupBy is required and must be a string');
+                        }
+                        const options = {
+                            groupBy: args.groupBy,
+                            orderBy: args.orderBy || 'period',
+                            orderDirection: args.orderDirection || 'DESC',
+                            limit: typeof args.limit === 'number' ? args.limit : 100,
+                        };
+                        const analytics = await this.db.getPhotoAnalytics(options);
+                        return {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: JSON.stringify({
+                                        analytics,
+                                        groupBy: options.groupBy,
+                                        count: analytics.length,
+                                    }, null, 2),
+                                },
+                            ],
+                        };
+                    }
+                    case 'get_photo_trends': {
+                        const options = {
+                            timeRange: (args && args.timeRange) || 'last-year',
+                            groupBy: (args && args.groupBy) || 'month',
+                            metric: (args && args.metric) || 'count',
+                        };
+                        const trends = await this.db.getPhotoTrends(options);
+                        return {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: JSON.stringify({
+                                        trends,
+                                        timeRange: options.timeRange,
+                                        groupBy: options.groupBy,
+                                        metric: options.metric,
+                                        count: trends.length,
+                                    }, null, 2),
                                 },
                             ],
                         };

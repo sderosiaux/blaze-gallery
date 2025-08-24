@@ -242,6 +242,123 @@ class GalleryDatabase {
     `);
         return stmt.get();
     }
+    async getPhotoAnalytics(options) {
+        let selectFields;
+        let groupByClause;
+        switch (options.groupBy) {
+            case 'year':
+                selectFields = `strftime('%Y', modified_at) as period`;
+                groupByClause = `strftime('%Y', modified_at)`;
+                break;
+            case 'month':
+                selectFields = `strftime('%Y-%m', modified_at) as period`;
+                groupByClause = `strftime('%Y-%m', modified_at)`;
+                break;
+            case 'year-month':
+                selectFields = `strftime('%Y-%m', modified_at) as period`;
+                groupByClause = `strftime('%Y-%m', modified_at)`;
+                break;
+            case 'folder':
+                selectFields = `f.path as period`;
+                groupByClause = `f.path`;
+                break;
+        }
+        const orderBy = options.orderBy || 'period';
+        const orderDirection = options.orderDirection || 'DESC';
+        const limit = options.limit || 100;
+        let orderByClause;
+        switch (orderBy) {
+            case 'count':
+                orderByClause = 'photo_count';
+                break;
+            case 'size':
+                orderByClause = 'total_size';
+                break;
+            default:
+                orderByClause = 'period';
+        }
+        const query = options.groupBy === 'folder' ? `
+      SELECT 
+        ${selectFields},
+        COUNT(p.id) as photo_count,
+        COALESCE(SUM(p.size), 0) as total_size,
+        COUNT(CASE WHEN p.is_favorite = 1 THEN 1 END) as favorite_count
+      FROM photos p
+      LEFT JOIN folders f ON p.folder_id = f.id
+      GROUP BY ${groupByClause}
+      ORDER BY ${orderByClause} ${orderDirection}
+      LIMIT ?
+    ` : `
+      SELECT 
+        ${selectFields},
+        COUNT(*) as photo_count,
+        COALESCE(SUM(size), 0) as total_size,
+        COUNT(CASE WHEN is_favorite = 1 THEN 1 END) as favorite_count,
+        COUNT(DISTINCT folder_id) as folders_involved
+      FROM photos
+      WHERE ${selectFields} IS NOT NULL
+      GROUP BY ${groupByClause}
+      ORDER BY ${orderByClause} ${orderDirection}
+      LIMIT ?
+    `;
+        const stmt = this.sqliteConnection.prepare(query);
+        return stmt.all(limit);
+    }
+    async getPhotoTrends(options) {
+        const groupBy = options.groupBy || 'month';
+        const metric = options.metric || 'count';
+        const timeRange = options.timeRange || 'last-year';
+        let dateFilter = '';
+        switch (timeRange) {
+            case 'last-30-days':
+                dateFilter = "AND modified_at >= datetime('now', '-30 days')";
+                break;
+            case 'last-year':
+                dateFilter = "AND modified_at >= datetime('now', '-1 year')";
+                break;
+            case 'all-time':
+                dateFilter = '';
+                break;
+        }
+        let selectFields;
+        let groupByClause;
+        switch (groupBy) {
+            case 'day':
+                selectFields = `strftime('%Y-%m-%d', modified_at) as period`;
+                groupByClause = `strftime('%Y-%m-%d', modified_at)`;
+                break;
+            case 'week':
+                selectFields = `strftime('%Y-W%W', modified_at) as period`;
+                groupByClause = `strftime('%Y-W%W', modified_at)`;
+                break;
+            case 'month':
+                selectFields = `strftime('%Y-%m', modified_at) as period`;
+                groupByClause = `strftime('%Y-%m', modified_at)`;
+                break;
+        }
+        let valueClause;
+        switch (metric) {
+            case 'size':
+                valueClause = 'COALESCE(SUM(size), 0) as value';
+                break;
+            case 'favorites':
+                valueClause = 'COUNT(CASE WHEN is_favorite = 1 THEN 1 END) as value';
+                break;
+            default:
+                valueClause = 'COUNT(*) as value';
+        }
+        const query = `
+      SELECT 
+        ${selectFields},
+        ${valueClause}
+      FROM photos
+      WHERE ${selectFields} IS NOT NULL ${dateFilter}
+      GROUP BY ${groupByClause}
+      ORDER BY period ASC
+    `;
+        const stmt = this.sqliteConnection.prepare(query);
+        return stmt.all();
+    }
     close() {
         this.sqliteConnection.close();
     }

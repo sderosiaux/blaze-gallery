@@ -950,5 +950,129 @@ export declare const toolSchemas: {
             required: string[];
         };
     };
+    get_photo_analytics: {
+        inputSchema: {
+            type: "object";
+            properties: {
+                groupBy: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                };
+                orderBy: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                    default: string;
+                };
+                orderDirection: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                    default: string;
+                };
+                limit: {
+                    type: "number";
+                    description: string;
+                    default: number;
+                };
+            };
+            required: string[];
+        };
+        outputSchema: {
+            type: "object";
+            properties: {
+                analytics: {
+                    type: "array";
+                    items: {
+                        type: "object";
+                        properties: {
+                            period: {
+                                type: "string";
+                            };
+                            photo_count: {
+                                type: "number";
+                            };
+                            total_size: {
+                                type: "number";
+                            };
+                            favorite_count: {
+                                type: "number";
+                            };
+                            folders_involved: {
+                                type: "number";
+                            };
+                        };
+                        required: string[];
+                    };
+                };
+                groupBy: {
+                    type: "string";
+                };
+                count: {
+                    type: "number";
+                };
+            };
+            required: string[];
+        };
+    };
+    get_photo_trends: {
+        inputSchema: {
+            type: "object";
+            properties: {
+                timeRange: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                    default: string;
+                };
+                groupBy: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                    default: string;
+                };
+                metric: {
+                    type: "string";
+                    enum: string[];
+                    description: string;
+                    default: string;
+                };
+            };
+        };
+        outputSchema: {
+            type: "object";
+            properties: {
+                trends: {
+                    type: "array";
+                    items: {
+                        type: "object";
+                        properties: {
+                            period: {
+                                type: "string";
+                            };
+                            value: {
+                                type: "number";
+                            };
+                        };
+                        required: string[];
+                    };
+                };
+                timeRange: {
+                    type: "string";
+                };
+                groupBy: {
+                    type: "string";
+                };
+                metric: {
+                    type: "string";
+                };
+                count: {
+                    type: "number";
+                };
+            };
+            required: string[];
+        };
+    };
 };
 //# sourceMappingURL=schemas.d.ts.map
