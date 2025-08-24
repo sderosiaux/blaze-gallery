@@ -18,6 +18,9 @@
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },
+  "engines": {
+    "node": "22.13.0"
+  },
   "bin": {
     "blaze-gallery-mcp": "dist/index.js"
   }

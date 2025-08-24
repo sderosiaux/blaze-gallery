@@ -300,4 +300,4 @@ program
     await server.run();
   });
 
-program.parse([]);
+program.parse();

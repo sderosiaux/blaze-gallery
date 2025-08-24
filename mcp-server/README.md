@@ -30,20 +30,37 @@ An MCP (Model Context Protocol) server that allows Claude and other AI assistant
 
 ## Installation
 
+### Prerequisites
+- Node.js v22.13.0 (same version used by Claude Desktop)
+- If using nvm: `nvm use` (reads from .nvmrc)
+
+### Setup Steps
+
 1. Navigate to the MCP server directory:
    ```bash
    cd mcp-server
    ```
 
-2. Install dependencies:
+2. Use the correct Node.js version:
+   ```bash
+   nvm use  # Uses Node v22.13.0 from .nvmrc
+   ```
+
+3. Install dependencies:
    ```bash
    npm install
    ```
 
-3. Build the TypeScript code:
+4. Build the TypeScript code:
    ```bash
    npm run build
    ```
+
+### Quick Setup
+Alternatively, run the setup script from the project root:
+```bash
+./setup-mcp.sh
+```
 
 ## Usage with Claude Desktop
 

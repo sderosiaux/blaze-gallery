@@ -272,5 +272,5 @@ program
     const server = new BlazeGalleryMCPServer(options.dbPath);
     await server.run();
 });
-program.parse([]);
+program.parse();
 //# sourceMappingURL=index.js.map

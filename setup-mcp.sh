@@ -15,6 +15,17 @@ if [ ! -f "package.json" ] || [ ! -d "src" ]; then
     exit 1
 fi
 
+# Switch to the correct Node.js version
+echo "🔧 Switching to Node.js v22.13.0 (required for Claude Desktop compatibility)..."
+if command -v nvm &> /dev/null; then
+    cd "$MCP_DIR"
+    nvm use
+    cd "$GALLERY_ROOT"
+else
+    echo "⚠️  nvm not found. Please ensure you're using Node.js v22.13.0"
+    echo "   Current version: $(node --version)"
+fi
+
 # Install MCP dependencies
 echo "📦 Installing MCP server dependencies..."
 cd "$MCP_DIR"
