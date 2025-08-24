@@ -328,8 +328,20 @@ export class GalleryDatabase {
 
     switch (options.groupBy) {
       case 'year':
-        selectFields = `strftime('%Y', modified_at) as period`;
-        groupByClause = `strftime('%Y', modified_at)`;
+        // Extract the first 4-digit year (20XX) found anywhere in the folder path
+        // This handles nested paths like "2020-10-12/subfolder/selection" 
+        selectFields = `
+          CASE 
+            WHEN f.path GLOB '*20[0-9][0-9]*' THEN 
+              substr(f.path, instr(f.path, '20'), 4)
+            ELSE 'unorganized'
+          END as period`;
+        groupByClause = `
+          CASE 
+            WHEN f.path GLOB '*20[0-9][0-9]*' THEN 
+              substr(f.path, instr(f.path, '20'), 4)
+            ELSE 'unorganized'
+          END`;
         break;
       case 'month':
         selectFields = `strftime('%Y-%m', modified_at) as period`;
@@ -375,12 +387,13 @@ export class GalleryDatabase {
     ` : `
       SELECT 
         ${selectFields},
-        COUNT(*) as photo_count,
-        COALESCE(SUM(size), 0) as total_size,
-        COUNT(CASE WHEN is_favorite = 1 THEN 1 END) as favorite_count,
-        COUNT(DISTINCT folder_id) as folders_involved
-      FROM photos
-      WHERE ${selectFields} IS NOT NULL
+        COUNT(p.id) as photo_count,
+        COALESCE(SUM(p.size), 0) as total_size,
+        COUNT(CASE WHEN p.is_favorite = 1 THEN 1 END) as favorite_count,
+        COUNT(DISTINCT p.folder_id) as folders_involved
+      FROM photos p
+      LEFT JOIN folders f ON p.folder_id = f.id
+      ${options.groupBy === 'year' ? '' : `WHERE ${groupByClause} IS NOT NULL`}
       GROUP BY ${groupByClause}
       ORDER BY ${orderByClause} ${orderDirection}
       LIMIT ?
@@ -398,7 +411,7 @@ export class GalleryDatabase {
 
   async getPhotoTrends(options: {
     timeRange?: 'last-30-days' | 'last-year' | 'all-time';
-    groupBy?: 'day' | 'week' | 'month';
+    groupBy?: 'day' | 'week' | 'month' | 'year';
     metric?: 'count' | 'size' | 'favorites';
   }): Promise<Array<{
     period: string;
@@ -432,7 +445,16 @@ export class GalleryDatabase {
         selectFields = `strftime('%Y-W%W', modified_at) as period`;
         groupByClause = `strftime('%Y-W%W', modified_at)`;
         break;
+      case 'year':
+        selectFields = `strftime('%Y', modified_at) as period`;
+        groupByClause = `strftime('%Y', modified_at)`;
+        break;
       case 'month':
+        selectFields = `strftime('%Y-%m', modified_at) as period`;
+        groupByClause = `strftime('%Y-%m', modified_at)`;
+        break;
+      default:
+        // Default to month if not specified
         selectFields = `strftime('%Y-%m', modified_at) as period`;
         groupByClause = `strftime('%Y-%m', modified_at)`;
         break;
@@ -455,7 +477,7 @@ export class GalleryDatabase {
         ${selectFields},
         ${valueClause}
       FROM photos
-      WHERE ${selectFields} IS NOT NULL ${dateFilter}
+      WHERE ${groupByClause} IS NOT NULL ${dateFilter}
       GROUP BY ${groupByClause}
       ORDER BY period ASC
     `;

@@ -1,8 +1,5 @@
-"use strict";
 // Shared JSON schemas for MCP tools
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.toolSchemas = exports.folderSchema = exports.photoSchema = void 0;
-exports.photoSchema = {
+export const photoSchema = {
     type: 'object',
     properties: {
         id: { type: 'number' },
@@ -40,7 +37,7 @@ exports.photoSchema = {
         },
     },
 };
-exports.folderSchema = {
+export const folderSchema = {
     type: 'object',
     properties: {
         id: { type: 'number' },
@@ -58,7 +55,7 @@ exports.folderSchema = {
         folder_created_at: { type: 'string' },
     },
 };
-exports.toolSchemas = {
+export const toolSchemas = {
     search_photos: {
         inputSchema: {
             type: 'object',
@@ -79,7 +76,7 @@ exports.toolSchemas = {
         outputSchema: {
             type: 'object',
             properties: {
-                photos: { type: 'array', items: exports.photoSchema },
+                photos: { type: 'array', items: photoSchema },
                 count: { type: 'number' },
             },
             required: ['photos', 'count'],
@@ -93,7 +90,7 @@ exports.toolSchemas = {
             },
             required: ['photo_id'],
         },
-        outputSchema: exports.photoSchema,
+        outputSchema: photoSchema,
     },
     search_folders: {
         inputSchema: {
@@ -111,7 +108,7 @@ exports.toolSchemas = {
         outputSchema: {
             type: 'object',
             properties: {
-                folders: { type: 'array', items: exports.folderSchema },
+                folders: { type: 'array', items: folderSchema },
                 count: { type: 'number' },
             },
             required: ['folders', 'count'],
@@ -125,7 +122,7 @@ exports.toolSchemas = {
             },
             required: ['folder_path'],
         },
-        outputSchema: exports.folderSchema,
+        outputSchema: folderSchema,
     },
     get_folder_photos: {
         inputSchema: {
@@ -140,7 +137,7 @@ exports.toolSchemas = {
             type: 'object',
             properties: {
                 folder_path: { type: 'string' },
-                photos: { type: 'array', items: exports.photoSchema },
+                photos: { type: 'array', items: photoSchema },
                 count: { type: 'number' },
             },
             required: ['folder_path', 'photos', 'count'],
@@ -157,7 +154,7 @@ exports.toolSchemas = {
             type: 'object',
             properties: {
                 root_path: { type: 'string' },
-                folders: { type: 'array', items: exports.folderSchema },
+                folders: { type: 'array', items: folderSchema },
                 count: { type: 'number' },
             },
             required: ['root_path', 'folders', 'count'],
@@ -173,7 +170,7 @@ exports.toolSchemas = {
         outputSchema: {
             type: 'object',
             properties: {
-                favorite_photos: { type: 'array', items: exports.photoSchema },
+                favorite_photos: { type: 'array', items: photoSchema },
                 count: { type: 'number' },
             },
             required: ['favorite_photos', 'count'],
@@ -189,7 +186,7 @@ exports.toolSchemas = {
         outputSchema: {
             type: 'object',
             properties: {
-                recent_photos: { type: 'array', items: exports.photoSchema },
+                recent_photos: { type: 'array', items: photoSchema },
                 count: { type: 'number' },
             },
             required: ['recent_photos', 'count'],
@@ -276,7 +273,7 @@ exports.toolSchemas = {
                 },
                 groupBy: {
                     type: 'string',
-                    enum: ['day', 'week', 'month'],
+                    enum: ['day', 'week', 'month', 'year'],
                     description: 'Time period grouping',
                     default: 'month',
                 },

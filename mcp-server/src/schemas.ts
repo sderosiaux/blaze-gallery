@@ -286,7 +286,7 @@ export const toolSchemas = {
         },
         groupBy: {
           type: 'string' as const,
-          enum: ['day', 'week', 'month'],
+          enum: ['day', 'week', 'month', 'year'],
           description: 'Time period grouping',
           default: 'month',
         },

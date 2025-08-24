@@ -32,7 +32,7 @@ export declare class GalleryDatabase {
     }>>;
     getPhotoTrends(options: {
         timeRange?: 'last-30-days' | 'last-year' | 'all-time';
-        groupBy?: 'day' | 'week' | 'month';
+        groupBy?: 'day' | 'week' | 'month' | 'year';
         metric?: 'count' | 'size' | 'favorites';
     }): Promise<Array<{
         period: string;

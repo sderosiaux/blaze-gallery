@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
-const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
-const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
-const commander_1 = require("commander");
-const database_js_1 = require("./database.js");
-const schemas_js_1 = require("./schemas.js");
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
+import { Command } from 'commander';
+import { GalleryDatabase } from './database.js';
+import { toolSchemas } from './schemas.js';
 class BlazeGalleryMCPServer {
     server;
     db;
     constructor(dbPath) {
-        this.server = new index_js_1.Server({
+        this.server = new Server({
             name: 'blaze-gallery-mcp-server',
             version: '1.0.0',
         }, {
@@ -20,7 +18,7 @@ class BlazeGalleryMCPServer {
             },
         });
         try {
-            this.db = new database_js_1.GalleryDatabase(dbPath);
+            this.db = new GalleryDatabase(dbPath);
             this.setupToolHandlers();
             this.setupErrorHandler();
         }
@@ -40,79 +38,79 @@ class BlazeGalleryMCPServer {
         });
     }
     setupToolHandlers() {
-        this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
+        this.server.setRequestHandler(ListToolsRequestSchema, async () => {
             return {
                 tools: [
                     {
                         name: 'search_photos',
                         description: 'Search for photos in the gallery with various filters',
-                        inputSchema: schemas_js_1.toolSchemas.search_photos.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.search_photos.outputSchema,
+                        inputSchema: toolSchemas.search_photos.inputSchema,
+                        outputSchema: toolSchemas.search_photos.outputSchema,
                     },
                     {
                         name: 'get_photo',
                         description: 'Get detailed information about a specific photo by ID',
-                        inputSchema: schemas_js_1.toolSchemas.get_photo.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_photo.outputSchema,
+                        inputSchema: toolSchemas.get_photo.inputSchema,
+                        outputSchema: toolSchemas.get_photo.outputSchema,
                     },
                     {
                         name: 'search_folders',
                         description: 'Search for folders in the gallery with various filters',
-                        inputSchema: schemas_js_1.toolSchemas.search_folders.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.search_folders.outputSchema,
+                        inputSchema: toolSchemas.search_folders.inputSchema,
+                        outputSchema: toolSchemas.search_folders.outputSchema,
                     },
                     {
                         name: 'get_folder',
                         description: 'Get detailed information about a specific folder by path',
-                        inputSchema: schemas_js_1.toolSchemas.get_folder.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_folder.outputSchema,
+                        inputSchema: toolSchemas.get_folder.inputSchema,
+                        outputSchema: toolSchemas.get_folder.outputSchema,
                     },
                     {
                         name: 'get_folder_photos',
                         description: 'Get all photos in a specific folder',
-                        inputSchema: schemas_js_1.toolSchemas.get_folder_photos.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_folder_photos.outputSchema,
+                        inputSchema: toolSchemas.get_folder_photos.inputSchema,
+                        outputSchema: toolSchemas.get_folder_photos.outputSchema,
                     },
                     {
                         name: 'get_folder_tree',
                         description: 'Get the folder hierarchy/tree structure',
-                        inputSchema: schemas_js_1.toolSchemas.get_folder_tree.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_folder_tree.outputSchema,
+                        inputSchema: toolSchemas.get_folder_tree.inputSchema,
+                        outputSchema: toolSchemas.get_folder_tree.outputSchema,
                     },
                     {
                         name: 'get_favorite_photos',
                         description: 'Get all favorite photos',
-                        inputSchema: schemas_js_1.toolSchemas.get_favorite_photos.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_favorite_photos.outputSchema,
+                        inputSchema: toolSchemas.get_favorite_photos.inputSchema,
+                        outputSchema: toolSchemas.get_favorite_photos.outputSchema,
                     },
                     {
                         name: 'get_recent_photos',
                         description: 'Get recently added/modified photos',
-                        inputSchema: schemas_js_1.toolSchemas.get_recent_photos.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_recent_photos.outputSchema,
+                        inputSchema: toolSchemas.get_recent_photos.inputSchema,
+                        outputSchema: toolSchemas.get_recent_photos.outputSchema,
                     },
                     {
                         name: 'get_gallery_stats',
                         description: 'Get overall gallery statistics and metrics',
-                        inputSchema: schemas_js_1.toolSchemas.get_gallery_stats.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_gallery_stats.outputSchema,
+                        inputSchema: toolSchemas.get_gallery_stats.inputSchema,
+                        outputSchema: toolSchemas.get_gallery_stats.outputSchema,
                     },
                     {
                         name: 'get_photo_analytics',
                         description: 'Get efficient analytics breakdown of photos by year, month, or folder (perfect for millions of photos)',
-                        inputSchema: schemas_js_1.toolSchemas.get_photo_analytics.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_photo_analytics.outputSchema,
+                        inputSchema: toolSchemas.get_photo_analytics.inputSchema,
+                        outputSchema: toolSchemas.get_photo_analytics.outputSchema,
                     },
                     {
                         name: 'get_photo_trends',
                         description: 'Get photo trends over time with various metrics and time ranges',
-                        inputSchema: schemas_js_1.toolSchemas.get_photo_trends.inputSchema,
-                        outputSchema: schemas_js_1.toolSchemas.get_photo_trends.outputSchema,
+                        inputSchema: toolSchemas.get_photo_trends.inputSchema,
+                        outputSchema: toolSchemas.get_photo_trends.outputSchema,
                     },
                 ],
             };
         });
-        this.server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
+        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             try {
                 switch (name) {
@@ -132,11 +130,11 @@ class BlazeGalleryMCPServer {
                     }
                     case 'get_photo': {
                         if (!args || typeof args.photo_id !== 'number') {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, 'photo_id is required and must be a number');
+                            throw new McpError(ErrorCode.InvalidRequest, 'photo_id is required and must be a number');
                         }
                         const photo = await this.db.getPhoto(args.photo_id);
                         if (!photo) {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, `Photo with ID ${args.photo_id} not found`);
+                            throw new McpError(ErrorCode.InvalidRequest, `Photo with ID ${args.photo_id} not found`);
                         }
                         return {
                             content: [
@@ -163,11 +161,11 @@ class BlazeGalleryMCPServer {
                     }
                     case 'get_folder': {
                         if (!args || typeof args.folder_path !== 'string') {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, 'folder_path is required and must be a string');
+                            throw new McpError(ErrorCode.InvalidRequest, 'folder_path is required and must be a string');
                         }
                         const folder = await this.db.getFolderByPath(args.folder_path);
                         if (!folder) {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, `Folder with path "${args.folder_path}" not found`);
+                            throw new McpError(ErrorCode.InvalidRequest, `Folder with path "${args.folder_path}" not found`);
                         }
                         return {
                             content: [
@@ -180,7 +178,7 @@ class BlazeGalleryMCPServer {
                     }
                     case 'get_folder_photos': {
                         if (!args || typeof args.folder_path !== 'string') {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, 'folder_path is required and must be a string');
+                            throw new McpError(ErrorCode.InvalidRequest, 'folder_path is required and must be a string');
                         }
                         const limit = typeof args.limit === 'number' ? args.limit : 100;
                         const photos = await this.db.getPhotosByFolder(args.folder_path, limit);
@@ -256,7 +254,7 @@ class BlazeGalleryMCPServer {
                     }
                     case 'get_photo_analytics': {
                         if (!args || typeof args.groupBy !== 'string') {
-                            throw new types_js_1.McpError(types_js_1.ErrorCode.InvalidRequest, 'groupBy is required and must be a string');
+                            throw new McpError(ErrorCode.InvalidRequest, 'groupBy is required and must be a string');
                         }
                         const options = {
                             groupBy: args.groupBy,
@@ -301,26 +299,26 @@ class BlazeGalleryMCPServer {
                         };
                     }
                     default:
-                        throw new types_js_1.McpError(types_js_1.ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+                        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
                 }
             }
             catch (error) {
-                if (error instanceof types_js_1.McpError) {
+                if (error instanceof McpError) {
                     throw error;
                 }
                 console.error(`Error executing ${name}:`, error);
-                throw new types_js_1.McpError(types_js_1.ErrorCode.InternalError, `Failed to execute ${name}: ${error instanceof Error ? error.message : String(error)}`);
+                throw new McpError(ErrorCode.InternalError, `Failed to execute ${name}: ${error instanceof Error ? error.message : String(error)}`);
             }
         });
     }
     async run() {
-        const transport = new stdio_js_1.StdioServerTransport();
+        const transport = new StdioServerTransport();
         await this.server.connect(transport);
         console.error('Blaze Gallery MCP server running on stdio');
     }
 }
 // CLI setup
-const program = new commander_1.Command();
+const program = new Command();
 program
     .name('blaze-gallery-mcp')
     .description('MCP server for Blaze Gallery')

@@ -27,6 +27,8 @@ An MCP (Model Context Protocol) server that allows Claude and other AI assistant
 
 ### Analytics
 - `get_gallery_stats` - Get overall gallery statistics
+- `get_photo_analytics` - Get efficient analytics breakdown by year, month, or folder (perfect for millions of photos)
+- `get_photo_trends` - Get photo trends over time with various metrics and time ranges
 
 ## Installation
 
@@ -102,13 +104,37 @@ Alternatively, run the setup script from the project root:
 Once configured, you can ask Claude questions like:
 
 - "Show me my favorite photos"
-- "Find all photos from 2024 in the /vacation folder"
+- "Find all photos from 2024 in the /vacation folder" 
 - "What are my largest photo files?"
 - "Show me photos taken with a Canon camera"
 - "List folders that contain more than 100 photos"
 - "Find photos with GPS coordinates"
 - "What's the total size of my photo collection?"
 - "Show me recent photos added this month"
+- **"Give me the breakdown per year of all my photos"** ⭐ (Uses efficient analytics!)
+- **"Show me monthly trends for the last year"** ⭐ (Perfect for millions of photos!)
+- "How many photos do I have in each folder?"
+- "What's my photo upload trend over time?"
+
+## Testing & Development
+
+### Test Client
+
+Use the included test client to quickly test the MCP server without reloading Claude Desktop:
+
+```bash
+# Test all tools
+npm test -- --db-path /path/to/your/gallery.db
+
+# Test specific tool
+npm run test-tool -- --db-path /path/to/gallery.db get_photo_analytics '{"groupBy":"year","limit":5}'
+
+# Test analytics breakdown by month
+npm run test-tool -- --db-path /path/to/gallery.db get_photo_analytics '{"groupBy":"month","orderBy":"count","orderDirection":"DESC","limit":10}'
+
+# Test photo trends
+npm run test-tool -- --db-path /path/to/gallery.db get_photo_trends '{"timeRange":"last-year","groupBy":"month","metric":"count"}'
+```
 
 ## Database Requirements
 

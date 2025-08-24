@@ -1,28 +1,22 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.GalleryDatabase = void 0;
-const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
-class GalleryDatabase {
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+export class GalleryDatabase {
     sqliteConnection;
     constructor(dbPath) {
-        const defaultPath = path_1.default.join(process.cwd(), 'data', 'database', 'gallery.db');
+        const defaultPath = path.join(process.cwd(), 'data', 'database', 'gallery.db');
         const finalPath = dbPath || defaultPath;
         // Check if database file exists
-        if (!fs_1.default.existsSync(finalPath)) {
+        if (!fs.existsSync(finalPath)) {
             throw new Error(`Database file not found at ${finalPath}. Please ensure your Blaze Gallery has been synced and the database exists.`);
         }
         // Check if directory exists
-        const dbDir = path_1.default.dirname(finalPath);
-        if (!fs_1.default.existsSync(dbDir)) {
+        const dbDir = path.dirname(finalPath);
+        if (!fs.existsSync(dbDir)) {
             throw new Error(`Database directory not found at ${dbDir}. Please ensure your Blaze Gallery has been synced.`);
         }
         try {
-            this.sqliteConnection = new better_sqlite3_1.default(finalPath, { readonly: true });
+            this.sqliteConnection = new Database(finalPath, { readonly: true });
             // Optimize for read performance
             this.sqliteConnection.pragma('journal_mode = WAL');
             this.sqliteConnection.pragma('synchronous = NORMAL');
@@ -247,8 +241,20 @@ class GalleryDatabase {
         let groupByClause;
         switch (options.groupBy) {
             case 'year':
-                selectFields = `strftime('%Y', modified_at) as period`;
-                groupByClause = `strftime('%Y', modified_at)`;
+                // Extract the first 4-digit year (20XX) found anywhere in the folder path
+                // This handles nested paths like "2020-10-12/subfolder/selection" 
+                selectFields = `
+          CASE 
+            WHEN f.path GLOB '*20[0-9][0-9]*' THEN 
+              substr(f.path, instr(f.path, '20'), 4)
+            ELSE 'unorganized'
+          END as period`;
+                groupByClause = `
+          CASE 
+            WHEN f.path GLOB '*20[0-9][0-9]*' THEN 
+              substr(f.path, instr(f.path, '20'), 4)
+            ELSE 'unorganized'
+          END`;
                 break;
             case 'month':
                 selectFields = `strftime('%Y-%m', modified_at) as period`;
@@ -291,12 +297,13 @@ class GalleryDatabase {
     ` : `
       SELECT 
         ${selectFields},
-        COUNT(*) as photo_count,
-        COALESCE(SUM(size), 0) as total_size,
-        COUNT(CASE WHEN is_favorite = 1 THEN 1 END) as favorite_count,
-        COUNT(DISTINCT folder_id) as folders_involved
-      FROM photos
-      WHERE ${selectFields} IS NOT NULL
+        COUNT(p.id) as photo_count,
+        COALESCE(SUM(p.size), 0) as total_size,
+        COUNT(CASE WHEN p.is_favorite = 1 THEN 1 END) as favorite_count,
+        COUNT(DISTINCT p.folder_id) as folders_involved
+      FROM photos p
+      LEFT JOIN folders f ON p.folder_id = f.id
+      ${options.groupBy === 'year' ? '' : `WHERE ${groupByClause} IS NOT NULL`}
       GROUP BY ${groupByClause}
       ORDER BY ${orderByClause} ${orderDirection}
       LIMIT ?
@@ -331,7 +338,16 @@ class GalleryDatabase {
                 selectFields = `strftime('%Y-W%W', modified_at) as period`;
                 groupByClause = `strftime('%Y-W%W', modified_at)`;
                 break;
+            case 'year':
+                selectFields = `strftime('%Y', modified_at) as period`;
+                groupByClause = `strftime('%Y', modified_at)`;
+                break;
             case 'month':
+                selectFields = `strftime('%Y-%m', modified_at) as period`;
+                groupByClause = `strftime('%Y-%m', modified_at)`;
+                break;
+            default:
+                // Default to month if not specified
                 selectFields = `strftime('%Y-%m', modified_at) as period`;
                 groupByClause = `strftime('%Y-%m', modified_at)`;
                 break;
@@ -352,7 +368,7 @@ class GalleryDatabase {
         ${selectFields},
         ${valueClause}
       FROM photos
-      WHERE ${selectFields} IS NOT NULL ${dateFilter}
+      WHERE ${groupByClause} IS NOT NULL ${dateFilter}
       GROUP BY ${groupByClause}
       ORDER BY period ASC
     `;
@@ -363,5 +379,4 @@ class GalleryDatabase {
         this.sqliteConnection.close();
     }
 }
-exports.GalleryDatabase = GalleryDatabase;
 //# sourceMappingURL=database.js.map

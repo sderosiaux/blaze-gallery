@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "MCP server for querying Blaze Gallery photos and folders",
   "main": "dist/index.js",
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node test-client.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
