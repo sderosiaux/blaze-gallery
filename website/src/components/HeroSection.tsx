@@ -21,7 +21,7 @@ export default function HeroSection() {
           
           {/* Minimal subtext */}
           <p className="text-2xl md:text-3xl text-gray-600 font-light mb-12 max-w-4xl mx-auto leading-relaxed">
-            The self-hosted photo gallery that puts you in control.
+            The self-hosted photo gallery with AI integration that puts you in control.
           </p>
           
           {/* Simple, clean terminal */}

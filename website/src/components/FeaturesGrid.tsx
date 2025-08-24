@@ -108,23 +108,65 @@ export default function FeaturesGrid() {
               </p>
             </motion.div>
 
-            {/* Large Feature - Mobile */}
+            {/* Large Feature - AI Integration */}
             <motion.div 
-              className="bg-white rounded-3xl p-12 flex flex-col justify-center overflow-hidden"
+              className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-3xl p-12 flex flex-col justify-center overflow-hidden border border-purple-100"
               initial={{ opacity: 1, x: 40 }}
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
               viewport={{ once: true }}
             >
-              <div className="text-8xl mb-8">📱</div>
+              <div className="text-8xl mb-8">🤖</div>
               <h4 className="text-4xl font-semibold text-black mb-4 leading-none">
-                Works
+                AI-powered
                 <br />
-                everywhere.
+                queries.
               </h4>
-              <p className="text-xl text-gray-600 font-light">
-                Responsive design. Touch-friendly.
-                <br />Perfect on every device.
+              <p className="text-xl text-gray-600 font-light mb-4">
+                "Show me photos from 2023"
+                <br />"Find my Canon pictures"
+              </p>
+              <p className="text-sm text-purple-600 font-medium">
+                Claude integration via MCP
+              </p>
+            </motion.div>
+            
+          </div>
+
+          {/* Additional Feature Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+            
+            {/* Mobile Feature */}
+            <motion.div 
+              className="bg-white rounded-3xl p-10 flex flex-col justify-center"
+              initial={{ opacity: 1, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.6 }}
+              viewport={{ once: true }}
+            >
+              <div className="text-7xl mb-6">📱</div>
+              <h4 className="text-3xl font-semibold text-black mb-4 leading-none">
+                Works everywhere.
+              </h4>
+              <p className="text-lg text-gray-600 font-light">
+                Responsive design. Touch-friendly. Perfect on every device.
+              </p>
+            </motion.div>
+
+            {/* Open Source Feature */}
+            <motion.div 
+              className="bg-white rounded-3xl p-10 flex flex-col justify-center"
+              initial={{ opacity: 1, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.7 }}
+              viewport={{ once: true }}
+            >
+              <div className="text-7xl mb-6">⭐</div>
+              <h4 className="text-3xl font-semibold text-black mb-4 leading-none">
+                Open source.
+              </h4>
+              <p className="text-lg text-gray-600 font-light">
+                MIT licensed. Community-driven. Contribute on GitHub.
               </p>
             </motion.div>
             

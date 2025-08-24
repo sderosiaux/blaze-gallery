@@ -21,6 +21,7 @@ A self-hosted photo gallery that integrates with *Backblaze B2* cloud storage (o
 - **Folder sharing** with password protection and expiration dates
 - **Share management** dashboard with access logs and analytics
 - **RAW file support** with intelligent handling (see limitations below)
+- **AI Integration** via MCP server - query your photos with Claude using natural language
 
 ## Quick Start
 
@@ -56,6 +57,25 @@ A self-hosted photo gallery that integrates with *Backblaze B2* cloud storage (o
 
 4. **Access your gallery**
    Open http://localhost:3000 and your photos will be automatically scanned and indexed
+
+## AI Integration (MCP Server)
+
+Blaze Gallery includes an **MCP (Model Context Protocol) server** that lets you query your photo collection using natural language with Claude and other AI assistants.
+
+### Quick Setup
+```bash
+cd mcp-server
+npm install && npm run build
+```
+
+### Example Queries
+Once configured with Claude Desktop, you can ask:
+- *"Show me all my photos from 2023"*
+- *"Find photos taken with my Canon camera"*
+- *"What's my photo collection breakdown by year?"*
+- *"Show me trends in my photo uploads over time"*
+
+**→ [Full MCP Setup Guide](./mcp-server/README.md)**
 
 ## Limitations
 
