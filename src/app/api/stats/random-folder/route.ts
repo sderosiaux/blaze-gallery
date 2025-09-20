@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from "@/lib/auth/middleware";
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
 // Force dynamic rendering for routes using auth
@@ -8,11 +8,9 @@ export const dynamic = 'force-dynamic';
 
 export const GET = requireAuth(async function GET() {
   try {
-    const db = getDatabase();
-    
     // Get a random folder that contains photos
-    const randomFolder = db.prepare(`
-      SELECT 
+    const result = await query(`
+      SELECT
         f.id,
         f.name,
         f.path,
@@ -20,10 +18,12 @@ export const GET = requireAuth(async function GET() {
       FROM folders f
       INNER JOIN photos p ON f.id = p.folder_id
       GROUP BY f.id, f.name, f.path
-      HAVING photo_count > 0
+      HAVING COUNT(p.id) > 0
       ORDER BY RANDOM()
       LIMIT 1
-    `).get() as {
+    `);
+
+    const randomFolder = result.rows[0] as {
       id: number;
       name: string;
       path: string;

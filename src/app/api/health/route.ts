@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { thumbnailService, getThumbnailsPath, getDatabasePath } from "@/lib/thumbnails";
+import { thumbnailService, getThumbnailsPath } from "@/lib/thumbnails";
+import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
     const fs = require("fs");
-
-    const dbPath = getDatabasePath();
     const thumbnailsPath = getThumbnailsPath();
 
     const checks = {
@@ -15,10 +14,12 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
     };
 
+    // Test PostgreSQL connection
     try {
-      checks.database = fs.existsSync(dbPath);
+      await query("SELECT 1 as test");
+      checks.database = true;
     } catch (error) {
-      logger.error("Database health check failed", error as Error);
+      logger.error("Database connection health check failed", error as Error);
     }
 
     try {

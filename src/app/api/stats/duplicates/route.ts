@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
 interface DuplicateGroup {
@@ -16,11 +16,9 @@ interface DuplicateGroup {
 
 export async function GET() {
   try {
-    const db = getDatabase();
-    
     // Find photos with duplicate filename+size combinations, excluding system/thumbnail files
-    const duplicatePhotos = db.prepare(`
-      SELECT 
+    const result = await query(`
+      SELECT
         p.id,
         p.filename,
         p.s3_key,
@@ -39,7 +37,7 @@ export async function GET() {
           AND p2.filename NOT LIKE 'Thumbs.db'
           AND p2.filename NOT LIKE '.DS_Store'
           AND p2.size > 10240
-        GROUP BY p2.filename, p2.size 
+        GROUP BY p2.filename, p2.size
         HAVING COUNT(*) > 1
       )
       AND f.path NOT LIKE '%/@eaDir/%'
@@ -49,7 +47,9 @@ export async function GET() {
       AND p.filename NOT LIKE '.DS_Store'
       AND p.size > 10240
       ORDER BY p.filename, p.size, p.created_at
-    `).all() as {
+    `);
+
+    const duplicatePhotos = result.rows as {
       id: number;
       filename: string;
       s3_key: string;

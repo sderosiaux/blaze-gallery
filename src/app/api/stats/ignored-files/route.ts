@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
 interface IgnoredFilesStats {
@@ -23,26 +23,26 @@ interface IgnoredFilesStats {
 
 export async function GET() {
   try {
-    const db = getDatabase();
-    
     // Get Synology thumbnails
-    const synologyThumbs = db.prepare(`
+    const synologyThumbsResult = await query(`
       SELECT COUNT(*) as count, SUM(p.size) as total_size
       FROM photos p
       WHERE p.filename LIKE 'SYNOPHOTO_THUMB_%'
-    `).get() as { count: number; total_size: number | null };
+    `);
+    const synologyThumbs = synologyThumbsResult.rows[0] as { count: number; total_size: number | null };
 
     // Get system files
-    const systemFiles = db.prepare(`
+    const systemFilesResult = await query(`
       SELECT COUNT(*) as count, SUM(p.size) as total_size
       FROM photos p
       WHERE p.filename IN ('Thumbs.db', '.DS_Store')
          OR p.filename LIKE '.__%'
          OR p.filename LIKE 'desktop.ini'
-    `).get() as { count: number; total_size: number | null };
+    `);
+    const systemFiles = systemFilesResult.rows[0] as { count: number; total_size: number | null };
 
     // Get small files (under 10KB)
-    const smallFiles = db.prepare(`
+    const smallFilesResult = await query(`
       SELECT COUNT(*) as count, SUM(p.size) as total_size
       FROM photos p
       JOIN folders f ON p.folder_id = f.id
@@ -51,35 +51,39 @@ export async function GET() {
         AND f.path NOT LIKE '%@eaDir%'
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
         AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
-    `).get() as { count: number; total_size: number | null };
+    `);
+    const smallFiles = smallFilesResult.rows[0] as { count: number; total_size: number | null };
 
     // Get @eaDir folder files
-    const eaDirFiles = db.prepare(`
+    const eaDirFilesResult = await query(`
       SELECT COUNT(*) as count, SUM(p.size) as total_size
       FROM photos p
       JOIN folders f ON p.folder_id = f.id
       WHERE (f.path LIKE '%/@eaDir/%' OR f.path LIKE '%@eaDir%')
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
-    `).get() as { count: number; total_size: number | null };
+    `);
+    const eaDirFiles = eaDirFilesResult.rows[0] as { count: number; total_size: number | null };
 
     // Get examples for each category
-    const synologyExamples = db.prepare(`
+    const synologyExamplesResult = await query(`
       SELECT DISTINCT p.filename
       FROM photos p
       WHERE p.filename LIKE 'SYNOPHOTO_THUMB_%'
       LIMIT 3
-    `).all() as { filename: string }[];
+    `);
+    const synologyExamples = synologyExamplesResult.rows as { filename: string }[];
 
-    const systemExamples = db.prepare(`
+    const systemExamplesResult = await query(`
       SELECT DISTINCT p.filename
       FROM photos p
       WHERE p.filename IN ('Thumbs.db', '.DS_Store')
          OR p.filename LIKE '.__%'
          OR p.filename LIKE 'desktop.ini'
       LIMIT 3
-    `).all() as { filename: string }[];
+    `);
+    const systemExamples = systemExamplesResult.rows as { filename: string }[];
 
-    const smallFileExamples = db.prepare(`
+    const smallFileExamplesResult = await query(`
       SELECT DISTINCT p.filename
       FROM photos p
       JOIN folders f ON p.folder_id = f.id
@@ -89,16 +93,18 @@ export async function GET() {
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
         AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
       LIMIT 3
-    `).all() as { filename: string }[];
+    `);
+    const smallFileExamples = smallFileExamplesResult.rows as { filename: string }[];
 
-    const eaDirExamples = db.prepare(`
+    const eaDirExamplesResult = await query(`
       SELECT DISTINCT f.path
       FROM photos p
       JOIN folders f ON p.folder_id = f.id
       WHERE (f.path LIKE '%/@eaDir/%' OR f.path LIKE '%@eaDir%')
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
       LIMIT 3
-    `).all() as { path: string }[];
+    `);
+    const eaDirExamples = eaDirExamplesResult.rows as { path: string }[];
 
     const totalIgnored = (synologyThumbs.count || 0) + (systemFiles.count || 0) + 
                         (smallFiles.count || 0) + (eaDirFiles.count || 0);

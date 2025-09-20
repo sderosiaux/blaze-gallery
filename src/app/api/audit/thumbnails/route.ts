@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 import { getThumbnailsPath } from '@/lib/thumbnails';
 import * as fs from 'fs';
@@ -74,16 +74,16 @@ async function getThumbnailDirectoryStats(thumbnailDir: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const db = getDatabase();
-    
     // Get basic thumbnail statistics from database
-    const thumbnailStats = db.prepare(`
-      SELECT 
+    const thumbnailStatsResult = await query(`
+      SELECT
         COUNT(*) as total_photos,
         SUM(CASE WHEN thumbnail_path IS NOT NULL AND thumbnail_path != '' THEN 1 ELSE 0 END) as thumbnails_generated,
         SUM(CASE WHEN thumbnail_path IS NULL OR thumbnail_path = '' THEN 1 ELSE 0 END) as thumbnails_pending
       FROM photos
-    `).get() as {
+    `);
+
+    const thumbnailStats = thumbnailStatsResult.rows[0] as {
       total_photos: number;
       thumbnails_generated: number;
       thumbnails_pending: number;
@@ -105,10 +105,11 @@ export async function GET(request: NextRequest) {
     const filesOnDisk = fs.existsSync(thumbnailDir) ? fs.readdirSync(thumbnailDir).filter(f => fs.statSync(path.join(thumbnailDir, f)).isFile()) : [];
     
     // Get all photos with thumbnail_path set
-    const photosWithThumbnails = db.prepare(`
-      SELECT id, thumbnail_path FROM photos 
+    const photosWithThumbnailsResult = await query(`
+      SELECT id, thumbnail_path FROM photos
       WHERE thumbnail_path IS NOT NULL AND thumbnail_path != ''
-    `).all() as { id: number; thumbnail_path: string }[];
+    `);
+    const photosWithThumbnails = photosWithThumbnailsResult.rows as { id: number; thumbnail_path: string }[];
 
     // Extract just the filename from thumbnail_path (in case it includes directory)
     const dbThumbnailFiles = photosWithThumbnails.map(p => path.basename(p.thumbnail_path));
@@ -124,15 +125,17 @@ export async function GET(request: NextRequest) {
     // Try to get cache performance from audit logs if available
     let cachePerformance = null;
     try {
-      const cacheStats = db.prepare(`
-        SELECT 
+      const cacheStatsResult = await query(`
+        SELECT
           COUNT(*) as total_requests,
           SUM(CASE WHEN endpoint LIKE '%thumbnail%' AND status_code = 304 THEN 1 ELSE 0 END) as cache_hits,
           SUM(CASE WHEN endpoint LIKE '%thumbnail%' AND status_code = 200 THEN 1 ELSE 0 END) as cache_misses
-        FROM s3_audit_logs 
-        WHERE endpoint LIKE '%thumbnail%' 
-        AND timestamp >= datetime('now', '-24 hours')
-      `).get() as {
+        FROM s3_audit_logs
+        WHERE endpoint LIKE '%thumbnail%'
+        AND timestamp >= NOW() - INTERVAL '24 hours'
+      `);
+
+      const cacheStats = cacheStatsResult.rows[0] as {
         total_requests: number;
         cache_hits: number;
         cache_misses: number;

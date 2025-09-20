@@ -1,0 +1,33 @@
+# Data and database files
+data*/
+*.db
+*.sqlite
+*.sqlite3
+
+# Development files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Documentation
+*.md
+SETUP_GOOGLE.md
+TODO.md
+
+# Scripts
+scripts/
+Dockerfile
+docker-compose.yml
+setup-mcp.sh
+
+# MCP Server
+mcp-server/
+
+# Website (separate deployment)
+website/
+
+# Development
+.DS_Store
+migrations/

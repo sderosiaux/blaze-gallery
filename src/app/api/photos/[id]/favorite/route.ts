@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { getDatabase } from "@/lib/database";
+import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
 export const POST = requireAuth(async function POST(
@@ -16,12 +16,12 @@ export const POST = requireAuth(async function POST(
       );
     }
 
-    const database = getDatabase();
-
     // Toggle favorite status
-    const currentPhoto = database
-      .prepare("SELECT is_favorite FROM photos WHERE id = ?")
-      .get(photoId) as { is_favorite: number } | undefined;
+    const currentResult = await query(
+      "SELECT is_favorite FROM photos WHERE id = $1",
+      [photoId]
+    );
+    const currentPhoto = currentResult.rows[0] as { is_favorite: boolean } | undefined;
 
     if (!currentPhoto) {
       return NextResponse.json(
@@ -30,19 +30,17 @@ export const POST = requireAuth(async function POST(
       );
     }
 
-    const newFavoriteStatus = currentPhoto.is_favorite ? 0 : 1;
+    const newFavoriteStatus = !currentPhoto.is_favorite;
 
-    const stmt = database.prepare(`
-      UPDATE photos 
-      SET is_favorite = ? 
-      WHERE id = ?
-    `);
-
-    stmt.run(newFavoriteStatus, photoId);
+    await query(`
+      UPDATE photos
+      SET is_favorite = $1
+      WHERE id = $2
+    `, [newFavoriteStatus, photoId]);
 
     return NextResponse.json({
       success: true,
-      is_favorite: Boolean(newFavoriteStatus),
+      is_favorite: newFavoriteStatus,
     });
   } catch (error) {
     logger.apiError("Error toggling photo favorite", error as Error, {

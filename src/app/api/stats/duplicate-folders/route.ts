@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
 interface DuplicateFolderGroup {
@@ -27,12 +27,10 @@ interface DuplicateFoldersStats {
 
 export async function GET() {
   try {
-    const db = getDatabase();
-    
     // Get folder signatures (concatenated sorted list of filename|size for each folder)
-    const folderSignatures = db.prepare(`
+    const result = await query(`
       WITH folder_contents AS (
-        SELECT 
+        SELECT
           f.id,
           f.name,
           f.path,
@@ -49,18 +47,18 @@ export async function GET() {
           AND p.size > 10240
       ),
       folder_signatures AS (
-        SELECT 
+        SELECT
           fc.id,
           fc.name,
           fc.path,
           COUNT(fc.file_signature) as file_count,
           SUM(fc.size) as total_size,
-          GROUP_CONCAT(fc.file_signature, '::') as folder_signature
+          STRING_AGG(fc.file_signature, '::' ORDER BY fc.file_signature) as folder_signature
         FROM folder_contents fc
         GROUP BY fc.id, fc.name, fc.path
-        HAVING file_count > 0
+        HAVING COUNT(fc.file_signature) > 0
       )
-      SELECT 
+      SELECT
         fs.id,
         fs.name,
         fs.path,
@@ -69,13 +67,15 @@ export async function GET() {
         fs.folder_signature
       FROM folder_signatures fs
       WHERE fs.folder_signature IN (
-        SELECT folder_signature 
-        FROM folder_signatures 
-        GROUP BY folder_signature 
+        SELECT folder_signature
+        FROM folder_signatures
+        GROUP BY folder_signature
         HAVING COUNT(*) > 1
       )
       ORDER BY fs.folder_signature, fs.path
-    `).all() as {
+    `);
+
+    const folderSignatures = result.rows as {
       id: number;
       name: string;
       path: string;
@@ -121,7 +121,7 @@ export async function GET() {
       return total + (group.total_size_bytes * (group.count - 1));
     }, 0);
 
-    const result: DuplicateFoldersStats = {
+    const response: DuplicateFoldersStats = {
       summary: {
         total_duplicate_folder_groups: totalDuplicateFolderGroups,
         total_duplicate_folders: totalDuplicateFolders,
@@ -132,7 +132,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      data: result
+      data: response
     });
 
   } catch (error) {

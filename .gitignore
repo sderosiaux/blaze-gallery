@@ -17,7 +17,7 @@ yarn-error.log*
 /.env.production.local
 
 # Data directories
-/data/
+/data*/
 
 # Logs
 *.log

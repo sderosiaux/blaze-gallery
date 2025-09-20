@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from "@/lib/auth/middleware";
-import { getDatabase } from '@/lib/database';
+import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
 
 // Force dynamic rendering for routes using auth
@@ -8,18 +8,17 @@ export const dynamic = 'force-dynamic';
 
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
-    const db = getDatabase();
-    
     // Basic photo statistics
-    const basicStats = db.prepare(`
-      SELECT 
+    const basicStatsResult = await query(`
+      SELECT
         COUNT(*) as total_photos,
         SUM(size) as total_storage_bytes,
         AVG(size) as avg_photo_size_bytes,
         COUNT(DISTINCT folder_id) as total_folders_with_photos,
-        SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END) as total_favorites
+        SUM(CASE WHEN is_favorite = true THEN 1 ELSE 0 END) as total_favorites
       FROM photos
-    `).get() as {
+    `);
+    const basicStats = basicStatsResult.rows[0] as {
       total_photos: number;
       total_storage_bytes: number;
       avg_photo_size_bytes: number;
@@ -28,27 +27,28 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     };
 
     // Most viewed folders (based on last_visited frequency)
-    const mostViewedFolders = db.prepare(`
-      SELECT 
+    const mostViewedFoldersResult = await query(`
+      SELECT
         f.name,
         f.path,
         f.photo_count,
         SUM(p.size) as total_size,
         f.last_visited,
         COUNT(p.id) as actual_photo_count,
-        CASE 
+        CASE
           WHEN f.last_visited IS NULL THEN 0
-          ELSE julianday('now') - julianday(f.last_visited)
+          ELSE EXTRACT(EPOCH FROM (NOW() - f.last_visited)) / 86400
         END as days_since_visited
       FROM folders f
       LEFT JOIN photos p ON f.id = p.folder_id
       WHERE f.photo_count > 0
-      GROUP BY f.id
-      ORDER BY 
+      GROUP BY f.id, f.name, f.path, f.photo_count, f.last_visited
+      ORDER BY
         CASE WHEN f.last_visited IS NULL THEN 1 ELSE 0 END,
         days_since_visited ASC
       LIMIT 10
-    `).all() as Array<{
+    `);
+    const mostViewedFolders = mostViewedFoldersResult.rows as Array<{
       name: string;
       path: string;
       photo_count: number;
@@ -59,8 +59,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }>;
 
     // Largest folders by photo count
-    const largestFoldersByCount = db.prepare(`
-      SELECT 
+    const largestFoldersByCountResult = await query(`
+      SELECT
         f.name,
         f.path,
         f.photo_count,
@@ -69,10 +69,11 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       FROM folders f
       LEFT JOIN photos p ON f.id = p.folder_id
       WHERE f.photo_count > 0
-      GROUP BY f.id
+      GROUP BY f.id, f.name, f.path, f.photo_count
       ORDER BY f.photo_count DESC
       LIMIT 10
-    `).all() as Array<{
+    `);
+    const largestFoldersByCount = largestFoldersByCountResult.rows as Array<{
       name: string;
       path: string;
       photo_count: number;
@@ -81,8 +82,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }>;
 
     // Largest folders by storage size
-    const largestFoldersBySize = db.prepare(`
-      SELECT 
+    const largestFoldersBySizeResult = await query(`
+      SELECT
         f.name,
         f.path,
         f.photo_count,
@@ -91,10 +92,11 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       FROM folders f
       LEFT JOIN photos p ON f.id = p.folder_id
       WHERE f.photo_count > 0
-      GROUP BY f.id
+      GROUP BY f.id, f.name, f.path, f.photo_count
       ORDER BY SUM(p.size) DESC
       LIMIT 10
-    `).all() as Array<{
+    `);
+    const largestFoldersBySize = largestFoldersBySizeResult.rows as Array<{
       name: string;
       path: string;
       photo_count: number;
@@ -103,31 +105,31 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }>;
 
     // File type distribution - simple approach that works reliably
-    const fileTypeStats = db.prepare(`
-      SELECT 
+    const fileTypeStatsResult = await query(`
+      SELECT
         LOWER(
-          CASE 
-            WHEN filename LIKE '%.jpg' THEN '.jpg'
-            WHEN filename LIKE '%.jpeg' THEN '.jpeg'
-            WHEN filename LIKE '%.png' THEN '.png'
-            WHEN filename LIKE '%.gif' THEN '.gif'
-            WHEN filename LIKE '%.bmp' THEN '.bmp'
-            WHEN filename LIKE '%.webp' THEN '.webp'
-            WHEN filename LIKE '%.tiff' THEN '.tiff'
-            WHEN filename LIKE '%.tif' THEN '.tif'
-            WHEN filename LIKE '%.nef' THEN '.nef'
-            WHEN filename LIKE '%.cr2' THEN '.cr2'
-            WHEN filename LIKE '%.cr3' THEN '.cr3'
-            WHEN filename LIKE '%.arw' THEN '.arw'
-            WHEN filename LIKE '%.dng' THEN '.dng'
-            WHEN filename LIKE '%.raf' THEN '.raf'
-            WHEN filename LIKE '%.orf' THEN '.orf'
-            WHEN filename LIKE '%.rw2' THEN '.rw2'
-            WHEN filename LIKE '%.pef' THEN '.pef'
-            WHEN filename LIKE '%.srw' THEN '.srw'
-            WHEN filename LIKE '%.x3f' THEN '.x3f'
-            WHEN filename LIKE '%.heic' THEN '.heic'
-            WHEN filename LIKE '%.avif' THEN '.avif'
+          CASE
+            WHEN filename ILIKE '%.jpg' THEN '.jpg'
+            WHEN filename ILIKE '%.jpeg' THEN '.jpeg'
+            WHEN filename ILIKE '%.png' THEN '.png'
+            WHEN filename ILIKE '%.gif' THEN '.gif'
+            WHEN filename ILIKE '%.bmp' THEN '.bmp'
+            WHEN filename ILIKE '%.webp' THEN '.webp'
+            WHEN filename ILIKE '%.tiff' THEN '.tiff'
+            WHEN filename ILIKE '%.tif' THEN '.tif'
+            WHEN filename ILIKE '%.nef' THEN '.nef'
+            WHEN filename ILIKE '%.cr2' THEN '.cr2'
+            WHEN filename ILIKE '%.cr3' THEN '.cr3'
+            WHEN filename ILIKE '%.arw' THEN '.arw'
+            WHEN filename ILIKE '%.dng' THEN '.dng'
+            WHEN filename ILIKE '%.raf' THEN '.raf'
+            WHEN filename ILIKE '%.orf' THEN '.orf'
+            WHEN filename ILIKE '%.rw2' THEN '.rw2'
+            WHEN filename ILIKE '%.pef' THEN '.pef'
+            WHEN filename ILIKE '%.srw' THEN '.srw'
+            WHEN filename ILIKE '%.x3f' THEN '.x3f'
+            WHEN filename ILIKE '%.heic' THEN '.heic'
+            WHEN filename ILIKE '%.avif' THEN '.avif'
             ELSE 'other'
           END
         ) as file_extension,
@@ -136,9 +138,10 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         AVG(size) as avg_size_bytes
       FROM photos
       GROUP BY file_extension
-      HAVING count > 0 AND file_extension != 'other'
-      ORDER BY count DESC
-    `).all() as Array<{
+      HAVING COUNT(*) > 0 AND file_extension != 'other'
+      ORDER BY COUNT(*) DESC
+    `);
+    const fileTypeStats = fileTypeStatsResult.rows as Array<{
       file_extension: string;
       count: number;
       total_size_bytes: number;
@@ -146,30 +149,32 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }>;
 
     // Recently added photos (last 30 days)
-    const recentPhotos = db.prepare(`
-      SELECT 
+    const recentPhotosResult = await query(`
+      SELECT
         DATE(created_at) as date,
         COUNT(*) as photos_added,
         SUM(size) as bytes_added
       FROM photos
-      WHERE created_at >= datetime('now', '-30 days')
+      WHERE created_at >= NOW() - INTERVAL '30 days'
       GROUP BY DATE(created_at)
       ORDER BY date DESC
-    `).all() as Array<{
+    `);
+    const recentPhotos = recentPhotosResult.rows as Array<{
       date: string;
       photos_added: number;
       bytes_added: number;
     }>;
 
     // EXIF metadata insights
-    const exifStats = db.prepare(`
-      SELECT 
+    const exifStatsResult = await query(`
+      SELECT
         COUNT(CASE WHEN metadata IS NOT NULL THEN 1 END) as photos_with_metadata,
-        COUNT(CASE WHEN json_extract(metadata, '$.camera.make') IS NOT NULL THEN 1 END) as photos_with_camera_info,
-        COUNT(CASE WHEN json_extract(metadata, '$.date_taken') IS NOT NULL THEN 1 END) as photos_with_date_taken,
-        COUNT(CASE WHEN json_extract(metadata, '$.location') IS NOT NULL THEN 1 END) as photos_with_location
+        COUNT(CASE WHEN metadata->>'camera' IS NOT NULL AND metadata->'camera'->>'make' IS NOT NULL THEN 1 END) as photos_with_camera_info,
+        COUNT(CASE WHEN metadata->>'date_taken' IS NOT NULL THEN 1 END) as photos_with_date_taken,
+        COUNT(CASE WHEN metadata->>'location' IS NOT NULL THEN 1 END) as photos_with_location
       FROM photos
-    `).get() as {
+    `);
+    const exifStats = exifStatsResult.rows[0] as {
       photos_with_metadata: number;
       photos_with_camera_info: number;
       photos_with_date_taken: number;
@@ -177,29 +182,31 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     };
 
     // Top cameras used
-    const topCameras = db.prepare(`
-      SELECT 
-        json_extract(metadata, '$.camera.make') || ' ' || json_extract(metadata, '$.camera.model') as camera,
+    const topCamerasResult = await query(`
+      SELECT
+        (metadata->'camera'->>'make') || ' ' || (metadata->'camera'->>'model') as camera,
         COUNT(*) as photo_count
       FROM photos
-      WHERE json_extract(metadata, '$.camera.make') IS NOT NULL
+      WHERE metadata->'camera'->>'make' IS NOT NULL
       GROUP BY camera
       ORDER BY photo_count DESC
       LIMIT 10
-    `).all() as Array<{
+    `);
+    const topCameras = topCamerasResult.rows as Array<{
       camera: string;
       photo_count: number;
     }>;
 
     // Sync health statistics
-    const syncStats = db.prepare(`
-      SELECT 
+    const syncStatsResult = await query(`
+      SELECT
         COUNT(*) as total_folders,
         COUNT(CASE WHEN last_synced IS NOT NULL THEN 1 END) as synced_folders,
-        COUNT(CASE WHEN last_synced >= datetime('now', '-1 day') THEN 1 END) as recently_synced,
-        COUNT(CASE WHEN last_synced < datetime('now', '-7 days') OR last_synced IS NULL THEN 1 END) as stale_folders
+        COUNT(CASE WHEN last_synced >= NOW() - INTERVAL '1 day' THEN 1 END) as recently_synced,
+        COUNT(CASE WHEN last_synced < NOW() - INTERVAL '7 days' OR last_synced IS NULL THEN 1 END) as stale_folders
       FROM folders
-    `).get() as {
+    `);
+    const syncStats = syncStatsResult.rows[0] as {
       total_folders: number;
       synced_folders: number;
       recently_synced: number;

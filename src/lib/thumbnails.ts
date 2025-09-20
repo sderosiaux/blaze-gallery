@@ -231,28 +231,19 @@ export class ThumbnailService {
   }
 
   async generateMissingThumbnails(): Promise<void> {
-    const { getPhoto } = await import("./database");
+    const { query } = await import("./database");
     const config = getConfig();
-
-    const fs = require("fs");
-    const path = require("path");
 
     try {
       logger.thumbnailOperation("Checking for photos without thumbnails");
 
-      const Database = require("better-sqlite3");
-      const dbPath = getDatabasePath();
-      const db = new Database(dbPath);
-
-      const photosWithoutThumbnails = db
-        .prepare(
-          `
-        SELECT id, s3_key FROM photos 
+      const result = await query(`
+        SELECT id, s3_key FROM photos
         WHERE thumbnail_path IS NULL OR thumbnail_path = ''
         ORDER BY id
-      `,
-        )
-        .all();
+      `);
+
+      const photosWithoutThumbnails = result.rows;
 
       logger.thumbnailOperation("Found photos without thumbnails", {
         count: photosWithoutThumbnails.length,
@@ -277,8 +268,6 @@ export class ThumbnailService {
           );
         }
       }
-
-      db.close();
     } catch (error) {
       logger.thumbnailError(
         "Error in generateMissingThumbnails operation",

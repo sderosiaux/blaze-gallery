@@ -24,11 +24,11 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^11.3.0",
     "exifreader": "^4.23.7",
     "lucide-react": "^0.446.0",
     "next": "14.2.11",
     "node-cron": "^4.2.1",
+    "pg": "^8.12.0",
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^3.1.2",
@@ -36,7 +36,7 @@
     "typescript": "^5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
+    "@types/pg": "^8.11.10",
     "autoprefixer": "^10.4.20",
     "eslint": "^8",
     "eslint-config-next": "14.2.11",

@@ -21,6 +21,7 @@ import {
   bulkUpdateFolderCounts,
   bulkUpdateFoldersLastSynced,
   updateFolderLastSynced,
+  query,
 } from "./database";
 import type { SyncJob } from "./database";
 import { getConfig } from "./config";
@@ -671,27 +672,18 @@ export class SyncService {
     });
 
     // Get photos in this folder that need metadata extraction
-    const Database = require("better-sqlite3");
-    const path = require("path");
-    const dbPath =
-      process.env.DATABASE_PATH ||
-      path.join(process.cwd(), "data", "database", "gallery.db");
-    const database = new Database(dbPath);
-
-    const stmt = database.prepare(`
-      SELECT * FROM photos 
-      WHERE folder_id = ? 
+    const result = await query(`
+      SELECT * FROM photos
+      WHERE folder_id = $1
         AND metadata_status IN ('none', 'pending')
-        AND size <= ?
+        AND size <= $2
       ORDER BY size ASC
-    `);
-
-    const photosToProcess = stmt.all(
+    `, [
       folder.id,
       config.auto_metadata_threshold_mb * 1024 * 1024,
-    ) as Photo[];
+    ]);
 
-    database.close();
+    const photosToProcess = result.rows as Photo[];
 
     let processedCount = 0;
 
@@ -915,15 +907,13 @@ export class SyncService {
   private async getFoldersByPaths(paths: string[]): Promise<any[]> {
     if (paths.length === 0) return [];
 
-    const { runTransaction } = await import("./database");
-    return runTransaction((db) => {
-      // Use IN clause to get multiple folders in one query
-      const placeholders = paths.map(() => "?").join(",");
-      const stmt = db.prepare(
-        `SELECT * FROM folders WHERE path IN (${placeholders})`,
-      );
-      return stmt.all(...paths);
-    });
+    // Use IN clause to get multiple folders in one query
+    const placeholders = paths.map((_, index) => `$${index + 1}`).join(",");
+    const result = await query(
+      `SELECT * FROM folders WHERE path IN (${placeholders})`,
+      paths
+    );
+    return result.rows;
   }
 
   private async extractMetadata(

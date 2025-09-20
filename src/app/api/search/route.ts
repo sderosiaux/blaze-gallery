@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { getDatabase } from "@/lib/database";
+import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { normalizeTextForSearch } from "@/lib/textUtils";
 
@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get("q");
+    const searchQuery = searchParams.get("q");
 
-    if (!query || query.trim() === "") {
+    if (!searchQuery || searchQuery.trim() === "") {
       return NextResponse.json({
         success: true,
         photos: [],
@@ -19,62 +19,51 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       });
     }
 
-    const database = getDatabase();
-
-    // Register a custom SQLite function for accent normalization
-    database.function('normalize_text', (text: string | null) => {
-      if (!text) return '';
-      return normalizeTextForSearch(text);
-    });
-
-    const normalizedQuery = normalizeTextForSearch(query);
+    const normalizedQuery = normalizeTextForSearch(searchQuery);
     const searchTerm = `%${normalizedQuery}%`;
 
-    // Search photos by filename using normalized text
-    const photoQuery = `
-      SELECT 
+    // Search photos by filename using ILIKE for case-insensitive search
+    // PostgreSQL uses unaccent extension or we can use ILIKE for basic search
+    const photoResult = await query(`
+      SELECT
         p.*,
         f.name as folder_name,
         f.path as folder_path
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE normalize_text(p.filename) LIKE ? 
-         OR normalize_text(f.name) LIKE ? 
-         OR normalize_text(f.path) LIKE ?
-      ORDER BY p.filename COLLATE NOCASE
+      WHERE p.filename ILIKE $1
+         OR f.name ILIKE $1
+         OR f.path ILIKE $1
+      ORDER BY p.filename
       LIMIT 50
-    `;
+    `, [searchTerm]);
 
-    const photoResults = database
-      .prepare(photoQuery)
-      .all(searchTerm, searchTerm, searchTerm);
+    const photoResults = photoResult.rows;
 
-    // Search folders by name or path using normalized text
-    const folderQuery = `
-      SELECT 
+    // Search folders by name or path
+    const folderResult = await query(`
+      SELECT
         *,
-        CASE 
-          WHEN photo_count = 0 THEN 0
-          WHEN (SELECT COUNT(*) FROM photos WHERE folder_id = folders.id AND thumbnail_status = 'generated') = photo_count THEN 1
-          ELSE 0
+        CASE
+          WHEN photo_count = 0 THEN false
+          WHEN (SELECT COUNT(*) FROM photos WHERE folder_id = folders.id AND thumbnail_status = 'generated') = photo_count THEN true
+          ELSE false
         END as thumbnails_generated
       FROM folders
-      WHERE normalize_text(name) LIKE ? 
-         OR normalize_text(path) LIKE ?
-      ORDER BY name COLLATE NOCASE
+      WHERE name ILIKE $1
+         OR path ILIKE $1
+      ORDER BY name
       LIMIT 20
-    `;
+    `, [searchTerm]);
 
-    const folderResults = database
-      .prepare(folderQuery)
-      .all(searchTerm, searchTerm);
+    const folderResults = folderResult.rows;
 
     // Process photos with thumbnails and proper types
     const photosWithThumbnails = photoResults.map((photo: any) => ({
       ...photo,
       is_favorite: Boolean(photo.is_favorite),
       thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata ? JSON.parse(photo.metadata) : null,
+      metadata: photo.metadata, // PostgreSQL JSONB is already parsed
     }));
 
     // Process folders with proper types
@@ -87,7 +76,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       success: true,
       photos: photosWithThumbnails,
       folders: foldersProcessed,
-      query: query,
+      query: searchQuery,
     });
   } catch (error) {
     logger.apiError("Error performing search", error as Error, {
