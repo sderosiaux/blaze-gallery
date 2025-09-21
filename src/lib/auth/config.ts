@@ -55,19 +55,3 @@ export function validateAuthConfig(): { valid: boolean; errors: string[] } {
 
 export const authConfig = getAuthConfig();
 
-// Log configuration status on import (server-side only)
-if (typeof window === 'undefined') {
-  const validation = validateAuthConfig();
-  
-  if (authConfig.enabled) {
-    if (validation.valid) {
-      console.log('✅ Authentication enabled and configured correctly');
-      console.log(`📧 Email whitelist: ${authConfig.emailWhitelist.join(', ')}`);
-    } else {
-      console.error('❌ Authentication enabled but misconfigured:');
-      validation.errors.forEach(error => console.error(`   - ${error}`));
-    }
-  } else {
-    console.log('🔓 Authentication disabled (GOOGLE_AUTH_ENABLED=false)');
-  }
-}

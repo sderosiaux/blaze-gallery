@@ -332,22 +332,31 @@ export class SyncService {
     const photosToCreate: any[] = [];
     const BATCH_SIZE = 100;
 
-    do {
-      const { objects, nextContinuationToken, isTruncated } = await listObjectsAuto(
-        "",
-        continuationToken,
-        1000,
-        pageNumber,
-      );
+    // Pipeline S3 fetching with database processing
+    let nextPagePromise: Promise<any> | null = null;
+    let currentObjects: any[] = [];
+    let hasMorePages = true;
 
-      totalObjects += objects.length;
+    // Fetch first page
+    const firstPage = await listObjectsAuto("", continuationToken, 1000, pageNumber);
+    currentObjects = firstPage.objects;
+    continuationToken = firstPage.nextContinuationToken;
+    hasMorePages = firstPage.isTruncated;
+
+    while (currentObjects.length > 0 || hasMorePages) {
+      // Start fetching next page while processing current page
+      if (hasMorePages && continuationToken) {
+        nextPagePromise = listObjectsAuto("", continuationToken, 1000, pageNumber + 1);
+      }
+
+      totalObjects += currentObjects.length;
 
       await updateSyncJob(job.id, {
         total_items: totalObjects,
         processed_items: processedObjects,
       });
 
-      for (const object of objects) {
+      for (const object of currentObjects) {
         try {
           const folderPath = getFolderFromKey(object.key);
 
@@ -451,9 +460,20 @@ export class SyncService {
         }
       }
 
-      continuationToken = nextContinuationToken;
-      pageNumber++;
-    } while (continuationToken);
+      // Get next page if we started fetching it
+      if (nextPagePromise) {
+        const nextPage = await nextPagePromise;
+        currentObjects = nextPage.objects;
+        continuationToken = nextPage.nextContinuationToken;
+        hasMorePages = nextPage.isTruncated;
+        pageNumber++;
+        nextPagePromise = null;
+      } else {
+        // No more pages
+        currentObjects = [];
+        hasMorePages = false;
+      }
+    }
 
     // Process remaining photos
     if (photosToCreate.length > 0) {
@@ -877,9 +897,13 @@ export class SyncService {
     }
 
     // Batch check existing folders to minimize database queries
-    if (foldersToCreate.length > 0) {
-      const paths = foldersToCreate.map((f) => f.path);
-      const existingFolders = await this.getFoldersByPaths(paths);
+    // Only check paths that aren't already in our cache
+    const uncachedPaths = foldersToCreate
+      .map((f) => f.path)
+      .filter((path) => !folderMap.has(path) && !seenFolders.has(path));
+
+    if (uncachedPaths.length > 0) {
+      const existingFolders = await this.getFoldersByPaths(uncachedPaths);
 
       // Update maps with existing folders
       for (const folder of existingFolders) {

@@ -294,12 +294,18 @@ export async function listObjects(
       etag: obj.ETag!.replace(/"/g, ""),
     }));
 
-    // Calculate actual response size
-    const responseSize = JSON.stringify(objects).length + 
+    // Calculate actual HTTP response size
+    const responseSize = JSON.stringify(objects).length +
                         JSON.stringify({
                           nextContinuationToken: response.NextContinuationToken,
                           isTruncated: response.IsTruncated
                         }).length;
+
+    // Log results count and HTTP response size
+    const folderDescWithCount = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
+    const pageInfoWithCount = pageNumber > 1 ? ` (page ${pageNumber})` : "";
+    const responseSizeKB = (responseSize / 1024).toFixed(1);
+    logger.s3Connection(`Retrieved ${objects.length} objects from S3: ${folderDescWithCount}${pageInfoWithCount} (${duration}ms, ${responseSizeKB}KB)`);
     
     await auditMiddleware.log({
       operation: 'ListObjects',
