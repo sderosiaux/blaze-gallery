@@ -31,6 +31,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
 
     const job = await createSyncJob({
       type: "full_scan",
+      folder_path: "/", // Use root path for full scans
     });
 
     if (!syncService.isServiceRunning()) {

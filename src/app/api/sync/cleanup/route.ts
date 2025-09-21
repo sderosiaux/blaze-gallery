@@ -8,6 +8,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
   try {
     const job = await createSyncJob({
       type: "cleanup",
+      folder_path: "/", // Use root path for cleanup jobs
     });
 
     if (!syncService.isServiceRunning()) {

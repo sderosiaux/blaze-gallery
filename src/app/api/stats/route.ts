@@ -104,41 +104,48 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       actual_total_size: number;
     }>;
 
-    // File type distribution - simple approach that works reliably
+    // File type distribution - using a subquery to handle the alias properly
     const fileTypeStatsResult = await query(`
+      WITH file_extensions AS (
+        SELECT
+          LOWER(
+            CASE
+              WHEN filename ILIKE '%.jpg' THEN '.jpg'
+              WHEN filename ILIKE '%.jpeg' THEN '.jpeg'
+              WHEN filename ILIKE '%.png' THEN '.png'
+              WHEN filename ILIKE '%.gif' THEN '.gif'
+              WHEN filename ILIKE '%.bmp' THEN '.bmp'
+              WHEN filename ILIKE '%.webp' THEN '.webp'
+              WHEN filename ILIKE '%.tiff' THEN '.tiff'
+              WHEN filename ILIKE '%.tif' THEN '.tif'
+              WHEN filename ILIKE '%.nef' THEN '.nef'
+              WHEN filename ILIKE '%.cr2' THEN '.cr2'
+              WHEN filename ILIKE '%.cr3' THEN '.cr3'
+              WHEN filename ILIKE '%.arw' THEN '.arw'
+              WHEN filename ILIKE '%.dng' THEN '.dng'
+              WHEN filename ILIKE '%.raf' THEN '.raf'
+              WHEN filename ILIKE '%.orf' THEN '.orf'
+              WHEN filename ILIKE '%.rw2' THEN '.rw2'
+              WHEN filename ILIKE '%.pef' THEN '.pef'
+              WHEN filename ILIKE '%.srw' THEN '.srw'
+              WHEN filename ILIKE '%.x3f' THEN '.x3f'
+              WHEN filename ILIKE '%.heic' THEN '.heic'
+              WHEN filename ILIKE '%.avif' THEN '.avif'
+              ELSE 'other'
+            END
+          ) as file_extension,
+          size
+        FROM photos
+      )
       SELECT
-        LOWER(
-          CASE
-            WHEN filename ILIKE '%.jpg' THEN '.jpg'
-            WHEN filename ILIKE '%.jpeg' THEN '.jpeg'
-            WHEN filename ILIKE '%.png' THEN '.png'
-            WHEN filename ILIKE '%.gif' THEN '.gif'
-            WHEN filename ILIKE '%.bmp' THEN '.bmp'
-            WHEN filename ILIKE '%.webp' THEN '.webp'
-            WHEN filename ILIKE '%.tiff' THEN '.tiff'
-            WHEN filename ILIKE '%.tif' THEN '.tif'
-            WHEN filename ILIKE '%.nef' THEN '.nef'
-            WHEN filename ILIKE '%.cr2' THEN '.cr2'
-            WHEN filename ILIKE '%.cr3' THEN '.cr3'
-            WHEN filename ILIKE '%.arw' THEN '.arw'
-            WHEN filename ILIKE '%.dng' THEN '.dng'
-            WHEN filename ILIKE '%.raf' THEN '.raf'
-            WHEN filename ILIKE '%.orf' THEN '.orf'
-            WHEN filename ILIKE '%.rw2' THEN '.rw2'
-            WHEN filename ILIKE '%.pef' THEN '.pef'
-            WHEN filename ILIKE '%.srw' THEN '.srw'
-            WHEN filename ILIKE '%.x3f' THEN '.x3f'
-            WHEN filename ILIKE '%.heic' THEN '.heic'
-            WHEN filename ILIKE '%.avif' THEN '.avif'
-            ELSE 'other'
-          END
-        ) as file_extension,
+        file_extension,
         COUNT(*) as count,
         SUM(size) as total_size_bytes,
         AVG(size) as avg_size_bytes
-      FROM photos
+      FROM file_extensions
+      WHERE file_extension != 'other'
       GROUP BY file_extension
-      HAVING COUNT(*) > 0 AND file_extension != 'other'
+      HAVING COUNT(*) > 0
       ORDER BY COUNT(*) DESC
     `);
     const fileTypeStats = fileTypeStatsResult.rows as Array<{

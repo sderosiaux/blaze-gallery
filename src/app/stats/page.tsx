@@ -134,10 +134,16 @@ export default function StatsPage() {
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
+    if (isNaN(bytes) || bytes < 0) return '0 B';
+
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+
+    // Ensure i is within bounds
+    const sizeIndex = Math.max(0, Math.min(i, sizes.length - 1));
+
+    return parseFloat((bytes / Math.pow(k, sizeIndex)).toFixed(1)) + ' ' + sizes[sizeIndex];
   };
 
   const formatDate = (dateString: string) => {
@@ -535,7 +541,7 @@ export default function StatsPage() {
                   <div className="text-center p-4 bg-green-50 rounded-lg">
                     <HardDrive className="w-8 h-8 text-green-600 mx-auto mb-2" />
                     <p className="text-sm font-medium text-gray-600 mb-1">Space Saved</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes)}</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicates.summary.potential_space_saved_bytes || 0)}</p>
                   </div>
                 </div>
               </div>
@@ -557,7 +563,7 @@ export default function StatsPage() {
                   <div className="text-center p-4 bg-blue-50 rounded-lg">
                     <HardDrive className="w-8 h-8 text-blue-600 mx-auto mb-2" />
                     <p className="text-sm font-medium text-gray-600 mb-1">Space Saved</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes)}</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatBytes(duplicateFolders.summary.potential_space_saved_bytes || 0)}</p>
                   </div>
                 </div>
               </div>

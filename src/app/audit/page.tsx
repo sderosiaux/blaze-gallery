@@ -608,11 +608,11 @@ export default function AuditDashboard() {
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Generation Rate</p>
                       <p className="text-2xl font-bold text-gray-900">
-                        {thumbnailStats.thumbnail_generation.generation_rate.toFixed(1)}%
+                        {(thumbnailStats?.thumbnail_generation?.generation_rate ?? 0).toFixed(1)}%
                       </p>
                       <p className="text-xs text-gray-500">
-                        {thumbnailStats.thumbnail_generation.thumbnails_generated.toLocaleString()} of{' '}
-                        {thumbnailStats.thumbnail_generation.total_photos.toLocaleString()} photos
+                        {(thumbnailStats?.thumbnail_generation?.thumbnails_generated ?? 0).toLocaleString()} of{' '}
+                        {(thumbnailStats?.thumbnail_generation?.total_photos ?? 0).toLocaleString()} photos
                       </p>
                     </div>
                   </div>
@@ -624,7 +624,7 @@ export default function AuditDashboard() {
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Without Thumbnails</p>
                       <p className="text-2xl font-bold text-gray-900">
-                        {thumbnailStats.thumbnail_generation.thumbnails_pending.toLocaleString()}
+                        {(thumbnailStats?.thumbnail_generation?.thumbnails_pending ?? 0).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -636,15 +636,15 @@ export default function AuditDashboard() {
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Storage Used</p>
                       <p className="text-2xl font-bold text-gray-900">
-                        {formatBytes(thumbnailStats.thumbnail_storage.thumbnail_directory_size_bytes)}
+                        {formatBytes(thumbnailStats?.thumbnail_storage?.thumbnail_directory_size_bytes ?? 0)}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {thumbnailStats.thumbnail_storage.thumbnail_files_count.toLocaleString()} files
+                        {(thumbnailStats?.thumbnail_storage?.thumbnail_files_count ?? 0).toLocaleString()} files
                       </p>
                       <p className={`text-xs font-mono mt-1 ${
-                        thumbnailStats.debug_info.directory_exists ? 'text-green-600' : 'text-red-600'
+                        thumbnailStats?.debug_info?.directory_exists ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {thumbnailStats.debug_info.thumbnail_directory_path}
+                        {thumbnailStats?.debug_info?.thumbnail_directory_path ?? 'Not available'}
                       </p>
                     </div>
                   </div>
@@ -656,7 +656,7 @@ export default function AuditDashboard() {
                 <div className="text-center">
                   <p className="text-sm text-gray-600">Avg Size</p>
                   <p className="text-lg font-semibold text-gray-900">
-                    {thumbnailStats.thumbnail_generation.avg_thumbnail_size_bytes > 0 
+                    {(thumbnailStats?.thumbnail_generation?.avg_thumbnail_size_bytes ?? 0) > 0
                       ? formatBytes(thumbnailStats.thumbnail_generation.avg_thumbnail_size_bytes)
                       : 'No data'
                     }
@@ -665,12 +665,12 @@ export default function AuditDashboard() {
                 <div className="text-center">
                   <p className="text-sm text-gray-600">Files vs DB</p>
                   <p className={`text-lg font-semibold ${
-                    Math.abs(thumbnailStats.debug_info.file_vs_db_discrepancy) > 0 ? 'text-yellow-600' : 'text-green-600'
+                    Math.abs(thumbnailStats?.debug_info?.file_vs_db_discrepancy ?? 0) > 0 ? 'text-yellow-600' : 'text-green-600'
                   }`}>
-                    {thumbnailStats.debug_info.file_vs_db_discrepancy > 0 ? '+' : ''}{thumbnailStats.debug_info.file_vs_db_discrepancy}
+                    {(thumbnailStats?.debug_info?.file_vs_db_discrepancy ?? 0) > 0 ? '+' : ''}{thumbnailStats?.debug_info?.file_vs_db_discrepancy ?? 0}
                   </p>
                 </div>
-                {thumbnailStats.thumbnail_storage.oldest_thumbnail && (
+                {thumbnailStats?.thumbnail_storage?.oldest_thumbnail && (
                   <div className="text-center">
                     <p className="text-sm text-gray-600">Oldest</p>
                     <p className="text-lg font-semibold text-gray-900">
@@ -678,7 +678,7 @@ export default function AuditDashboard() {
                     </p>
                   </div>
                 )}
-                {thumbnailStats.thumbnail_storage.newest_thumbnail && (
+                {thumbnailStats?.thumbnail_storage?.newest_thumbnail && (
                   <div className="text-center">
                     <p className="text-sm text-gray-600">Newest</p>
                     <p className="text-lg font-semibold text-gray-900">
@@ -689,29 +689,29 @@ export default function AuditDashboard() {
               </div>
 
               {/* Debug Information */}
-              {(thumbnailStats.debug_info.orphaned_files.length > 0 || thumbnailStats.debug_info.missing_files.length > 0) && (
+              {((thumbnailStats?.debug_info?.orphaned_files?.length ?? 0) > 0 || (thumbnailStats?.debug_info?.missing_files?.length ?? 0) > 0) && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <h3 className="text-md font-medium text-gray-900 mb-4">Integrity Issues</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {thumbnailStats.debug_info.orphaned_files.length > 0 && (
+                    {(thumbnailStats?.debug_info?.orphaned_files?.length ?? 0) > 0 && (
                       <div className="bg-yellow-50 rounded-lg p-4">
                         <h4 className="text-sm font-medium text-yellow-800 mb-2">
-                          Orphaned Files ({thumbnailStats.debug_info.orphaned_files.length})
+                          Orphaned Files ({thumbnailStats?.debug_info?.orphaned_files?.length ?? 0})
                         </h4>
                         <div className="text-xs text-yellow-700 space-y-1">
-                          {thumbnailStats.debug_info.orphaned_files.map((file, i) => (
+                          {(thumbnailStats?.debug_info?.orphaned_files ?? []).map((file, i) => (
                             <div key={i} className="truncate">{file}</div>
                           ))}
                         </div>
                       </div>
                     )}
-                    {thumbnailStats.debug_info.missing_files.length > 0 && (
+                    {(thumbnailStats?.debug_info?.missing_files?.length ?? 0) > 0 && (
                       <div className="bg-red-50 rounded-lg p-4">
                         <h4 className="text-sm font-medium text-red-800 mb-2">
-                          Missing Files ({thumbnailStats.debug_info.missing_files.length})
+                          Missing Files ({thumbnailStats?.debug_info?.missing_files?.length ?? 0})
                         </h4>
                         <div className="text-xs text-red-700 space-y-1">
-                          {thumbnailStats.debug_info.missing_files.map((file, i) => (
+                          {(thumbnailStats?.debug_info?.missing_files ?? []).map((file, i) => (
                             <div key={i} className="truncate">{file}</div>
                           ))}
                         </div>

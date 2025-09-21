@@ -106,46 +106,54 @@ export async function GET() {
     `);
     const eaDirExamples = eaDirExamplesResult.rows as { path: string }[];
 
-    const totalIgnored = (synologyThumbs.count || 0) + (systemFiles.count || 0) + 
-                        (smallFiles.count || 0) + (eaDirFiles.count || 0);
-    
-    const totalIgnoredSize = (synologyThumbs.total_size || 0) + (systemFiles.total_size || 0) + 
-                           (smallFiles.total_size || 0) + (eaDirFiles.total_size || 0);
+    // Ensure all values are proper numbers
+    const synologyCount = Number(synologyThumbs.count) || 0;
+    const systemCount = Number(systemFiles.count) || 0;
+    const smallCount = Number(smallFiles.count) || 0;
+    const eaDirCount = Number(eaDirFiles.count) || 0;
+
+    const synologySize = Number(synologyThumbs.total_size) || 0;
+    const systemSize = Number(systemFiles.total_size) || 0;
+    const smallSize = Number(smallFiles.total_size) || 0;
+    const eaDirSize = Number(eaDirFiles.total_size) || 0;
+
+    const totalIgnored = synologyCount + systemCount + smallCount + eaDirCount;
+    const totalIgnoredSize = synologySize + systemSize + smallSize + eaDirSize;
 
     const result: IgnoredFilesStats = {
       summary: {
         total_ignored_files: totalIgnored,
         total_ignored_size_bytes: totalIgnoredSize,
         categories: {
-          synology_thumbnails: synologyThumbs.count || 0,
-          system_files: systemFiles.count || 0,
-          small_files: smallFiles.count || 0,
-          eadir_folders: eaDirFiles.count || 0,
+          synology_thumbnails: synologyCount,
+          system_files: systemCount,
+          small_files: smallCount,
+          eadir_folders: eaDirCount,
         }
       },
       breakdown: [
         {
           category: 'Synology Thumbnails',
-          count: synologyThumbs.count || 0,
-          total_size_bytes: synologyThumbs.total_size || 0,
+          count: synologyCount,
+          total_size_bytes: synologySize,
           examples: synologyExamples.map(e => e.filename)
         },
         {
           category: 'System Files',
-          count: systemFiles.count || 0,
-          total_size_bytes: systemFiles.total_size || 0,
+          count: systemCount,
+          total_size_bytes: systemSize,
           examples: systemExamples.map(e => e.filename)
         },
         {
           category: 'Small Files (<10KB)',
-          count: smallFiles.count || 0,
-          total_size_bytes: smallFiles.total_size || 0,
+          count: smallCount,
+          total_size_bytes: smallSize,
           examples: smallFileExamples.map(e => e.filename)
         },
         {
           category: '@eaDir System Folders',
-          count: eaDirFiles.count || 0,
-          total_size_bytes: eaDirFiles.total_size || 0,
+          count: eaDirCount,
+          total_size_bytes: eaDirSize,
           examples: eaDirExamples.map(e => e.path)
         }
       ].filter(category => category.count > 0) // Only show categories with files

@@ -61,6 +61,7 @@ export class SyncService {
           "Cleaning up incomplete jobs from previous session",
           {
             component: "SyncService",
+            jobCount: incompleteJobs.length,
           },
         );
 
@@ -73,13 +74,15 @@ export class SyncService {
         }
       }
 
-      // Always create a fresh full scan on startup for up-to-date data
+      // After cleanup, check if we need to create a new full scan job
+      // We always create a fresh full scan on startup to ensure data is up-to-date
       logger.syncOperation("Creating fresh full scan on startup", {
         component: "SyncService",
       });
 
       await createSyncJob({
         type: "full_scan",
+        folder_path: "/", // Use root path for full scans
       });
 
       logger.syncOperation("Created startup full scan job", {
@@ -224,8 +227,20 @@ export class SyncService {
     while (this.isRunning) {
       try {
         const activeJobs = await getActiveSyncJobs();
-        const pendingJob = activeJobs.find((job) => job.status === "pending");
 
+        // Check if any job is currently running - if so, wait
+        const runningJob = activeJobs.find((job) => job.status === "running");
+        if (runningJob) {
+          logger.syncOperation("Job already running, waiting...", {
+            runningJobId: runningJob.id,
+            runningJobType: runningJob.type
+          });
+          await this.sleep(5000);
+          continue;
+        }
+
+        // Get the next pending job
+        const pendingJob = activeJobs.find((job) => job.status === "pending");
         if (pendingJob) {
           await this.executeJob(pendingJob);
         } else {

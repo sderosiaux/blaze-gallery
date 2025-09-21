@@ -77,15 +77,57 @@ class DatabaseManager {
 
     this.pool = new Pool({
       connectionString,
-      max: 20, // Maximum number of clients in the pool
-      idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-      connectionTimeoutMillis: 2000, // Return error if connection cannot be established within 2 seconds
+      // Connection pool optimization for bulk operations
+      max: 50, // Increased for bulk write operations (was 20)
+      min: 5, // Minimum connections to keep alive
+      idleTimeoutMillis: 60000, // Keep connections longer during bulk ops (was 30000)
+      connectionTimeoutMillis: 10000, // Allow more time for connection establishment (was 2000)
+
+      // Query performance optimization
+      statement_timeout: 60000, // 60 seconds for large bulk operations
+      query_timeout: 60000, // 60 seconds for complex queries
+
+      // Application identification for monitoring
+      application_name: 'blaze-gallery-sync',
+
+      // Connection keepalive for long-running operations
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+
+      // SSL configuration (Neon requires SSL)
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
 
-    // Handle pool errors
+    // Enhanced pool error handling and monitoring
     this.pool.on('error', (err) => {
-      console.error('Unexpected error on idle client', err);
+      console.error('[Database Pool] Unexpected error on idle client:', err);
     });
+
+    // Only log connection events, not every acquisition
+    this.pool.on('connect', (client) => {
+      console.log('[Database Pool] New client connected, total:', this.pool?.totalCount || 0);
+    });
+
+    this.pool.on('remove', (client) => {
+      console.log('[Database Pool] Client removed, total:', this.pool?.totalCount || 0);
+    });
+
+    // Log pool stats periodically during development
+    if (process.env.NODE_ENV === 'development') {
+      setInterval(() => {
+        if (this.pool) {
+          const stats = {
+            total: this.pool.totalCount,
+            idle: this.pool.idleCount,
+            waiting: this.pool.waitingCount,
+          };
+          // Only log if there's activity or issues
+          if (stats.waiting > 0 || stats.total > 10) {
+            console.log('[Database Pool Stats]', stats);
+          }
+        }
+      }, 30000); // Every 30 seconds
+    }
 
     this.isInitialized = true;
   }
@@ -289,33 +331,21 @@ export async function createOrUpdatePhoto(
 export async function bulkCreateOrUpdatePhotos(
   photosData: CreatePhotoData[],
 ): Promise<Photo[]> {
-  return runTransaction(async (client) => {
-    const results: Photo[] = [];
+  if (photosData.length === 0) return [];
 
-    for (const photoData of photosData) {
-      const metadataStatus =
-        photoData.metadata_status ||
-        (photoData.metadata ? "extracted" : "none");
+  return runTransaction(async (client) => {
+    // Prepare data for bulk insert
+    const values: any[] = [];
+    const placeholders: string[] = [];
+
+    photosData.forEach((photoData, index) => {
+      const metadataStatus = photoData.metadata_status || (photoData.metadata ? "extracted" : "none");
       const thumbnailStatus = photoData.thumbnail_status || "none";
 
-      const result = await client.query(`
-        INSERT INTO photos (
-          folder_id, filename, s3_key, size, mime_type, modified_at,
-          metadata, metadata_status, thumbnail_status, last_synced
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
-        ON CONFLICT(s3_key) DO UPDATE SET
-          folder_id = EXCLUDED.folder_id,
-          filename = EXCLUDED.filename,
-          size = EXCLUDED.size,
-          mime_type = EXCLUDED.mime_type,
-          modified_at = EXCLUDED.modified_at,
-          metadata = EXCLUDED.metadata,
-          metadata_status = EXCLUDED.metadata_status,
-          thumbnail_status = EXCLUDED.thumbnail_status,
-          last_synced = CURRENT_TIMESTAMP
-        RETURNING *
-      `, [
+      const baseIndex = index * 9;
+      placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, CURRENT_TIMESTAMP)`);
+
+      values.push(
         photoData.folder_id,
         photoData.filename,
         photoData.s3_key,
@@ -324,45 +354,73 @@ export async function bulkCreateOrUpdatePhotos(
         photoData.modified_at,
         photoData.metadata,
         metadataStatus,
-        thumbnailStatus,
-      ]);
+        thumbnailStatus
+      );
+    });
 
-      const photo = result.rows[0] as DatabasePhoto;
+    // Execute single bulk INSERT with ON CONFLICT
+    const result = await client.query(`
+      INSERT INTO photos (
+        folder_id, filename, s3_key, size, mime_type, modified_at,
+        metadata, metadata_status, thumbnail_status, last_synced
+      )
+      VALUES ${placeholders.join(', ')}
+      ON CONFLICT(s3_key) DO UPDATE SET
+        folder_id = EXCLUDED.folder_id,
+        filename = EXCLUDED.filename,
+        size = EXCLUDED.size,
+        mime_type = EXCLUDED.mime_type,
+        modified_at = EXCLUDED.modified_at,
+        metadata = EXCLUDED.metadata,
+        metadata_status = EXCLUDED.metadata_status,
+        thumbnail_status = EXCLUDED.thumbnail_status,
+        last_synced = CURRENT_TIMESTAMP
+      RETURNING *
+    `, values);
 
-      results.push({
-        ...photo,
-        is_favorite: Boolean(photo.is_favorite),
-        thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-        metadata: photo.metadata,
-      } as Photo);
-    }
-
-    return results;
+    // Convert results to Photo objects
+    return result.rows.map((photo: DatabasePhoto) => ({
+      ...photo,
+      is_favorite: Boolean(photo.is_favorite),
+      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
+      metadata: photo.metadata,
+    })) as Photo[];
   });
 }
 
 export async function bulkCreateOrUpdateFolders(
   foldersData: CreateFolderData[],
 ): Promise<Folder[]> {
+  if (foldersData.length === 0) return [];
+
   return runTransaction(async (client) => {
-    const results: Folder[] = [];
+    // Prepare data for bulk insert
+    const values: any[] = [];
+    const placeholders: string[] = [];
 
-    for (const folderData of foldersData) {
-      const result = await client.query(`
-        INSERT INTO folders (path, name, parent_id, updated_at)
-        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-        ON CONFLICT(path) DO UPDATE SET
-          name = EXCLUDED.name,
-          parent_id = EXCLUDED.parent_id,
-          updated_at = CURRENT_TIMESTAMP
-        RETURNING *
-      `, [folderData.path, folderData.name, folderData.parent_id]);
+    foldersData.forEach((folderData, index) => {
+      const baseIndex = index * 3;
+      placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, CURRENT_TIMESTAMP)`);
 
-      const folder = result.rows[0] as Folder;
-      results.push(folder);
-    }
+      values.push(
+        folderData.path,
+        folderData.name,
+        folderData.parent_id
+      );
+    });
 
-    return results;
+    // Execute single bulk INSERT with ON CONFLICT
+    const result = await client.query(`
+      INSERT INTO folders (path, name, parent_id, updated_at)
+      VALUES ${placeholders.join(', ')}
+      ON CONFLICT(path) DO UPDATE SET
+        name = EXCLUDED.name,
+        parent_id = EXCLUDED.parent_id,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, values);
+
+    return result.rows as Folder[];
   });
 }
 
@@ -433,8 +491,8 @@ export async function createSyncJob(
   jobData: CreateSyncJobData,
 ): Promise<SyncJob> {
   const result = await query(`
-    INSERT INTO sync_jobs (type, folder_path)
-    VALUES ($1, $2)
+    INSERT INTO sync_jobs (type, folder_path, status, processed_items, total_items)
+    VALUES ($1, $2, 'pending', 0, 0)
     RETURNING *
   `, [jobData.type, jobData.folder_path]);
 
@@ -551,26 +609,32 @@ export async function bulkUpdateFoldersLastSynced(
 export async function bulkUpdateFolderCounts(
   folderIds: number[],
 ): Promise<void> {
+  if (folderIds.length === 0) return;
+
   return runTransaction(async (client) => {
-    for (const folderId of folderIds) {
-      const photoCountResult = await client.query(
-        "SELECT COUNT(*) as count FROM photos WHERE folder_id = $1",
-        [folderId]
-      );
-      const subfolderCountResult = await client.query(
-        "SELECT COUNT(*) as count FROM folders WHERE parent_id = $1",
-        [folderId]
-      );
-
-      const photoCount = photoCountResult.rows[0].count;
-      const subfolderCount = subfolderCountResult.rows[0].count;
-
-      await client.query(`
-        UPDATE folders
-        SET photo_count = $1, subfolder_count = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-      `, [photoCount, subfolderCount, folderId]);
-    }
+    // Single query to update all folder counts at once using CTEs
+    await client.query(`
+      WITH photo_counts AS (
+        SELECT folder_id, COUNT(*) as photo_count
+        FROM photos
+        WHERE folder_id = ANY($1::int[])
+        GROUP BY folder_id
+      ),
+      subfolder_counts AS (
+        SELECT parent_id, COUNT(*) as subfolder_count
+        FROM folders
+        WHERE parent_id = ANY($1::int[])
+        GROUP BY parent_id
+      )
+      UPDATE folders SET
+        photo_count = COALESCE(pc.photo_count, 0),
+        subfolder_count = COALESCE(sc.subfolder_count, 0),
+        updated_at = CURRENT_TIMESTAMP
+      FROM photo_counts pc
+      FULL OUTER JOIN subfolder_counts sc ON pc.folder_id = sc.parent_id
+      WHERE folders.id = ANY($1::int[])
+        AND (folders.id = pc.folder_id OR folders.id = sc.parent_id)
+    `, [folderIds]);
   });
 }
 

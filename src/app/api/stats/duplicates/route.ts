@@ -90,10 +90,19 @@ export async function GET() {
     const totalDuplicateFiles = sortedGroups.length;
     const totalDuplicatePhotos = duplicatePhotos.length;
     const potentialSpaceSaved = sortedGroups.reduce((total, group) => {
+      if (group.photos.length <= 1) return total;
+
       // Calculate space that could be saved by keeping only one copy of each duplicate
-      const largestSize = Math.max(...group.photos.map(p => p.size));
-      const otherSizes = group.photos.map(p => p.size).slice(1); // Remove one copy
-      return total + otherSizes.reduce((sum, size) => sum + size, 0);
+      // We keep the first one and sum the sizes of all other duplicates
+      const totalGroupSize = group.photos.reduce((sum, photo) => {
+        const size = Number(photo.size) || 0;
+        return sum + size;
+      }, 0);
+      const keepOneSize = Number(group.photos[0]?.size) || 0;
+      const spaceSaved = totalGroupSize - keepOneSize;
+
+
+      return total + spaceSaved;
     }, 0);
 
     return NextResponse.json({
