@@ -58,6 +58,23 @@ A self-hosted photo gallery that integrates with *Backblaze B2* cloud storage (o
 4. **Access your gallery**
    Open http://localhost:3000 and your photos will be automatically scanned and indexed
 
+### Thumbnail storage configuration
+
+Blaze Gallery generates lightweight thumbnails for fast browsing. By default they
+are stored on the local filesystem inside `data/thumbnails`. To keep your
+deployment fully stateless you can instruct the app to write thumbnails back to
+the same S3-compatible bucket that contains your photos:
+
+```env
+# Save thumbnails alongside your photos in S3 instead of local disk
+THUMBNAIL_STORAGE=s3
+THUMBNAIL_S3_PREFIX=thumbnails
+```
+
+Thumbnails are stored in a dedicated prefix (default `thumbnails/`) that mirrors
+your original folder structure and appends the internal photo ID to the file
+name to avoid collisions (e.g. `thumbnails/vacation/IMG_0001-42.jpeg`).
+
 ## AI Integration (MCP Server)
 
 Blaze Gallery includes an **MCP (Model Context Protocol) server** that lets you query your photo collection using natural language with Claude and other AI assistants.

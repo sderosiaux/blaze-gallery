@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { thumbnailService, getThumbnailsPath } from "@/lib/thumbnails";
+import { thumbnailService, getThumbnailStorageInfo } from "@/lib/thumbnails";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
+import { listObjects } from "@/lib/s3";
 
 export async function GET(request: NextRequest) {
   try {
     const fs = require("fs");
-    const thumbnailsPath = getThumbnailsPath();
+    const storageInfo = getThumbnailStorageInfo();
 
     const checks = {
       database: false,
@@ -23,12 +24,23 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      checks.thumbnails_directory = fs.existsSync(thumbnailsPath);
+      if (storageInfo.mode === "s3") {
+        await listObjects(
+          storageInfo.bucket!,
+          storageInfo.prefix ? `${storageInfo.prefix}/` : undefined,
+          undefined,
+          1,
+          1,
+        );
+        checks.thumbnails_directory = true;
+      } else {
+        checks.thumbnails_directory = fs.existsSync(storageInfo.location);
+      }
     } catch (error) {
       logger.error("Thumbnails directory health check failed", error as Error);
     }
 
-    const thumbnailStats = thumbnailService.getThumbnailStats();
+    const thumbnailStats = await thumbnailService.getThumbnailStats();
 
     const isHealthy = checks.database && checks.thumbnails_directory;
 

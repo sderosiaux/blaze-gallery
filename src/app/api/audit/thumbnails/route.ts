@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { logger } from '@/lib/logger';
-import { getThumbnailsPath } from '@/lib/thumbnails';
+import { getThumbnailStorageInfo } from '@/lib/thumbnails';
+import { listObjects } from '@/lib/s3';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -72,6 +73,47 @@ async function getThumbnailDirectoryStats(thumbnailDir: string) {
   }
 }
 
+async function getThumbnailS3Stats(bucket: string, prefix?: string) {
+  const stats = { total_size: 0, file_count: 0, oldest: null as Date | null, newest: null as Date | null };
+  const keys: string[] = [];
+
+  let continuationToken: string | undefined;
+  let pageNumber = 1;
+
+  do {
+    const { objects, nextContinuationToken, isTruncated } = await listObjects(
+      bucket,
+      prefix || undefined,
+      continuationToken,
+      1000,
+      pageNumber,
+    );
+
+    for (const obj of objects) {
+      stats.total_size += obj.size;
+      stats.file_count += 1;
+      keys.push(obj.key);
+
+      if (!stats.oldest || obj.lastModified < stats.oldest) {
+        stats.oldest = obj.lastModified;
+      }
+
+      if (!stats.newest || obj.lastModified > stats.newest) {
+        stats.newest = obj.lastModified;
+      }
+    }
+
+    continuationToken = nextContinuationToken;
+    pageNumber += 1;
+
+    if (!isTruncated) {
+      break;
+    }
+  } while (continuationToken);
+
+  return { stats, keys };
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Get basic thumbnail statistics from database
@@ -95,15 +137,32 @@ export async function GET(request: NextRequest) {
       : 0;
 
     // Get thumbnail directory stats using unified path function
-    const thumbnailDir = getThumbnailsPath();
-    const dirStats = await getThumbnailDirectoryStats(thumbnailDir);
-    
+    const storageInfo = getThumbnailStorageInfo();
+    let dirStats: { total_size: number; file_count: number; oldest: Date | null; newest: Date | null };
+    let storageFiles: string[] = [];
+    let directoryExists = false;
+
+    if (storageInfo.mode === 's3') {
+      const { stats, keys } = await getThumbnailS3Stats(
+        storageInfo.bucket!,
+        storageInfo.prefix ? `${storageInfo.prefix}/` : undefined,
+      );
+      dirStats = stats;
+      storageFiles = keys;
+      directoryExists = true;
+    } else {
+      dirStats = await getThumbnailDirectoryStats(storageInfo.location);
+      directoryExists = fs.existsSync(storageInfo.location);
+      storageFiles = directoryExists
+        ? fs.readdirSync(storageInfo.location)
+            .filter((f) => fs.statSync(path.join(storageInfo.location, f)).isFile())
+        : [];
+    }
+
     // Calculate average thumbnail size from actual files only
     const avgThumbnailSize = dirStats.file_count > 0 ? Math.round(dirStats.total_size / dirStats.file_count) : 0;
 
     // Identify discrepancies between files and database records
-    const filesOnDisk = fs.existsSync(thumbnailDir) ? fs.readdirSync(thumbnailDir).filter(f => fs.statSync(path.join(thumbnailDir, f)).isFile()) : [];
-    
     // Get all photos with thumbnail_path set
     const photosWithThumbnailsResult = await query(`
       SELECT id, thumbnail_path FROM photos
@@ -111,16 +170,22 @@ export async function GET(request: NextRequest) {
     `);
     const photosWithThumbnails = photosWithThumbnailsResult.rows as { id: number; thumbnail_path: string }[];
 
-    // Extract just the filename from thumbnail_path (in case it includes directory)
-    const dbThumbnailFiles = photosWithThumbnails.map(p => path.basename(p.thumbnail_path));
-    
+    const dbThumbnailFiles = storageInfo.mode === 's3'
+      ? photosWithThumbnails.map(p => p.thumbnail_path)
+      : photosWithThumbnails.map(p => path.basename(p.thumbnail_path));
+
     // Find files on disk that aren't in database
-    const orphanedFiles = filesOnDisk.filter(file => !dbThumbnailFiles.includes(file));
-    
+    const orphanedFiles = storageFiles.filter(file => !dbThumbnailFiles.includes(storageInfo.mode === 's3' ? file : path.basename(file)));
+
     // Find database records pointing to files that don't exist
     const missingFiles = photosWithThumbnails
-      .filter(p => !filesOnDisk.includes(path.basename(p.thumbnail_path)))
-      .map(p => path.basename(p.thumbnail_path));
+      .filter(p => {
+        if (storageInfo.mode === 's3') {
+          return !storageFiles.includes(p.thumbnail_path);
+        }
+        return !storageFiles.includes(path.basename(p.thumbnail_path));
+      })
+      .map(p => storageInfo.mode === 's3' ? p.thumbnail_path : path.basename(p.thumbnail_path));
 
     // Try to get cache performance from audit logs if available
     let cachePerformance = null;
@@ -169,8 +234,8 @@ export async function GET(request: NextRequest) {
         newest_thumbnail: dirStats.newest?.toISOString()
       },
       debug_info: {
-        thumbnail_directory_path: thumbnailDir,
-        directory_exists: fs.existsSync(thumbnailDir),
+        thumbnail_directory_path: storageInfo.location,
+        directory_exists: directoryExists,
         file_vs_db_discrepancy: dirStats.file_count - thumbnailStats.thumbnails_generated,
         orphaned_files: orphanedFiles.slice(0, 10), // Limit to first 10 for UI
         missing_files: missingFiles.slice(0, 10) // Limit to first 10 for UI

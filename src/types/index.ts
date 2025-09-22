@@ -59,6 +59,8 @@ export interface Config {
   backblaze_bucket: string;
   backblaze_access_key: string;
   backblaze_secret_key: string;
+  thumbnail_storage: "local" | "s3";
+  thumbnail_s3_prefix: string;
   thumbnail_max_age_days: number;
   sync_interval_hours: number;
   auto_metadata_threshold_mb: number;
