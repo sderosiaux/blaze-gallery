@@ -66,7 +66,7 @@ async function performStartup(): Promise<void> {
     }
 
     logger.info("Checking thumbnail service...");
-    const thumbnailStats = thumbnailService.getThumbnailStats();
+    const thumbnailStats = await thumbnailService.getThumbnailStats();
     const sizeMB = (thumbnailStats.totalSize / 1024 / 1024).toFixed(1);
     logger.info(
       `Thumbnails: ${thumbnailStats.totalThumbnails} files (${sizeMB}MB)`,

@@ -3,6 +3,8 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "./logger";
@@ -84,9 +86,11 @@ export interface S3Config {
 
 class S3Manager {
   private static instance: S3Manager;
+  private static thumbnailInstance: S3Manager | null = null;
   private s3Client: S3Client | null = null;
   private currentConfigHash: string | null = null;
   private isInitialized = false;
+  private bucketName: string = "";
 
   constructor() {}
 
@@ -95,6 +99,55 @@ class S3Manager {
       S3Manager.instance = new S3Manager();
     }
     return S3Manager.instance;
+  }
+
+  /**
+   * Get or create a separate S3Manager instance for thumbnail storage.
+   * Uses separate credentials if configured, otherwise falls back to main credentials.
+   */
+  static getThumbnailInstance(): S3Manager {
+    const { getConfig } = require("./config");
+    const config = getConfig();
+
+    // If no separate thumbnail S3 config, use main instance
+    if (
+      !config.thumbnail_s3_endpoint ||
+      !config.thumbnail_s3_bucket ||
+      !config.thumbnail_s3_access_key ||
+      !config.thumbnail_s3_secret_key
+    ) {
+      return S3Manager.getInstance();
+    }
+
+    // Create or return dedicated thumbnail instance
+    if (!S3Manager.thumbnailInstance) {
+      S3Manager.thumbnailInstance = new S3Manager();
+    }
+
+    // Initialize with thumbnail-specific config
+    S3Manager.thumbnailInstance.initializeClient({
+      endpoint: config.thumbnail_s3_endpoint,
+      bucket: config.thumbnail_s3_bucket,
+      accessKeyId: config.thumbnail_s3_access_key,
+      secretAccessKey: config.thumbnail_s3_secret_key,
+      region: "auto", // R2 uses "auto" region
+    });
+    S3Manager.thumbnailInstance.bucketName = config.thumbnail_s3_bucket;
+
+    return S3Manager.thumbnailInstance;
+  }
+
+  /**
+   * Get the thumbnail bucket name (separate bucket if configured, otherwise main bucket)
+   */
+  static getThumbnailBucketName(): string {
+    const { getConfig } = require("./config");
+    const config = getConfig();
+
+    if (config.thumbnail_s3_bucket) {
+      return config.thumbnail_s3_bucket;
+    }
+    return config.backblaze_bucket;
   }
 
   private generateConfigHash(config: S3Config): string {
@@ -242,6 +295,22 @@ export function initializeS3Client(config: S3Config): S3Client {
  */
 export function getS3Client(): S3Client {
   return S3Manager.getInstance().getS3Client();
+}
+
+/**
+ * Get S3 client for thumbnail storage
+ * Uses separate credentials if configured, otherwise falls back to main credentials
+ */
+export function getThumbnailS3Client(): S3Client {
+  return S3Manager.getThumbnailInstance().getS3Client();
+}
+
+/**
+ * Get the thumbnail bucket name
+ * Returns separate bucket if configured, otherwise main bucket
+ */
+export function getThumbnailBucketName(): string {
+  return S3Manager.getThumbnailBucketName();
 }
 
 export function destroyS3Client(): void {
@@ -648,6 +717,158 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
       bucket,
       key,
       operation: "getObjectStream",
+    });
+    throw error;
+  }
+}
+
+export interface PutObjectOptions {
+  contentType?: string;
+  cacheControl?: string;
+  metadata?: Record<string, string>;
+  request?: Request;
+}
+
+export async function putObject(
+  bucket: string,
+  key: string,
+  body: Buffer | Uint8Array | string,
+  options: PutObjectOptions = {},
+): Promise<void> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
+
+  const bytesTransferred = Buffer.isBuffer(body)
+    ? body.length
+    : typeof body === "string"
+    ? Buffer.byteLength(body)
+    : body.byteLength;
+
+  try {
+    logger.s3Connection(
+      `Uploading object to ${bucket}/${key} (${bytesTransferred} bytes)`,
+    );
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: options.contentType,
+      CacheControl: options.cacheControl,
+      Metadata: options.metadata,
+    });
+
+    await client.send(command);
+
+    await auditMiddleware.log({
+      operation: "PutObject",
+      method: "PUT",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred,
+      request: options.request,
+    });
+
+    logger.debug(
+      `Successfully uploaded object ${key} (${bytesTransferred} bytes)`,
+    );
+  } catch (error) {
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    await auditMiddleware.log({
+      operation: "PutObject",
+      method: "PUT",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request: options.request,
+    });
+
+    logger.s3Error("Failed to upload object", error as Error, {
+      bucket,
+      key,
+      operation: "putObject",
+    });
+    throw error;
+  }
+}
+
+export async function deleteObject(
+  bucket: string,
+  key: string,
+  request?: Request,
+): Promise<void> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+  let statusCode = 204;
+  let errorMessage: string | undefined;
+
+  try {
+    logger.s3Connection(`Deleting object ${bucket}/${key}`);
+
+    const command = new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    });
+
+    await client.send(command);
+
+    await auditMiddleware.log({
+      operation: "DeleteObject",
+      method: "DELETE",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred: 0,
+      request,
+    });
+
+    logger.debug(`Deleted object ${key} from bucket ${bucket}`);
+  } catch (error) {
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    await auditMiddleware.log({
+      operation: "DeleteObject",
+      method: "DELETE",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request,
+    });
+
+    logger.s3Error("Failed to delete object", error as Error, {
+      bucket,
+      key,
+      operation: "deleteObject",
     });
     throw error;
   }
