@@ -3,6 +3,8 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "./logger";
@@ -648,6 +650,158 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
       bucket,
       key,
       operation: "getObjectStream",
+    });
+    throw error;
+  }
+}
+
+export interface PutObjectOptions {
+  contentType?: string;
+  cacheControl?: string;
+  metadata?: Record<string, string>;
+  request?: Request;
+}
+
+export async function putObject(
+  bucket: string,
+  key: string,
+  body: Buffer | Uint8Array | string,
+  options: PutObjectOptions = {},
+): Promise<void> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+  let statusCode = 200;
+  let errorMessage: string | undefined;
+
+  const bytesTransferred = Buffer.isBuffer(body)
+    ? body.length
+    : typeof body === "string"
+    ? Buffer.byteLength(body)
+    : body.byteLength;
+
+  try {
+    logger.s3Connection(
+      `Uploading object to ${bucket}/${key} (${bytesTransferred} bytes)`,
+    );
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: options.contentType,
+      CacheControl: options.cacheControl,
+      Metadata: options.metadata,
+    });
+
+    await client.send(command);
+
+    await auditMiddleware.log({
+      operation: "PutObject",
+      method: "PUT",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred,
+      request: options.request,
+    });
+
+    logger.debug(
+      `Successfully uploaded object ${key} (${bytesTransferred} bytes)`,
+    );
+  } catch (error) {
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    await auditMiddleware.log({
+      operation: "PutObject",
+      method: "PUT",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request: options.request,
+    });
+
+    logger.s3Error("Failed to upload object", error as Error, {
+      bucket,
+      key,
+      operation: "putObject",
+    });
+    throw error;
+  }
+}
+
+export async function deleteObject(
+  bucket: string,
+  key: string,
+  request?: Request,
+): Promise<void> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+  let statusCode = 204;
+  let errorMessage: string | undefined;
+
+  try {
+    logger.s3Connection(`Deleting object ${bucket}/${key}`);
+
+    const command = new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    });
+
+    await client.send(command);
+
+    await auditMiddleware.log({
+      operation: "DeleteObject",
+      method: "DELETE",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      bytesTransferred: 0,
+      request,
+    });
+
+    logger.debug(`Deleted object ${key} from bucket ${bucket}`);
+  } catch (error) {
+    statusCode = 500;
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+        if (httpStatusCode) {
+          statusCode = httpStatusCode;
+        }
+      }
+    }
+
+    await auditMiddleware.log({
+      operation: "DeleteObject",
+      method: "DELETE",
+      bucket,
+      key,
+      startTime,
+      statusCode,
+      error: errorMessage,
+      request,
+    });
+
+    logger.s3Error("Failed to delete object", error as Error, {
+      bucket,
+      key,
+      operation: "deleteObject",
     });
     throw error;
   }
