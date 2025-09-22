@@ -594,15 +594,14 @@ export async function bulkUpdateFoldersLastSynced(
 ): Promise<void> {
   if (folderIds.length === 0) return;
 
-  return runTransaction(async (client) => {
-    for (const folderId of folderIds) {
-      await client.query(`
-        UPDATE folders
-        SET last_synced = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [folderId]);
-    }
-  });
+  await query(
+    `
+      UPDATE folders
+      SET last_synced = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ANY($1::int[])
+    `,
+    [folderIds],
+  );
 }
 
 // Bulk folder count updates for sync operations

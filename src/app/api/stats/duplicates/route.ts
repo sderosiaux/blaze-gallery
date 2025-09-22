@@ -18,35 +18,39 @@ export async function GET() {
   try {
     // Find photos with duplicate filename+size combinations, excluding system/thumbnail files
     const result = await query(`
-      SELECT
-        p.id,
-        p.filename,
-        p.s3_key,
-        p.size,
-        p.created_at,
-        f.path as folder_path
-      FROM photos p
-      JOIN folders f ON p.folder_id = f.id
-      WHERE (p.filename || '|' || p.size) IN (
-        SELECT (p2.filename || '|' || p2.size) as file_key
-        FROM photos p2
-        JOIN folders f2 ON p2.folder_id = f2.id
-        WHERE f2.path NOT LIKE '%/@eaDir/%'
-          AND f2.path NOT LIKE '%@eaDir%'
-          AND p2.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
-          AND p2.filename NOT LIKE 'Thumbs.db'
-          AND p2.filename NOT LIKE '.DS_Store'
-          AND p2.size > 10240
-        GROUP BY p2.filename, p2.size
+      WITH filtered_photos AS (
+        SELECT
+          p.id,
+          p.filename,
+          p.s3_key,
+          p.size,
+          p.created_at,
+          f.path as folder_path
+        FROM photos p
+        JOIN folders f ON p.folder_id = f.id
+        WHERE f.path NOT LIKE '%/@eaDir/%'
+          AND f.path NOT LIKE '%@eaDir%'
+          AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
+          AND p.filename NOT LIKE 'Thumbs.db'
+          AND p.filename NOT LIKE '.DS_Store'
+          AND p.size > 10240
+      ), duplicate_keys AS (
+        SELECT filename, size
+        FROM filtered_photos
+        GROUP BY filename, size
         HAVING COUNT(*) > 1
       )
-      AND f.path NOT LIKE '%/@eaDir/%'
-      AND f.path NOT LIKE '%@eaDir%'
-      AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
-      AND p.filename NOT LIKE 'Thumbs.db'
-      AND p.filename NOT LIKE '.DS_Store'
-      AND p.size > 10240
-      ORDER BY p.filename, p.size, p.created_at
+      SELECT
+        fp.id,
+        fp.filename,
+        fp.s3_key,
+        fp.size,
+        fp.created_at,
+        fp.folder_path
+      FROM filtered_photos fp
+      JOIN duplicate_keys dk
+        ON fp.filename = dk.filename AND fp.size = dk.size
+      ORDER BY fp.filename, fp.size, fp.created_at
     `);
 
     const duplicatePhotos = result.rows as {
