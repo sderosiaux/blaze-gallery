@@ -33,7 +33,7 @@ const SLIDESHOW_INTERVAL_MS = 3000;
 export function usePhotoNavigation(
   initialPhoto: Photo,
   photos: Photo[] | undefined,
-  onPhotoChange?: (photo: Photo) => void
+  onPhotoChange?: (photo: Photo) => void,
 ): [PhotoNavigationState, PhotoNavigationActions] {
   const [currentPhoto, setCurrentPhoto] = useState(initialPhoto);
   const [currentIndex, setCurrentIndex] = useState(0);

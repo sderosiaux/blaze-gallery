@@ -30,7 +30,9 @@ const LOADING_DELAY_MS = 150;
  * Custom hook for managing progressive image loading state
  * Handles thumbnail → full image loading with delayed loading indicator
  */
-export function useImageLoading(photoId: number): [ImageLoadingState, ImageLoadingActions] {
+export function useImageLoading(
+  photoId: number,
+): [ImageLoadingState, ImageLoadingActions] {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [showLoadingUI, setShowLoadingUI] = useState(false);
@@ -95,13 +97,16 @@ export function useImageLoading(photoId: number): [ImageLoadingState, ImageLoadi
   }, [clearLoadingTimeout]);
 
   // Set blob URL (for session-authenticated images)
-  const setBlobUrl = useCallback((url: string | null) => {
-    // Clean up previous blob URL
-    if (blobUrl && url !== blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-    }
-    setBlobUrlState(url);
-  }, [blobUrl]);
+  const setBlobUrl = useCallback(
+    (url: string | null) => {
+      // Clean up previous blob URL
+      if (blobUrl && url !== blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+      setBlobUrlState(url);
+    },
+    [blobUrl],
+  );
 
   // Reset when photo changes
   useEffect(() => {

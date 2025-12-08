@@ -62,8 +62,15 @@ export default function PhotoViewer({
 }: PhotoViewerProps) {
   // Use custom hooks for grouped state management
   const [imageState, imageActions] = useImageLoading(photo.id);
-  const [favoriteState, favoriteActions] = useFavoriteToggle(photo.is_favorite, isSharedView);
-  const [navState, navActions] = usePhotoNavigation(photo, photos, onPhotoChange);
+  const [favoriteState, favoriteActions] = useFavoriteToggle(
+    photo.is_favorite,
+    isSharedView,
+  );
+  const [navState, navActions] = usePhotoNavigation(
+    photo,
+    photos,
+    onPhotoChange,
+  );
 
   // UI state - single useState for simple toggle
   const [isExpanded, setIsExpanded] = useState(false);
@@ -386,11 +393,13 @@ export default function PhotoViewer({
 
         <div className="flex-1 flex items-center justify-center min-h-0 relative group">
           {/* Loading skeleton - only show when no images are loaded yet and after delay */}
-          {imageState.showLoadingUI && !imageState.thumbnailReady && !imageState.fullImageReady && (
-            <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
-              <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
-            </div>
-          )}
+          {imageState.showLoadingUI &&
+            !imageState.thumbnailReady &&
+            !imageState.fullImageReady && (
+              <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
+              </div>
+            )}
 
           {/* Error state */}
           {imageState.hasError && (
@@ -541,7 +550,9 @@ export default function PhotoViewer({
                       ? "opacity-100"
                       : "opacity-0"
                   } ${
-                    imageState.fullImageReady ? "scale-110 blur-sm" : "scale-100 blur-0"
+                    imageState.fullImageReady
+                      ? "scale-110 blur-sm"
+                      : "scale-100 blur-0"
                   }`}
                   style={{
                     imageRendering: "auto",
@@ -590,7 +601,8 @@ export default function PhotoViewer({
                   }}
                   loading="eager"
                   onLoad={() => {
-                    const isPasswordProtectedShare = isSharedView && sessionToken;
+                    const isPasswordProtectedShare =
+                      isSharedView && sessionToken;
                     const isUsingBlobUrl = imageState.blobUrl !== null;
 
                     if (!isPasswordProtectedShare || isUsingBlobUrl) {

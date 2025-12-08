@@ -14,7 +14,10 @@ export interface FavoriteState {
  * Actions to control favorite state
  */
 export interface FavoriteActions {
-  toggle: (photo: Photo, onSuccess?: (updatedPhoto: Photo) => void) => Promise<void>;
+  toggle: (
+    photo: Photo,
+    onSuccess?: (updatedPhoto: Photo) => void,
+  ) => Promise<void>;
   setFavorite: (value: boolean) => void;
 }
 
@@ -26,7 +29,7 @@ const ANIMATION_DURATION_MS = 300;
  */
 export function useFavoriteToggle(
   initialValue: boolean,
-  isSharedView: boolean = false
+  isSharedView: boolean = false,
 ): [FavoriteState, FavoriteActions] {
   const [isLoading, setIsLoading] = useState(false);
   const [isFavorite, setIsFavorite] = useState(initialValue);
@@ -84,7 +87,7 @@ export function useFavoriteToggle(
         setIsLoading(false);
       }
     },
-    [isLoading, isFavorite, isSharedView]
+    [isLoading, isFavorite, isSharedView],
   );
 
   // Direct setter for when photo changes externally

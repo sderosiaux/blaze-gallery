@@ -207,8 +207,12 @@ class BlazeGalleryMCPHandler {
       folders_involved?: number;
     }>
   > {
-    const { selectFields, groupByClause } = this.getAnalyticsGroupConfig(options.groupBy);
-    const orderByClause = this.getAnalyticsOrderColumn(options.orderBy || "period");
+    const { selectFields, groupByClause } = this.getAnalyticsGroupConfig(
+      options.groupBy,
+    );
+    const orderByClause = this.getAnalyticsOrderColumn(
+      options.orderBy || "period",
+    );
     const orderDirection = options.orderDirection || "DESC";
     const limit = options.limit || 100;
 
@@ -230,13 +234,25 @@ class BlazeGalleryMCPHandler {
     }>;
   }
 
-  private getAnalyticsGroupConfig(groupBy: string): { selectFields: string; groupByClause: string } {
+  private getAnalyticsGroupConfig(groupBy: string): {
+    selectFields: string;
+    groupByClause: string;
+  } {
     const yearCase = `CASE WHEN f.path ~ '20[0-9][0-9]' THEN substring(f.path from '20[0-9][0-9]') ELSE 'unorganized' END`;
 
-    const configs: Record<string, { selectFields: string; groupByClause: string }> = {
+    const configs: Record<
+      string,
+      { selectFields: string; groupByClause: string }
+    > = {
       year: { selectFields: `${yearCase} as period`, groupByClause: yearCase },
-      month: { selectFields: `to_char(modified_at, 'YYYY-MM') as period`, groupByClause: `to_char(modified_at, 'YYYY-MM')` },
-      "year-month": { selectFields: `to_char(modified_at, 'YYYY-MM') as period`, groupByClause: `to_char(modified_at, 'YYYY-MM')` },
+      month: {
+        selectFields: `to_char(modified_at, 'YYYY-MM') as period`,
+        groupByClause: `to_char(modified_at, 'YYYY-MM')`,
+      },
+      "year-month": {
+        selectFields: `to_char(modified_at, 'YYYY-MM') as period`,
+        groupByClause: `to_char(modified_at, 'YYYY-MM')`,
+      },
       folder: { selectFields: `f.path as period`, groupByClause: `f.path` },
     };
 
@@ -266,8 +282,14 @@ class BlazeGalleryMCPHandler {
         COALESCE(SUM(p.size), 0) as total_size,
         COUNT(CASE WHEN p.is_favorite = true THEN 1 END) as favorite_count`;
 
-    const foldersInvolved = groupBy !== "folder" ? `,\n        COUNT(DISTINCT p.folder_id) as folders_involved` : "";
-    const whereClause = groupBy !== "year" && groupBy !== "folder" ? `WHERE ${groupByClause} IS NOT NULL` : "";
+    const foldersInvolved =
+      groupBy !== "folder"
+        ? `,\n        COUNT(DISTINCT p.folder_id) as folders_involved`
+        : "";
+    const whereClause =
+      groupBy !== "year" && groupBy !== "folder"
+        ? `WHERE ${groupByClause} IS NOT NULL`
+        : "";
 
     return `
       ${baseSelect}${foldersInvolved}
