@@ -41,8 +41,8 @@ export function withAuth(
         return handler(request as AuthenticatedRequest);
       }
 
-      // Validate session
-      const session = validateUserSession(sessionCookie);
+      // Validate session from database
+      const session = await validateUserSession(sessionCookie);
 
       if (!session) {
         if (options.required) {
@@ -99,7 +99,7 @@ export async function checkAuth(request: NextRequest): Promise<{
     return { isAuthenticated: false };
   }
 
-  const session = validateUserSession(sessionCookie);
+  const session = await validateUserSession(sessionCookie);
 
   if (!session) {
     return { isAuthenticated: false };

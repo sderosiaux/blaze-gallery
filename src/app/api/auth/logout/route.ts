@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
     const sessionCookie = request.cookies.get("auth_session")?.value;
 
     if (sessionCookie) {
-      // Revoke the session
-      revokeUserSession(sessionCookie);
+      // Revoke the session from database
+      await revokeUserSession(sessionCookie);
     }
 
     // Parse request body for Google token revocation (optional)

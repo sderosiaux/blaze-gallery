@@ -1,96 +1,129 @@
 import crypto from "crypto";
 import { UserSession } from "./types";
 import { authConfig } from "./config";
-
-// Persistent session store that survives hot reloads in development
-// Using the same globalThis pattern as shareSession.ts
-const globalForUserSessions = globalThis as unknown as {
-  userSessions: Map<string, UserSession> | undefined;
-};
-
-const userSessions: Map<string, UserSession> =
-  globalForUserSessions.userSessions ??
-  (globalForUserSessions.userSessions = new Map());
+import { query } from "../database";
 
 /**
- * Create a new user session
+ * Database-backed session storage for serverless environments
+ * Sessions are stored in PostgreSQL (Neon) for persistence across function invocations
  */
-export function createUserSession(user: {
+
+interface DbSession {
+  id: string;
+  email: string;
+  name: string;
+  picture: string | null;
+  google_id: string | null;
+  created_at: Date;
+  expires_at: Date;
+  last_activity: Date;
+}
+
+/**
+ * Create a new user session in the database
+ */
+export async function createUserSession(user: {
   email: string;
   name: string;
   picture?: string;
   googleId: string;
-}): string {
+}): Promise<string> {
   const sessionId = crypto.randomUUID();
-  const now = Date.now();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + authConfig.sessionDuration * 1000);
 
-  const session: UserSession = {
-    id: sessionId,
-    email: user.email.toLowerCase(),
-    name: user.name,
-    picture: user.picture,
-    createdAt: now,
-    expiresAt: now + authConfig.sessionDuration * 1000,
-    lastActivity: now,
-  };
+  await query(
+    `INSERT INTO user_sessions (id, email, name, picture, google_id, created_at, expires_at, last_activity)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      sessionId,
+      user.email.toLowerCase(),
+      user.name,
+      user.picture || null,
+      user.googleId,
+      now,
+      expiresAt,
+      now,
+    ]
+  );
 
-  userSessions.set(sessionId, session);
+  // Clean up expired sessions periodically (async, don't wait)
+  cleanupExpiredUserSessions().catch(console.error);
 
-  // Clean up expired sessions periodically
-  cleanupExpiredUserSessions();
-
-  console.log("🔐 Created user session:", {
+  console.log("Created user session:", {
     sessionId: `${sessionId.substring(0, 8)}...`,
     email: user.email,
-    expiresAt: new Date(session.expiresAt).toISOString(),
+    expiresAt: expiresAt.toISOString(),
   });
 
   return sessionId;
 }
 
 /**
- * Validate and refresh a user session
+ * Validate and refresh a user session from the database
  */
-export function validateUserSession(sessionId: string): UserSession | null {
-  const session = userSessions.get(sessionId);
+export async function validateUserSession(
+  sessionId: string
+): Promise<UserSession | null> {
+  const result = await query(
+    `SELECT * FROM user_sessions WHERE id = $1`,
+    [sessionId]
+  );
 
-  if (!session) {
+  const dbSession = result.rows[0] as DbSession | undefined;
+
+  if (!dbSession) {
     return null;
   }
 
-  const now = Date.now();
+  const now = new Date();
+  const expiresAt = new Date(dbSession.expires_at);
 
   // Check if session is expired
-  if (now > session.expiresAt) {
-    userSessions.delete(sessionId);
-    console.log("🕐 User session expired and removed:", {
+  if (now > expiresAt) {
+    await query(`DELETE FROM user_sessions WHERE id = $1`, [sessionId]);
+    console.log("User session expired and removed:", {
       sessionId: `${sessionId.substring(0, 8)}...`,
-      email: session.email,
+      email: dbSession.email,
     });
     return null;
   }
 
   // Update last activity and extend session if it's been more than 1 hour since last activity
   const oneHour = 60 * 60 * 1000;
-  if (now - session.lastActivity > oneHour) {
-    session.lastActivity = now;
-    session.expiresAt = now + authConfig.sessionDuration * 1000;
-    userSessions.set(sessionId, session);
+  const lastActivity = new Date(dbSession.last_activity);
+  if (now.getTime() - lastActivity.getTime() > oneHour) {
+    const newExpiresAt = new Date(now.getTime() + authConfig.sessionDuration * 1000);
+    await query(
+      `UPDATE user_sessions SET last_activity = $1, expires_at = $2 WHERE id = $3`,
+      [now, newExpiresAt, sessionId]
+    );
   }
 
-  return session;
+  return {
+    id: dbSession.id,
+    email: dbSession.email,
+    name: dbSession.name,
+    picture: dbSession.picture || undefined,
+    createdAt: new Date(dbSession.created_at).getTime(),
+    expiresAt: expiresAt.getTime(),
+    lastActivity: lastActivity.getTime(),
+  };
 }
 
 /**
  * Revoke a user session
  */
-export function revokeUserSession(sessionId: string): void {
-  const session = userSessions.get(sessionId);
-  if (session) {
-    userSessions.delete(sessionId);
-    console.log("🚪 User session revoked:", {
+export async function revokeUserSession(sessionId: string): Promise<void> {
+  const result = await query(
+    `DELETE FROM user_sessions WHERE id = $1 RETURNING email`,
+    [sessionId]
+  );
+
+  if (result.rows[0]) {
+    console.log("User session revoked:", {
       sessionId: `${sessionId.substring(0, 8)}...`,
-      email: session.email,
+      email: result.rows[0].email,
     });
   }
 }
@@ -98,77 +131,78 @@ export function revokeUserSession(sessionId: string): void {
 /**
  * Get all active sessions for a user (by email)
  */
-export function getUserSessions(email: string): UserSession[] {
+export async function getUserSessions(email: string): Promise<UserSession[]> {
   const normalizedEmail = email.toLowerCase();
-  return Array.from(userSessions.values()).filter(
-    (session) => session.email === normalizedEmail,
+  const result = await query(
+    `SELECT * FROM user_sessions WHERE email = $1 AND expires_at > NOW()`,
+    [normalizedEmail]
   );
+
+  return result.rows.map((row: DbSession) => ({
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    picture: row.picture || undefined,
+    createdAt: new Date(row.created_at).getTime(),
+    expiresAt: new Date(row.expires_at).getTime(),
+    lastActivity: new Date(row.last_activity).getTime(),
+  }));
 }
 
 /**
  * Revoke all sessions for a user
  */
-export function revokeUserSessions(email: string): void {
+export async function revokeUserSessions(email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
-  const sessionsToRevoke = Array.from(userSessions.entries()).filter(
-    ([_, session]) => session.email === normalizedEmail,
+  const result = await query(
+    `DELETE FROM user_sessions WHERE email = $1`,
+    [normalizedEmail]
   );
 
-  sessionsToRevoke.forEach(([sessionId, session]) => {
-    userSessions.delete(sessionId);
-    console.log("🚪 User session revoked (bulk):", {
-      sessionId: `${sessionId.substring(0, 8)}...`,
-      email: session.email,
-    });
+  console.log("User sessions revoked (bulk):", {
+    email: normalizedEmail,
+    count: result.rowCount,
   });
 }
 
 /**
  * Get session statistics
  */
-export function getSessionStats(): {
+export async function getSessionStats(): Promise<{
   totalSessions: number;
   activeUsers: number;
   oldestSession: Date | null;
   newestSession: Date | null;
-} {
-  const sessions = Array.from(userSessions.values());
-  const emails = new Set(sessions.map((s) => s.email));
+}> {
+  const statsResult = await query(`
+    SELECT
+      COUNT(*) as total_sessions,
+      COUNT(DISTINCT email) as active_users,
+      MIN(created_at) as oldest_session,
+      MAX(created_at) as newest_session
+    FROM user_sessions
+    WHERE expires_at > NOW()
+  `);
+
+  const stats = statsResult.rows[0];
 
   return {
-    totalSessions: sessions.length,
-    activeUsers: emails.size,
-    oldestSession:
-      sessions.length > 0
-        ? new Date(Math.min(...sessions.map((s) => s.createdAt)))
-        : null,
-    newestSession:
-      sessions.length > 0
-        ? new Date(Math.max(...sessions.map((s) => s.createdAt)))
-        : null,
+    totalSessions: parseInt(stats.total_sessions) || 0,
+    activeUsers: parseInt(stats.active_users) || 0,
+    oldestSession: stats.oldest_session ? new Date(stats.oldest_session) : null,
+    newestSession: stats.newest_session ? new Date(stats.newest_session) : null,
   };
 }
 
 /**
- * Clean up expired sessions
+ * Clean up expired sessions from the database
  */
-function cleanupExpiredUserSessions(): void {
-  const now = Date.now();
-  let cleanedCount = 0;
+async function cleanupExpiredUserSessions(): Promise<void> {
+  const result = await query(`
+    DELETE FROM user_sessions WHERE expires_at < NOW()
+  `);
 
-  for (const [sessionId, session] of userSessions.entries()) {
-    if (now > session.expiresAt) {
-      userSessions.delete(sessionId);
-      cleanedCount++;
-    }
+  if (result.rowCount && result.rowCount > 0) {
+    console.log(`Cleaned up ${result.rowCount} expired user sessions`);
   }
-
-  if (cleanedCount > 0) {
-    console.log(`🧹 Cleaned up ${cleanedCount} expired user sessions`);
-  }
-}
-
-// Cleanup expired sessions every hour
-if (typeof window === "undefined") {
-  setInterval(cleanupExpiredUserSessions, 60 * 60 * 1000);
 }

@@ -111,8 +111,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Create user session
-    const sessionId = createUserSession({
+    // Create user session in database
+    const sessionId = await createUserSession({
       email: userInfo.email,
       name: userInfo.name,
       picture: userInfo.picture,

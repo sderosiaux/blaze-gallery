@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Validate session
-    const session = validateUserSession(sessionCookie);
+    // Validate session from database
+    const session = await validateUserSession(sessionCookie);
 
     if (!session) {
       // Clear invalid session cookie
@@ -67,7 +67,7 @@ export async function DELETE(request: NextRequest) {
 
     if (sessionCookie) {
       const { revokeUserSession } = await import("@/lib/auth/userSession");
-      revokeUserSession(sessionCookie);
+      await revokeUserSession(sessionCookie);
     }
 
     // Clear session cookie
