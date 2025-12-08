@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Calendar, Eye, Zap, Copy, AlertTriangle } from 'lucide-react';
+import { BarChart3, Camera, Database, Folder, HardDrive, Image, TrendingUp, Calendar, Eye, Zap, Copy, AlertTriangle, Film } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import FolderHeatmap from '@/components/FolderHeatmap';
 import { GalleryStats } from '@/types/stats';
@@ -91,7 +91,7 @@ export default function StatsPage() {
   // Track which section is currently visible using scroll position
   useEffect(() => {
     const handleScroll = () => {
-      const sections = ['overview', 'activity', 'storage', 'content', 'duplicates', 'ignored', 'system'];
+      const sections = ['overview', 'activity', 'storage', 'content', 'videos', 'duplicates', 'ignored', 'system'];
       const scrollTop = window.scrollY + 150; // Offset for fixed header
       
       let currentSection = 'overview';
@@ -215,6 +215,7 @@ export default function StatsPage() {
     { id: 'activity', label: 'Activity', icon: '👁️' },
     { id: 'storage', label: 'Storage', icon: '🗂️' },
     { id: 'content', label: 'Content', icon: '📷' },
+    { id: 'videos', label: 'Videos', icon: '🎬' },
     { id: 'duplicates', label: 'Duplicates', icon: '🔍' },
     { id: 'ignored', label: 'Ignored Files', icon: '🚫' },
     { id: 'system', label: 'System', icon: '⚙️' },
@@ -516,6 +517,177 @@ export default function StatsPage() {
           </div>
         </div>
         </section>
+
+        {/* Videos Section */}
+        {stats.videos && (
+        <section id="videos" className="space-y-6 scroll-mt-24">
+          <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
+            🎬 Video Statistics
+          </h2>
+
+          {/* Video Overview Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <Film className="w-8 h-8 text-purple-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Videos</p>
+                  <p className="text-2xl font-bold text-gray-900">{Number(stats.videos.stats.total_videos).toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <HardDrive className="w-8 h-8 text-blue-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Video Storage</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatBytes(Number(stats.videos.stats.total_size_bytes))}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <Database className="w-8 h-8 text-green-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Avg Video Size</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatBytes(Number(stats.videos.stats.avg_size_bytes))}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <TrendingUp className="w-8 h-8 text-red-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Largest Video</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatBytes(Number(stats.videos.stats.max_size_bytes))}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Video Formats */}
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <Film className="w-5 h-5 mr-2" />
+                  Video Formats
+                </h3>
+              </div>
+              <div className="p-6">
+                <div className="space-y-3">
+                  {stats.videos.formats.slice(0, 8).map((format, index) => {
+                    const percentage = (Number(format.count) / Number(stats.videos!.stats.total_videos)) * 100;
+                    return (
+                      <div key={index} className="flex justify-between items-center">
+                        <div className="flex items-center">
+                          <span className="text-sm font-medium text-gray-900 w-12">
+                            {format.format?.toUpperCase() || 'N/A'}
+                          </span>
+                          <div className="ml-3 flex-1 bg-gray-200 rounded-full h-2 w-32">
+                            <div
+                              className="bg-purple-600 h-2 rounded-full"
+                              style={{ width: `${Math.max(percentage, 2)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                        <div className="ml-4 text-sm text-gray-500 min-w-0 text-right">
+                          <div>{Number(format.count).toLocaleString()}</div>
+                          <div className="text-xs">{formatBytes(Number(format.total_size_bytes))}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Folders with Most Videos */}
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <Folder className="w-5 h-5 mr-2" />
+                  Folders with Most Videos
+                </h3>
+              </div>
+              <div className="p-6">
+                <div className="space-y-3">
+                  {stats.videos.folders_with_most.slice(0, 8).map((folder, index) => (
+                    <div key={index} className="flex justify-between items-center">
+                      <div className="flex-1 truncate">
+                        <a
+                          href={folder.path === '' ? '/' : `/folder/${folder.path}`}
+                          className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                          title={folder.path}
+                        >
+                          {folder.name || 'Root'}
+                        </a>
+                      </div>
+                      <div className="ml-4 text-sm text-gray-500 text-right">
+                        <div>{Number(folder.video_count).toLocaleString()} videos</div>
+                        <div className="text-xs">{formatBytes(Number(folder.total_size_bytes))}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Largest Videos */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <HardDrive className="w-5 h-5 mr-2" />
+                Largest Videos
+              </h3>
+            </div>
+            <div className="p-6">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Filename</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Format</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {stats.videos.largest.map((video, index) => (
+                      <tr key={index}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          <div className="truncate max-w-xs" title={video.filename}>
+                            {video.filename}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatBytes(Number(video.size))}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {video.mime_type.split('/')[1]?.toUpperCase() || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <a
+                            href={video.folder_path === '' ? '/' : `/folder/${video.folder_path}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline truncate block max-w-xs"
+                            title={video.folder_path}
+                          >
+                            {video.folder_path || 'Root'}
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+        )}
 
         {/* Duplicates Section */}
         <section id="duplicates" className="space-y-6 scroll-mt-24">

@@ -49,6 +49,41 @@ export interface SyncHealth {
   stale_folders: number;
 }
 
+export interface VideoStats {
+  total_videos: number;
+  total_size_bytes: number;
+  avg_size_bytes: number;
+  min_size_bytes: number;
+  max_size_bytes: number;
+}
+
+export interface VideoFormat {
+  format: string;
+  count: number;
+  total_size_bytes: number;
+}
+
+export interface LargestVideo {
+  filename: string;
+  size: number;
+  mime_type: string;
+  folder_path: string;
+}
+
+export interface VideoFolderStats {
+  name: string;
+  path: string;
+  video_count: number;
+  total_size_bytes: number;
+}
+
+export interface VideoData {
+  stats: VideoStats;
+  formats: VideoFormat[];
+  largest: LargestVideo[];
+  folders_with_most: VideoFolderStats[];
+}
+
 export interface GalleryStats {
   basic: BasicStats;
   most_viewed_folders: FolderStats[];
@@ -59,4 +94,5 @@ export interface GalleryStats {
   metadata: MetadataStats;
   top_cameras: CameraStats[];
   sync_health: SyncHealth;
+  videos?: VideoData;
 }
