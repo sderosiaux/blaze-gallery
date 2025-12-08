@@ -2,7 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
-import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon, Expand, Minimize2 } from "lucide-react";
+import { X, Download, Calendar, MapPin, HardDrive, Heart, ChevronLeft, ChevronRight, Play, Pause, ImageOff, AlertCircle, ChevronRight as ChevronRightIcon, Expand, Minimize2, Film } from "lucide-react";
+
+// Helper to check if a file is a video based on mime_type
+function isVideoMimeType(mimeType: string): boolean {
+  return mimeType.startsWith("video/");
+}
 import { loadImageWithSession, revokeBlobUrl } from "@/lib/shareClient";
 
 interface PhotoViewerProps {
@@ -725,110 +730,144 @@ export default function PhotoViewer({
             </>
           )}
 
-          {/* Progressive Loading Images */}
+          {/* Progressive Loading Images / Video Player */}
           <div className="relative w-full h-full flex items-center justify-center">
-            {/* Thumbnail - loads first and shows immediately, sized to match final image */}
-            <img
-              src={getThumbnailUrl(currentPhoto.id)}
-              alt={`${currentPhoto.filename} thumbnail`}
-              className={`absolute transition-all duration-500 ${
-                isExpanded
-                  ? "max-w-none max-h-none object-contain" 
-                  : "max-w-full max-h-full object-contain"
-              } ${
-                thumbnailLoaded && !fullImageLoaded ? "opacity-100" : "opacity-0"
-              } ${
-                fullImageLoaded ? "scale-110 blur-sm" : "scale-100 blur-0"
-              }`}
-              style={{
-                imageRendering: 'auto',
-                width: isExpanded ? '90vw' : '100%',
-                height: isExpanded ? '90vh' : '100%',
-                maxWidth: isExpanded ? '90vw' : '100%',
-                maxHeight: isExpanded ? '90vh' : '100%',
-                objectFit: 'contain',
-              }}
-              loading="eager"
-              onLoad={() => {
-                setThumbnailLoaded(true);
-                // Clear loading timeout when thumbnail loads
-                clearLoadingTimeout();
-              }}
-              onError={() => {
-                // For shared views, silently handle thumbnail errors and proceed to full image
-                if (isSharedView) {
-                  setThumbnailLoaded(false);
-                  clearLoadingTimeout();
-                } else {
-                  console.log('Thumbnail load error for:', currentPhoto.filename);
-                }
-              }}
-            />
-            
-            {/* Full Resolution Image - loads in background, sized to match thumbnail */}
-            <img
-              src={
-                // For password-protected shares, don't load until blob URL is ready
-                // This prevents the img tag from failing before session authentication
-                isSharedView && sessionToken && !fullImageBlobUrl 
-                  ? '' // Empty src prevents loading attempt
-                  : (fullImageBlobUrl || getFullImageUrl(currentPhoto.id))
-              }
-              alt={currentPhoto.filename}
-              className={`transition-all duration-500 ${
-                isExpanded
-                  ? "max-w-none max-h-none object-contain" 
-                  : "max-w-full max-h-full object-contain"
-              } ${
-                fullImageLoaded ? "opacity-100" : "opacity-0"
-              }`}
-              style={{
-                imageRendering: isExpanded ? 'crisp-edges' : 'auto',
-                width: isExpanded ? '90vw' : '100%',
-                height: isExpanded ? '90vh' : '100%',
-                maxWidth: isExpanded ? '90vw' : '100%',
-                maxHeight: isExpanded ? '90vh' : '100%',
-                objectFit: 'contain',
-              }}
-              loading="eager"
-              onLoad={() => {
-                // Handle onLoad for regular image loading:
-                // 1. Non-shared views (always)
-                // 2. Shared views without passwords (no session needed)
-                // 3. Password-protected shares using blob URLs (after session loading completes)
-                const isPasswordProtectedShare = isSharedView && sessionToken;
-                const isUsingBlobUrl = fullImageBlobUrl !== null;
-                
-                if (!isPasswordProtectedShare || isUsingBlobUrl) {
+            {isVideoMimeType(currentPhoto.mime_type) ? (
+              /* Video Player */
+              <video
+                key={currentPhoto.id}
+                src={fullImageBlobUrl || getFullImageUrl(currentPhoto.id)}
+                controls
+                autoPlay
+                className={`transition-all duration-300 ${
+                  isExpanded
+                    ? "max-w-none max-h-none"
+                    : "max-w-full max-h-full"
+                }`}
+                style={{
+                  width: isExpanded ? '90vw' : '100%',
+                  height: isExpanded ? '90vh' : '100%',
+                  maxWidth: isExpanded ? '90vw' : '100%',
+                  maxHeight: isExpanded ? '90vh' : '100%',
+                  objectFit: 'contain',
+                }}
+                onLoadedData={() => {
                   setImageLoading(false);
                   setFullImageLoaded(true);
                   clearLoadingTimeout();
-                }
-              }}
-              onError={(e) => {
-                // Only show error if this is not a password-protected share waiting for blob URL
-                const isWaitingForSessionLoad = isSharedView && sessionToken && !fullImageBlobUrl;
-                
-                if (!isWaitingForSessionLoad) {
-                  console.log('PhotoViewer full image error:', {
-                    filename: currentPhoto.filename,
-                    src: e.currentTarget.src,
-                    naturalWidth: e.currentTarget.naturalWidth,
-                    naturalHeight: e.currentTarget.naturalHeight,
-                    isSharedView: isSharedView,
-                    sessionToken: !!sessionToken,
-                    fullImageBlobUrl: !!fullImageBlobUrl
-                  });
-                  
-                  // Add a small delay before showing error to avoid flash
-                  setTimeout(() => {
-                    setImageLoading(false);
-                    setImageError(true);
+                }}
+                onError={() => {
+                  setImageLoading(false);
+                  setImageError(true);
+                  clearLoadingTimeout();
+                }}
+              />
+            ) : (
+              <>
+                {/* Thumbnail - loads first and shows immediately, sized to match final image */}
+                <img
+                  src={getThumbnailUrl(currentPhoto.id)}
+                  alt={`${currentPhoto.filename} thumbnail`}
+                  className={`absolute transition-all duration-500 ${
+                    isExpanded
+                      ? "max-w-none max-h-none object-contain"
+                      : "max-w-full max-h-full object-contain"
+                  } ${
+                    thumbnailLoaded && !fullImageLoaded ? "opacity-100" : "opacity-0"
+                  } ${
+                    fullImageLoaded ? "scale-110 blur-sm" : "scale-100 blur-0"
+                  }`}
+                  style={{
+                    imageRendering: 'auto',
+                    width: isExpanded ? '90vw' : '100%',
+                    height: isExpanded ? '90vh' : '100%',
+                    maxWidth: isExpanded ? '90vw' : '100%',
+                    maxHeight: isExpanded ? '90vh' : '100%',
+                    objectFit: 'contain',
+                  }}
+                  loading="eager"
+                  onLoad={() => {
+                    setThumbnailLoaded(true);
+                    // Clear loading timeout when thumbnail loads
                     clearLoadingTimeout();
-                  }, 100);
-                }
-              }}
-            />
+                  }}
+                  onError={() => {
+                    // For shared views, silently handle thumbnail errors and proceed to full image
+                    if (isSharedView) {
+                      setThumbnailLoaded(false);
+                      clearLoadingTimeout();
+                    } else {
+                      console.log('Thumbnail load error for:', currentPhoto.filename);
+                    }
+                  }}
+                />
+
+                {/* Full Resolution Image - loads in background, sized to match thumbnail */}
+                <img
+                  src={
+                    // For password-protected shares, don't load until blob URL is ready
+                    // This prevents the img tag from failing before session authentication
+                    isSharedView && sessionToken && !fullImageBlobUrl
+                      ? '' // Empty src prevents loading attempt
+                      : (fullImageBlobUrl || getFullImageUrl(currentPhoto.id))
+                  }
+                  alt={currentPhoto.filename}
+                  className={`transition-all duration-500 ${
+                    isExpanded
+                      ? "max-w-none max-h-none object-contain"
+                      : "max-w-full max-h-full object-contain"
+                  } ${
+                    fullImageLoaded ? "opacity-100" : "opacity-0"
+                  }`}
+                  style={{
+                    imageRendering: isExpanded ? 'crisp-edges' : 'auto',
+                    width: isExpanded ? '90vw' : '100%',
+                    height: isExpanded ? '90vh' : '100%',
+                    maxWidth: isExpanded ? '90vw' : '100%',
+                    maxHeight: isExpanded ? '90vh' : '100%',
+                    objectFit: 'contain',
+                  }}
+                  loading="eager"
+                  onLoad={() => {
+                    // Handle onLoad for regular image loading:
+                    // 1. Non-shared views (always)
+                    // 2. Shared views without passwords (no session needed)
+                    // 3. Password-protected shares using blob URLs (after session loading completes)
+                    const isPasswordProtectedShare = isSharedView && sessionToken;
+                    const isUsingBlobUrl = fullImageBlobUrl !== null;
+
+                    if (!isPasswordProtectedShare || isUsingBlobUrl) {
+                      setImageLoading(false);
+                      setFullImageLoaded(true);
+                      clearLoadingTimeout();
+                    }
+                  }}
+                  onError={(e) => {
+                    // Only show error if this is not a password-protected share waiting for blob URL
+                    const isWaitingForSessionLoad = isSharedView && sessionToken && !fullImageBlobUrl;
+
+                    if (!isWaitingForSessionLoad) {
+                      console.log('PhotoViewer full image error:', {
+                        filename: currentPhoto.filename,
+                        src: e.currentTarget.src,
+                        naturalWidth: e.currentTarget.naturalWidth,
+                        naturalHeight: e.currentTarget.naturalHeight,
+                        isSharedView: isSharedView,
+                        sessionToken: !!sessionToken,
+                        fullImageBlobUrl: !!fullImageBlobUrl
+                      });
+
+                      // Add a small delay before showing error to avoid flash
+                      setTimeout(() => {
+                        setImageLoading(false);
+                        setImageError(true);
+                        clearLoadingTimeout();
+                      }, 100);
+                    }
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
       </div>

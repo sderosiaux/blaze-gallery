@@ -51,7 +51,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
             return "contains invalid path characters";
           }
           // Allow empty string for root folder
-          if (value !== "" && !/^[a-zA-Z0-9_./-]*$/.test(value)) {
+          if (value !== "" && !/^[a-zA-Z0-9_. /-]*$/.test(value)) {
             return "contains invalid characters";
           }
           return null;

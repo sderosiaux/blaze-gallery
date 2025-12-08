@@ -1,6 +1,7 @@
 import {
   listObjectsAuto,
   isImageFile,
+  isMediaFile,
   getMimeType,
   getFolderFromKey,
   getFilenameFromKey,
@@ -50,39 +51,48 @@ export class SyncService {
 
   private async ensureInitialSync() {
     try {
-      // Clean up any incomplete jobs from previous sessions
       const activeJobs = await getActiveSyncJobs();
-      const incompleteJobs = activeJobs.filter(
-        (job) => job.status === "pending" || job.status === "running",
+
+      // Check for existing pending/running jobs - don't cancel them, let them continue
+      const existingFullScan = activeJobs.find(
+        (job) => job.type === "full_scan" && (job.status === "pending" || job.status === "running"),
       );
 
-      if (incompleteJobs.length > 0) {
-        logger.syncOperation(
-          "Cleaning up incomplete jobs from previous session",
-          {
-            component: "SyncService",
-            jobCount: incompleteJobs.length,
-          },
-        );
-
-        // Mark incomplete jobs as failed
-        for (const job of incompleteJobs) {
-          await updateSyncJob(job.id, {
-            status: "failed",
-            error_message: "Application restart - job cancelled",
-          });
-        }
+      if (existingFullScan) {
+        logger.syncOperation("Found existing full_scan job, resuming", {
+          component: "SyncService",
+          jobId: existingFullScan.id,
+          status: existingFullScan.status,
+          processed: existingFullScan.processed_items,
+          total: existingFullScan.total_items,
+        });
+        return; // Don't create a new one, let existing job continue
       }
 
-      // After cleanup, check if we need to create a new full scan job
-      // We always create a fresh full scan on startup to ensure data is up-to-date
+      // Check if we recently completed a full scan (within last hour)
+      const recentCompleted = await query(`
+        SELECT * FROM sync_jobs
+        WHERE type = 'full_scan' AND status = 'completed'
+        AND completed_at > NOW() - INTERVAL '1 hour'
+        ORDER BY completed_at DESC LIMIT 1
+      `, []);
+
+      if (recentCompleted.rows.length > 0) {
+        logger.syncOperation("Full scan completed recently, skipping startup scan", {
+          component: "SyncService",
+          lastCompletedAt: recentCompleted.rows[0].completed_at,
+        });
+        return;
+      }
+
+      // No active or recent full scan - create a new one
       logger.syncOperation("Creating fresh full scan on startup", {
         component: "SyncService",
       });
 
       await createSyncJob({
         type: "full_scan",
-        folder_path: "/", // Use root path for full scans
+        folder_path: "/",
       });
 
       logger.syncOperation("Created startup full scan job", {
@@ -228,21 +238,45 @@ export class SyncService {
       try {
         const activeJobs = await getActiveSyncJobs();
 
-        // Check if any job is currently running - if so, wait
+        // Separate jobs by priority: folder_scan/metadata_scan > full_scan > cleanup
+        const pendingJobs = activeJobs.filter((job) => job.status === "pending");
         const runningJob = activeJobs.find((job) => job.status === "running");
-        if (runningJob) {
-          logger.syncOperation("Job already running, waiting...", {
-            runningJobId: runningJob.id,
-            runningJobType: runningJob.type
+
+        // Sort pending jobs by priority (folder_scan first, then full_scan)
+        const priorityOrder = { folder_scan: 1, metadata_scan: 2, full_scan: 3, cleanup: 4 };
+        pendingJobs.sort((a, b) =>
+          (priorityOrder[a.type] || 99) - (priorityOrder[b.type] || 99)
+        );
+
+        const highPriorityPending = pendingJobs.find(
+          (job) => job.type === "folder_scan" || job.type === "metadata_scan"
+        );
+
+        // If a full_scan is running but we have a high-priority pending job, pause full_scan
+        if (runningJob && runningJob.type === "full_scan" && highPriorityPending) {
+          logger.syncOperation("Pausing full_scan for higher priority job", {
+            pausedJobId: runningJob.id,
+            priorityJobId: highPriorityPending.id,
+            priorityJobType: highPriorityPending.type,
           });
+          // Mark full_scan as pending again so it resumes later
+          await updateSyncJob(runningJob.id, { status: "pending" });
+          this.currentJob = null;
+          // Execute the high-priority job
+          await this.executeJob(highPriorityPending);
+          continue;
+        }
+
+        // Check if any job is currently running - if so, wait
+        if (runningJob) {
           await this.sleep(5000);
           continue;
         }
 
-        // Get the next pending job
-        const pendingJob = activeJobs.find((job) => job.status === "pending");
-        if (pendingJob) {
-          await this.executeJob(pendingJob);
+        // Get the next pending job (already sorted by priority)
+        const nextJob = pendingJobs[0];
+        if (nextJob) {
+          await this.executeJob(nextJob);
         } else {
           await this.sleep(5000);
         }
@@ -377,14 +411,14 @@ export class SyncService {
             }
           }
 
-          // Skip non-image files for photo processing, but folder was still created
-          if (!isImageFile(object.key)) {
+          // Skip non-media files for photo processing, but folder was still created
+          if (!isMediaFile(object.key)) {
             processedObjects++;
 
-            // DEBUG: Log non-image files that are creating folders
+            // DEBUG: Log non-media files that are creating folders
             if (process.env.LOG_LEVEL === "DEBUG") {
               logger.syncOperation(
-                "Skipping non-image file, but folder was created",
+                "Skipping non-media file, but folder was created",
                 {
                   jobId: job.id,
                   s3Key: object.key,
@@ -608,7 +642,7 @@ export class SyncService {
       return !relativePath.includes("/");
     });
 
-    const imageObjects = directObjects.filter((obj) => isImageFile(obj.key));
+    const imageObjects = directObjects.filter((obj) => isMediaFile(obj.key));
     let processedCount = 0;
 
     await updateSyncJob(job.id, {

@@ -683,14 +683,48 @@ const IMAGE_FORMATS: Record<string, string> = {
   ".avif": "image/avif",          // AV1 Image File Format
 };
 
+// Video format definitions
+const VIDEO_FORMATS: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".wmv": "video/x-ms-wmv",
+  ".mkv": "video/x-matroska",
+  ".webm": "video/webm",
+  ".flv": "video/x-flv",
+  ".ogv": "video/ogg",
+  ".3gp": "video/3gpp",
+  ".3g2": "video/3gpp2",
+  ".mts": "video/mp2t",
+  ".m2ts": "video/mp2t",
+  ".ts": "video/mp2t",
+};
+
+// Combined media formats
+const MEDIA_FORMATS: Record<string, string> = {
+  ...IMAGE_FORMATS,
+  ...VIDEO_FORMATS,
+};
+
 export function isImageFile(filename: string): boolean {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
   return ext in IMAGE_FORMATS;
 }
 
+export function isVideoFile(filename: string): boolean {
+  const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
+  return ext in VIDEO_FORMATS;
+}
+
+export function isMediaFile(filename: string): boolean {
+  const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
+  return ext in MEDIA_FORMATS;
+}
+
 export function getMimeType(filename: string): string {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
-  return IMAGE_FORMATS[ext] || "application/octet-stream";
+  return MEDIA_FORMATS[ext] || "application/octet-stream";
 }
 
 export function getFolderFromKey(key: string): string {
