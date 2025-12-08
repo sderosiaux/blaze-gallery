@@ -88,7 +88,10 @@ function FolderContent({ params }: FolderPageProps) {
 
   // Update page title dynamically
   useEffect(() => {
-    const folderName = getFolderNameFromPath(currentPath, bucketName || "Gallery");
+    const folderName = getFolderNameFromPath(
+      currentPath,
+      bucketName || "Gallery",
+    );
     document.title = `${folderName} - Blaze Gallery`;
   }, [currentPath, bucketName]);
 

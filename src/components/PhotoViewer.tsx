@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Photo } from "@/types";
 import {
   Calendar,
@@ -11,9 +11,12 @@ import {
   ImageOff,
   AlertCircle,
   ChevronRight as ChevronRightIcon,
-  Film,
 } from "lucide-react";
 import PhotoViewerControls from "./PhotoViewerControls";
+import { useImageLoading } from "@/hooks/useImageLoading";
+import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
+import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
+import { formatFileSize } from "@/lib/format";
 
 // Helper to check if a file is a video based on mime_type
 function isVideoMimeType(mimeType: string): boolean {
@@ -33,9 +36,6 @@ function triggerDownload(url: string, filename: string): void {
   a.click();
   document.body.removeChild(a);
 }
-
-import { loadImageWithSession, revokeBlobUrl } from "@/lib/shareClient";
-import { formatFileSize } from "@/lib/format";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -60,30 +60,18 @@ export default function PhotoViewer({
   allowDownload = true,
   sessionToken,
 }: PhotoViewerProps) {
-  const [imageLoading, setImageLoading] = useState(true);
-  const [imageError, setImageError] = useState(false);
-  const [currentPhoto, setCurrentPhoto] = useState(photo);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isSlideshow, setIsSlideshow] = useState(false);
-  const [preloadedImages, setPreloadedImages] = useState<Set<string>>(
-    new Set(),
-  );
-  const [favoriteLoading, setFavoriteLoading] = useState(false);
-  const [currentFavoriteState, setCurrentFavoriteState] = useState(
-    photo.is_favorite,
-  );
-  const [heartAnimating, setHeartAnimating] = useState(false);
+  // Use custom hooks for grouped state management
+  const [imageState, imageActions] = useImageLoading(photo.id);
+  const [favoriteState, favoriteActions] = useFavoriteToggle(photo.is_favorite, isSharedView);
+  const [navState, navActions] = usePhotoNavigation(photo, photos, onPhotoChange);
+
+  // UI state - single useState for simple toggle
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showLoading, setShowLoading] = useState(false);
-  const [loadingTimeoutRef, setLoadingTimeoutRef] =
-    useState<NodeJS.Timeout | null>(null);
 
-  // Progressive loading states
-  const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
-  const [fullImageLoaded, setFullImageLoaded] = useState(false);
-
-  // Blob URLs for shared images (when session authentication is required)
-  const [fullImageBlobUrl, setFullImageBlobUrl] = useState<string | null>(null);
+  // Sync favorite state when photo changes
+  useEffect(() => {
+    favoriteActions.setFavorite(photo.is_favorite);
+  }, [photo.is_favorite, favoriteActions]);
 
   // Helper functions to get correct URLs for shared vs regular views
   const getThumbnailUrl = (photoId: number) => {
@@ -103,110 +91,11 @@ export default function PhotoViewer({
     }
   };
 
-  // Helper function to manage loading timeout
-  const setLoadingWithDelay = () => {
-    // Clear any existing timeout
-    if (loadingTimeoutRef) {
-      clearTimeout(loadingTimeoutRef);
-    }
-
-    setShowLoading(false);
-    const timeout = setTimeout(() => {
-      setShowLoading(true);
-    }, 150);
-
-    setLoadingTimeoutRef(timeout);
-  };
-
-  // Helper function to clear loading timeout
-  const clearLoadingTimeout = () => {
-    if (loadingTimeoutRef) {
-      clearTimeout(loadingTimeoutRef);
-      setLoadingTimeoutRef(null);
-    }
-    setShowLoading(false);
-  };
-
-  // Initialize current index based on selected photo
+  // Session-based image loading for password-protected shares
   useEffect(() => {
-    if (photos) {
-      const index = photos.findIndex((p) => p.id === photo.id);
-      setCurrentIndex(index !== -1 ? index : 0);
-    }
-  }, [photo.id, photos]);
-
-  // Load full image with session authentication for password-protected shared views
-  const loadFullImageWithSession = useCallback(
-    async (photoId: number) => {
-      // Only use session loading for shared views that have session tokens (password-protected)
-      if (isSharedView && shareToken && sessionToken) {
-        try {
-          const response = await fetch(
-            `/api/shares/${shareToken}/view/${photoId}`,
-            {
-              headers: { "x-share-session": sessionToken },
-            },
-          );
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          const blob = await response.blob();
-          const blobUrl = URL.createObjectURL(blob);
-
-          // Clean up previous blob URL
-          if (fullImageBlobUrl) {
-            URL.revokeObjectURL(fullImageBlobUrl);
-          }
-
-          setFullImageBlobUrl(blobUrl);
-          setImageLoading(false);
-          setFullImageLoaded(true);
-          clearLoadingTimeout();
-        } catch (error) {
-          console.error("Failed to load full image with session:", error);
-          setImageLoading(false);
-          setImageError(true);
-          clearLoadingTimeout();
-        }
-      }
-    },
-    [isSharedView, shareToken, sessionToken, clearLoadingTimeout],
-  );
-
-  // Handle photo change - only reset loading when the photo actually changes
-  useEffect(() => {
-    setCurrentPhoto(photo);
-    setCurrentFavoriteState(photo.is_favorite);
-    setImageLoading(true);
-    setImageError(false);
-
-    // Reset progressive loading states
-    setThumbnailLoaded(false);
-    setFullImageLoaded(false);
-
-    // Clean up previous blob URL
-    if (fullImageBlobUrl) {
-      URL.revokeObjectURL(fullImageBlobUrl);
-      setFullImageBlobUrl(null);
-    }
-
-    setLoadingWithDelay();
-
-    return () => {
-      if (loadingTimeoutRef) {
-        clearTimeout(loadingTimeoutRef);
-      }
-    };
-  }, [photo.id]); // Only depend on photo.id to prevent loops
-
-  // Separate effect for session-based loading with race condition prevention
-  useEffect(() => {
-    // Load full image for password-protected shared views only
     if (isSharedView && shareToken && sessionToken && photo.id) {
-      let isCancelled = false; // Flag to prevent race conditions
-      const abortController = new AbortController(); // Cancel in-flight requests
+      let isCancelled = false;
+      const abortController = new AbortController();
 
       const loadSessionImage = async () => {
         try {
@@ -214,67 +103,42 @@ export default function PhotoViewer({
             `/api/shares/${shareToken}/view/${photo.id}`,
             {
               headers: { "x-share-session": sessionToken },
-              signal: abortController.signal, // Cancel if component unmounts or photo changes
+              signal: abortController.signal,
             },
           );
 
-          // Check if this request was cancelled before processing response
-          if (isCancelled) {
-            console.log("Session image load cancelled for photo:", photo.id);
-            return;
-          }
+          if (isCancelled) return;
 
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
 
           const blob = await response.blob();
-
-          // Double-check cancellation after async operation
           if (isCancelled) {
-            URL.revokeObjectURL(URL.createObjectURL(blob)); // Clean up blob
-            console.log(
-              "Session image load cancelled after blob creation for photo:",
-              photo.id,
-            );
+            URL.revokeObjectURL(URL.createObjectURL(blob));
             return;
           }
 
-          const blobUrl = URL.createObjectURL(blob);
-
-          // Clean up previous blob URL
-          if (fullImageBlobUrl) {
-            URL.revokeObjectURL(fullImageBlobUrl);
-          }
-
-          setFullImageBlobUrl(blobUrl);
+          imageActions.setBlobUrl(URL.createObjectURL(blob));
         } catch (error) {
-          // Ignore aborted requests (expected when navigating quickly)
           if (error instanceof DOMException && error.name === "AbortError") {
-            console.log("Session image load aborted for photo:", photo.id);
             return;
           }
-
-          // Only set error if this request wasn't cancelled
           if (!isCancelled) {
             console.error("Failed to load full image with session:", error);
-            setImageLoading(false);
-            setImageError(true);
-            clearLoadingTimeout();
+            imageActions.setError();
           }
         }
       };
 
       loadSessionImage();
 
-      // Cleanup function to cancel ongoing request
       return () => {
         isCancelled = true;
         abortController.abort();
-        console.log("Cancelled session image load for photo:", photo.id);
       };
     }
-  }, [photo.id, isSharedView, shareToken, sessionToken]);
+  }, [photo.id, isSharedView, shareToken, sessionToken, imageActions]);
 
   // Preload nearby images for smooth navigation
   const preloadImages = useCallback(
@@ -282,12 +146,8 @@ export default function PhotoViewer({
       if (!photos) return;
 
       // Skip preloading for password-protected shares since they need session authentication
-      // Regular img tags can't send custom headers, so they would fail with 401
-      if (isSharedView && sessionToken) {
-        return;
-      }
+      if (isSharedView && sessionToken) return;
 
-      // Preload 2-3 images ahead and 1 behind
       const indicesToPreload = [
         centerIndex + 1,
         centerIndex + 2,
@@ -297,148 +157,46 @@ export default function PhotoViewer({
 
       indicesToPreload.forEach((index) => {
         const photoId = photos[index].id.toString();
-        if (!preloadedImages.has(photoId)) {
+        if (!navState.preloadedIds.has(photoId)) {
           const img = new Image();
           img.src = getFullImageUrl(photos[index].id);
-          img.onload = () => {
-            setPreloadedImages((prev) => new Set([...prev, photoId]));
-          };
+          img.onload = () => navActions.markPreloaded(photoId);
         }
       });
     },
-    [photos, preloadedImages, isSharedView, sessionToken],
+    [photos, navState.preloadedIds, isSharedView, sessionToken, navActions],
   );
 
   // Preload images when current index changes
   useEffect(() => {
-    preloadImages(currentIndex);
-  }, [currentIndex, preloadImages]);
+    preloadImages(navState.currentIndex);
+  }, [navState.currentIndex, preloadImages]);
 
-  // Navigation functions
+  // Navigation wrapper functions that also reset image loading state
   const goToPrevious = useCallback(() => {
-    if (!photos || currentIndex <= 0) return;
-    const newIndex = currentIndex - 1;
-    const newPhoto = photos[newIndex];
-    setCurrentIndex(newIndex);
-    setCurrentPhoto(newPhoto);
-    setCurrentFavoriteState(newPhoto.is_favorite);
-    setImageLoading(true);
-    setImageError(false);
-
-    // Reset progressive loading states
-    setThumbnailLoaded(false);
-    setFullImageLoaded(false);
-
-    // Clean up previous blob URL
-    if (fullImageBlobUrl) {
-      URL.revokeObjectURL(fullImageBlobUrl);
-      setFullImageBlobUrl(null);
+    const newPhoto = navActions.goToPrevious();
+    if (newPhoto) {
+      imageActions.reset();
+      favoriteActions.setFavorite(newPhoto.is_favorite);
     }
-
-    setLoadingWithDelay();
-
-    onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
+  }, [navActions, imageActions, favoriteActions]);
 
   const goToNext = useCallback(() => {
-    if (!photos || currentIndex >= photos.length - 1) return;
-    const newIndex = currentIndex + 1;
-    const newPhoto = photos[newIndex];
-    setCurrentIndex(newIndex);
-    setCurrentPhoto(newPhoto);
-    setCurrentFavoriteState(newPhoto.is_favorite);
-    setImageLoading(true);
-    setImageError(false);
-
-    // Reset progressive loading states
-    setThumbnailLoaded(false);
-    setFullImageLoaded(false);
-
-    // Clean up previous blob URL
-    if (fullImageBlobUrl) {
-      URL.revokeObjectURL(fullImageBlobUrl);
-      setFullImageBlobUrl(null);
+    const newPhoto = navActions.goToNext();
+    if (newPhoto) {
+      imageActions.reset();
+      favoriteActions.setFavorite(newPhoto.is_favorite);
     }
+  }, [navActions, imageActions, favoriteActions]);
 
-    setLoadingWithDelay();
-
-    onPhotoChange?.(newPhoto);
-  }, [photos, currentIndex, onPhotoChange, setLoadingWithDelay]);
-
-  // Auto-advance for slideshow
-  useEffect(() => {
-    if (!isSlideshow || !photos) return;
-
-    const interval = setInterval(() => {
-      if (currentIndex < photos.length - 1) {
-        goToNext();
-      } else {
-        setIsSlideshow(false); // Stop at the end
-      }
-    }, 3000); // 3 seconds per photo
-
-    return () => clearInterval(interval);
-  }, [isSlideshow, currentIndex, photos, goToNext]);
-
-  // Handle favorite toggle (defined before keyboard navigation to avoid dependency issues)
+  // Handle favorite toggle using the hook
   const handleFavoriteToggle = useCallback(
-    async (e: React.MouseEvent | KeyboardEvent) => {
+    (e: React.MouseEvent | KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
-      // Don't allow favorite toggling in shared view
-      if (isSharedView || favoriteLoading) return; // Prevent multiple clicks
-
-      setFavoriteLoading(true);
-      const originalState = currentFavoriteState;
-
-      try {
-        // Trigger heart animation
-        setHeartAnimating(true);
-        setTimeout(() => setHeartAnimating(false), 300);
-
-        // Optimistically update the UI - only the favorite state, not the whole photo object
-        setCurrentFavoriteState(!currentFavoriteState);
-
-        const response = await fetch(
-          `/api/photos/${currentPhoto.id}/favorite`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        if (data.success) {
-          // Update the separate favorite state
-          setCurrentFavoriteState(data.is_favorite);
-          // Create updated photo for the parent callback without affecting our state
-          const updatedPhoto = {
-            ...currentPhoto,
-            is_favorite: data.is_favorite,
-          };
-          onFavoriteToggle?.(updatedPhoto);
-        } else {
-          // Revert favorite state on server error
-          setCurrentFavoriteState(originalState);
-          console.error("Server error toggling favorite:", data.error);
-        }
-      } catch (error) {
-        // Revert favorite state on network error
-        setCurrentFavoriteState(originalState);
-        console.error("Failed to toggle favorite:", error);
-      } finally {
-        setFavoriteLoading(false);
-      }
+      favoriteActions.toggle(navState.currentPhoto, onFavoriteToggle);
     },
-    [favoriteLoading, currentFavoriteState, currentPhoto.id, onFavoriteToggle],
+    [favoriteActions, navState.currentPhoto, onFavoriteToggle],
   );
 
   // Keyboard navigation
@@ -454,7 +212,7 @@ export default function PhotoViewer({
         goToNext();
       } else if (e.key === " " || e.key === "Spacebar") {
         e.preventDefault();
-        setIsSlideshow((prev) => !prev);
+        navActions.toggleSlideshow();
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         handleFavoriteToggle(e);
@@ -470,18 +228,13 @@ export default function PhotoViewer({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "unset";
-
-      // Clean up blob URL on unmount
-      if (fullImageBlobUrl) {
-        URL.revokeObjectURL(fullImageBlobUrl);
-      }
     };
-  }, [onClose, goToPrevious, goToNext, handleFavoriteToggle, fullImageBlobUrl]);
+  }, [onClose, goToPrevious, goToNext, navActions, handleFavoriteToggle]);
 
   const handleDownload = async () => {
+    const currentPhoto = navState.currentPhoto;
     try {
       if (isSharedView && shareToken) {
-        // For shared downloads, fetch with session token then create blob URL
         const response = await fetch(
           `/api/shares/${shareToken}/download/${currentPhoto.id}`,
           {
@@ -498,7 +251,6 @@ export default function PhotoViewer({
         triggerDownload(url, currentPhoto.filename);
         URL.revokeObjectURL(url);
       } else {
-        // Regular download
         triggerDownload(
           `/api/photos/${currentPhoto.id}/download`,
           currentPhoto.filename,
@@ -529,6 +281,9 @@ export default function PhotoViewer({
     }
   };
 
+  // Destructure for cleaner JSX
+  const currentPhoto = navState.currentPhoto;
+
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4 cursor-pointer"
@@ -551,15 +306,15 @@ export default function PhotoViewer({
             </div>
             <PhotoViewerControls
               totalPhotos={photos?.length ?? 0}
-              currentIndex={currentIndex}
-              isSlideshow={isSlideshow}
-              onSlideshowToggle={() => setIsSlideshow((prev) => !prev)}
+              currentIndex={navState.currentIndex}
+              isSlideshow={navState.isSlideshow}
+              onSlideshowToggle={navActions.toggleSlideshow}
               isExpanded={isExpanded}
               onExpandToggle={() => setIsExpanded((prev) => !prev)}
               isSharedView={isSharedView}
-              favoriteLoading={favoriteLoading}
-              isFavorite={currentFavoriteState}
-              heartAnimating={heartAnimating}
+              favoriteLoading={favoriteState.isLoading}
+              isFavorite={favoriteState.isFavorite}
+              heartAnimating={favoriteState.isAnimating}
               onFavoriteToggle={() =>
                 handleFavoriteToggle({
                   preventDefault: () => {},
@@ -631,14 +386,14 @@ export default function PhotoViewer({
 
         <div className="flex-1 flex items-center justify-center min-h-0 relative group">
           {/* Loading skeleton - only show when no images are loaded yet and after delay */}
-          {showLoading && !thumbnailLoaded && !fullImageLoaded && (
+          {imageState.showLoadingUI && !imageState.thumbnailReady && !imageState.fullImageReady && (
             <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
               <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
             </div>
           )}
 
           {/* Error state */}
-          {imageError && (
+          {imageState.hasError && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-white text-center p-8 max-w-md mx-auto">
                 {(() => {
@@ -718,11 +473,11 @@ export default function PhotoViewer({
           {/* Navigation hints */}
           {photos &&
             photos.length > 1 &&
-            (thumbnailLoaded || fullImageLoaded) &&
-            !imageError && (
+            (imageState.thumbnailReady || imageState.fullImageReady) &&
+            !imageState.hasError && (
               <>
                 {/* Previous photo hint */}
-                {currentIndex > 0 && (
+                {navState.hasPrevious && (
                   <button
                     onClick={goToPrevious}
                     className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
@@ -735,7 +490,7 @@ export default function PhotoViewer({
                 )}
 
                 {/* Next photo hint */}
-                {currentIndex < photos.length - 1 && (
+                {navState.hasNext && (
                   <button
                     onClick={goToNext}
                     className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
@@ -755,7 +510,7 @@ export default function PhotoViewer({
               /* Video Player */
               <video
                 key={currentPhoto.id}
-                src={fullImageBlobUrl || getFullImageUrl(currentPhoto.id)}
+                src={imageState.blobUrl || getFullImageUrl(currentPhoto.id)}
                 controls
                 autoPlay
                 className={`transition-all duration-300 ${
@@ -768,16 +523,8 @@ export default function PhotoViewer({
                   maxHeight: isExpanded ? "90vh" : "100%",
                   objectFit: "contain",
                 }}
-                onLoadedData={() => {
-                  setImageLoading(false);
-                  setFullImageLoaded(true);
-                  clearLoadingTimeout();
-                }}
-                onError={() => {
-                  setImageLoading(false);
-                  setImageError(true);
-                  clearLoadingTimeout();
-                }}
+                onLoadedData={() => imageActions.setFullImageLoaded()}
+                onError={() => imageActions.setError()}
               />
             ) : (
               <>
@@ -790,11 +537,11 @@ export default function PhotoViewer({
                       ? "max-w-none max-h-none object-contain"
                       : "max-w-full max-h-full object-contain"
                   } ${
-                    thumbnailLoaded && !fullImageLoaded
+                    imageState.thumbnailReady && !imageState.fullImageReady
                       ? "opacity-100"
                       : "opacity-0"
                   } ${
-                    fullImageLoaded ? "scale-110 blur-sm" : "scale-100 blur-0"
+                    imageState.fullImageReady ? "scale-110 blur-sm" : "scale-100 blur-0"
                   }`}
                   style={{
                     imageRendering: "auto",
@@ -805,16 +552,11 @@ export default function PhotoViewer({
                     objectFit: "contain",
                   }}
                   loading="eager"
-                  onLoad={() => {
-                    setThumbnailLoaded(true);
-                    // Clear loading timeout when thumbnail loads
-                    clearLoadingTimeout();
-                  }}
+                  onLoad={() => imageActions.setThumbnailLoaded()}
                   onError={() => {
-                    // For shared views, silently handle thumbnail errors and proceed to full image
+                    // For shared views, silently handle thumbnail errors
                     if (isSharedView) {
-                      setThumbnailLoaded(false);
-                      clearLoadingTimeout();
+                      imageActions.clearLoadingTimeout();
                     } else {
                       console.log(
                         "Thumbnail load error for:",
@@ -828,17 +570,16 @@ export default function PhotoViewer({
                 <img
                   src={
                     // For password-protected shares, don't load until blob URL is ready
-                    // This prevents the img tag from failing before session authentication
-                    isSharedView && sessionToken && !fullImageBlobUrl
-                      ? "" // Empty src prevents loading attempt
-                      : fullImageBlobUrl || getFullImageUrl(currentPhoto.id)
+                    isSharedView && sessionToken && !imageState.blobUrl
+                      ? ""
+                      : imageState.blobUrl || getFullImageUrl(currentPhoto.id)
                   }
                   alt={currentPhoto.filename}
                   className={`transition-all duration-500 ${
                     isExpanded
                       ? "max-w-none max-h-none object-contain"
                       : "max-w-full max-h-full object-contain"
-                  } ${fullImageLoaded ? "opacity-100" : "opacity-0"}`}
+                  } ${imageState.fullImageReady ? "opacity-100" : "opacity-0"}`}
                   style={{
                     imageRendering: isExpanded ? "crisp-edges" : "auto",
                     width: isExpanded ? "90vw" : "100%",
@@ -849,42 +590,26 @@ export default function PhotoViewer({
                   }}
                   loading="eager"
                   onLoad={() => {
-                    // Handle onLoad for regular image loading:
-                    // 1. Non-shared views (always)
-                    // 2. Shared views without passwords (no session needed)
-                    // 3. Password-protected shares using blob URLs (after session loading completes)
-                    const isPasswordProtectedShare =
-                      isSharedView && sessionToken;
-                    const isUsingBlobUrl = fullImageBlobUrl !== null;
+                    const isPasswordProtectedShare = isSharedView && sessionToken;
+                    const isUsingBlobUrl = imageState.blobUrl !== null;
 
                     if (!isPasswordProtectedShare || isUsingBlobUrl) {
-                      setImageLoading(false);
-                      setFullImageLoaded(true);
-                      clearLoadingTimeout();
+                      imageActions.setFullImageLoaded();
                     }
                   }}
                   onError={(e) => {
-                    // Only show error if this is not a password-protected share waiting for blob URL
                     const isWaitingForSessionLoad =
-                      isSharedView && sessionToken && !fullImageBlobUrl;
+                      isSharedView && sessionToken && !imageState.blobUrl;
 
                     if (!isWaitingForSessionLoad) {
                       console.log("PhotoViewer full image error:", {
                         filename: currentPhoto.filename,
                         src: e.currentTarget.src,
-                        naturalWidth: e.currentTarget.naturalWidth,
-                        naturalHeight: e.currentTarget.naturalHeight,
-                        isSharedView: isSharedView,
+                        isSharedView,
                         sessionToken: !!sessionToken,
-                        fullImageBlobUrl: !!fullImageBlobUrl,
+                        blobUrl: !!imageState.blobUrl,
                       });
-
-                      // Add a small delay before showing error to avoid flash
-                      setTimeout(() => {
-                        setImageLoading(false);
-                        setImageError(true);
-                        clearLoadingTimeout();
-                      }, 100);
+                      setTimeout(() => imageActions.setError(), 100);
                     }
                   }}
                 />

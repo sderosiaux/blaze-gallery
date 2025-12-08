@@ -66,7 +66,9 @@ export class QueryBuilder {
    * Add a NULL/NOT NULL check
    */
   isNull(column: string, shouldBeNull: boolean): this {
-    this.conditions.push(shouldBeNull ? `${column} IS NULL` : `${column} IS NOT NULL`);
+    this.conditions.push(
+      shouldBeNull ? `${column} IS NULL` : `${column} IS NOT NULL`,
+    );
     return this;
   }
 
@@ -90,7 +92,10 @@ export class QueryBuilder {
 
     let processedCondition = condition;
     for (const value of values) {
-      processedCondition = processedCondition.replace("?", `$${this.paramCount}`);
+      processedCondition = processedCondition.replace(
+        "?",
+        `$${this.paramCount}`,
+      );
       this.params.push(value);
       this.paramCount++;
     }
@@ -103,7 +108,9 @@ export class QueryBuilder {
    */
   pathMatch(column: string, path: string | undefined): this {
     if (!path) return this;
-    this.conditions.push(`(${column} = $${this.paramCount} OR ${column} LIKE $${this.paramCount + 1})`);
+    this.conditions.push(
+      `(${column} = $${this.paramCount} OR ${column} LIKE $${this.paramCount + 1})`,
+    );
     this.params.push(path, `${path}/%`);
     this.paramCount += 2;
     return this;
@@ -113,7 +120,10 @@ export class QueryBuilder {
    * Add LIMIT and OFFSET parameters
    * Returns the parameter indices for use in the query
    */
-  pagination(limit: number, offset: number): { limitParam: string; offsetParam: string } {
+  pagination(
+    limit: number,
+    offset: number,
+  ): { limitParam: string; offsetParam: string } {
     const limitParam = `$${this.paramCount}`;
     this.params.push(limit);
     this.paramCount++;
