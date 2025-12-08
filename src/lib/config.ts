@@ -10,11 +10,18 @@ export function getConfig(): Config {
 
   logger.configInfo("Loading configuration from environment variables");
 
+  const storageMode = (process.env.THUMBNAIL_STORAGE || "local").toLowerCase();
+  const normalizedStorageMode: "local" | "s3" =
+    storageMode === "s3" ? "s3" : "local";
+  const thumbnailPrefix = process.env.THUMBNAIL_S3_PREFIX || "thumbnails";
+
   const defaultConfig: Config = {
     backblaze_endpoint: process.env.BACKBLAZE_ENDPOINT || "",
     backblaze_bucket: process.env.BACKBLAZE_BUCKET || "",
     backblaze_access_key: process.env.BACKBLAZE_ACCESS_KEY || "",
     backblaze_secret_key: process.env.BACKBLAZE_SECRET_KEY || "",
+    thumbnail_storage: normalizedStorageMode,
+    thumbnail_s3_prefix: thumbnailPrefix,
     thumbnail_max_age_days: parseInt(
       process.env.THUMBNAIL_MAX_AGE_DAYS || "30",
     ),
@@ -34,6 +41,8 @@ export function getConfig(): Config {
     BACKBLAZE_BUCKET: !!process.env.BACKBLAZE_BUCKET,
     BACKBLAZE_ACCESS_KEY: !!process.env.BACKBLAZE_ACCESS_KEY,
     BACKBLAZE_SECRET_KEY: !!process.env.BACKBLAZE_SECRET_KEY,
+    THUMBNAIL_STORAGE: !!process.env.THUMBNAIL_STORAGE,
+    THUMBNAIL_S3_PREFIX: !!process.env.THUMBNAIL_S3_PREFIX,
     THUMBNAIL_MAX_AGE_DAYS: !!process.env.THUMBNAIL_MAX_AGE_DAYS,
     SYNC_INTERVAL_HOURS: !!process.env.SYNC_INTERVAL_HOURS,
     AUTO_METADATA_THRESHOLD_MB: !!process.env.AUTO_METADATA_THRESHOLD_MB,
@@ -106,6 +115,14 @@ export function validateConfig(config: Config): string[] {
 
   if (!config.backblaze_secret_key) {
     errors.push("Backblaze secret key is required");
+  }
+
+  if (!["local", "s3"].includes(config.thumbnail_storage)) {
+    errors.push("Thumbnail storage must be either 'local' or 's3'");
+  }
+
+  if (config.thumbnail_storage === "s3" && !config.thumbnail_s3_prefix) {
+    errors.push("Thumbnail S3 prefix is required when using S3 storage");
   }
 
   if (config.thumbnail_max_age_days < 1) {
