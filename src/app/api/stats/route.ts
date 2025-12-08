@@ -220,6 +220,83 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       stale_folders: number;
     };
 
+    // Video statistics
+    const videoStatsResult = await query(`
+      SELECT
+        COUNT(*) as total_videos,
+        SUM(size) as total_size_bytes,
+        AVG(size) as avg_size_bytes,
+        MIN(size) as min_size_bytes,
+        MAX(size) as max_size_bytes
+      FROM photos
+      WHERE mime_type LIKE 'video/%'
+    `);
+    const videoStats = videoStatsResult.rows[0] as {
+      total_videos: number;
+      total_size_bytes: number;
+      avg_size_bytes: number;
+      min_size_bytes: number;
+      max_size_bytes: number;
+    };
+
+    // Video format distribution
+    const videoFormatsResult = await query(`
+      SELECT
+        LOWER(SUBSTRING(filename FROM '\\.([^.]+)$')) as format,
+        COUNT(*) as count,
+        SUM(size) as total_size_bytes
+      FROM photos
+      WHERE mime_type LIKE 'video/%'
+      GROUP BY format
+      ORDER BY count DESC
+    `);
+    const videoFormats = videoFormatsResult.rows as Array<{
+      format: string;
+      count: number;
+      total_size_bytes: number;
+    }>;
+
+    // Largest videos
+    const largestVideosResult = await query(`
+      SELECT
+        p.filename,
+        p.size,
+        p.mime_type,
+        f.path as folder_path
+      FROM photos p
+      LEFT JOIN folders f ON p.folder_id = f.id
+      WHERE p.mime_type LIKE 'video/%'
+      ORDER BY p.size DESC
+      LIMIT 10
+    `);
+    const largestVideos = largestVideosResult.rows as Array<{
+      filename: string;
+      size: number;
+      mime_type: string;
+      folder_path: string;
+    }>;
+
+    // Folders with most videos
+    const foldersWithMostVideosResult = await query(`
+      SELECT
+        f.name,
+        f.path,
+        COUNT(p.id) as video_count,
+        SUM(p.size) as total_size_bytes
+      FROM folders f
+      JOIN photos p ON f.id = p.folder_id
+      WHERE p.mime_type LIKE 'video/%'
+      GROUP BY f.id, f.name, f.path
+      ORDER BY video_count DESC
+      LIMIT 10
+    `);
+    const foldersWithMostVideos = foldersWithMostVideosResult.rows as Array<{
+      name: string;
+      path: string;
+      video_count: number;
+      total_size_bytes: number;
+    }>;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -231,7 +308,13 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         recent_activity: recentPhotos,
         metadata: exifStats,
         top_cameras: topCameras,
-        sync_health: syncStats
+        sync_health: syncStats,
+        videos: {
+          stats: videoStats,
+          formats: videoFormats,
+          largest: largestVideos,
+          folders_with_most: foldersWithMostVideos
+        }
       }
     });
 
