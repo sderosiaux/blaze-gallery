@@ -12,20 +12,23 @@ export const GET = requireAuth(async function GET(
 ) {
   try {
     // Rate limiting by IP address
-    const clientIP = request.headers.get("x-forwarded-for") || 
-                    request.headers.get("x-real-ip") || 
-                    "127.0.0.1";
-    
+    const clientIP =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "127.0.0.1";
+
     if (!thumbnailRateLimiter.isAllowed(clientIP)) {
       const stats = thumbnailRateLimiter.getStats(clientIP);
-      return new NextResponse("Rate limit exceeded", { 
+      return new NextResponse("Rate limit exceeded", {
         status: 429,
         headers: {
-          'Retry-After': Math.ceil((stats.resetTime - Date.now()) / 1000).toString(),
-          'X-RateLimit-Limit': '200',
-          'X-RateLimit-Remaining': stats.remaining.toString(),
-          'X-RateLimit-Reset': stats.resetTime.toString(),
-        }
+          "Retry-After": Math.ceil(
+            (stats.resetTime - Date.now()) / 1000,
+          ).toString(),
+          "X-RateLimit-Limit": "200",
+          "X-RateLimit-Remaining": stats.remaining.toString(),
+          "X-RateLimit-Reset": stats.resetTime.toString(),
+        },
       });
     }
 
@@ -58,71 +61,79 @@ export const GET = requireAuth(async function GET(
     }
 
     // Check conditional requests for cached thumbnails
-    const ifNoneMatch = request.headers.get('if-none-match');
+    const ifNoneMatch = request.headers.get("if-none-match");
     const etag = `"thumb-${photo.id}-${photo.modified_at}"`;
 
     if (ifNoneMatch === etag) {
-      return new NextResponse(null, { 
+      return new NextResponse(null, {
         status: 304,
         headers: {
-          'ETag': etag,
-          'Cache-Control': 'public, max-age=31536000, immutable',
-        }
+          ETag: etag,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
       });
     }
 
     // Debug logging for large files
-    if (photo.size > 10 * 1024 * 1024) { // Files over 10MB
+    if (photo.size > 10 * 1024 * 1024) {
+      // Files over 10MB
       const sizeMB = photo.size / (1024 * 1024);
       const config = getConfig();
-      console.log(`Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`);
+      console.log(
+        `Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`,
+      );
     }
 
     // Use the common thumbnail serving logic
-    const result = await thumbnailService.serveThumbnail(photo, request, forceGenerate);
-    
-    if ('error' in result) {
+    const result = await thumbnailService.serveThumbnail(
+      photo,
+      request,
+      forceGenerate,
+    );
+
+    if ("error" in result) {
       // Return detailed JSON errors for regular endpoint (like the old behavior)
       if (result.status === 415) {
         return new NextResponse(
           JSON.stringify({
             error: "Unsupported image format",
             message: result.error,
-            fileExtension: photo.s3_key.toLowerCase().split('.').pop() || 'unknown'
+            fileExtension:
+              photo.s3_key.toLowerCase().split(".").pop() || "unknown",
           }),
-          { 
+          {
             status: 415,
             headers: {
-              "Content-Type": "application/json"
-            }
-          }
+              "Content-Type": "application/json",
+            },
+          },
         );
       }
-      
+
       if (result.status === 413) {
         return new NextResponse(
           JSON.stringify({
             error: "Photo too large for automatic thumbnail generation",
             message: result.error,
             sizeMB: photo.size / (1024 * 1024),
-            thresholdMB: getConfig().auto_thumbnail_threshold_mb
+            thresholdMB: getConfig().auto_thumbnail_threshold_mb,
           }),
-          { 
+          {
             status: 413,
             headers: {
-              "Content-Type": "application/json"
-            }
-          }
+              "Content-Type": "application/json",
+            },
+          },
         );
       }
-      
+
       return new NextResponse(result.error, { status: result.status });
     }
 
     // Add ETag and Last-Modified for regular endpoint caching
     const enhancedHeaders = {
       ...result.headers,
-      "ETag": etag,
+      ETag: etag,
       "Last-Modified": new Date(photo.modified_at).toUTCString(),
     };
 

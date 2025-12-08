@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Folder } from "@/types";
-import { Folder as FolderIcon, FolderCheck, ChevronRight, Share2 } from "lucide-react";
+import {
+  Folder as FolderIcon,
+  FolderCheck,
+  ChevronRight,
+  Share2,
+} from "lucide-react";
 import FolderTooltip from "./FolderTooltip";
 import ShareDialog from "./ShareDialog";
 import Link from "next/link";
@@ -28,7 +33,7 @@ export default function FolderBrowser({
   onBreadcrumbClick,
 }: FolderBrowserProps) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  
+
   // Get current folder path for sharing
   const getCurrentFolderPath = () => {
     if (breadcrumbs.length === 0) return "";
@@ -57,7 +62,7 @@ export default function FolderBrowser({
                 </span>
               ) : (
                 <Link
-                  href={item.path === '' ? '/' : `/folder/${item.path}`}
+                  href={item.path === "" ? "/" : `/folder/${item.path}`}
                   className="text-gray-500 hover:text-gray-700 transition-colors flex items-center"
                   onClick={() => onBreadcrumbClick(item.path)}
                 >
@@ -68,7 +73,7 @@ export default function FolderBrowser({
             </div>
           ))}
         </nav>
-        
+
         {/* Share Button - only show if we're in a specific folder */}
         {breadcrumbs.length > 0 && getCurrentFolderPath() && (
           <button
@@ -104,9 +109,14 @@ export default function FolderBrowser({
                   </div>
                   <p className="text-sm text-gray-500">
                     {folder.photo_count > 0 && `${folder.photo_count} photos`}
-                    {folder.photo_count > 0 && folder.subfolder_count > 0 && ' • '}
-                    {folder.subfolder_count > 0 && `${folder.subfolder_count} folders`}
-                    {folder.photo_count === 0 && folder.subfolder_count === 0 && 'Empty folder'}
+                    {folder.photo_count > 0 &&
+                      folder.subfolder_count > 0 &&
+                      " • "}
+                    {folder.subfolder_count > 0 &&
+                      `${folder.subfolder_count} folders`}
+                    {folder.photo_count === 0 &&
+                      folder.subfolder_count === 0 &&
+                      "Empty folder"}
                   </p>
                 </div>
               </button>
@@ -114,7 +124,7 @@ export default function FolderBrowser({
           ))}
         </div>
       )}
-      
+
       {/* Share Dialog */}
       <ShareDialog
         isOpen={shareDialogOpen}

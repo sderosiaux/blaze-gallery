@@ -19,15 +19,15 @@ interface PhotoGridProps {
   sessionToken?: string;
 }
 
-export default function PhotoGrid({ 
-  photos, 
-  loading = false, 
-  selectedPhotoId, 
+export default function PhotoGrid({
+  photos,
+  loading = false,
+  selectedPhotoId,
   onPhotoUrlChange,
   isSharedView = false,
   shareToken,
   allowDownload = true,
-  sessionToken
+  sessionToken,
 }: PhotoGridProps) {
   const { isFullWidth, setIsFullWidth } = useLayout();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -42,10 +42,19 @@ export default function PhotoGrid({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only handle if no photo viewer is open and no modal is visible
-      const hasModal = document.querySelector('[role="dialog"], .fixed.inset-0.z-50, .fixed.inset-0.bg-black');
-      const isInputFocused = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-      
-      if (!selectedPhoto && !hasModal && !isInputFocused && (e.key === "e" || e.key === "E")) {
+      const hasModal = document.querySelector(
+        '[role="dialog"], .fixed.inset-0.z-50, .fixed.inset-0.bg-black',
+      );
+      const isInputFocused =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement;
+
+      if (
+        !selectedPhoto &&
+        !hasModal &&
+        !isInputFocused &&
+        (e.key === "e" || e.key === "E")
+      ) {
         e.preventDefault();
         setIsFullWidth(!isFullWidth);
       }
@@ -60,7 +69,7 @@ export default function PhotoGrid({
   // Handle initial photo selection from URL params
   useEffect(() => {
     if (selectedPhotoId && photos.length > 0) {
-      const photo = photos.find(p => p.id.toString() === selectedPhotoId);
+      const photo = photos.find((p) => p.id.toString() === selectedPhotoId);
       if (photo) {
         setSelectedPhoto(photo);
       }
@@ -110,11 +119,13 @@ export default function PhotoGrid({
   // Show skeletons while loading
   if (loading) {
     return (
-      <div className={`bg-white shadow ${
-        isFullWidth 
-          ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6" 
-          : "rounded-lg p-6"
-      }`}>
+      <div
+        className={`bg-white shadow ${
+          isFullWidth
+            ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6"
+            : "rounded-lg p-6"
+        }`}
+      >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-medium text-gray-900">
             Loading photos...
@@ -122,7 +133,9 @@ export default function PhotoGrid({
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
             className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
-              isFullWidth ? "bg-gray-100 text-blue-600" : "text-gray-600 hover:text-blue-600"
+              isFullWidth
+                ? "bg-gray-100 text-blue-600"
+                : "text-gray-600 hover:text-blue-600"
             }`}
             title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
           >
@@ -133,11 +146,13 @@ export default function PhotoGrid({
             )}
           </button>
         </div>
-        <div className={`photo-mosaic ${
-          isFullWidth 
-            ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
-            : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
-        }`}>
+        <div
+          className={`photo-mosaic ${
+            isFullWidth
+              ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
+              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+          }`}
+        >
           {Array.from({ length: 12 }).map((_, index) => (
             <PhotoSkeleton key={index} />
           ))}
@@ -153,11 +168,13 @@ export default function PhotoGrid({
 
   return (
     <>
-      <div className={`bg-white shadow ${
-        isFullWidth 
-          ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6" 
-          : "rounded-lg p-6"
-      }`}>
+      <div
+        className={`bg-white shadow ${
+          isFullWidth
+            ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6"
+            : "rounded-lg p-6"
+        }`}
+      >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-medium text-gray-900">
             Media ({photos.length})
@@ -165,7 +182,9 @@ export default function PhotoGrid({
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
             className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
-              isFullWidth ? "bg-gray-100 text-blue-600" : "text-gray-600 hover:text-blue-600"
+              isFullWidth
+                ? "bg-gray-100 text-blue-600"
+                : "text-gray-600 hover:text-blue-600"
             }`}
             title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
           >
@@ -176,11 +195,13 @@ export default function PhotoGrid({
             )}
           </button>
         </div>
-        <div className={`photo-mosaic ${
-          isFullWidth 
-            ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
-            : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
-        }`}>
+        <div
+          className={`photo-mosaic ${
+            isFullWidth
+              ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
+              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+          }`}
+        >
           {photosState.map((photo, index) => (
             <PhotoItem
               key={photo.id}
@@ -201,16 +222,20 @@ export default function PhotoGrid({
           photo={selectedPhoto}
           photos={photosState}
           onClose={handlePhotoClose}
-          onFavoriteToggle={!isSharedView ? (updatedPhoto) => {
-            // Update the photo in the local state
-            setPhotosState((prevPhotos) =>
-              prevPhotos.map((p) =>
-                p.id === updatedPhoto.id ? updatedPhoto : p
-              )
-            );
-            // DON'T update selectedPhoto here - it causes image reload in PhotoViewer
-            // The PhotoViewer manages its own favorite state separately to prevent this issue
-          } : undefined}
+          onFavoriteToggle={
+            !isSharedView
+              ? (updatedPhoto) => {
+                  // Update the photo in the local state
+                  setPhotosState((prevPhotos) =>
+                    prevPhotos.map((p) =>
+                      p.id === updatedPhoto.id ? updatedPhoto : p,
+                    ),
+                  );
+                  // DON'T update selectedPhoto here - it causes image reload in PhotoViewer
+                  // The PhotoViewer manages its own favorite state separately to prevent this issue
+                }
+              : undefined
+          }
           onPhotoChange={(newPhoto) => {
             setSelectedPhoto(newPhoto);
             onPhotoUrlChange?.(newPhoto.id.toString());

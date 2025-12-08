@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/database';
-import { logger } from '@/lib/logger';
+import { NextResponse } from "next/server";
+import { query } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 interface DuplicateFolderGroup {
   folder_signature: string;
@@ -86,7 +86,7 @@ export async function GET() {
 
     // Group folders by their signature
     const duplicateGroups: Record<string, DuplicateFolderGroup> = {};
-    
+
     for (const folder of folderSignatures) {
       if (!duplicateGroups[folder.folder_signature]) {
         duplicateGroups[folder.folder_signature] = {
@@ -94,58 +94,68 @@ export async function GET() {
           count: 0,
           file_count: folder.file_count,
           total_size_bytes: folder.total_size,
-          folders: []
+          folders: [],
         };
       }
-      
+
       duplicateGroups[folder.folder_signature].folders.push({
         id: folder.id,
         path: folder.path,
         name: folder.name,
         photo_count: folder.file_count,
-        total_size_bytes: folder.total_size
+        total_size_bytes: folder.total_size,
       });
       duplicateGroups[folder.folder_signature].count++;
     }
 
     // Convert to array and sort by potential space savings
     const sortedGroups = Object.values(duplicateGroups)
-      .filter(group => group.count > 1)
-      .sort((a, b) => (b.total_size_bytes * (b.count - 1)) - (a.total_size_bytes * (a.count - 1)));
+      .filter((group) => group.count > 1)
+      .sort(
+        (a, b) =>
+          b.total_size_bytes * (b.count - 1) -
+          a.total_size_bytes * (a.count - 1),
+      );
 
     // Calculate summary stats
     const totalDuplicateFolderGroups = sortedGroups.length;
-    const totalDuplicateFolders = sortedGroups.reduce((sum, group) => sum + group.count, 0);
+    const totalDuplicateFolders = sortedGroups.reduce(
+      (sum, group) => sum + group.count,
+      0,
+    );
     const potentialSpaceSaved = sortedGroups.reduce((total, group) => {
       // Space that could be saved by keeping only one copy of each duplicate folder
-      return total + (group.total_size_bytes * (group.count - 1));
+      return total + group.total_size_bytes * (group.count - 1);
     }, 0);
 
     const response: DuplicateFoldersStats = {
       summary: {
         total_duplicate_folder_groups: totalDuplicateFolderGroups,
         total_duplicate_folders: totalDuplicateFolders,
-        potential_space_saved_bytes: potentialSpaceSaved
+        potential_space_saved_bytes: potentialSpaceSaved,
       },
-      duplicates: sortedGroups
+      duplicates: sortedGroups,
     };
 
     return NextResponse.json({
       success: true,
-      data: response
+      data: response,
     });
-
   } catch (error) {
-    logger.apiError('Error in GET /api/stats/duplicate-folders', error as Error, {
-      method: 'GET',
-      path: '/api/stats/duplicate-folders'
-    });
+    logger.apiError(
+      "Error in GET /api/stats/duplicate-folders",
+      error as Error,
+      {
+        method: "GET",
+        path: "/api/stats/duplicate-folders",
+      },
+    );
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

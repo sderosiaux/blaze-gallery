@@ -47,8 +47,8 @@ export interface AuthState {
   error: string | null;
 }
 
-export type AuthAction = 
-  | { type: 'AUTH_LOADING' }
-  | { type: 'AUTH_SUCCESS'; user: UserSession }
-  | { type: 'AUTH_ERROR'; error: string }
-  | { type: 'AUTH_LOGOUT' };
+export type AuthAction =
+  | { type: "AUTH_LOADING" }
+  | { type: "AUTH_SUCCESS"; user: UserSession }
+  | { type: "AUTH_ERROR"; error: string }
+  | { type: "AUTH_LOGOUT" };

@@ -9,7 +9,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const limitParam = Number.parseInt(searchParams.get("limit") || "", 10);
-    const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 32;
+    const limit =
+      Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 32;
     const maxLimit = Math.min(limit, 100);
 
     const result = await query(

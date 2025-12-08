@@ -72,7 +72,9 @@ class DatabaseManager {
     const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
-      throw new Error('DATABASE_URL environment variable is required for PostgreSQL connection');
+      throw new Error(
+        "DATABASE_URL environment variable is required for PostgreSQL connection",
+      );
     }
 
     this.pool = new Pool({
@@ -88,32 +90,41 @@ class DatabaseManager {
       query_timeout: 60000, // 60 seconds for complex queries
 
       // Application identification for monitoring
-      application_name: 'blaze-gallery-sync',
+      application_name: "blaze-gallery-sync",
 
       // Connection keepalive for long-running operations
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
 
       // SSL configuration (Neon requires SSL)
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl:
+        process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false }
+          : false,
     });
 
     // Enhanced pool error handling and monitoring
-    this.pool.on('error', (err) => {
-      console.error('[Database Pool] Unexpected error on idle client:', err);
+    this.pool.on("error", (err) => {
+      console.error("[Database Pool] Unexpected error on idle client:", err);
     });
 
     // Only log connection events, not every acquisition
-    this.pool.on('connect', (client) => {
-      console.log('[Database Pool] New client connected, total:', this.pool?.totalCount || 0);
+    this.pool.on("connect", (client) => {
+      console.log(
+        "[Database Pool] New client connected, total:",
+        this.pool?.totalCount || 0,
+      );
     });
 
-    this.pool.on('remove', (client) => {
-      console.log('[Database Pool] Client removed, total:', this.pool?.totalCount || 0);
+    this.pool.on("remove", (client) => {
+      console.log(
+        "[Database Pool] Client removed, total:",
+        this.pool?.totalCount || 0,
+      );
     });
 
     // Log pool stats periodically during development
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === "development") {
       setInterval(() => {
         if (this.pool) {
           const stats = {
@@ -123,7 +134,7 @@ class DatabaseManager {
           };
           // Only log if there's activity or issues
           if (stats.waiting > 0 || stats.total > 10) {
-            console.log('[Database Pool Stats]', stats);
+            console.log("[Database Pool Stats]", stats);
           }
         }
       }, 30000); // Every 30 seconds
@@ -138,12 +149,12 @@ class DatabaseManager {
     const client = await pool.connect();
 
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
       const result = await fn(client);
-      await client.query('COMMIT');
+      await client.query("COMMIT");
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
@@ -163,12 +174,17 @@ export function getPool(): Pool {
   return DatabaseManager.getInstance().getPool();
 }
 
-export async function runTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function runTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
   return DatabaseManager.getInstance().transaction(fn);
 }
 
 // Helper function for single queries
-export async function query(text: string, params?: any[]): Promise<QueryResult> {
+export async function query(
+  text: string,
+  params?: any[],
+): Promise<QueryResult> {
   const pool = getPool();
   return pool.query(text, params);
 }
@@ -179,13 +195,13 @@ function initializeDatabase() {
   // Schema is already created in Neon PostgreSQL
   // Tables: folders, photos, sync_jobs, shared_folders, share_access_logs
   // All indexes and constraints are already in place
-  console.log('PostgreSQL schema already exists in Neon database');
+  console.log("PostgreSQL schema already exists in Neon database");
 }
 
 // PostgreSQL migrations are handled via Neon
 // Schema version tracking not needed as schema is already deployed
 function runMigrations() {
-  console.log('PostgreSQL migrations handled via Neon deployment');
+  console.log("PostgreSQL migrations handled via Neon deployment");
 }
 
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
@@ -248,7 +264,8 @@ export async function getFolderByPath(path: string): Promise<Folder | null> {
 export async function createOrUpdateFolder(
   folderData: CreateFolderData,
 ): Promise<Folder> {
-  const result = await query(`
+  const result = await query(
+    `
     INSERT INTO folders (path, name, parent_id, updated_at)
     VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
     ON CONFLICT(path) DO UPDATE SET
@@ -256,17 +273,22 @@ export async function createOrUpdateFolder(
       parent_id = EXCLUDED.parent_id,
       updated_at = CURRENT_TIMESTAMP
     RETURNING *
-  `, [folderData.path, folderData.name, folderData.parent_id]);
+  `,
+    [folderData.path, folderData.name, folderData.parent_id],
+  );
 
   return result.rows[0] as Folder;
 }
 
 export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
-  const result = await query(`
+  const result = await query(
+    `
     SELECT * FROM photos
     WHERE folder_id = $1
     ORDER BY filename
-  `, [folderId]);
+  `,
+    [folderId],
+  );
 
   const photos = result.rows as DatabasePhoto[];
 
@@ -288,7 +310,8 @@ export async function createOrUpdatePhoto(
     photoData.metadata_status || (photoData.metadata ? "extracted" : "none");
   const thumbnailStatus = photoData.thumbnail_status || "none";
 
-  const result = await query(`
+  const result = await query(
+    `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
       metadata, metadata_status, thumbnail_status, last_synced
@@ -305,17 +328,19 @@ export async function createOrUpdatePhoto(
       thumbnail_status = EXCLUDED.thumbnail_status,
       last_synced = CURRENT_TIMESTAMP
     RETURNING *
-  `, [
-    photoData.folder_id,
-    photoData.filename,
-    photoData.s3_key,
-    photoData.size,
-    photoData.mime_type,
-    photoData.modified_at,
-    photoData.metadata, // PostgreSQL JSONB handles objects directly
-    metadataStatus,
-    thumbnailStatus,
-  ]);
+  `,
+    [
+      photoData.folder_id,
+      photoData.filename,
+      photoData.s3_key,
+      photoData.size,
+      photoData.mime_type,
+      photoData.modified_at,
+      photoData.metadata, // PostgreSQL JSONB handles objects directly
+      metadataStatus,
+      thumbnailStatus,
+    ],
+  );
 
   const photo = result.rows[0] as DatabasePhoto;
 
@@ -339,11 +364,15 @@ export async function bulkCreateOrUpdatePhotos(
     const placeholders: string[] = [];
 
     photosData.forEach((photoData, index) => {
-      const metadataStatus = photoData.metadata_status || (photoData.metadata ? "extracted" : "none");
+      const metadataStatus =
+        photoData.metadata_status ||
+        (photoData.metadata ? "extracted" : "none");
       const thumbnailStatus = photoData.thumbnail_status || "none";
 
       const baseIndex = index * 9;
-      placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, CURRENT_TIMESTAMP)`);
+      placeholders.push(
+        `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, CURRENT_TIMESTAMP)`,
+      );
 
       values.push(
         photoData.folder_id,
@@ -354,17 +383,18 @@ export async function bulkCreateOrUpdatePhotos(
         photoData.modified_at,
         photoData.metadata,
         metadataStatus,
-        thumbnailStatus
+        thumbnailStatus,
       );
     });
 
     // Execute single bulk INSERT with ON CONFLICT
-    const result = await client.query(`
+    const result = await client.query(
+      `
       INSERT INTO photos (
         folder_id, filename, s3_key, size, mime_type, modified_at,
         metadata, metadata_status, thumbnail_status, last_synced
       )
-      VALUES ${placeholders.join(', ')}
+      VALUES ${placeholders.join(", ")}
       ON CONFLICT(s3_key) DO UPDATE SET
         folder_id = EXCLUDED.folder_id,
         filename = EXCLUDED.filename,
@@ -376,7 +406,9 @@ export async function bulkCreateOrUpdatePhotos(
         thumbnail_status = EXCLUDED.thumbnail_status,
         last_synced = CURRENT_TIMESTAMP
       RETURNING *
-    `, values);
+    `,
+      values,
+    );
 
     // Convert results to Photo objects
     return result.rows.map((photo: DatabasePhoto) => ({
@@ -400,25 +432,26 @@ export async function bulkCreateOrUpdateFolders(
 
     foldersData.forEach((folderData, index) => {
       const baseIndex = index * 3;
-      placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, CURRENT_TIMESTAMP)`);
-
-      values.push(
-        folderData.path,
-        folderData.name,
-        folderData.parent_id
+      placeholders.push(
+        `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, CURRENT_TIMESTAMP)`,
       );
+
+      values.push(folderData.path, folderData.name, folderData.parent_id);
     });
 
     // Execute single bulk INSERT with ON CONFLICT
-    const result = await client.query(`
+    const result = await client.query(
+      `
       INSERT INTO folders (path, name, parent_id, updated_at)
-      VALUES ${placeholders.join(', ')}
+      VALUES ${placeholders.join(", ")}
       ON CONFLICT(path) DO UPDATE SET
         name = EXCLUDED.name,
         parent_id = EXCLUDED.parent_id,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
-    `, values);
+    `,
+      values,
+    );
 
     return result.rows as Folder[];
   });
@@ -430,7 +463,7 @@ export async function updatePhotoThumbnail(
 ): Promise<void> {
   await query(
     "UPDATE photos SET thumbnail_path = $1, thumbnail_status = $2 WHERE id = $3",
-    [thumbnailPath, "generated", photoId]
+    [thumbnailPath, "generated", photoId],
   );
 }
 
@@ -440,7 +473,7 @@ export async function updatePhotoMetadata(
 ): Promise<void> {
   await query(
     "UPDATE photos SET metadata = $1, metadata_status = $2 WHERE id = $3",
-    [metadata, "extracted", photoId] // PostgreSQL JSONB handles objects directly
+    [metadata, "extracted", photoId], // PostgreSQL JSONB handles objects directly
   );
 }
 
@@ -468,7 +501,7 @@ export async function updatePhotoStatus(
     values.push(photoId);
     await query(
       `UPDATE photos SET ${updates.join(", ")} WHERE id = $${paramCount}`,
-      values
+      values,
     );
   }
 }
@@ -490,11 +523,14 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
 export async function createSyncJob(
   jobData: CreateSyncJobData,
 ): Promise<SyncJob> {
-  const result = await query(`
+  const result = await query(
+    `
     INSERT INTO sync_jobs (type, folder_path, status, processed_items, total_items)
     VALUES ($1, $2, 'pending', 0, 0)
     RETURNING *
-  `, [jobData.type, jobData.folder_path]);
+  `,
+    [jobData.type, jobData.folder_path],
+  );
 
   return result.rows[0] as SyncJob;
 }
@@ -508,7 +544,10 @@ export async function updateSyncJob(
     .join(", ");
   const values = [...Object.values(updates), jobId];
 
-  await query(`UPDATE sync_jobs SET ${fields} WHERE id = $${values.length}`, values);
+  await query(
+    `UPDATE sync_jobs SET ${fields} WHERE id = $${values.length}`,
+    values,
+  );
 }
 
 export async function getSyncJob(jobId: number): Promise<SyncJob | null> {
@@ -529,21 +568,24 @@ export async function getActiveSyncJobs(): Promise<SyncJob[]> {
 export async function updateFolderCounts(folderId: number): Promise<void> {
   const photoCountResult = await query(
     "SELECT COUNT(*) as count FROM photos WHERE folder_id = $1",
-    [folderId]
+    [folderId],
   );
   const subfolderCountResult = await query(
     "SELECT COUNT(*) as count FROM folders WHERE parent_id = $1",
-    [folderId]
+    [folderId],
   );
 
   const photoCount = photoCountResult.rows[0].count;
   const subfolderCount = subfolderCountResult.rows[0].count;
 
-  await query(`
+  await query(
+    `
     UPDATE folders
     SET photo_count = $1, subfolder_count = $2, updated_at = CURRENT_TIMESTAMP
     WHERE id = $3
-  `, [photoCount, subfolderCount, folderId]);
+  `,
+    [photoCount, subfolderCount, folderId],
+  );
 }
 
 // Incremental folder count updates
@@ -551,41 +593,53 @@ export async function incrementFolderPhotoCount(
   folderId: number,
   delta: number = 1,
 ): Promise<void> {
-  await query(`
+  await query(
+    `
     UPDATE folders
     SET photo_count = photo_count + $1, updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
-  `, [delta, folderId]);
+  `,
+    [delta, folderId],
+  );
 }
 
 export async function incrementFolderSubfolderCount(
   folderId: number,
   delta: number = 1,
 ): Promise<void> {
-  await query(`
+  await query(
+    `
     UPDATE folders
     SET subfolder_count = subfolder_count + $1, updated_at = CURRENT_TIMESTAMP
     WHERE id = $2
-  `, [delta, folderId]);
+  `,
+    [delta, folderId],
+  );
 }
 
 // Update folder last synced timestamp
 export async function updateFolderLastSynced(folderId: number): Promise<void> {
-  await query(`
+  await query(
+    `
     UPDATE folders
     SET last_synced = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE id = $1
-  `, [folderId]);
+  `,
+    [folderId],
+  );
 }
 
 export async function updateFolderLastVisited(
   folderPath: string,
 ): Promise<void> {
-  await query(`
+  await query(
+    `
     UPDATE folders
     SET last_visited = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE path = $1
-  `, [folderPath]);
+  `,
+    [folderPath],
+  );
 }
 
 // Bulk update folder last synced for sync operations
@@ -612,7 +666,8 @@ export async function bulkUpdateFolderCounts(
 
   return runTransaction(async (client) => {
     // Single query to update all folder counts at once using CTEs
-    await client.query(`
+    await client.query(
+      `
       WITH photo_counts AS (
         SELECT folder_id, COUNT(*) as photo_count
         FROM photos
@@ -633,29 +688,35 @@ export async function bulkUpdateFolderCounts(
       FULL OUTER JOIN subfolder_counts sc ON pc.folder_id = sc.parent_id
       WHERE folders.id = ANY($1::int[])
         AND (folders.id = pc.folder_id OR folders.id = sc.parent_id)
-    `, [folderIds]);
+    `,
+      [folderIds],
+    );
   });
 }
-
-
 
 export async function deleteOldThumbnails(
   maxAgeDays: number,
 ): Promise<string[]> {
-  const selectResult = await query(`
+  const selectResult = await query(
+    `
     SELECT thumbnail_path FROM photos
     WHERE thumbnail_path IS NOT NULL
     AND last_synced < NOW() - INTERVAL '$1 days'
-  `, [maxAgeDays]);
+  `,
+    [maxAgeDays],
+  );
 
   const thumbnailPaths = selectResult.rows.map((row) => row.thumbnail_path);
 
-  await query(`
+  await query(
+    `
     UPDATE photos
     SET thumbnail_path = NULL
     WHERE thumbnail_path IS NOT NULL
     AND last_synced < NOW() - INTERVAL '$1 days'
-  `, [maxAgeDays]);
+  `,
+    [maxAgeDays],
+  );
 
   return thumbnailPaths;
 }
@@ -685,7 +746,7 @@ export interface ShareAccessLog {
   share_id: number;
   ip_address: string | null;
   user_agent: string | null;
-  access_type: 'view' | 'download' | 'password_attempt';
+  access_type: "view" | "download" | "password_attempt";
   accessed_at: string;
   success: boolean;
 }
@@ -699,11 +760,13 @@ export interface CreateShareData {
   allow_download?: boolean;
 }
 
-export async function createFolderShare(shareData: CreateShareData): Promise<SharedFolder> {
+export async function createFolderShare(
+  shareData: CreateShareData,
+): Promise<SharedFolder> {
   // Hash password if provided
   let passwordHash = null;
   if (shareData.password) {
-    const bcrypt = require('bcrypt');
+    const bcrypt = require("bcrypt");
     passwordHash = await bcrypt.hash(shareData.password, 12);
   }
 
@@ -714,36 +777,44 @@ export async function createFolderShare(shareData: CreateShareData): Promise<Sha
     folderId = folder?.id || undefined;
   }
 
-  const result = await query(`
+  const result = await query(
+    `
     INSERT INTO shared_folders (
       folder_path, folder_id, password_hash,
       expires_at, description, allow_download
     )
     VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING *
-  `, [
-    shareData.folder_path,
-    folderId,
-    passwordHash,
-    shareData.expires_at || null,
-    shareData.description || null,
-    shareData.allow_download !== false
-  ]);
+  `,
+    [
+      shareData.folder_path,
+      folderId,
+      passwordHash,
+      shareData.expires_at || null,
+      shareData.description || null,
+      shareData.allow_download !== false,
+    ],
+  );
 
   const share = result.rows[0] as SharedFolder;
 
   return {
     ...share,
     allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active)
+    is_active: Boolean(share.is_active),
   };
 }
 
-export async function getSharedFolder(shareToken: string): Promise<SharedFolder | null> {
-  const result = await query(`
+export async function getSharedFolder(
+  shareToken: string,
+): Promise<SharedFolder | null> {
+  const result = await query(
+    `
     SELECT * FROM shared_folders
     WHERE share_token = $1 AND is_active = true
-  `, [shareToken]);
+  `,
+    [shareToken],
+  );
 
   const share = result.rows[0] as SharedFolder | undefined;
 
@@ -757,32 +828,45 @@ export async function getSharedFolder(shareToken: string): Promise<SharedFolder 
   return {
     ...share,
     allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active)
+    is_active: Boolean(share.is_active),
   };
 }
 
-export async function validateSharePassword(shareToken: string, password: string): Promise<boolean> {
-  const result = await query(`
+export async function validateSharePassword(
+  shareToken: string,
+  password: string,
+): Promise<boolean> {
+  const result = await query(
+    `
     SELECT password_hash FROM shared_folders
     WHERE share_token = $1 AND is_active = true
-  `, [shareToken]);
+  `,
+    [shareToken],
+  );
 
-  const shareData = result.rows[0] as { password_hash: string | null } | undefined;
+  const shareData = result.rows[0] as
+    | { password_hash: string | null }
+    | undefined;
 
   if (!shareData || !shareData.password_hash) {
     return true; // No password required
   }
 
-  const bcrypt = require('bcrypt');
+  const bcrypt = require("bcrypt");
   return await bcrypt.compare(password, shareData.password_hash);
 }
 
-export async function incrementShareViewCount(shareToken: string): Promise<void> {
-  await query(`
+export async function incrementShareViewCount(
+  shareToken: string,
+): Promise<void> {
+  await query(
+    `
     UPDATE shared_folders
     SET view_count = view_count + 1, last_accessed = CURRENT_TIMESTAMP
     WHERE share_token = $1 AND is_active = true
-  `, [shareToken]);
+  `,
+    [shareToken],
+  );
 }
 
 export async function logShareAccess(
@@ -790,22 +874,25 @@ export async function logShareAccess(
   accessData: {
     ip_address?: string;
     user_agent?: string;
-    access_type: 'view' | 'download' | 'password_attempt';
+    access_type: "view" | "download" | "password_attempt";
     success?: boolean;
-  }
+  },
 ): Promise<void> {
-  await query(`
+  await query(
+    `
     INSERT INTO share_access_logs (
       share_id, ip_address, user_agent, access_type, success
     )
     VALUES ($1, $2, $3, $4, $5)
-  `, [
-    shareId,
-    accessData.ip_address || null,
-    accessData.user_agent || null,
-    accessData.access_type,
-    accessData.success !== false
-  ]);
+  `,
+    [
+      shareId,
+      accessData.ip_address || null,
+      accessData.user_agent || null,
+      accessData.access_type,
+      accessData.success !== false,
+    ],
+  );
 }
 
 export async function getAllSharedFolders(): Promise<SharedFolder[]> {
@@ -818,19 +905,22 @@ export async function getAllSharedFolders(): Promise<SharedFolder[]> {
 
   const shares = result.rows as (SharedFolder & { folder_name: string })[];
 
-  return shares.map(share => ({
+  return shares.map((share) => ({
     ...share,
     allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active)
+    is_active: Boolean(share.is_active),
   }));
 }
 
 export async function deactivateShare(shareToken: string): Promise<void> {
-  await query(`
+  await query(
+    `
     UPDATE shared_folders
     SET is_active = false
     WHERE share_token = $1
-  `, [shareToken]);
+  `,
+    [shareToken],
+  );
 }
 
 export async function deleteExpiredShares(): Promise<number> {
@@ -843,18 +933,24 @@ export async function deleteExpiredShares(): Promise<number> {
   return result.rowCount || 0;
 }
 
-export async function getShareAccessLogs(shareId: number, limit: number = 100): Promise<ShareAccessLog[]> {
-  const result = await query(`
+export async function getShareAccessLogs(
+  shareId: number,
+  limit: number = 100,
+): Promise<ShareAccessLog[]> {
+  const result = await query(
+    `
     SELECT * FROM share_access_logs
     WHERE share_id = $1
     ORDER BY accessed_at DESC
     LIMIT $2
-  `, [shareId, limit]);
+  `,
+    [shareId, limit],
+  );
 
   const logs = result.rows as ShareAccessLog[];
 
-  return logs.map(log => ({
+  return logs.map((log) => ({
     ...log,
-    success: Boolean(log.success)
+    success: Boolean(log.success),
   }));
 }

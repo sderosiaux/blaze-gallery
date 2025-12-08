@@ -1,12 +1,12 @@
 /**
  * S3 Audit Integration Examples
- * 
+ *
  * This file shows how to integrate S3 audit logging into existing S3 operations.
  * Add these logging calls to your existing S3 service methods.
  */
 
-import { createS3AuditMiddleware } from './s3Audit';
-import { S3Operation } from '@/types/audit';
+import { createS3AuditMiddleware } from "./s3Audit";
+import { S3Operation } from "@/types/audit";
 
 const auditMiddleware = createS3AuditMiddleware();
 
@@ -21,20 +21,20 @@ export async function auditThumbnailRequest(
   statusCode: number,
   bytesTransferred?: number,
   error?: string,
-  cacheHit?: boolean
+  cacheHit?: boolean,
 ) {
   await auditMiddleware.log({
-    operation: 'GetObject',
-    method: 'GET',
+    operation: "GetObject",
+    method: "GET",
     endpoint: `/api/photos/${photoId}/thumbnail`,
-    bucket: process.env.B2_BUCKET_NAME || 'unknown',
+    bucket: process.env.B2_BUCKET_NAME || "unknown",
     key: `thumbnails/${photoId}`, // or actual S3 key
     startTime,
     statusCode,
     bytesTransferred,
     error,
     cacheHit,
-    request
+    request,
   });
 }
 
@@ -47,7 +47,7 @@ export async function auditFolderListingRequest(
   startTime: number,
   statusCode: number,
   responseData?: any, // Pass the actual response data instead of just item count
-  error?: string
+  error?: string,
 ) {
   // Calculate actual response size if response data is provided
   let bytesTransferred: number | undefined;
@@ -56,16 +56,16 @@ export async function auditFolderListingRequest(
   }
 
   await auditMiddleware.log({
-    operation: 'ListObjects',
-    method: 'GET',
-    endpoint: `/api/folders${folderPath ? `/${folderPath}` : ''}`,
-    bucket: process.env.B2_BUCKET_NAME || 'unknown',
+    operation: "ListObjects",
+    method: "GET",
+    endpoint: `/api/folders${folderPath ? `/${folderPath}` : ""}`,
+    bucket: process.env.B2_BUCKET_NAME || "unknown",
     key: folderPath || undefined,
     startTime,
     statusCode,
     bytesTransferred,
     error,
-    request
+    request,
   });
 }
 
@@ -78,19 +78,19 @@ export async function auditPhotoDownloadRequest(
   startTime: number,
   statusCode: number,
   bytesTransferred?: number,
-  error?: string
+  error?: string,
 ) {
   await auditMiddleware.log({
-    operation: 'GetObject',
-    method: 'GET',
+    operation: "GetObject",
+    method: "GET",
     endpoint: `/api/photos/download`,
-    bucket: process.env.B2_BUCKET_NAME || 'unknown',
+    bucket: process.env.B2_BUCKET_NAME || "unknown",
     key: photoKey,
     startTime,
     statusCode,
     bytesTransferred,
     error,
-    request
+    request,
   });
 }
 
@@ -102,17 +102,17 @@ export async function auditBucketRequest(
   operation: S3Operation,
   startTime: number,
   statusCode: number,
-  error?: string
+  error?: string,
 ) {
   await auditMiddleware.log({
     operation,
-    method: 'GET',
+    method: "GET",
     endpoint: `/api/bucket`,
-    bucket: process.env.B2_BUCKET_NAME || 'unknown',
+    bucket: process.env.B2_BUCKET_NAME || "unknown",
     startTime,
     statusCode,
     error,
-    request
+    request,
   });
 }
 
@@ -125,47 +125,45 @@ export async function auditS3Operation<T>(
   bucket: string,
   key: string | undefined,
   request: Request | undefined,
-  s3Operation: () => Promise<T>
+  s3Operation: () => Promise<T>,
 ): Promise<T> {
   const startTime = Date.now();
   let statusCode = 200;
   let error: string | undefined;
   let bytesTransferred: number | undefined;
-  
+
   try {
     const result = await s3Operation();
-    
+
     // Extract bytes transferred if available
-    if (typeof result === 'object' && result !== null) {
-      if ('ContentLength' in result) {
+    if (typeof result === "object" && result !== null) {
+      if ("ContentLength" in result) {
         bytesTransferred = (result as any).ContentLength;
       }
-      if ('Body' in result && 'byteLength' in (result as any).Body) {
+      if ("Body" in result && "byteLength" in (result as any).Body) {
         bytesTransferred = (result as any).Body.byteLength;
       }
     }
-    
+
     return result;
-    
   } catch (err) {
     statusCode = 500;
-    error = err instanceof Error ? err.message : 'Unknown error';
-    
+    error = err instanceof Error ? err.message : "Unknown error";
+
     // Extract status code from AWS error if available
-    if (typeof err === 'object' && err !== null) {
-      if ('$metadata' in err && typeof (err as any).$metadata === 'object') {
+    if (typeof err === "object" && err !== null) {
+      if ("$metadata" in err && typeof (err as any).$metadata === "object") {
         const httpStatusCode = (err as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
         }
       }
-      if ('statusCode' in err) {
+      if ("statusCode" in err) {
         statusCode = (err as any).statusCode;
       }
     }
-    
+
     throw err;
-    
   } finally {
     if (request) {
       await auditMiddleware.log({
@@ -178,7 +176,7 @@ export async function auditS3Operation<T>(
         statusCode,
         bytesTransferred,
         error,
-        request
+        request,
       });
     }
   }
@@ -188,13 +186,16 @@ export async function auditS3Operation<T>(
  * Cost estimation helpers
  * Add these to calculate estimated costs for S3 operations
  */
-export function estimateS3Cost(operation: S3Operation, bytesTransferred?: number): number {
+export function estimateS3Cost(
+  operation: S3Operation,
+  bytesTransferred?: number,
+): number {
   // Basic cost estimation (adjust based on your AWS region and pricing)
   const costs: Record<S3Operation, number> = {
     GetObject: 0.0004 / 1000, // $0.0004 per 1,000 requests
-    ListObjects: 0.005 / 1000,  // $0.005 per 1,000 requests
+    ListObjects: 0.005 / 1000, // $0.005 per 1,000 requests
     ListBuckets: 0.0004 / 1000,
-    PutObject: 0.005 / 1000,    // $0.005 per 1,000 requests
+    PutObject: 0.005 / 1000, // $0.005 per 1,000 requests
     DeleteObject: 0.0004 / 1000,
     HeadObject: 0.0004 / 1000,
     GetBucketLocation: 0.0004 / 1000,
@@ -207,34 +208,34 @@ export function estimateS3Cost(operation: S3Operation, bytesTransferred?: number
     CompleteMultipartUpload: 0.005 / 1000,
     AbortMultipartUpload: 0.0004 / 1000,
   };
-  
+
   let requestCost = costs[operation] || 0;
-  
+
   // Add data transfer costs if applicable
   let transferCost = 0;
-  if (bytesTransferred && operation === 'GetObject') {
+  if (bytesTransferred && operation === "GetObject") {
     // First 1 GB free, then $0.09 per GB
     const gbTransferred = bytesTransferred / (1024 * 1024 * 1024);
     if (gbTransferred > 1) {
       transferCost = (gbTransferred - 1) * 0.09;
     }
   }
-  
+
   return requestCost + transferCost;
 }
 
 /**
  * Example integration in existing API route
- * 
+ *
  * // In your existing route handler:
  * export async function GET(request: Request, { params }: { params: { id: string } }) {
  *   const startTime = Date.now();
- *   
+ *
  *   try {
  *     // Your existing logic here
  *     const photo = await getPhoto(params.id);
  *     const thumbnailData = await generateThumbnail(photo);
- *     
+ *
  *     // Log successful request
  *     await auditThumbnailRequest(
  *       request,
@@ -245,11 +246,11 @@ export function estimateS3Cost(operation: S3Operation, bytesTransferred?: number
  *       undefined,
  *       false // or true if served from cache
  *     );
- *     
+ *
  *     return new Response(thumbnailData, {
  *       headers: { 'Content-Type': 'image/jpeg' }
  *     });
- *     
+ *
  *   } catch (error) {
  *     // Log error request
  *     await auditThumbnailRequest(
@@ -260,7 +261,7 @@ export function estimateS3Cost(operation: S3Operation, bytesTransferred?: number
  *       undefined,
  *       error instanceof Error ? error.message : 'Unknown error'
  *     );
- *     
+ *
  *     throw error;
  *   }
  * }

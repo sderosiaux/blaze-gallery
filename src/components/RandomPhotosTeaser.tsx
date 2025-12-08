@@ -12,7 +12,10 @@ interface RandomPhotosTeaserProps {
   selectedPhotoId?: string | null;
 }
 
-export default function RandomPhotosTeaser({ onPhotoUrlChange, selectedPhotoId }: RandomPhotosTeaserProps) {
+export default function RandomPhotosTeaser({
+  onPhotoUrlChange,
+  selectedPhotoId,
+}: RandomPhotosTeaserProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -22,7 +25,7 @@ export default function RandomPhotosTeaser({ onPhotoUrlChange, selectedPhotoId }
       setLoading(true);
       const response = await fetch("/api/photos/random?limit=32");
       const data = await response.json();
-      
+
       if (data.success) {
         setPhotos(data.photos);
       } else {
@@ -42,7 +45,7 @@ export default function RandomPhotosTeaser({ onPhotoUrlChange, selectedPhotoId }
   // Handle initial photo selection from URL params
   useEffect(() => {
     if (selectedPhotoId && photos.length > 0) {
-      const photo = photos.find(p => p.id.toString() === selectedPhotoId);
+      const photo = photos.find((p) => p.id.toString() === selectedPhotoId);
       if (photo) {
         setSelectedPhoto(photo);
       }
@@ -107,27 +110,26 @@ export default function RandomPhotosTeaser({ onPhotoUrlChange, selectedPhotoId }
             Refresh
           </button>
         </div>
-        
+
         <p className="text-sm text-gray-600 mb-4">
-          A random selection from your entire photo collection to help you rediscover forgotten memories.
+          A random selection from your entire photo collection to help you
+          rediscover forgotten memories.
         </p>
 
         <div className="photo-mosaic grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-          {loading ? (
-            Array.from({ length: 32 }).map((_, index) => (
-              <PhotoSkeleton key={index} />
-            ))
-          ) : (
-            photos.map((photo, index) => (
-              <PhotoItem
-                key={photo.id}
-                photo={photo}
-                onPhotoClick={handlePhotoSelect}
-                onToggleFavorite={toggleFavorite}
-                priority={index < 16 ? 8 - Math.floor(index / 2) : 0} // First 16 images get priority
-              />
-            ))
-          )}
+          {loading
+            ? Array.from({ length: 32 }).map((_, index) => (
+                <PhotoSkeleton key={index} />
+              ))
+            : photos.map((photo, index) => (
+                <PhotoItem
+                  key={photo.id}
+                  photo={photo}
+                  onPhotoClick={handlePhotoSelect}
+                  onToggleFavorite={toggleFavorite}
+                  priority={index < 16 ? 8 - Math.floor(index / 2) : 0} // First 16 images get priority
+                />
+              ))}
         </div>
       </div>
 
@@ -139,8 +141,8 @@ export default function RandomPhotosTeaser({ onPhotoUrlChange, selectedPhotoId }
           onFavoriteToggle={(updatedPhoto) => {
             setPhotos((prevPhotos) =>
               prevPhotos.map((p) =>
-                p.id === updatedPhoto.id ? updatedPhoto : p
-              )
+                p.id === updatedPhoto.id ? updatedPhoto : p,
+              ),
             );
           }}
           onPhotoChange={(newPhoto) => {

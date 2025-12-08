@@ -3,51 +3,51 @@
 export interface S3AuditLog {
   id: string;
   timestamp: Date;
-  
+
   // Request details
   operation: S3Operation;
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD';
+  method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD";
   endpoint: string;
   bucket: string;
   key?: string; // Object key (optional for bucket-level operations)
-  
+
   // Performance metrics
   duration_ms: number;
   status_code: number;
   bytes_transferred?: number;
-  
+
   // Context information
   user_agent?: string;
   ip_address?: string;
   session_id?: string;
   user_id?: string;
-  
+
   // Response details
   error_message?: string;
   cache_hit?: boolean;
-  
+
   // Cost estimation (optional)
   estimated_cost_usd?: number;
-  
+
   created_at: Date;
 }
 
-export type S3Operation = 
-  | 'ListBuckets'
-  | 'ListObjects' 
-  | 'GetObject'
-  | 'HeadObject'
-  | 'PutObject'
-  | 'DeleteObject'
-  | 'GetBucketLocation'
-  | 'GetObjectMetadata'
-  | 'GeneratePresignedUrl'
-  | 'DownloadFile'
-  | 'UploadFile'
-  | 'CreateMultipartUpload'
-  | 'UploadPart'
-  | 'CompleteMultipartUpload'
-  | 'AbortMultipartUpload';
+export type S3Operation =
+  | "ListBuckets"
+  | "ListObjects"
+  | "GetObject"
+  | "HeadObject"
+  | "PutObject"
+  | "DeleteObject"
+  | "GetBucketLocation"
+  | "GetObjectMetadata"
+  | "GeneratePresignedUrl"
+  | "DownloadFile"
+  | "UploadFile"
+  | "CreateMultipartUpload"
+  | "UploadPart"
+  | "CompleteMultipartUpload"
+  | "AbortMultipartUpload";
 
 export interface S3AuditStats {
   total_requests: number;
@@ -70,8 +70,8 @@ export interface S3AuditQuery {
   max_duration_ms?: number;
   limit?: number;
   offset?: number;
-  sort_by?: 'timestamp' | 'duration_ms' | 'bytes_transferred';
-  sort_order?: 'asc' | 'desc';
+  sort_by?: "timestamp" | "duration_ms" | "bytes_transferred";
+  sort_order?: "asc" | "desc";
 }
 
 export interface S3AuditResponse {

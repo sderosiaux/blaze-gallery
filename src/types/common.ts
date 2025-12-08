@@ -2,7 +2,13 @@
 
 // Status types for photo processing
 export type MetadataStatus = "none" | "pending" | "extracted" | "skipped_size";
-export type ThumbnailStatus = "none" | "pending" | "generated" | "skipped_size" | "skipped_unsupported" | "skipped_corrupted";
+export type ThumbnailStatus =
+  | "none"
+  | "pending"
+  | "generated"
+  | "skipped_size"
+  | "skipped_unsupported"
+  | "skipped_corrupted";
 export type SyncJobType =
   | "full_scan"
   | "folder_scan"

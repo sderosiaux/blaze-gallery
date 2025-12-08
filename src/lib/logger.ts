@@ -52,14 +52,24 @@ class Logger {
 
   private sanitizeContext(context: LogContext): LogContext {
     const sanitized = { ...context };
-    const sensitiveKeys = ['key', 'secret', 'password', 'token', 'credential', 'auth'];
-    
+    const sensitiveKeys = [
+      "key",
+      "secret",
+      "password",
+      "token",
+      "credential",
+      "auth",
+    ];
+
     for (const [key, value] of Object.entries(sanitized)) {
-      if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
-        sanitized[key] = typeof value === 'string' && value.length > 0 ? '***' : value;
+      if (
+        sensitiveKeys.some((sensitive) => key.toLowerCase().includes(sensitive))
+      ) {
+        sanitized[key] =
+          typeof value === "string" && value.length > 0 ? "***" : value;
       }
     }
-    
+
     return sanitized;
   }
 
@@ -70,7 +80,10 @@ class Logger {
   ): string {
     const timestamp = new Date().toISOString();
     // Only include context in development mode and sanitize sensitive data
-    const contextStr = this.isDevelopment && context ? ` ${JSON.stringify(this.sanitizeContext(context))}` : "";
+    const contextStr =
+      this.isDevelopment && context
+        ? ` ${JSON.stringify(this.sanitizeContext(context))}`
+        : "";
     return `[${timestamp}] ${level}: ${message}${contextStr}`;
   }
 
@@ -136,18 +149,32 @@ class Logger {
   }
 
   syncOperation(message: string, context?: SyncLogContext) {
-    this.debug(`[SYNC] ${message}`, context ? { component: "Sync", ...context } : undefined);
+    this.debug(
+      `[SYNC] ${message}`,
+      context ? { component: "Sync", ...context } : undefined,
+    );
   }
 
   syncError(message: string, error: Error, context?: SyncLogContext) {
-    this.logWithLevel(LogLevel.ERROR, "ERROR", `[SYNC] ${message}`, undefined, error);
+    this.logWithLevel(
+      LogLevel.ERROR,
+      "ERROR",
+      `[SYNC] ${message}`,
+      undefined,
+      error,
+    );
   }
 
   thumbnailOperation(message: string, context?: ThumbnailLogContext) {
-    this.debug(`[THUMBNAIL] ${message}`, context ? {
-      component: "ThumbnailService",
-      ...context,
-    } : undefined);
+    this.debug(
+      `[THUMBNAIL] ${message}`,
+      context
+        ? {
+            component: "ThumbnailService",
+            ...context,
+          }
+        : undefined,
+    );
   }
 
   thumbnailError(message: string, error: Error, context?: ThumbnailLogContext) {
@@ -159,27 +186,47 @@ class Logger {
   }
 
   dbOperation(message: string, context?: DatabaseLogContext) {
-    this.debug(`[DB] ${message}`, context ? { component: "Database", ...context } : undefined);
+    this.debug(
+      `[DB] ${message}`,
+      context ? { component: "Database", ...context } : undefined,
+    );
   }
 
   dbError(message: string, error: Error, context?: DatabaseLogContext) {
-    this.error(`[DB] ${message}`, context ? { component: "Database", ...context } : undefined, error);
+    this.error(
+      `[DB] ${message}`,
+      context ? { component: "Database", ...context } : undefined,
+      error,
+    );
   }
 
   apiRequest(message: string, context?: ApiLogContext) {
-    this.info(`[API] ${message}`, context ? { component: "API", ...context } : undefined);
+    this.info(
+      `[API] ${message}`,
+      context ? { component: "API", ...context } : undefined,
+    );
   }
 
   apiError(message: string, error: Error, context?: ApiLogContext) {
-    this.error(`[API] ${message}`, context ? { component: "API", ...context } : undefined, error);
+    this.error(
+      `[API] ${message}`,
+      context ? { component: "API", ...context } : undefined,
+      error,
+    );
   }
 
   configOperation(message: string, context?: ConfigLogContext) {
-    this.debug(`[CONFIG] ${message}`, context ? { component: "Config", ...context } : undefined);
+    this.debug(
+      `[CONFIG] ${message}`,
+      context ? { component: "Config", ...context } : undefined,
+    );
   }
 
   configInfo(message: string, context?: ConfigLogContext) {
-    this.info(`[CONFIG] ${message}`, context ? { component: "Config", ...context } : undefined);
+    this.info(
+      `[CONFIG] ${message}`,
+      context ? { component: "Config", ...context } : undefined,
+    );
   }
 
   configError(message: string, error: Error, context?: ConfigLogContext) {

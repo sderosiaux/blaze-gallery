@@ -19,9 +19,11 @@ export const POST = requireAuth(async function POST(
     // Toggle favorite status
     const currentResult = await query(
       "SELECT is_favorite FROM photos WHERE id = $1",
-      [photoId]
+      [photoId],
     );
-    const currentPhoto = currentResult.rows[0] as { is_favorite: boolean } | undefined;
+    const currentPhoto = currentResult.rows[0] as
+      | { is_favorite: boolean }
+      | undefined;
 
     if (!currentPhoto) {
       return NextResponse.json(
@@ -32,11 +34,14 @@ export const POST = requireAuth(async function POST(
 
     const newFavoriteStatus = !currentPhoto.is_favorite;
 
-    await query(`
+    await query(
+      `
       UPDATE photos
       SET is_favorite = $1
       WHERE id = $2
-    `, [newFavoriteStatus, photoId]);
+    `,
+      [newFavoriteStatus, photoId],
+    );
 
     return NextResponse.json({
       success: true,

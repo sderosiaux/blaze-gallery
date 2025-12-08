@@ -4,7 +4,7 @@ import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
 // Force dynamic rendering for routes using auth
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {

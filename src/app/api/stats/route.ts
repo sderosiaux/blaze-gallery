@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from '@/lib/database';
-import { logger } from '@/lib/logger';
+import { query } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 // Force dynamic rendering for routes using auth
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
@@ -313,22 +313,21 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
           stats: videoStats,
           formats: videoFormats,
           largest: largestVideos,
-          folders_with_most: foldersWithMostVideos
-        }
-      }
+          folders_with_most: foldersWithMostVideos,
+        },
+      },
     });
-
   } catch (error) {
-    logger.apiError('Error in GET /api/stats', error as Error, {
-      method: 'GET',
-      path: '/api/stats'
+    logger.apiError("Error in GET /api/stats", error as Error, {
+      method: "GET",
+      path: "/api/stats",
     });
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 });

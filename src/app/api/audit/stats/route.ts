@@ -1,38 +1,37 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { s3AuditLogger } from '@/lib/s3Audit';
-import { S3AuditQuery } from '@/types/audit';
+import { s3AuditLogger } from "@/lib/s3Audit";
+import { S3AuditQuery } from "@/types/audit";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    
+
     // Parse query parameters for filtering stats
     const query: S3AuditQuery = {
-      start_date: searchParams.get('start_date') || undefined,
-      end_date: searchParams.get('end_date') || undefined,
-      operation: searchParams.get('operation') as any || undefined,
-      bucket: searchParams.get('bucket') || undefined,
+      start_date: searchParams.get("start_date") || undefined,
+      end_date: searchParams.get("end_date") || undefined,
+      operation: (searchParams.get("operation") as any) || undefined,
+      bucket: searchParams.get("bucket") || undefined,
     };
-    
+
     const stats = await s3AuditLogger.calculateStats(query);
-    
+
     return NextResponse.json({
       success: true,
-      data: stats
+      data: stats,
     });
-    
   } catch (error) {
-    console.error('[AUDIT API] Error calculating stats:', error);
+    console.error("[AUDIT API] Error calculating stats:", error);
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to calculate audit stats',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: "Failed to calculate audit stats",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 });

@@ -25,7 +25,7 @@ function HomePageContent() {
   const [loading, setLoading] = useState(true);
   const [bucketName, setBucketName] = useState("");
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
-  
+
   // Get photo ID from URL params
   const selectedPhotoId = searchParams?.get("photo");
 
@@ -94,7 +94,8 @@ function HomePageContent() {
 
   // Check if we should show random photos teaser
   // Show it when we're at root level with folders but no photos
-  const showRandomPhotosTeaser = !loading && folders.length > 0 && photos.length === 0;
+  const showRandomPhotosTeaser =
+    !loading && folders.length > 0 && photos.length === 0;
 
   return (
     <AppLayout>
@@ -112,15 +113,15 @@ function HomePageContent() {
               onFolderSelect={navigateToFolder}
               onBreadcrumbClick={navigateToBreadcrumb}
             />
-            
+
             {/* Show photos in root if any exist */}
-            <PhotoGrid 
-              photos={photos} 
-              loading={loading} 
+            <PhotoGrid
+              photos={photos}
+              loading={loading}
               selectedPhotoId={selectedPhotoId}
               onPhotoUrlChange={handlePhotoUrlChange}
             />
-            
+
             {/* Show random photos teaser when at root with folders but no photos */}
             {showRandomPhotosTeaser && (
               <RandomPhotosTeaser
@@ -137,13 +138,15 @@ function HomePageContent() {
 
 export default function HomePage() {
   return (
-    <Suspense fallback={
-      <AppLayout>
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      </AppLayout>
-    }>
+    <Suspense
+      fallback={
+        <AppLayout>
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        </AppLayout>
+      }
+    >
       <HomePageContent />
     </Suspense>
   );

@@ -59,33 +59,39 @@ export function getConfig(): Config {
   };
 
   logger.configOperation(
-    `Environment variables loaded - ${Object.entries(envVarsSet).filter(([_, set]) => set).map(([key]) => key).join(', ') || 'none'}`
+    `Environment variables loaded - ${
+      Object.entries(envVarsSet)
+        .filter(([_, set]) => set)
+        .map(([key]) => key)
+        .join(", ") || "none"
+    }`,
   );
 
   // Configuration is now loaded entirely from environment variables
-  logger.configOperation("Configuration loaded from environment variables only");
+  logger.configOperation(
+    "Configuration loaded from environment variables only",
+  );
   cachedConfig = defaultConfig;
 
   // Validate the loaded configuration
   const validationErrors = validateConfig(cachedConfig);
   if (validationErrors.length > 0) {
     logger.configError(
-      `Configuration validation failed: ${validationErrors.join(', ')}`,
-      new Error("Invalid configuration")
+      `Configuration validation failed: ${validationErrors.join(", ")}`,
+      new Error("Invalid configuration"),
     );
     // Don't throw here - let the app start but log warnings
     logger.configInfo(
-      `Configuration has validation errors but proceeding: ${validationErrors.join(', ')}`
+      `Configuration has validation errors but proceeding: ${validationErrors.join(", ")}`,
     );
   }
 
   logger.configInfo(
-    `Configuration loaded successfully - endpoint:${!!cachedConfig.backblaze_endpoint} bucket:${!!cachedConfig.backblaze_bucket} credentials:${!!cachedConfig.backblaze_access_key && !!cachedConfig.backblaze_secret_key}${validationErrors.length > 0 ? ' (with validation errors)' : ''}`
+    `Configuration loaded successfully - endpoint:${!!cachedConfig.backblaze_endpoint} bucket:${!!cachedConfig.backblaze_bucket} credentials:${!!cachedConfig.backblaze_access_key && !!cachedConfig.backblaze_secret_key}${validationErrors.length > 0 ? " (with validation errors)" : ""}`,
   );
 
   return cachedConfig;
 }
-
 
 export function validateConfig(config: Config): string[] {
   const errors: string[] = [];
@@ -134,11 +140,17 @@ export function validateConfig(config: Config): string[] {
       errors.push("Thumbnail S3 prefix is required when using S3 storage");
     }
     // Validate separate thumbnail S3 config if provided (for R2 or other S3-compatible storage)
-    if (config.thumbnail_s3_endpoint || config.thumbnail_s3_bucket ||
-        config.thumbnail_s3_access_key || config.thumbnail_s3_secret_key) {
+    if (
+      config.thumbnail_s3_endpoint ||
+      config.thumbnail_s3_bucket ||
+      config.thumbnail_s3_access_key ||
+      config.thumbnail_s3_secret_key
+    ) {
       // If any thumbnail S3 config is set, all must be set
       if (!config.thumbnail_s3_endpoint) {
-        errors.push("Thumbnail S3 endpoint is required when using separate thumbnail storage");
+        errors.push(
+          "Thumbnail S3 endpoint is required when using separate thumbnail storage",
+        );
       } else {
         try {
           new URL(config.thumbnail_s3_endpoint);
@@ -147,13 +159,19 @@ export function validateConfig(config: Config): string[] {
         }
       }
       if (!config.thumbnail_s3_bucket) {
-        errors.push("Thumbnail S3 bucket is required when using separate thumbnail storage");
+        errors.push(
+          "Thumbnail S3 bucket is required when using separate thumbnail storage",
+        );
       }
       if (!config.thumbnail_s3_access_key) {
-        errors.push("Thumbnail S3 access key is required when using separate thumbnail storage");
+        errors.push(
+          "Thumbnail S3 access key is required when using separate thumbnail storage",
+        );
       }
       if (!config.thumbnail_s3_secret_key) {
-        errors.push("Thumbnail S3 secret key is required when using separate thumbnail storage");
+        errors.push(
+          "Thumbnail S3 secret key is required when using separate thumbnail storage",
+        );
       }
     }
   }
@@ -211,13 +229,13 @@ export async function testS3Connection(): Promise<{
       secretAccessKey: config.backblaze_secret_key,
     });
     const duration = Date.now() - startTime;
-    
+
     if (!testResult.success) {
       throw new Error(testResult.error);
     }
 
     logger.configInfo(
-      `S3 connection test successful (read-only) - ${config.backblaze_bucket} at ${config.backblaze_endpoint} (${duration}ms)`
+      `S3 connection test successful (read-only) - ${config.backblaze_bucket} at ${config.backblaze_endpoint} (${duration}ms)`,
     );
 
     return { success: true, isReadOnly: true };

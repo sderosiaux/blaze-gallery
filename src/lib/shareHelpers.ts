@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { 
-  getSharedFolder, 
-  validateSharePassword, 
-  getPhoto
-} from '@/lib/database';
-import { validateShareSession } from '@/lib/shareSession';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  getSharedFolder,
+  validateSharePassword,
+  getPhoto,
+} from "@/lib/database";
+import { validateShareSession } from "@/lib/shareSession";
 
 export interface ShareValidationResult {
   share: any;
@@ -23,11 +23,11 @@ let cleanupInterval: NodeJS.Timeout | null = null;
 // Initialize cache cleanup
 function initializeViewRateCleanup() {
   if (cleanupInterval) return;
-  
+
   cleanupInterval = setInterval(() => {
     const now = Date.now();
     let cleanedCount = 0;
-    
+
     for (const [key, timestamp] of viewRateCache.entries()) {
       // Remove entries older than 1 hour
       if (now - timestamp > 60 * 60 * 1000) {
@@ -35,9 +35,11 @@ function initializeViewRateCleanup() {
         cleanedCount++;
       }
     }
-    
+
     if (cleanedCount > 0) {
-      console.log(`[VIEW_RATE] Cleaned up ${cleanedCount} expired view rate entries`);
+      console.log(
+        `[VIEW_RATE] Cleaned up ${cleanedCount} expired view rate entries`,
+      );
     }
   }, CACHE_CLEANUP_INTERVAL);
 }
@@ -49,22 +51,20 @@ function initializeViewRateCleanup() {
 export function shouldCountView(request: NextRequest, token: string): boolean {
   // Initialize cleanup on first use
   initializeViewRateCleanup();
-  
-  const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
+
+  const ip = request.ip || request.headers.get("x-forwarded-for") || "unknown";
   const cacheKey = `${token}:${ip}`;
   const now = Date.now();
   const lastViewed = viewRateCache.get(cacheKey);
-  
+
   // If no previous view or last view was more than 1 hour ago, count it
   if (!lastViewed || now - lastViewed > 60 * 60 * 1000) {
     viewRateCache.set(cacheKey, now);
     return true;
   }
-  
+
   return false;
 }
-
-
 
 /**
  * Common validation logic for shared photo endpoints
@@ -74,21 +74,21 @@ export async function validateSharedPhotoAccess(
   request: NextRequest,
   token: string,
   photoId: string,
-  requireDownloadPermission = false
+  requireDownloadPermission = false,
 ): Promise<ShareValidationResult> {
-  const sessionToken = request.headers.get('x-share-session');
+  const sessionToken = request.headers.get("x-share-session");
 
   // Get the shared folder
   const share = await getSharedFolder(token);
-  
+
   if (!share) {
     return {
       share: null,
       photo: null,
       error: NextResponse.json(
-        { error: 'Share not found or expired' },
-        { status: 404 }
-      )
+        { error: "Share not found or expired" },
+        { status: 404 },
+      ),
     };
   }
 
@@ -98,9 +98,9 @@ export async function validateSharedPhotoAccess(
       share,
       photo: null,
       error: NextResponse.json(
-        { error: 'Downloads not allowed for this share' },
-        { status: 403 }
-      )
+        { error: "Downloads not allowed for this share" },
+        { status: 403 },
+      ),
     };
   }
 
@@ -111,9 +111,9 @@ export async function validateSharedPhotoAccess(
         share,
         photo: null,
         error: NextResponse.json(
-          { error: 'Session token required' },
-          { status: 401 }
-        )
+          { error: "Session token required" },
+          { status: 401 },
+        ),
       };
     }
 
@@ -123,9 +123,9 @@ export async function validateSharedPhotoAccess(
         share,
         photo: null,
         error: NextResponse.json(
-          { error: 'Invalid or expired session' },
-          { status: 401 }
-        )
+          { error: "Invalid or expired session" },
+          { status: 401 },
+        ),
       };
     }
   }
@@ -136,10 +136,7 @@ export async function validateSharedPhotoAccess(
     return {
       share,
       photo: null,
-      error: NextResponse.json(
-        { error: 'Photo not found' },
-        { status: 404 }
-      )
+      error: NextResponse.json({ error: "Photo not found" }, { status: 404 }),
     };
   }
 
@@ -149,9 +146,9 @@ export async function validateSharedPhotoAccess(
       share,
       photo,
       error: NextResponse.json(
-        { error: 'Photo not accessible through this share' },
-        { status: 403 }
-      )
+        { error: "Photo not accessible through this share" },
+        { status: 403 },
+      ),
     };
   }
 
@@ -165,23 +162,25 @@ export async function validateSharedPhotoAccess(
 export async function validateSharedThumbnailAccess(
   request: NextRequest,
   token: string,
-  photoId: string
+  photoId: string,
 ): Promise<ShareValidationResult> {
   console.log(`[VALIDATE_SHARED_THUMBNAIL] token=${token}, photoId=${photoId}`);
-  
+
   // Get the shared folder
   const share = await getSharedFolder(token);
   console.log(`[VALIDATE_SHARED_THUMBNAIL] share found:`, !!share);
-  
+
   if (!share) {
-    console.log(`[VALIDATE_SHARED_THUMBNAIL] No share found for token=${token}`);
+    console.log(
+      `[VALIDATE_SHARED_THUMBNAIL] No share found for token=${token}`,
+    );
     return {
       share: null,
       photo: null,
       error: NextResponse.json(
-        { error: 'Share not found or expired' },
-        { status: 404 }
-      )
+        { error: "Share not found or expired" },
+        { status: 404 },
+      ),
     };
   }
 
@@ -192,14 +191,13 @@ export async function validateSharedThumbnailAccess(
   const photo = await getPhoto(parseInt(photoId));
   console.log(`[VALIDATE_SHARED_THUMBNAIL] photo found:`, !!photo);
   if (!photo) {
-    console.log(`[VALIDATE_SHARED_THUMBNAIL] No photo found for photoId=${photoId}`);
+    console.log(
+      `[VALIDATE_SHARED_THUMBNAIL] No photo found for photoId=${photoId}`,
+    );
     return {
       share,
       photo: null,
-      error: NextResponse.json(
-        { error: 'Photo not found' },
-        { status: 404 }
-      )
+      error: NextResponse.json({ error: "Photo not found" }, { status: 404 }),
     };
   }
 
@@ -209,9 +207,9 @@ export async function validateSharedThumbnailAccess(
       share,
       photo,
       error: NextResponse.json(
-        { error: 'Photo not accessible through this share' },
-        { status: 403 }
-      )
+        { error: "Photo not accessible through this share" },
+        { status: 403 },
+      ),
     };
   }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 export function useSessionImage(url: string, sessionToken?: string) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export function useSessionImage(url: string, sessionToken?: string) {
 
     // Clean up previous blob URL
     return () => {
-      if (blobUrl && blobUrl.startsWith('blob:')) {
+      if (blobUrl && blobUrl.startsWith("blob:")) {
         URL.revokeObjectURL(blobUrl);
       }
     };
@@ -25,9 +25,9 @@ export function useSessionImage(url: string, sessionToken?: string) {
 
   // For now, just return the original URL - we'll implement session loading later if needed
   // The API endpoints will handle session validation
-  return { 
-    imageUrl: url, 
-    loading: false, 
-    error: null 
+  return {
+    imageUrl: url,
+    loading: false,
+    error: null,
   };
 }

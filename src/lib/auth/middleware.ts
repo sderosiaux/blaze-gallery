@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { validateUserSession } from './userSession';
-import { authConfig } from './config';
+import { NextRequest, NextResponse } from "next/server";
+import { validateUserSession } from "./userSession";
+import { authConfig } from "./config";
 
 export interface AuthenticatedRequest extends NextRequest {
   user?: {
@@ -19,7 +19,7 @@ export function withAuth(
   options: {
     required?: boolean;
     adminOnly?: boolean;
-  } = { required: true }
+  } = { required: true },
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
     try {
@@ -29,13 +29,13 @@ export function withAuth(
       }
 
       // Get session cookie
-      const sessionCookie = request.cookies.get('auth_session')?.value;
-      
+      const sessionCookie = request.cookies.get("auth_session")?.value;
+
       if (!sessionCookie) {
         if (options.required) {
           return NextResponse.json(
-            { error: 'Authentication required' },
-            { status: 401 }
+            { error: "Authentication required" },
+            { status: 401 },
           );
         }
         return handler(request as AuthenticatedRequest);
@@ -43,14 +43,14 @@ export function withAuth(
 
       // Validate session
       const session = validateUserSession(sessionCookie);
-      
+
       if (!session) {
         if (options.required) {
           const response = NextResponse.json(
-            { error: 'Invalid or expired session' },
-            { status: 401 }
+            { error: "Invalid or expired session" },
+            { status: 401 },
           );
-          response.cookies.delete('auth_session');
+          response.cookies.delete("auth_session");
           return response;
         }
         return handler(request as AuthenticatedRequest);
@@ -62,16 +62,15 @@ export function withAuth(
         id: session.id,
         email: session.email,
         name: session.name,
-        picture: session.picture
+        picture: session.picture,
       };
 
       return handler(authenticatedRequest);
-
     } catch (error) {
-      console.error('Auth middleware error:', error);
+      console.error("Auth middleware error:", error);
       return NextResponse.json(
-        { error: 'Authentication error' },
-        { status: 500 }
+        { error: "Authentication error" },
+        { status: 500 },
       );
     }
   };
@@ -94,14 +93,14 @@ export async function checkAuth(request: NextRequest): Promise<{
     return { isAuthenticated: false };
   }
 
-  const sessionCookie = request.cookies.get('auth_session')?.value;
-  
+  const sessionCookie = request.cookies.get("auth_session")?.value;
+
   if (!sessionCookie) {
     return { isAuthenticated: false };
   }
 
   const session = validateUserSession(sessionCookie);
-  
+
   if (!session) {
     return { isAuthenticated: false };
   }
@@ -112,8 +111,8 @@ export async function checkAuth(request: NextRequest): Promise<{
       id: session.id,
       email: session.email,
       name: session.name,
-      picture: session.picture
-    }
+      picture: session.picture,
+    },
   };
 }
 
@@ -121,10 +120,16 @@ export async function checkAuth(request: NextRequest): Promise<{
  * Require authentication for an API route
  */
 export function requireAuth<T extends any[]>(
-  handler: (req: AuthenticatedRequest, ...args: T) => Promise<NextResponse> | NextResponse
+  handler: (
+    req: AuthenticatedRequest,
+    ...args: T
+  ) => Promise<NextResponse> | NextResponse,
 ) {
   return (req: NextRequest, ...args: T) => {
-    return withAuth((authReq: AuthenticatedRequest) => handler(authReq, ...args), { required: true })(req);
+    return withAuth(
+      (authReq: AuthenticatedRequest) => handler(authReq, ...args),
+      { required: true },
+    )(req);
   };
 }
 
@@ -132,9 +137,15 @@ export function requireAuth<T extends any[]>(
  * Optional authentication for an API route
  */
 export function optionalAuth<T extends any[]>(
-  handler: (req: AuthenticatedRequest, ...args: T) => Promise<NextResponse> | NextResponse
+  handler: (
+    req: AuthenticatedRequest,
+    ...args: T
+  ) => Promise<NextResponse> | NextResponse,
 ) {
   return (req: NextRequest, ...args: T) => {
-    return withAuth((authReq: AuthenticatedRequest) => handler(authReq, ...args), { required: false })(req);
+    return withAuth(
+      (authReq: AuthenticatedRequest) => handler(authReq, ...args),
+      { required: false },
+    )(req);
   };
 }

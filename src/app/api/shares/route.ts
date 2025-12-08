@@ -1,17 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createFolderShare, getAllSharedFolders, getFolderByPath } from '@/lib/database';
-import { CreateShareData } from '@/lib/database';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  createFolderShare,
+  getAllSharedFolders,
+  getFolderByPath,
+} from "@/lib/database";
+import { CreateShareData } from "@/lib/database";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
-    const { 
-      folder_path, 
-      password, 
-      expires_at, 
-      description, 
-      allow_download = true 
+
+    const {
+      folder_path,
+      password,
+      expires_at,
+      description,
+      allow_download = true,
     }: {
       folder_path: string;
       password?: string;
@@ -23,18 +27,15 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!folder_path) {
       return NextResponse.json(
-        { error: 'Folder path is required' },
-        { status: 400 }
+        { error: "Folder path is required" },
+        { status: 400 },
       );
     }
 
     // Validate that the folder exists
     const folder = await getFolderByPath(folder_path);
     if (!folder) {
-      return NextResponse.json(
-        { error: 'Folder not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Folder not found" }, { status: 404 });
     }
 
     // Validate expiration date if provided
@@ -42,8 +43,8 @@ export async function POST(request: NextRequest) {
       const expirationDate = new Date(expires_at);
       if (isNaN(expirationDate.getTime()) || expirationDate <= new Date()) {
         return NextResponse.json(
-          { error: 'Invalid expiration date. Must be a future date.' },
-          { status: 400 }
+          { error: "Invalid expiration date. Must be a future date." },
+          { status: 400 },
         );
       }
     }
@@ -55,25 +56,24 @@ export async function POST(request: NextRequest) {
       password,
       expires_at,
       description,
-      allow_download
+      allow_download,
     };
 
     const share = await createFolderShare(shareData);
 
     // Return share details without password hash
     const { password_hash, ...shareResponse } = share;
-    
+
     return NextResponse.json({
       success: true,
       share: shareResponse,
-      share_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/share/${share.share_token}`
+      share_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/share/${share.share_token}`,
     });
-
   } catch (error) {
-    console.error('[API] Error creating folder share:', error);
+    console.error("[API] Error creating folder share:", error);
     return NextResponse.json(
-      { error: 'Failed to create folder share' },
-      { status: 500 }
+      { error: "Failed to create folder share" },
+      { status: 500 },
     );
   }
 }
@@ -82,23 +82,22 @@ export async function GET(request: NextRequest) {
   try {
     // Get all shared folders for management interface
     const shares = await getAllSharedFolders();
-    
+
     // Remove password hashes from response
     const sharesResponse = shares.map(({ password_hash, ...share }) => ({
       ...share,
-      has_password: !!password_hash
+      has_password: !!password_hash,
     }));
 
     return NextResponse.json({
       success: true,
-      shares: sharesResponse
+      shares: sharesResponse,
     });
-
   } catch (error) {
-    console.error('[API] Error fetching shares:', error);
+    console.error("[API] Error fetching shares:", error);
     return NextResponse.json(
-      { error: 'Failed to fetch shares' },
-      { status: 500 }
+      { error: "Failed to fetch shares" },
+      { status: 500 },
     );
   }
 }

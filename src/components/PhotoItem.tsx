@@ -33,14 +33,14 @@ export default function PhotoItem({
 }: PhotoItemProps) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const { elementRef, shouldLoad } = useIntersectionObserver({
-    rootMargin: '200px', // Start loading when 200px away
+    rootMargin: "200px", // Start loading when 200px away
     threshold: 0.1,
   });
 
   // Get the correct thumbnail URL based on whether this is a shared view
   const getThumbnailUrl = () => {
-    if (!shouldLoad) return '';
-    
+    if (!shouldLoad) return "";
+
     if (isSharedView && shareToken) {
       // Use shared thumbnail endpoint (no auth needed for thumbnails in shared view)
       return `/api/shares/${shareToken}/thumbnail/${photo.id}`;
@@ -54,8 +54,8 @@ export default function PhotoItem({
 
   // Only load thumbnails for images, not videos
   const { blob, isLoading, error } = useThumbnailLoader(
-    isVideo ? '' : getThumbnailUrl(),
-    priority
+    isVideo ? "" : getThumbnailUrl(),
+    priority,
   );
 
   useEffect(() => {
@@ -161,15 +161,31 @@ export default function PhotoItem({
               <span className="text-xs text-center leading-tight font-medium mb-1">
                 {(() => {
                   const filename = photo.filename.toLowerCase();
-                  const rawFormats = ['.nef', '.cr2', '.cr3', '.arw', '.dng', '.raf', '.orf', '.rw2', '.pef', '.srw', '.x3f'];
-                  const isRawFormat = rawFormats.some(ext => filename.endsWith(ext));
+                  const rawFormats = [
+                    ".nef",
+                    ".cr2",
+                    ".cr3",
+                    ".arw",
+                    ".dng",
+                    ".raf",
+                    ".orf",
+                    ".rw2",
+                    ".pef",
+                    ".srw",
+                    ".x3f",
+                  ];
+                  const isRawFormat = rawFormats.some((ext) =>
+                    filename.endsWith(ext),
+                  );
 
                   if (isRawFormat) {
-                    return 'RAW';
-                  } else if (error?.message?.includes('Unsupported image format')) {
-                    return 'Unsupported';
+                    return "RAW";
+                  } else if (
+                    error?.message?.includes("Unsupported image format")
+                  ) {
+                    return "Unsupported";
                   } else {
-                    return 'No preview';
+                    return "No preview";
                   }
                 })()}
               </span>

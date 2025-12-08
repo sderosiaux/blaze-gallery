@@ -2,7 +2,16 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Heart, Search, FolderOpen, Gauge, BarChart3, Sparkles, Loader2, Share2 } from "lucide-react";
+import {
+  Heart,
+  Search,
+  FolderOpen,
+  Gauge,
+  BarChart3,
+  Sparkles,
+  Loader2,
+  Share2,
+} from "lucide-react";
 import BlazeIcon from "@/components/BlazeIcon";
 import GitHubIcon from "@/components/GitHubIcon";
 import SearchBar from "@/components/SearchBar";
@@ -13,9 +22,7 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-export default function AppLayout({
-  children,
-}: AppLayoutProps) {
+export default function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
@@ -27,21 +34,21 @@ export default function AppLayout({
   // Check auth config on client side only
   useEffect(() => {
     setMounted(true);
-    
+
     // Fetch auth config from the client side
     const checkAuthConfig = async () => {
       try {
-        const response = await fetch('/api/auth/config');
+        const response = await fetch("/api/auth/config");
         if (response.ok) {
           const { enabled } = await response.json();
           setAuthEnabled(enabled);
         }
       } catch (error) {
-        console.warn('Failed to check auth config:', error);
+        console.warn("Failed to check auth config:", error);
         setAuthEnabled(false);
       }
     };
-    
+
     checkAuthConfig();
   }, []);
 
@@ -51,26 +58,27 @@ export default function AppLayout({
       setScrolled(window.scrollY > 10);
     };
 
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const handleRandomFolder = async () => {
     setRandomFolderLoading(true);
     try {
-      const response = await fetch('/api/stats/random-folder');
+      const response = await fetch("/api/stats/random-folder");
       const data = await response.json();
-      
+
       if (data.success) {
-        const folderPath = data.data.path === '' ? '/' : `/folder/${data.data.path}`;
+        const folderPath =
+          data.data.path === "" ? "/" : `/folder/${data.data.path}`;
         window.location.href = folderPath;
       } else {
-        console.error('Failed to get random folder:', data.error);
-        alert('No folders with photos found!');
+        console.error("Failed to get random folder:", data.error);
+        alert("No folders with photos found!");
       }
     } catch (error) {
-      console.error('Error fetching random folder:', error);
-      alert('Failed to find a random folder');
+      console.error("Error fetching random folder:", error);
+      alert("Failed to find a random folder");
     } finally {
       setRandomFolderLoading(false);
     }
@@ -84,24 +92,22 @@ export default function AppLayout({
   const shouldShowNavigation = () => {
     // Don't show anything until mounted and auth check is complete
     if (!mounted || authLoading) return false;
-    
+
     // If auth is disabled, show everything
     if (!authEnabled) return true;
-    
+
     // If auth is enabled, only show if user is authenticated
     return isAuthenticated;
   };
 
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className={`
+      <header
+        className={`
         fixed top-0 left-0 right-0 z-50 bg-white border-b transition-all duration-200
-        ${scrolled 
-          ? 'shadow-lg backdrop-blur-sm bg-white/95' 
-          : 'shadow-sm'
-        }
-      `}>
+        ${scrolled ? "shadow-lg backdrop-blur-sm bg-white/95" : "shadow-sm"}
+      `}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
@@ -124,7 +130,6 @@ export default function AppLayout({
               {/* Show navigation items based on auth state */}
               {shouldShowNavigation() && (
                 <>
-
                   {/* Random Folder Button */}
                   <button
                     onClick={handleRandomFolder}
@@ -156,7 +161,7 @@ export default function AppLayout({
                   >
                     <Gauge className="w-5 h-5" />
                   </a>
-                  
+
                   {/* Share Management Link */}
                   <a
                     href="/admin/shares"
@@ -178,7 +183,7 @@ export default function AppLayout({
                   )}
                 </>
               )}
-              
+
               {/* GitHub Link - always visible */}
               <a
                 href="https://github.com/sderosiaux/blaze-gallery"
@@ -191,9 +196,7 @@ export default function AppLayout({
               </a>
 
               {/* Authentication - only show if enabled and mounted to prevent hydration mismatch */}
-              {mounted && authEnabled && (
-                <AuthButton />
-              )}
+              {mounted && authEnabled && <AuthButton />}
             </div>
           </div>
         </div>

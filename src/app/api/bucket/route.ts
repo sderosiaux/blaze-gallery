@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger";
 export async function GET() {
   try {
     const config = getConfig();
-    
+
     return NextResponse.json({
       success: true,
       bucket: config.backblaze_bucket,
@@ -15,7 +15,7 @@ export async function GET() {
       method: "GET",
       path: "/api/bucket",
     });
-    
+
     return NextResponse.json(
       {
         success: false,

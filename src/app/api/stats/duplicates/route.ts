@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/database';
-import { logger } from '@/lib/logger';
+import { NextResponse } from "next/server";
+import { query } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 interface DuplicateGroup {
   filename: string;
@@ -64,31 +64,32 @@ export async function GET() {
 
     // Group duplicates by filename and size
     const duplicateGroups: Record<string, DuplicateGroup> = {};
-    
+
     for (const photo of duplicatePhotos) {
       const groupKey = `${photo.filename}|${photo.size}`;
-      
+
       if (!duplicateGroups[groupKey]) {
         duplicateGroups[groupKey] = {
           filename: photo.filename,
           count: 0,
-          photos: []
+          photos: [],
         };
       }
-      
+
       duplicateGroups[groupKey].photos.push({
         id: photo.id,
         s3_key: photo.s3_key,
         size: photo.size,
         folder_path: photo.folder_path,
-        created_at: photo.created_at
+        created_at: photo.created_at,
       });
       duplicateGroups[groupKey].count++;
     }
 
     // Convert to array and sort by count (most duplicates first)
-    const sortedGroups = Object.values(duplicateGroups)
-      .sort((a, b) => b.count - a.count);
+    const sortedGroups = Object.values(duplicateGroups).sort(
+      (a, b) => b.count - a.count,
+    );
 
     // Calculate summary stats
     const totalDuplicateFiles = sortedGroups.length;
@@ -105,7 +106,6 @@ export async function GET() {
       const keepOneSize = Number(group.photos[0]?.size) || 0;
       const spaceSaved = totalGroupSize - keepOneSize;
 
-
       return total + spaceSaved;
     }, 0);
 
@@ -115,23 +115,22 @@ export async function GET() {
         summary: {
           total_duplicate_filenames: totalDuplicateFiles,
           total_duplicate_photos: totalDuplicatePhotos,
-          potential_space_saved_bytes: potentialSpaceSaved
+          potential_space_saved_bytes: potentialSpaceSaved,
         },
-        duplicates: sortedGroups
-      }
+        duplicates: sortedGroups,
+      },
     });
-
   } catch (error) {
-    logger.apiError('Error in GET /api/stats/duplicates', error as Error, {
-      method: 'GET',
-      path: '/api/stats/duplicates'
+    logger.apiError("Error in GET /api/stats/duplicates", error as Error, {
+      method: "GET",
+      path: "/api/stats/duplicates",
     });
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

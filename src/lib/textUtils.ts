@@ -5,17 +5,17 @@
 /**
  * Normalizes text by removing accents and converting to lowercase
  * This allows for accent-insensitive searches
- * 
+ *
  * Examples:
  * - "café" → "cafe"
- * - "naïve" → "naive"  
+ * - "naïve" → "naive"
  * - "résumé" → "resume"
  * - "Björk" → "bjork"
  */
 export function normalizeTextForSearch(text: string): string {
   return text
-    .normalize('NFD') // Decompose accented characters
-    .replace(/[\u0300-\u036f]/g, '') // Remove accent marks
+    .normalize("NFD") // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, "") // Remove accent marks
     .toLowerCase()
     .trim();
 }

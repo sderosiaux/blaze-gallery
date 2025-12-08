@@ -4,7 +4,16 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Photo } from "@/types";
 import PhotoGrid from "@/components/PhotoGrid";
-import { Lock, Eye, Download, Calendar, User, AlertCircle, Share2, Folder } from "lucide-react";
+import {
+  Lock,
+  Eye,
+  Download,
+  Calendar,
+  User,
+  AlertCircle,
+  Share2,
+  Folder,
+} from "lucide-react";
 
 interface SharedFolder {
   id: number;
@@ -32,7 +41,7 @@ interface ShareData {
 export default function SharePage() {
   const params = useParams();
   const token = params.token as string;
-  
+
   const [shareData, setShareData] = useState<ShareData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,11 +53,11 @@ export default function SharePage() {
 
   // Helper functions for localStorage session management
   const getStoredSessionToken = (shareToken: string): string | null => {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === "undefined") return null;
     try {
       const stored = localStorage.getItem(`share_session_${shareToken}`);
       if (!stored) return null;
-      
+
       const { token, expiresAt } = JSON.parse(stored);
       if (Date.now() > expiresAt) {
         localStorage.removeItem(`share_session_${shareToken}`);
@@ -61,12 +70,12 @@ export default function SharePage() {
   };
 
   const storeSessionToken = (shareToken: string, sessionToken: string) => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
     try {
       // Store session token with 24 hour expiration
       const data = {
         token: sessionToken,
-        expiresAt: Date.now() + (24 * 60 * 60 * 1000)
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       };
       localStorage.setItem(`share_session_${shareToken}`, JSON.stringify(data));
     } catch {
@@ -75,7 +84,7 @@ export default function SharePage() {
   };
 
   const removeStoredSessionToken = (shareToken: string) => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
     try {
       localStorage.removeItem(`share_session_${shareToken}`);
     } catch {
@@ -93,15 +102,15 @@ export default function SharePage() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // First, check for stored session token
       const storedSessionToken = getStoredSessionToken(token);
-      
+
       const url = new URL(`/api/shares/${token}`, window.location.origin);
       if (sharePassword) {
-        url.searchParams.set('password', sharePassword);
+        url.searchParams.set("password", sharePassword);
       }
-      
+
       const response = await fetch(url);
       const data = await response.json();
 
@@ -110,16 +119,16 @@ export default function SharePage() {
         if (storedSessionToken) {
           try {
             const sessionResponse = await fetch(`/api/shares/${token}`, {
-              method: 'POST',
+              method: "POST",
               headers: {
-                'Content-Type': 'application/json',
-                'x-share-session': storedSessionToken
+                "Content-Type": "application/json",
+                "x-share-session": storedSessionToken,
               },
               body: JSON.stringify({
-                action: 'validate_session'
-              })
+                action: "validate_session",
+              }),
             });
-            
+
             if (sessionResponse.ok) {
               const sessionResult = await sessionResponse.json();
               if (sessionResult.success) {
@@ -139,24 +148,25 @@ export default function SharePage() {
             removeStoredSessionToken(token);
           }
         }
-        
+
         setPasswordRequired(true);
         setLoading(false);
         return;
       }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to load shared folder');
+        throw new Error(data.error || "Failed to load shared folder");
       }
 
       setShareData(data);
       setPasswordRequired(false);
-      
+
       // Update page title
       document.title = `${data.folder.name} - Shared Folder`;
-      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load shared folder');
+      setError(
+        err instanceof Error ? err.message : "Failed to load shared folder",
+      );
     } finally {
       setLoading(false);
     }
@@ -165,43 +175,45 @@ export default function SharePage() {
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password.trim()) return;
-    
+
     setPasswordLoading(true);
-    
+
     try {
       const response = await fetch(`/api/shares/${token}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: 'validate_password',
-          password: password.trim()
-        })
+          action: "validate_password",
+          password: password.trim(),
+        }),
       });
 
       const result = await response.json();
-      
+
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to validate password');
+        throw new Error(result.error || "Failed to validate password");
       }
 
       if (result.success) {
         // Password validated and session created
         const sessionToken = result.data.session_token;
-        
+
         // Store session token in localStorage for persistence
         storeSessionToken(token, sessionToken);
-        
+
         setSessionToken(sessionToken);
         setShareData(result.data);
         setPasswordRequired(false);
         document.title = `${result.data.folder.name} - Shared Photos`;
       } else {
-        setError(result.error || 'Invalid password');
+        setError(result.error || "Invalid password");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Password validation failed');
+      setError(
+        err instanceof Error ? err.message : "Password validation failed",
+      );
     } finally {
       setPasswordLoading(false);
     }
@@ -233,9 +245,12 @@ export default function SharePage() {
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Lock className="w-8 h-8 text-blue-600" />
             </div>
-            <h1 className="text-xl font-semibold text-gray-900">Password Required</h1>
+            <h1 className="text-xl font-semibold text-gray-900">
+              Password Required
+            </h1>
             <p className="text-gray-600 mt-2">
-              This photo collection is password protected. Please enter the password to view the photos.
+              This photo collection is password protected. Please enter the
+              password to view the photos.
             </p>
           </div>
 
@@ -265,11 +280,15 @@ export default function SharePage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? <Eye className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <Eye className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
-            
+
             <button
               type="submit"
               disabled={!password.trim() || passwordLoading}
@@ -281,7 +300,7 @@ export default function SharePage() {
                   Verifying...
                 </div>
               ) : (
-                'Access Photos'
+                "Access Photos"
               )}
             </button>
           </form>
@@ -295,10 +314,13 @@ export default function SharePage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 text-center">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Share Not Available</h1>
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">
+            Share Not Available
+          </h1>
           <p className="text-gray-600 mb-4">{error}</p>
           <p className="text-sm text-gray-500">
-            The shared folder may have been removed or expired. Please contact the person who shared this link.
+            The shared folder may have been removed or expired. Please contact
+            the person who shared this link.
           </p>
         </div>
       </div>
@@ -334,7 +356,7 @@ export default function SharePage() {
                 </p>
               </div>
             </div>
-            
+
             {/* Share info */}
             <div className="hidden md:flex items-center space-x-6 text-sm text-gray-500">
               <div className="flex items-center">
@@ -352,7 +374,8 @@ export default function SharePage() {
               {shareData.share.expires_at && (
                 <div className="flex items-center text-orange-600">
                   <Calendar className="w-4 h-4 mr-1" />
-                  Expires {new Date(shareData.share.expires_at).toLocaleDateString()}
+                  Expires{" "}
+                  {new Date(shareData.share.expires_at).toLocaleDateString()}
                 </div>
               )}
             </div>
@@ -364,7 +387,6 @@ export default function SharePage() {
               <p className="text-gray-700">{shareData.share.description}</p>
             </div>
           )}
-
         </div>
       </div>
 
@@ -384,8 +406,12 @@ export default function SharePage() {
         ) : (
           <div className="text-center py-12">
             <Folder className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Photos</h3>
-            <p className="text-gray-500">This folder doesn't contain any photos.</p>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              No Photos
+            </h3>
+            <p className="text-gray-500">
+              This folder does not contain any photos.
+            </p>
           </div>
         )}
       </div>

@@ -31,20 +31,22 @@ let cleanupInterval: NodeJS.Timeout | null = null;
 // Initialize cache cleanup
 function initializeCacheCleanup() {
   if (cleanupInterval) return;
-  
+
   cleanupInterval = setInterval(() => {
     const now = Date.now();
     let cleanedCount = 0;
-    
+
     for (const [key, cached] of urlCache.entries()) {
       if (now >= cached.expiresAt) {
         urlCache.delete(key);
         cleanedCount++;
       }
     }
-    
+
     if (cleanedCount > 0) {
-      logger.debug(`Cleaned up ${cleanedCount} expired presigned URLs from cache`);
+      logger.debug(
+        `Cleaned up ${cleanedCount} expired presigned URLs from cache`,
+      );
     }
   }, CACHE_CLEANUP_INTERVAL);
 }
@@ -59,7 +61,7 @@ export function getUrlCacheStats() {
   const now = Date.now();
   let validCount = 0;
   let expiredCount = 0;
-  
+
   for (const cached of urlCache.values()) {
     if (now < cached.expiresAt) {
       validCount++;
@@ -67,7 +69,7 @@ export function getUrlCacheStats() {
       expiredCount++;
     }
   }
-  
+
   return {
     totalCached: urlCache.size,
     validUrls: validCount,
@@ -181,8 +183,8 @@ class S3Manager {
    */
   getBucketName(): string {
     this.ensureInitialized();
-    
-    const { getConfig } = require('./config');
+
+    const { getConfig } = require("./config");
     const config = getConfig();
     return config.backblaze_bucket;
   }
@@ -196,9 +198,9 @@ class S3Manager {
       return; // Already initialized
     }
 
-    const { getConfig } = require('./config');
+    const { getConfig } = require("./config");
     const config = getConfig();
-    
+
     this.initializeClient({
       endpoint: config.backblaze_endpoint,
       bucket: config.backblaze_bucket,
@@ -364,27 +366,32 @@ export async function listObjects(
     }));
 
     // Calculate actual HTTP response size
-    const responseSize = JSON.stringify(objects).length +
-                        JSON.stringify({
-                          nextContinuationToken: response.NextContinuationToken,
-                          isTruncated: response.IsTruncated
-                        }).length;
+    const responseSize =
+      JSON.stringify(objects).length +
+      JSON.stringify({
+        nextContinuationToken: response.NextContinuationToken,
+        isTruncated: response.IsTruncated,
+      }).length;
 
     // Log results count and HTTP response size
-    const folderDescWithCount = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
+    const folderDescWithCount = prefix
+      ? `${bucket}/${prefix}`
+      : `${bucket} (root)`;
     const pageInfoWithCount = pageNumber > 1 ? ` (page ${pageNumber})` : "";
     const responseSizeKB = (responseSize / 1024).toFixed(1);
-    logger.s3Connection(`Retrieved ${objects.length} objects from S3: ${folderDescWithCount}${pageInfoWithCount} (${duration}ms, ${responseSizeKB}KB)`);
-    
+    logger.s3Connection(
+      `Retrieved ${objects.length} objects from S3: ${folderDescWithCount}${pageInfoWithCount} (${duration}ms, ${responseSizeKB}KB)`,
+    );
+
     await auditMiddleware.log({
-      operation: 'ListObjects',
-      method: 'GET',
+      operation: "ListObjects",
+      method: "GET",
       bucket,
       key: prefix,
       startTime,
       statusCode,
       bytesTransferred: responseSize,
-      request
+      request,
     });
 
     const logContext = {
@@ -445,30 +452,33 @@ export async function listObjects(
   } catch (error) {
     const duration = Date.now() - startTime;
     const folderDesc = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
-    
+
     // Extract status code from error
     statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    if (typeof error === 'object' && error !== null) {
-      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
         }
       }
     }
-    
+
     // Audit logging for error
     await auditMiddleware.log({
-      operation: 'ListObjects',
-      method: 'GET',
+      operation: "ListObjects",
+      method: "GET",
       bucket,
       key: prefix,
       startTime,
       statusCode,
       error: errorMessage,
-      request
+      request,
     });
 
     logger.s3Error(
@@ -479,7 +489,11 @@ export async function listObjects(
   }
 }
 
-export async function getObjectMetadata(bucket: string, key: string, request?: Request) {
+export async function getObjectMetadata(
+  bucket: string,
+  key: string,
+  request?: Request,
+) {
   const client = S3Manager.getInstance().getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
@@ -497,14 +511,14 @@ export async function getObjectMetadata(bucket: string, key: string, request?: R
 
     // Audit logging
     await auditMiddleware.log({
-      operation: 'HeadObject',
-      method: 'HEAD',
+      operation: "HeadObject",
+      method: "HEAD",
       bucket,
       key,
       startTime,
       statusCode,
       bytesTransferred: 0, // HEAD requests don't transfer body data
-      request
+      request,
     });
 
     logger.debug(
@@ -515,10 +529,13 @@ export async function getObjectMetadata(bucket: string, key: string, request?: R
   } catch (error) {
     // Extract status code from error
     statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    if (typeof error === 'object' && error !== null) {
-      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
@@ -528,14 +545,14 @@ export async function getObjectMetadata(bucket: string, key: string, request?: R
 
     // Audit logging for error
     await auditMiddleware.log({
-      operation: 'HeadObject',
-      method: 'HEAD',
+      operation: "HeadObject",
+      method: "HEAD",
       bucket,
       key,
       startTime,
       statusCode,
       error: errorMessage,
-      request
+      request,
     });
 
     logger.s3Error("Failed to get object metadata", error as Error, {
@@ -555,16 +572,16 @@ export async function getSignedDownloadUrl(
 ): Promise<string> {
   // Initialize cache cleanup on first use
   initializeCacheCleanup();
-  
+
   const cacheKey = getCacheKey(bucket, key, expiresIn);
   const now = Date.now();
-  
+
   // Check if we have a cached URL that's still valid with 10% buffer
   const cached = urlCache.get(cacheKey);
   if (cached) {
     const bufferTime = (cached.expiresAt - cached.createdAt) * 0.1; // 10% of original expiry time
     const effectiveExpiry = cached.expiresAt - bufferTime;
-    
+
     if (now < effectiveExpiry) {
       logger.debug(
         `Using cached presigned URL for ${key} (expires in ${Math.round((cached.expiresAt - now) / 1000)}s)`,
@@ -592,9 +609,9 @@ export async function getSignedDownloadUrl(
     });
 
     const signedUrl = await getSignedUrl(client, command, { expiresIn });
-    
+
     // Cache the new URL
-    const expiresAt = now + (expiresIn * 1000);
+    const expiresAt = now + expiresIn * 1000;
     urlCache.set(cacheKey, {
       url: signedUrl,
       expiresAt,
@@ -603,14 +620,14 @@ export async function getSignedDownloadUrl(
 
     // Audit logging
     await auditMiddleware.log({
-      operation: 'GeneratePresignedUrl',
-      method: 'GET',
+      operation: "GeneratePresignedUrl",
+      method: "GET",
       bucket,
       key,
       startTime,
       statusCode,
       bytesTransferred: signedUrl.length, // Size of the generated URL
-      request
+      request,
     });
 
     logger.debug(
@@ -621,10 +638,13 @@ export async function getSignedDownloadUrl(
   } catch (error) {
     // Extract status code from error
     statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    if (typeof error === 'object' && error !== null) {
-      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
@@ -634,14 +654,14 @@ export async function getSignedDownloadUrl(
 
     // Audit logging for error
     await auditMiddleware.log({
-      operation: 'GeneratePresignedUrl',
-      method: 'GET',
+      operation: "GeneratePresignedUrl",
+      method: "GET",
       bucket,
       key,
       startTime,
       statusCode,
       error: errorMessage,
-      request
+      request,
     });
 
     logger.s3Error("Failed to generate signed download URL", error as Error, {
@@ -654,7 +674,11 @@ export async function getSignedDownloadUrl(
   }
 }
 
-export async function getObjectStream(bucket: string, key: string, request?: Request) {
+export async function getObjectStream(
+  bucket: string,
+  key: string,
+  request?: Request,
+) {
   const client = S3Manager.getInstance().getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
@@ -672,14 +696,14 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
 
     // Audit logging
     await auditMiddleware.log({
-      operation: 'GetObject',
-      method: 'GET',
+      operation: "GetObject",
+      method: "GET",
       bucket,
       key,
       startTime,
       statusCode,
       bytesTransferred: response.ContentLength,
-      request
+      request,
     });
 
     logger.debug(
@@ -690,10 +714,13 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
   } catch (error) {
     // Extract status code from error
     statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    if (typeof error === 'object' && error !== null) {
-      if ('$metadata' in error && typeof (error as any).$metadata === 'object') {
+    errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (typeof error === "object" && error !== null) {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
@@ -703,14 +730,14 @@ export async function getObjectStream(bucket: string, key: string, request?: Req
 
     // Audit logging for error
     await auditMiddleware.log({
-      operation: 'GetObject',
-      method: 'GET',
+      operation: "GetObject",
+      method: "GET",
       bucket,
       key,
       startTime,
       statusCode,
       error: errorMessage,
-      request
+      request,
     });
 
     logger.s3Error("Failed to get object stream", error as Error, {
@@ -743,8 +770,8 @@ export async function putObject(
   const bytesTransferred = Buffer.isBuffer(body)
     ? body.length
     : typeof body === "string"
-    ? Buffer.byteLength(body)
-    : body.byteLength;
+      ? Buffer.byteLength(body)
+      : body.byteLength;
 
   try {
     logger.s3Connection(
@@ -781,7 +808,10 @@ export async function putObject(
     errorMessage = error instanceof Error ? error.message : "Unknown error";
 
     if (typeof error === "object" && error !== null) {
-      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
@@ -846,7 +876,10 @@ export async function deleteObject(
     errorMessage = error instanceof Error ? error.message : "Unknown error";
 
     if (typeof error === "object" && error !== null) {
-      if ("$metadata" in error && typeof (error as any).$metadata === "object") {
+      if (
+        "$metadata" in error &&
+        typeof (error as any).$metadata === "object"
+      ) {
         const httpStatusCode = (error as any).$metadata?.httpStatusCode;
         if (httpStatusCode) {
           statusCode = httpStatusCode;
@@ -887,21 +920,21 @@ const IMAGE_FORMATS: Record<string, string> = {
   ".tif": "image/tiff",
   ".svg": "image/svg+xml",
   // RAW camera formats
-  ".nef": "image/x-nikon-nef",    // Nikon
-  ".cr2": "image/x-canon-cr2",    // Canon
-  ".cr3": "image/x-canon-cr3",    // Canon (newer)
-  ".arw": "image/x-sony-arw",     // Sony
-  ".dng": "image/x-adobe-dng",    // Adobe Digital Negative
-  ".raf": "image/x-fuji-raf",     // Fujifilm
-  ".orf": "image/x-olympus-orf",  // Olympus
+  ".nef": "image/x-nikon-nef", // Nikon
+  ".cr2": "image/x-canon-cr2", // Canon
+  ".cr3": "image/x-canon-cr3", // Canon (newer)
+  ".arw": "image/x-sony-arw", // Sony
+  ".dng": "image/x-adobe-dng", // Adobe Digital Negative
+  ".raf": "image/x-fuji-raf", // Fujifilm
+  ".orf": "image/x-olympus-orf", // Olympus
   ".rw2": "image/x-panasonic-rw2", // Panasonic
-  ".pef": "image/x-pentax-pef",   // Pentax
-  ".srw": "image/x-samsung-srw",  // Samsung
-  ".x3f": "image/x-sigma-x3f",    // Sigma
+  ".pef": "image/x-pentax-pef", // Pentax
+  ".srw": "image/x-samsung-srw", // Samsung
+  ".x3f": "image/x-sigma-x3f", // Sigma
   // Modern formats
-  ".heic": "image/heic",          // Apple
-  ".heif": "image/heif",          // High Efficiency Image Format
-  ".avif": "image/avif",          // AV1 Image File Format
+  ".heic": "image/heic", // Apple
+  ".heif": "image/heif", // High Efficiency Image Format
+  ".avif": "image/avif", // AV1 Image File Format
 };
 
 // Video format definitions
@@ -977,7 +1010,7 @@ export async function getObjectStreamAuto(key: string, request?: Request) {
 
 /**
  * List objects with auto-initialization
- * No need to manually initialize S3 client or fetch config  
+ * No need to manually initialize S3 client or fetch config
  */
 export async function listObjectsAuto(
   prefix?: string,
@@ -987,7 +1020,14 @@ export async function listObjectsAuto(
   request?: Request,
 ) {
   const bucket = S3Manager.getInstance().getBucketName();
-  return listObjects(bucket, prefix, continuationToken, maxKeys, pageNumber, request);
+  return listObjects(
+    bucket,
+    prefix,
+    continuationToken,
+    maxKeys,
+    pageNumber,
+    request,
+  );
 }
 
 /**
@@ -1007,26 +1047,29 @@ export async function getSignedDownloadUrlAuto(
  * Test S3 connection with specific configuration
  * Used for testing new configurations before saving
  */
-export async function testS3ConnectionWith(config: S3Config, request?: Request): Promise<{success: boolean, error?: string}> {
+export async function testS3ConnectionWith(
+  config: S3Config,
+  request?: Request,
+): Promise<{ success: boolean; error?: string }> {
   try {
     // Create a temporary S3Manager instance for testing
     const testManager = new S3Manager();
     const client = testManager.initializeClient(config);
-    
+
     // Test with a simple list operation (1 item max)
     const command = new ListObjectsV2Command({
       Bucket: config.bucket,
       Prefix: "",
       MaxKeys: 1,
     });
-    
+
     await client.send(command);
-    
+
     return { success: true };
   } catch (error) {
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Unknown error"
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }

@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 interface ShareSession {
   token: string;
@@ -13,9 +13,8 @@ const globalForSessions = globalThis as unknown as {
   sessions: Map<string, ShareSession> | undefined;
 };
 
-const sessions: Map<string, ShareSession> = 
+const sessions: Map<string, ShareSession> =
   globalForSessions.sessions ?? (globalForSessions.sessions = new Map());
-
 
 // Session duration: 24 hours
 const SESSION_DURATION = 24 * 60 * 60 * 1000;
@@ -23,34 +22,34 @@ const SESSION_DURATION = 24 * 60 * 60 * 1000;
 export function createShareSession(shareToken: string): string {
   const sessionToken = crypto.randomUUID();
   const now = Date.now();
-  
+
   const session: ShareSession = {
     token: sessionToken,
     shareToken,
     createdAt: now,
-    expiresAt: now + SESSION_DURATION
+    expiresAt: now + SESSION_DURATION,
   };
-  
+
   sessions.set(sessionToken, session);
-  
+
   // Clean up expired sessions periodically
   cleanupExpiredSessions();
-  
+
   return sessionToken;
 }
 
 export function validateShareSession(sessionToken: string): string | null {
   const session = sessions.get(sessionToken);
-  
+
   if (!session) {
     return null;
   }
-  
+
   if (Date.now() > session.expiresAt) {
     sessions.delete(sessionToken);
     return null;
   }
-  
+
   return session.shareToken;
 }
 

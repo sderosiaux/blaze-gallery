@@ -19,7 +19,7 @@ export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
   };
 
   const getFolderPath = (s3Key: string) => {
-    const folderPath = s3Key.substring(0, s3Key.lastIndexOf('/'));
+    const folderPath = s3Key.substring(0, s3Key.lastIndexOf("/"));
     return folderPath || "Root";
   };
 
@@ -49,7 +49,7 @@ export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
 
   const getTooltipContent = () => {
     const parts = [];
-    const isSearchPage = pathname?.startsWith('/search');
+    const isSearchPage = pathname?.startsWith("/search");
 
     // Add folder path if on search page
     if (isSearchPage) {
@@ -94,7 +94,7 @@ export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
             <div className="font-medium mb-1 truncate max-w-xs">
               {photo.filename}
             </div>
-            {pathname?.startsWith('/search') ? (
+            {pathname?.startsWith("/search") ? (
               <div className="text-gray-300">
                 <div className="mb-1">{`📁 ${getFolderPath(photo.s3_key)}`}</div>
                 <div>{getTooltipContentWithoutFolder()}</div>

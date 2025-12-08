@@ -353,7 +353,8 @@ export class ThumbnailService {
 
       return thumbnailPath;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
 
       if (
         errorMessage.includes("VipsJpeg: Invalid SOS parameters") ||
@@ -457,13 +458,9 @@ export class ThumbnailService {
 
       return Buffer.concat(chunks);
     } catch (error) {
-      logger.thumbnailError(
-        "Error reading thumbnail file",
-        error as Error,
-        {
-          thumbnailPath,
-        },
-      );
+      logger.thumbnailError("Error reading thumbnail file", error as Error, {
+        thumbnailPath,
+      });
       return null;
     }
   }
@@ -507,13 +504,9 @@ export class ThumbnailService {
         logger.thumbnailOperation("Deleted thumbnail file");
       }
     } catch (error) {
-      logger.thumbnailError(
-        "Error deleting thumbnail file",
-        error as Error,
-        {
-          thumbnailPath,
-        },
-      );
+      logger.thumbnailError("Error deleting thumbnail file", error as Error, {
+        thumbnailPath,
+      });
     }
   }
 
@@ -759,14 +752,20 @@ export class ThumbnailService {
             status: 413,
           };
         } else {
-          return { error: "Photo too large for thumbnail generation", status: 413 };
+          return {
+            error: "Photo too large for thumbnail generation",
+            status: 413,
+          };
         }
       }
 
       throw error;
     }
 
-    const thumbnailBuffer = await this.getThumbnailBuffer(thumbnailPath, request);
+    const thumbnailBuffer = await this.getThumbnailBuffer(
+      thumbnailPath,
+      request,
+    );
     if (!thumbnailBuffer) {
       return { error: "Failed to generate thumbnail", status: 500 };
     }

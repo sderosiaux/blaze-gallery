@@ -23,9 +23,10 @@ function formatDate(dateString: string | undefined): string {
   if (!dateString) return "Never";
 
   // Handle SQLite timestamp format - assume it's UTC if no timezone specified
-  const date = dateString.includes('T') || dateString.includes('Z') 
-    ? new Date(dateString) 
-    : new Date(dateString + 'Z'); // Append 'Z' to treat as UTC
+  const date =
+    dateString.includes("T") || dateString.includes("Z")
+      ? new Date(dateString)
+      : new Date(dateString + "Z"); // Append 'Z' to treat as UTC
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));

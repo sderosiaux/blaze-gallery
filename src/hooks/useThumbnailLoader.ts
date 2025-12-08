@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 interface ThumbnailRequest {
   url: string;
@@ -39,7 +39,10 @@ class ThumbnailQueue {
   }
 
   private async processQueue() {
-    while (this.activeRequests.size < this.maxConcurrent && this.queue.length > 0) {
+    while (
+      this.activeRequests.size < this.maxConcurrent &&
+      this.queue.length > 0
+    ) {
       // Sort by priority (higher priority first)
       this.queue.sort((a, b) => b.priority - a.priority);
       const request = this.queue.shift()!;
@@ -47,9 +50,9 @@ class ThumbnailQueue {
       if (this.cache.has(request.url)) {
         request.resolve(this.cache.get(request.url)!);
         // Also resolve any pending requests for this URL
-        const pendingRequests = this.queue.filter(r => r.url === request.url);
-        this.queue = this.queue.filter(r => r.url !== request.url);
-        pendingRequests.forEach(r => r.resolve(this.cache.get(request.url)!));
+        const pendingRequests = this.queue.filter((r) => r.url === request.url);
+        this.queue = this.queue.filter((r) => r.url !== request.url);
+        pendingRequests.forEach((r) => r.resolve(this.cache.get(request.url)!));
         continue;
       }
 
@@ -64,13 +67,12 @@ class ThumbnailQueue {
         signal: AbortSignal.timeout(10000), // 10s timeout
       });
 
-
       if (!response.ok) {
         // Try to parse JSON error response for better error messages
         try {
           const errorData = await response.json();
           if (errorData.error) {
-            throw new Error(`${errorData.error}: ${errorData.message || ''}`);
+            throw new Error(`${errorData.error}: ${errorData.message || ""}`);
           }
         } catch (parseError) {
           // Fall back to HTTP status if JSON parsing fails
@@ -79,7 +81,7 @@ class ThumbnailQueue {
       }
 
       const blob = await response.blob();
-      
+
       // Cache management
       if (this.cache.size >= this.maxCacheSize) {
         const firstKey = this.cache.keys().next().value;
@@ -87,26 +89,24 @@ class ThumbnailQueue {
           this.cache.delete(firstKey);
         }
       }
-      
+
       this.cache.set(request.url, blob);
-      
+
       // Resolve all pending requests for this URL
-      const pendingRequests = this.queue.filter(r => r.url === request.url);
-      this.queue = this.queue.filter(r => r.url !== request.url);
-      
+      const pendingRequests = this.queue.filter((r) => r.url === request.url);
+      this.queue = this.queue.filter((r) => r.url !== request.url);
+
       request.resolve(blob);
-      pendingRequests.forEach(r => r.resolve(blob));
-      
+      pendingRequests.forEach((r) => r.resolve(blob));
     } catch (error) {
       console.warn(`Failed to load thumbnail ${request.url}:`, error);
-      
+
       // Reject all pending requests for this URL with the error
-      const pendingRequests = this.queue.filter(r => r.url === request.url);
-      this.queue = this.queue.filter(r => r.url !== request.url);
-      
+      const pendingRequests = this.queue.filter((r) => r.url === request.url);
+      this.queue = this.queue.filter((r) => r.url !== request.url);
+
       request.reject(error as Error);
-      pendingRequests.forEach(r => r.reject(error as Error));
-      
+      pendingRequests.forEach((r) => r.reject(error as Error));
     } finally {
       this.activeRequests.delete(request.url);
       this.processQueue(); // Process next items in queue

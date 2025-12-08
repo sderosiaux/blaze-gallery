@@ -16,8 +16,8 @@ data*/
 SETUP_GOOGLE.md
 TODO.md
 
-# Scripts
-scripts/
+# Scripts (root level only, not src/scripts)
+/scripts/
 Dockerfile
 docker-compose.yml
 setup-mcp.sh

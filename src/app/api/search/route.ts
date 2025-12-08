@@ -24,7 +24,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
     // Search photos by filename using ILIKE for case-insensitive search
     // PostgreSQL uses unaccent extension or we can use ILIKE for basic search
-    const photoResult = await query(`
+    const photoResult = await query(
+      `
       SELECT
         p.*,
         f.name as folder_name,
@@ -36,12 +37,15 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
          OR f.path ILIKE $1
       ORDER BY p.filename
       LIMIT 50
-    `, [searchTerm]);
+    `,
+      [searchTerm],
+    );
 
     const photoResults = photoResult.rows;
 
     // Search folders by name or path
-    const folderResult = await query(`
+    const folderResult = await query(
+      `
       SELECT
         *,
         CASE
@@ -54,7 +58,9 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
          OR path ILIKE $1
       ORDER BY name
       LIMIT 20
-    `, [searchTerm]);
+    `,
+      [searchTerm],
+    );
 
     const folderResults = folderResult.rows;
 

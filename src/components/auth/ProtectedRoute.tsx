@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { ReactNode } from 'react';
-import { useAuth } from './AuthProvider';
+import { ReactNode } from "react";
+import { useAuth } from "./AuthProvider";
 
 interface ProtectedRouteProps {
   children: ReactNode;
   fallback?: ReactNode;
 }
 
-export default function ProtectedRoute({ 
-  children, 
-  fallback 
+export default function ProtectedRoute({
+  children,
+  fallback,
 }: ProtectedRouteProps) {
   const { isAuthenticated, loading, error } = useAuth();
 
@@ -27,7 +27,10 @@ export default function ProtectedRoute({
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-10" style={{ height: '100vh', width: '100vw' }}>
+      <div
+        className="fixed inset-0 z-10"
+        style={{ height: "100vh", width: "100vw" }}
+      >
         {/* Alert/warning background image with CSS fallback */}
         <div className="absolute inset-0 bg-gradient-to-br from-red-600 via-orange-500 to-red-800 flex items-center justify-center">
           <div className="text-white text-center opacity-20">
@@ -41,13 +44,13 @@ export default function ProtectedRoute({
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => {
             // Hide the image and show the gradient fallback
-            e.currentTarget.style.display = 'none';
+            e.currentTarget.style.display = "none";
           }}
         />
-        
+
         {/* Stronger overlay for better text readability on warning image */}
         <div className="absolute inset-0 bg-black bg-opacity-50"></div>
-        
+
         {/* Error message overlay */}
         <div className="absolute inset-0 flex items-center justify-center p-8">
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 text-center max-w-lg">
@@ -56,13 +59,14 @@ export default function ProtectedRoute({
               <h2 className="text-2xl font-bold text-red-600">
                 Authentication Error
               </h2>
-              <p className="text-lg text-gray-800 leading-relaxed">
-                {error}
-              </p>
-              {(error.includes('not authorized') || error.includes('not whitelisted')) && (
+              <p className="text-lg text-gray-800 leading-relaxed">{error}</p>
+              {(error.includes("not authorized") ||
+                error.includes("not whitelisted")) && (
                 <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                   <p className="text-sm text-yellow-800">
-                    💡 <strong>Your email is not whitelisted.</strong> Only specific email addresses are allowed to access this gallery. Contact the administrator to request access.
+                    💡 <strong>Your email is not whitelisted.</strong> Only
+                    specific email addresses are allowed to access this gallery.
+                    Contact the administrator to request access.
                   </p>
                 </div>
               )}
@@ -82,7 +86,10 @@ export default function ProtectedRoute({
     }
 
     return (
-      <div className="fixed inset-0 z-10" style={{ height: '100vh', width: '100vw' }}>
+      <div
+        className="fixed inset-0 z-10"
+        style={{ height: "100vh", width: "100vw" }}
+      >
         {/* Full screen background image */}
         <img
           src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&h=1080&fit=crop&crop=center"
@@ -90,13 +97,14 @@ export default function ProtectedRoute({
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => {
             // Fallback to a different image if this fails
-            e.currentTarget.src = "https://via.placeholder.com/1920x1080/4F46E5/FFFFFF?text=🖼️+Beautiful+Gallery";
+            e.currentTarget.src =
+              "https://via.placeholder.com/1920x1080/4F46E5/FFFFFF?text=🖼️+Beautiful+Gallery";
           }}
         />
-        
+
         {/* Overlay for better text readability */}
         <div className="absolute inset-0 bg-black bg-opacity-30"></div>
-        
+
         {/* Text overlay box */}
         <div className="absolute inset-0 flex items-center justify-center p-8">
           <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 text-center max-w-md">

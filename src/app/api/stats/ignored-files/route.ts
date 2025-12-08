@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/database';
-import { logger } from '@/lib/logger';
+import { NextResponse } from "next/server";
+import { query } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 interface IgnoredFilesStats {
   summary: {
@@ -29,7 +29,10 @@ export async function GET() {
       FROM photos p
       WHERE p.filename LIKE 'SYNOPHOTO_THUMB_%'
     `);
-    const synologyThumbs = synologyThumbsResult.rows[0] as { count: number; total_size: number | null };
+    const synologyThumbs = synologyThumbsResult.rows[0] as {
+      count: number;
+      total_size: number | null;
+    };
 
     // Get system files
     const systemFilesResult = await query(`
@@ -39,7 +42,10 @@ export async function GET() {
          OR p.filename LIKE '.__%'
          OR p.filename LIKE 'desktop.ini'
     `);
-    const systemFiles = systemFilesResult.rows[0] as { count: number; total_size: number | null };
+    const systemFiles = systemFilesResult.rows[0] as {
+      count: number;
+      total_size: number | null;
+    };
 
     // Get small files (under 10KB)
     const smallFilesResult = await query(`
@@ -52,7 +58,10 @@ export async function GET() {
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
         AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
     `);
-    const smallFiles = smallFilesResult.rows[0] as { count: number; total_size: number | null };
+    const smallFiles = smallFilesResult.rows[0] as {
+      count: number;
+      total_size: number | null;
+    };
 
     // Get @eaDir folder files
     const eaDirFilesResult = await query(`
@@ -62,7 +71,10 @@ export async function GET() {
       WHERE (f.path LIKE '%/@eaDir/%' OR f.path LIKE '%@eaDir%')
         AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
     `);
-    const eaDirFiles = eaDirFilesResult.rows[0] as { count: number; total_size: number | null };
+    const eaDirFiles = eaDirFilesResult.rows[0] as {
+      count: number;
+      total_size: number | null;
+    };
 
     // Get examples for each category
     const synologyExamplesResult = await query(`
@@ -71,7 +83,9 @@ export async function GET() {
       WHERE p.filename LIKE 'SYNOPHOTO_THUMB_%'
       LIMIT 3
     `);
-    const synologyExamples = synologyExamplesResult.rows as { filename: string }[];
+    const synologyExamples = synologyExamplesResult.rows as {
+      filename: string;
+    }[];
 
     const systemExamplesResult = await query(`
       SELECT DISTINCT p.filename
@@ -94,7 +108,9 @@ export async function GET() {
         AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
       LIMIT 3
     `);
-    const smallFileExamples = smallFileExamplesResult.rows as { filename: string }[];
+    const smallFileExamples = smallFileExamplesResult.rows as {
+      filename: string;
+    }[];
 
     const eaDirExamplesResult = await query(`
       SELECT DISTINCT f.path
@@ -129,52 +145,51 @@ export async function GET() {
           system_files: systemCount,
           small_files: smallCount,
           eadir_folders: eaDirCount,
-        }
+        },
       },
       breakdown: [
         {
-          category: 'Synology Thumbnails',
+          category: "Synology Thumbnails",
           count: synologyCount,
           total_size_bytes: synologySize,
-          examples: synologyExamples.map(e => e.filename)
+          examples: synologyExamples.map((e) => e.filename),
         },
         {
-          category: 'System Files',
+          category: "System Files",
           count: systemCount,
           total_size_bytes: systemSize,
-          examples: systemExamples.map(e => e.filename)
+          examples: systemExamples.map((e) => e.filename),
         },
         {
-          category: 'Small Files (<10KB)',
+          category: "Small Files (<10KB)",
           count: smallCount,
           total_size_bytes: smallSize,
-          examples: smallFileExamples.map(e => e.filename)
+          examples: smallFileExamples.map((e) => e.filename),
         },
         {
-          category: '@eaDir System Folders',
+          category: "@eaDir System Folders",
           count: eaDirCount,
           total_size_bytes: eaDirSize,
-          examples: eaDirExamples.map(e => e.path)
-        }
-      ].filter(category => category.count > 0) // Only show categories with files
+          examples: eaDirExamples.map((e) => e.path),
+        },
+      ].filter((category) => category.count > 0), // Only show categories with files
     };
 
     return NextResponse.json({
       success: true,
-      data: result
+      data: result,
     });
-
   } catch (error) {
-    logger.apiError('Error in GET /api/stats/ignored-files', error as Error, {
-      method: 'GET',
-      path: '/api/stats/ignored-files'
+    logger.apiError("Error in GET /api/stats/ignored-files", error as Error, {
+      method: "GET",
+      path: "/api/stats/ignored-files",
     });
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

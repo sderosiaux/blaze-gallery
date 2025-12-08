@@ -11,7 +11,7 @@ class RateLimiter {
   constructor(windowMs = 60000, maxRequests = 100) {
     this.windowMs = windowMs;
     this.maxRequests = maxRequests;
-    
+
     // Cleanup old entries every 5 minutes
     setInterval(() => this.cleanup(), 5 * 60 * 1000);
   }
@@ -48,12 +48,20 @@ class RateLimiter {
     }
   }
 
-  getStats(identifier: string): { count: number; remaining: number; resetTime: number } {
+  getStats(identifier: string): {
+    count: number;
+    remaining: number;
+    resetTime: number;
+  } {
     const entry = this.requests.get(identifier);
     if (!entry) {
-      return { count: 0, remaining: this.maxRequests, resetTime: Date.now() + this.windowMs };
+      return {
+        count: 0,
+        remaining: this.maxRequests,
+        resetTime: Date.now() + this.windowMs,
+      };
     }
-    
+
     return {
       count: entry.count,
       remaining: Math.max(0, this.maxRequests - entry.count),
@@ -64,4 +72,4 @@ class RateLimiter {
 
 // Global rate limiter instances
 export const thumbnailRateLimiter = new RateLimiter(60000, 200); // 200 requests per minute
-export const strictRateLimiter = new RateLimiter(60000, 50);     // 50 requests per minute for strict endpoints
+export const strictRateLimiter = new RateLimiter(60000, 50); // 50 requests per minute for strict endpoints

@@ -55,7 +55,9 @@ export class SyncService {
 
       // Check for existing pending/running jobs - don't cancel them, let them continue
       const existingFullScan = activeJobs.find(
-        (job) => job.type === "full_scan" && (job.status === "pending" || job.status === "running"),
+        (job) =>
+          job.type === "full_scan" &&
+          (job.status === "pending" || job.status === "running"),
       );
 
       if (existingFullScan) {
@@ -71,18 +73,24 @@ export class SyncService {
       }
 
       // Check if we recently completed a full scan (within last hour)
-      const recentCompleted = await query(`
+      const recentCompleted = await query(
+        `
         SELECT * FROM sync_jobs
         WHERE type = 'full_scan' AND status = 'completed'
         AND completed_at > NOW() - INTERVAL '1 hour'
         ORDER BY completed_at DESC LIMIT 1
-      `, []);
+      `,
+        [],
+      );
 
       if (recentCompleted.rows.length > 0) {
-        logger.syncOperation("Full scan completed recently, skipping startup scan", {
-          component: "SyncService",
-          lastCompletedAt: recentCompleted.rows[0].completed_at,
-        });
+        logger.syncOperation(
+          "Full scan completed recently, skipping startup scan",
+          {
+            component: "SyncService",
+            lastCompletedAt: recentCompleted.rows[0].completed_at,
+          },
+        );
         return;
       }
 
@@ -240,21 +248,33 @@ export class SyncService {
         const activeJobs = await getActiveSyncJobs();
 
         // Separate jobs by priority: folder_scan/metadata_scan > full_scan > cleanup
-        const pendingJobs = activeJobs.filter((job) => job.status === "pending");
+        const pendingJobs = activeJobs.filter(
+          (job) => job.status === "pending",
+        );
         const runningJob = activeJobs.find((job) => job.status === "running");
 
         // Sort pending jobs by priority (folder_scan first, then full_scan)
-        const priorityOrder = { folder_scan: 1, metadata_scan: 2, full_scan: 3, cleanup: 4 };
-        pendingJobs.sort((a, b) =>
-          (priorityOrder[a.type] || 99) - (priorityOrder[b.type] || 99)
+        const priorityOrder = {
+          folder_scan: 1,
+          metadata_scan: 2,
+          full_scan: 3,
+          cleanup: 4,
+        };
+        pendingJobs.sort(
+          (a, b) =>
+            (priorityOrder[a.type] || 99) - (priorityOrder[b.type] || 99),
         );
 
         const highPriorityPending = pendingJobs.find(
-          (job) => job.type === "folder_scan" || job.type === "metadata_scan"
+          (job) => job.type === "folder_scan" || job.type === "metadata_scan",
         );
 
         // If a full_scan is running but we have a high-priority pending job, pause full_scan
-        if (runningJob && runningJob.type === "full_scan" && highPriorityPending) {
+        if (
+          runningJob &&
+          runningJob.type === "full_scan" &&
+          highPriorityPending
+        ) {
           logger.syncOperation("Pausing full_scan for higher priority job", {
             pausedJobId: runningJob.id,
             priorityJobId: highPriorityPending.id,
@@ -373,7 +393,12 @@ export class SyncService {
     let hasMorePages = true;
 
     // Fetch first page
-    const firstPage = await listObjectsAuto("", continuationToken, 1000, pageNumber);
+    const firstPage = await listObjectsAuto(
+      "",
+      continuationToken,
+      1000,
+      pageNumber,
+    );
     currentObjects = firstPage.objects;
     continuationToken = firstPage.nextContinuationToken;
     hasMorePages = firstPage.isTruncated;
@@ -381,7 +406,12 @@ export class SyncService {
     while (currentObjects.length > 0 || hasMorePages) {
       // Start fetching next page while processing current page
       if (hasMorePages && continuationToken) {
-        nextPagePromise = listObjectsAuto("", continuationToken, 1000, pageNumber + 1);
+        nextPagePromise = listObjectsAuto(
+          "",
+          continuationToken,
+          1000,
+          pageNumber + 1,
+        );
       }
 
       totalObjects += currentObjects.length;
@@ -567,12 +597,7 @@ export class SyncService {
         objects,
         nextContinuationToken,
         isTruncated: truncated,
-      } = await listObjectsAuto(
-        prefix,
-        continuationToken,
-        1000,
-        pageNumber,
-      );
+      } = await listObjectsAuto(prefix, continuationToken, 1000, pageNumber);
 
       allObjects.push(...objects);
       continuationToken = nextContinuationToken;
@@ -742,16 +767,16 @@ export class SyncService {
     });
 
     // Get photos in this folder that need metadata extraction
-    const result = await query(`
+    const result = await query(
+      `
       SELECT * FROM photos
       WHERE folder_id = $1
         AND metadata_status IN ('none', 'pending')
         AND size <= $2
       ORDER BY size ASC
-    `, [
-      folder.id,
-      config.auto_metadata_threshold_mb * 1024 * 1024,
-    ]);
+    `,
+      [folder.id, config.auto_metadata_threshold_mb * 1024 * 1024],
+    );
 
     const photosToProcess = result.rows as Photo[];
 
@@ -985,7 +1010,7 @@ export class SyncService {
     const placeholders = paths.map((_, index) => `$${index + 1}`).join(",");
     const result = await query(
       `SELECT * FROM folders WHERE path IN (${placeholders})`,
-      paths
+      paths,
     );
     return result.rows;
   }

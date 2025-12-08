@@ -1,21 +1,29 @@
-import { FolderStats } from '@/types/stats';
-import { useState } from 'react';
+import { FolderStats } from "@/types/stats";
+import { useState } from "react";
 
 interface FolderHeatmapProps {
   folders: FolderStats[];
-  type: 'size' | 'count';
+  type: "size" | "count";
   maxItems?: number;
 }
 
-export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHeatmapProps) {
+export default function FolderHeatmap({
+  folders,
+  type,
+  maxItems = 20,
+}: FolderHeatmapProps) {
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
-  
+
   // Take only the top folders and calculate heat intensity
   const topFolders = folders.slice(0, maxItems);
   if (topFolders.length === 0) return null;
 
-  const maxValue = Math.max(...topFolders.map(f => type === 'size' ? f.total_size : f.photo_count));
-  const minValue = Math.min(...topFolders.map(f => type === 'size' ? f.total_size : f.photo_count));
+  const maxValue = Math.max(
+    ...topFolders.map((f) => (type === "size" ? f.total_size : f.photo_count)),
+  );
+  const minValue = Math.min(
+    ...topFolders.map((f) => (type === "size" ? f.total_size : f.photo_count)),
+  );
 
   const getHeatIntensity = (value: number) => {
     if (maxValue === minValue) return 1;
@@ -26,27 +34,27 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
     // Smooth gradient from cool blue-green to warm red-orange
     // Clamp intensity between 0 and 1
     const clampedIntensity = Math.max(0, Math.min(1, intensity));
-    
+
     // Smooth hue transition: 200° (cyan-blue) to 0° (red)
-    const hue = 200 - (clampedIntensity * 200);
-    
+    const hue = 200 - clampedIntensity * 200;
+
     // Smooth saturation transition: starts moderate, peaks in middle, stays high at end
-    const saturation = 50 + (clampedIntensity * 45); // 50% to 95%
-    
+    const saturation = 50 + clampedIntensity * 45; // 50% to 95%
+
     // Smooth lightness transition: starts light, gets darker towards red
-    const lightness = 88 - (clampedIntensity * 28); // 88% to 60%
-    
+    const lightness = 88 - clampedIntensity * 28; // 88% to 60%
+
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
   };
 
   const formatValue = (folder: FolderStats) => {
-    if (type === 'size') {
+    if (type === "size") {
       const bytes = folder.total_size;
-      if (bytes === 0) return '0 B';
+      if (bytes === 0) return "0 B";
       const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
     } else {
       return `${folder.photo_count.toLocaleString()} photos`;
     }
@@ -54,13 +62,15 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
 
   const getFolderDisplayName = (folder: FolderStats) => {
     // Show just the folder name, not the full path
-    return folder.name || folder.path.split('/').pop() || 'Root';
+    return folder.name || folder.path.split("/").pop() || "Root";
   };
 
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center text-sm text-gray-600">
-        <span>{type === 'size' ? 'Storage Usage' : 'Photo Distribution'} by Folder</span>
+        <span>
+          {type === "size" ? "Storage Usage" : "Photo Distribution"} by Folder
+        </span>
         <div className="flex items-center space-x-2">
           <span className="text-xs">Less</span>
           <div className="flex">
@@ -75,30 +85,32 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
           <span className="text-xs">More</span>
         </div>
       </div>
-      
+
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {topFolders.map((folder, index) => {
-          const value = type === 'size' ? folder.total_size : folder.photo_count;
+          const value =
+            type === "size" ? folder.total_size : folder.photo_count;
           const intensity = getHeatIntensity(value);
           const isHovered = hoveredFolder === folder.path;
           const baseColor = getHeatColor(intensity);
-          
+
           return (
             <a
               key={folder.path}
-              href={folder.path === '' ? '/' : `/folder/${folder.path}`}
+              href={folder.path === "" ? "/" : `/folder/${folder.path}`}
               className={`
                 block relative p-4 rounded-xl cursor-pointer transition-all duration-300 group
-                ${isHovered 
-                  ? 'transform scale-110 shadow-2xl z-10 ring-2 ring-white ring-opacity-60' 
-                  : 'hover:scale-105 hover:shadow-lg shadow-md'
+                ${
+                  isHovered
+                    ? "transform scale-110 shadow-2xl z-10 ring-2 ring-white ring-opacity-60"
+                    : "hover:scale-105 hover:shadow-lg shadow-md"
                 }
               `}
-              style={{ 
+              style={{
                 background: `linear-gradient(135deg, ${baseColor}, ${getHeatColor(Math.min(intensity + 0.1, 1))})`,
-                boxShadow: isHovered 
+                boxShadow: isHovered
                   ? `0 20px 40px rgba(0,0,0,0.15), 0 0 20px ${baseColor}40`
-                  : '0 4px 12px rgba(0,0,0,0.08)'
+                  : "0 4px 12px rgba(0,0,0,0.08)",
               }}
               onMouseEnter={() => setHoveredFolder(folder.path)}
               onMouseLeave={() => setHoveredFolder(null)}
@@ -109,34 +121,52 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
                   {getFolderDisplayName(folder)}
                 </div>
                 <div className="text-xs font-medium text-gray-800 drop-shadow-sm">
-                  {type === 'size' ? formatValue(folder) : `${folder.photo_count.toLocaleString()}`}
-                  {type === 'count' && <span className="text-gray-700 ml-1">photos</span>}
+                  {type === "size"
+                    ? formatValue(folder)
+                    : `${folder.photo_count.toLocaleString()}`}
+                  {type === "count" && (
+                    <span className="text-gray-700 ml-1">photos</span>
+                  )}
                 </div>
               </div>
-              
+
               {/* Hover overlay with full details */}
               {isHovered && (
                 <div className="absolute z-20 bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 bg-gray-900 bg-opacity-95 backdrop-blur-sm text-white text-sm rounded-xl shadow-2xl whitespace-nowrap border border-gray-700">
-                  <div className="font-semibold text-white">{getFolderDisplayName(folder)}</div>
-                  <div className="text-gray-300 text-xs mt-1 max-w-xs truncate">{folder.path}</div>
+                  <div className="font-semibold text-white">
+                    {getFolderDisplayName(folder)}
+                  </div>
+                  <div className="text-gray-300 text-xs mt-1 max-w-xs truncate">
+                    {folder.path}
+                  </div>
                   <div className="mt-2 space-y-1">
                     <div className="flex justify-between items-center">
                       <span className="text-gray-400">Photos:</span>
-                      <span className="font-medium">{folder.photo_count.toLocaleString()}</span>
+                      <span className="font-medium">
+                        {folder.photo_count.toLocaleString()}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-400">Size:</span>
                       <span className="font-medium">
-                        {type === 'size' ? formatValue(folder) : 
-                         (() => {
-                           const bytes = folder.total_size;
-                           if (bytes === 0) return '0 B';
-                           const k = 1024;
-                           const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                           const i = Math.floor(Math.log(bytes) / Math.log(k));
-                           return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-                         })()
-                        }
+                        {type === "size"
+                          ? formatValue(folder)
+                          : (() => {
+                              const bytes = folder.total_size;
+                              if (bytes === 0) return "0 B";
+                              const k = 1024;
+                              const sizes = ["B", "KB", "MB", "GB", "TB"];
+                              const i = Math.floor(
+                                Math.log(bytes) / Math.log(k),
+                              );
+                              return (
+                                parseFloat(
+                                  (bytes / Math.pow(k, i)).toFixed(1),
+                                ) +
+                                " " +
+                                sizes[i]
+                              );
+                            })()}
                       </span>
                     </div>
                   </div>
@@ -148,9 +178,10 @@ export default function FolderHeatmap({ folders, type, maxItems = 20 }: FolderHe
           );
         })}
       </div>
-      
+
       <div className="text-xs text-gray-500 text-center">
-        Showing top {topFolders.length} folders by {type === 'size' ? 'storage size' : 'photo count'}
+        Showing top {topFolders.length} folders by{" "}
+        {type === "size" ? "storage size" : "photo count"}
       </div>
     </div>
   );

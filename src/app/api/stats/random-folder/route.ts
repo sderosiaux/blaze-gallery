@@ -23,12 +23,14 @@ export const GET = requireAuth(async function GET() {
       `,
     );
 
-    const randomFolder = result.rows[0] as {
-      id: number;
-      name: string;
-      path: string;
-      photo_count: number;
-    } | undefined;
+    const randomFolder = result.rows[0] as
+      | {
+          id: number;
+          name: string;
+          path: string;
+          photo_count: number;
+        }
+      | undefined;
 
     if (!randomFolder) {
       return NextResponse.json(

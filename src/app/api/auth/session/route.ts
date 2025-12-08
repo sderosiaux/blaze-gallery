@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { validateUserSession } from '@/lib/auth/userSession';
-import { authConfig } from '@/lib/auth/config';
+import { NextRequest, NextResponse } from "next/server";
+import { validateUserSession } from "@/lib/auth/userSession";
+import { authConfig } from "@/lib/auth/config";
 
 // Force dynamic rendering for auth routes
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,31 +11,31 @@ export async function GET(request: NextRequest) {
     if (!authConfig.enabled) {
       return NextResponse.json({
         isAuthenticated: false,
-        user: null
+        user: null,
       });
     }
 
     // Get session cookie
-    const sessionCookie = request.cookies.get('auth_session')?.value;
-    
+    const sessionCookie = request.cookies.get("auth_session")?.value;
+
     if (!sessionCookie) {
       return NextResponse.json({
         isAuthenticated: false,
-        user: null
+        user: null,
       });
     }
 
     // Validate session
     const session = validateUserSession(sessionCookie);
-    
+
     if (!session) {
       // Clear invalid session cookie
       const response = NextResponse.json({
         isAuthenticated: false,
-        user: null
+        user: null,
       });
-      
-      response.cookies.delete('auth_session');
+
+      response.cookies.delete("auth_session");
       return response;
     }
 
@@ -48,15 +48,14 @@ export async function GET(request: NextRequest) {
         name: session.name,
         picture: session.picture,
         createdAt: session.createdAt,
-        lastActivity: session.lastActivity
-      }
+        lastActivity: session.lastActivity,
+      },
     });
-
   } catch (error) {
-    console.error('Error validating session:', error);
+    console.error("Error validating session:", error);
     return NextResponse.json(
-      { error: 'Failed to validate session' },
-      { status: 500 }
+      { error: "Failed to validate session" },
+      { status: 500 },
     );
   }
 }
@@ -64,27 +63,26 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     // Get session cookie
-    const sessionCookie = request.cookies.get('auth_session')?.value;
-    
+    const sessionCookie = request.cookies.get("auth_session")?.value;
+
     if (sessionCookie) {
-      const { revokeUserSession } = await import('@/lib/auth/userSession');
+      const { revokeUserSession } = await import("@/lib/auth/userSession");
       revokeUserSession(sessionCookie);
     }
 
     // Clear session cookie
     const response = NextResponse.json({
       success: true,
-      message: 'Session cleared'
+      message: "Session cleared",
     });
-    
-    response.cookies.delete('auth_session');
-    return response;
 
+    response.cookies.delete("auth_session");
+    return response;
   } catch (error) {
-    console.error('Error clearing session:', error);
+    console.error("Error clearing session:", error);
     return NextResponse.json(
-      { error: 'Failed to clear session' },
-      { status: 500 }
+      { error: "Failed to clear session" },
+      { status: 500 },
     );
   }
 }
