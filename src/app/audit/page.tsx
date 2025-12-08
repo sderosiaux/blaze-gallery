@@ -35,6 +35,7 @@ import {
   Area,
 } from "recharts";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { formatBytes } from "@/lib/format";
 
 interface ThumbnailStats {
   thumbnail_generation: {
@@ -217,14 +218,6 @@ export default function AuditDashboard() {
     { id: "performance", label: "Performance", icon: "📈" },
     { id: "thumbnails", label: "Thumbnails", icon: "🖼️" },
   ];
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-  };
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${Math.round(ms)}ms`;

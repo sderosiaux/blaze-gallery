@@ -25,13 +25,11 @@ export async function GET(request: NextRequest) {
 
     try {
       if (storageInfo.mode === "s3") {
-        await listObjects(
-          storageInfo.bucket!,
-          storageInfo.prefix ? `${storageInfo.prefix}/` : undefined,
-          undefined,
-          1,
-          1,
-        );
+        await listObjects({
+          bucket: storageInfo.bucket!,
+          prefix: storageInfo.prefix ? `${storageInfo.prefix}/` : undefined,
+          maxKeys: 1,
+        });
         checks.thumbnails_directory = true;
       } else {
         checks.thumbnails_directory = fs.existsSync(storageInfo.location);

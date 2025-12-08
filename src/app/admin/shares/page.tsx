@@ -17,6 +17,7 @@ import {
   Search,
   Filter,
 } from "lucide-react";
+import { formatFileSize } from "@/lib/format";
 
 interface SharedFolder {
   id: number;
@@ -101,13 +102,6 @@ export default function SharesManagementPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to deactivate share");
     }
-  };
-
-  const formatFileSize = (bytes: number) => {
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    if (bytes === 0) return "0 Bytes";
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
   };
 
   const formatDate = (dateString: string) => {

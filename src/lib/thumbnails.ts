@@ -38,6 +38,18 @@ export interface ThumbnailStorageInfo {
   bucket?: string;
 }
 
+/**
+ * Options for generating a thumbnail
+ */
+export interface GenerateThumbnailParams {
+  bucket: string;
+  s3Key: string;
+  photoId: number;
+  options?: ThumbnailOptions;
+  bypassSizeCheck?: boolean;
+  request?: Request;
+}
+
 export function normalizeThumbnailS3Prefix(prefix?: string): string {
   const fallback = "thumbnails";
   if (!prefix) {
@@ -246,13 +258,16 @@ export class ThumbnailService {
   }
 
   async generateThumbnail(
-    bucket: string,
-    s3Key: string,
-    photoId: number,
-    options: ThumbnailOptions = {},
-    bypassSizeCheck: boolean = false,
-    request?: Request,
+    params: GenerateThumbnailParams,
   ): Promise<string> {
+    const {
+      bucket,
+      s3Key,
+      photoId,
+      options = {},
+      bypassSizeCheck = false,
+      request,
+    } = params;
     const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
     const thumbnailPath = this.getThumbnailPath(photoId, opts.format, s3Key);
 
@@ -531,11 +546,11 @@ export class ThumbnailService {
 
       for (const photo of photosWithoutThumbnails) {
         try {
-          await this.generateThumbnail(
-            config.backblaze_bucket,
-            photo.s3_key,
-            photo.id,
-          );
+          await this.generateThumbnail({
+            bucket: config.backblaze_bucket,
+            s3Key: photo.s3_key,
+            photoId: photo.id,
+          });
           await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (error) {
           logger.thumbnailError(
@@ -710,14 +725,13 @@ export class ThumbnailService {
 
     let thumbnailPath;
     try {
-      thumbnailPath = await this.generateThumbnail(
-        config.backblaze_bucket,
-        photo.s3_key,
-        photo.id,
-        {},
-        forceGenerate,
+      thumbnailPath = await this.generateThumbnail({
+        bucket: config.backblaze_bucket,
+        s3Key: photo.s3_key,
+        photoId: photo.id,
+        bypassSizeCheck: forceGenerate,
         request,
-      );
+      });
     } catch (error) {
       if (
         error instanceof Error &&

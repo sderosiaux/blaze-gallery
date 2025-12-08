@@ -26,10 +26,7 @@ function extractS3ErrorInfo(error: unknown): {
   let statusCode = 500;
 
   if (typeof error === "object" && error !== null) {
-    if (
-      "$metadata" in error &&
-      typeof (error as any).$metadata === "object"
-    ) {
+    if ("$metadata" in error && typeof (error as any).$metadata === "object") {
       const httpStatusCode = (error as any).$metadata?.httpStatusCode;
       if (httpStatusCode) {
         statusCode = httpStatusCode;
@@ -352,18 +349,34 @@ export interface S3Object {
   etag: string;
 }
 
+/**
+ * Options for listing S3 objects
+ */
+export interface ListObjectsOptions {
+  bucket: string;
+  prefix?: string;
+  continuationToken?: string;
+  maxKeys?: number;
+  pageNumber?: number;
+  request?: Request;
+}
+
 export async function listObjects(
-  bucket: string,
-  prefix?: string,
-  continuationToken?: string,
-  maxKeys: number = 1000,
-  pageNumber: number = 1,
-  request?: Request,
+  options: ListObjectsOptions,
 ): Promise<{
   objects: S3Object[];
   nextContinuationToken?: string;
   isTruncated: boolean;
 }> {
+  const {
+    bucket,
+    prefix,
+    continuationToken,
+    maxKeys = 1000,
+    pageNumber = 1,
+    request,
+  } = options;
+
   const client = getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
@@ -980,14 +993,14 @@ export async function listObjectsAuto(
   request?: Request,
 ) {
   const bucket = S3Manager.getInstance().getBucketName();
-  return listObjects(
+  return listObjects({
     bucket,
     prefix,
     continuationToken,
     maxKeys,
     pageNumber,
     request,
-  );
+  });
 }
 
 /**

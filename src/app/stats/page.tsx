@@ -18,8 +18,10 @@ import {
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import FolderHeatmap from "@/components/FolderHeatmap";
+import StatsOverview from "@/components/stats/StatsOverview";
 import { GalleryStats } from "@/types/stats";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { formatBytes } from "@/lib/format";
 
 interface DuplicatePhoto {
   id: number;
@@ -156,24 +158,6 @@ export default function StatsPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    if (isNaN(bytes) || bytes < 0) return "0 B";
-
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    // Ensure i is within bounds
-    const sizeIndex = Math.max(0, Math.min(i, sizes.length - 1));
-
-    return (
-      parseFloat((bytes / Math.pow(k, sizeIndex)).toFixed(1)) +
-      " " +
-      sizes[sizeIndex]
-    );
   };
 
   const formatDate = (dateString: string) => {
@@ -315,82 +299,7 @@ export default function StatsPage() {
           </div>
 
           {/* Overview Section */}
-          <section id="overview" className="space-y-4 scroll-mt-24">
-            <h2 className="text-xl font-semibold text-gray-800 border-b-2 border-gray-200 pb-2">
-              📊 Gallery Overview
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Image className="w-8 h-8 text-blue-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      Total Photos
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.basic.total_photos.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <HardDrive className="w-8 h-8 text-green-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      Total Storage
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {formatBytes(stats.basic.total_storage_bytes)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Folder className="w-8 h-8 text-purple-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      Active Folders
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.basic.total_folders_with_photos.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Eye className="w-8 h-8 text-red-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      Favorites
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.basic.total_favorites.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <Database className="w-8 h-8 text-orange-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      Avg Photo Size
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {formatBytes(stats.basic.avg_photo_size_bytes)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+          <StatsOverview stats={stats.basic} />
 
           {/* Folder Activity Section */}
           <section id="activity" className="space-y-4 scroll-mt-24">

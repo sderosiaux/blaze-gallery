@@ -91,13 +91,13 @@ async function getThumbnailS3Stats(bucket: string, prefix?: string) {
   let pageNumber = 1;
 
   do {
-    const { objects, nextContinuationToken, isTruncated } = await listObjects(
+    const { objects, nextContinuationToken, isTruncated } = await listObjects({
       bucket,
-      prefix || undefined,
+      prefix: prefix || undefined,
       continuationToken,
-      1000,
+      maxKeys: 1000,
       pageNumber,
-    );
+    });
 
     for (const obj of objects) {
       stats.total_size += obj.size;

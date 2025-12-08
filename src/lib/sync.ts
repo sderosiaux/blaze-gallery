@@ -80,6 +80,175 @@ async function updateJobProgress(
   }
 }
 
+/**
+ * Photo data prepared for batch insertion
+ */
+interface PhotoBatchItem {
+  folder_id: number;
+  filename: string;
+  s3_key: string;
+  size: number;
+  mime_type: string;
+  modified_at: string;
+  metadata_status: string;
+  thumbnail_status: string;
+}
+
+/**
+ * Flush a batch of photos to the database and update progress
+ */
+async function flushPhotoBatch(
+  photosToCreate: PhotoBatchItem[],
+  jobId: number,
+  progress: SyncProgress,
+): Promise<void> {
+  if (photosToCreate.length === 0) return;
+
+  await bulkCreateOrUpdatePhotos(photosToCreate);
+
+  await updateSyncJob(jobId, {
+    processed_items: progress.processed,
+  });
+
+  if (process.env.LOG_LEVEL === "DEBUG") {
+    logger.syncOperation("Full scan progress update (batch processed)", {
+      jobId,
+      progress: {
+        processed: progress.processed,
+        total: progress.total,
+      },
+      percentComplete: Math.round((progress.processed / progress.total) * 100),
+    });
+  }
+}
+
+/**
+ * Context for processing scan objects
+ */
+interface ScanContext {
+  jobId: number;
+  folderMap: Map<string, number>;
+  seenFolders: Set<string>;
+  config: ReturnType<typeof getConfig>;
+  ensureRootFolder: () => Promise<number>;
+  ensureFolderExists: (
+    folderPath: string,
+    seenFolders: Set<string>,
+    folderMap: Map<string, number>,
+  ) => Promise<number>;
+}
+
+/**
+ * Process a single S3 object during full scan
+ * Returns photo data if it's a media file, null otherwise
+ */
+async function processScanObject(
+  object: S3Object,
+  ctx: ScanContext,
+): Promise<PhotoBatchItem | null> {
+  const folderPath = getFolderFromKey(object.key);
+
+  // Ensure folder exists
+  let folderId: number;
+  if (folderPath === "") {
+    folderId = await ctx.ensureRootFolder();
+  } else {
+    if (!ctx.folderMap.has(folderPath)) {
+      folderId = await ctx.ensureFolderExists(
+        folderPath,
+        ctx.seenFolders,
+        ctx.folderMap,
+      );
+      ctx.folderMap.set(folderPath, folderId);
+    } else {
+      folderId = ctx.folderMap.get(folderPath)!;
+    }
+  }
+
+  // Skip non-media files for photo processing, but folder was still created
+  if (!isMediaFile(object.key)) {
+    if (process.env.LOG_LEVEL === "DEBUG") {
+      logger.syncOperation("Skipping non-media file, but folder was created", {
+        jobId: ctx.jobId,
+        s3Key: object.key,
+        folderPath: folderPath || "(root)",
+        fileSize: object.size,
+      });
+    }
+    return null;
+  }
+
+  const filename = getFilenameFromKey(object.key);
+  const sizeMB = object.size / (1024 * 1024);
+
+  // Determine processing status based on size thresholds
+  const metadataStatus =
+    sizeMB > ctx.config.auto_metadata_threshold_mb ? "skipped_size" : "none";
+  const thumbnailStatus =
+    sizeMB > ctx.config.auto_thumbnail_threshold_mb ? "skipped_size" : "none";
+
+  return {
+    folder_id: folderId,
+    filename: filename,
+    s3_key: object.key,
+    size: object.size,
+    mime_type: getMimeType(filename),
+    modified_at: object.lastModified.toISOString(),
+    metadata_status: metadataStatus,
+    thumbnail_status: thumbnailStatus,
+  };
+}
+
+/**
+ * EXIF tag structure from ExifReader
+ */
+interface ExifTags {
+  DateTime?: { description: string };
+  GPSLatitude?: { description: string };
+  GPSLongitude?: { description: string };
+  "Image Width"?: { value: string | number };
+  "Image Height"?: { value: string | number };
+  [key: string]: unknown;
+}
+
+/**
+ * Parse EXIF tags into PhotoMetadata structure
+ */
+function parseExifToMetadata(tags: ExifTags): PhotoMetadata | undefined {
+  const metadata: PhotoMetadata = {};
+
+  // Parse date taken
+  if (tags.DateTime?.description) {
+    const dateStr = tags.DateTime.description;
+    const date = new Date(
+      dateStr.replace(/:/g, "-").replace(/(\d{4})-(\d{2})-(\d{2}) /, "$1-$2-$3T") + "Z",
+    );
+    if (!isNaN(date.getTime())) {
+      metadata.date_taken = date.toISOString();
+    }
+  }
+
+  // Parse GPS location
+  if (tags.GPSLatitude?.description && tags.GPSLongitude?.description) {
+    const lat = parseFloat(tags.GPSLatitude.description);
+    const lon = parseFloat(tags.GPSLongitude.description);
+    if (!isNaN(lat) && !isNaN(lon)) {
+      metadata.location = { latitude: lat, longitude: lon };
+    }
+  }
+
+  // Parse image dimensions
+  if (tags["Image Width"]?.value && tags["Image Height"]?.value) {
+    const width = parseInt(String(tags["Image Width"].value));
+    const height = parseInt(String(tags["Image Height"].value));
+    if (!isNaN(width) && !isNaN(height)) {
+      metadata.dimensions = { width, height };
+    }
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
 export class SyncService {
   private isRunning = false;
   private currentJob: SyncJob | null = null;
@@ -435,8 +604,18 @@ export class SyncService {
 
     const folderMap = new Map<string, number>();
     const seenFolders = new Set<string>();
-    const photosToCreate: any[] = [];
+    const photosToCreate: PhotoBatchItem[] = [];
     const BATCH_SIZE = 100;
+
+    // Create scan context for helper functions
+    const scanContext: ScanContext = {
+      jobId: job.id,
+      folderMap,
+      seenFolders,
+      config,
+      ensureRootFolder: () => this.ensureRootFolder(),
+      ensureFolderExists: (fp, sf, fm) => this.ensureFolderExists(fp, sf, fm),
+    };
 
     // Pipeline S3 fetching with database processing
     let nextPagePromise: Promise<any> | null = null;
@@ -477,94 +656,18 @@ export class SyncService {
 
       for (const object of pagination.currentObjects) {
         try {
-          const folderPath = getFolderFromKey(object.key);
-
-          // Collect folders for bulk creation
-          let folderId: number;
-          if (folderPath === "") {
-            folderId = await this.ensureRootFolder();
-          } else {
-            if (!folderMap.has(folderPath)) {
-              folderId = await this.ensureFolderExists(
-                folderPath,
-                seenFolders,
-                folderMap,
-              );
-              folderMap.set(folderPath, folderId);
-            } else {
-              folderId = folderMap.get(folderPath)!;
-            }
-          }
-
-          // Skip non-media files for photo processing, but folder was still created
-          if (!isMediaFile(object.key)) {
-            progress.processed++;
-
-            // DEBUG: Log non-media files that are creating folders
-            if (process.env.LOG_LEVEL === "DEBUG") {
-              logger.syncOperation(
-                "Skipping non-media file, but folder was created",
-                {
-                  jobId: job.id,
-                  s3Key: object.key,
-                  folderPath: folderPath || "(root)",
-                  fileSize: object.size,
-                },
-              );
-            }
-            continue;
-          }
-
-          const filename = getFilenameFromKey(object.key);
-          const sizeMB = object.size / (1024 * 1024);
-
-          // Determine processing status based on size thresholds
-          const metadataStatus =
-            sizeMB > config.auto_metadata_threshold_mb
-              ? "skipped_size"
-              : "none";
-          const thumbnailStatus =
-            sizeMB > config.auto_thumbnail_threshold_mb
-              ? "skipped_size"
-              : "none";
-
-          // Collect photos for bulk creation
-          photosToCreate.push({
-            folder_id: folderId,
-            filename: filename,
-            s3_key: object.key,
-            size: object.size,
-            mime_type: getMimeType(filename),
-            modified_at: object.lastModified.toISOString(),
-            metadata_status: metadataStatus,
-            thumbnail_status: thumbnailStatus,
-          });
+          const photoData = await processScanObject(object, scanContext);
 
           progress.processed++;
-          progress.images++;
 
-          // Process batches for better performance
-          if (photosToCreate.length >= BATCH_SIZE) {
-            await bulkCreateOrUpdatePhotos(photosToCreate);
-            photosToCreate.length = 0; // Clear array
+          if (photoData) {
+            photosToCreate.push(photoData);
+            progress.images++;
 
-            await updateSyncJob(job.id, {
-              processed_items: progress.processed,
-            });
-            if (process.env.LOG_LEVEL === "DEBUG") {
-              logger.syncOperation(
-                "Full scan progress update (batch processed)",
-                {
-                  jobId: job.id,
-                  progress: {
-                    processed: progress.processed,
-                    total: progress.total,
-                  },
-                  percentComplete: Math.round(
-                    (progress.processed / progress.total) * 100,
-                  ),
-                },
-              );
+            // Flush batch when full
+            if (photosToCreate.length >= BATCH_SIZE) {
+              await flushPhotoBatch(photosToCreate, job.id, progress);
+              photosToCreate.length = 0;
             }
           }
         } catch (error) {
@@ -596,10 +699,8 @@ export class SyncService {
       }
     }
 
-    // Process remaining photos
-    if (photosToCreate.length > 0) {
-      await bulkCreateOrUpdatePhotos(photosToCreate);
-    }
+    // Flush remaining photos
+    await flushPhotoBatch(photosToCreate, job.id, progress);
 
     await updateSyncJob(job.id, {
       processed_items: progress.processed,
@@ -863,10 +964,15 @@ export class SyncService {
         processedCount++;
 
         if (processedCount % 10 === 0) {
-          await updateJobProgress(job.id, processedCount, photosToProcess.length, {
-            message: "Metadata scan progress update",
-            folderPath: job.folder_path,
-          });
+          await updateJobProgress(
+            job.id,
+            processedCount,
+            photosToProcess.length,
+            {
+              message: "Metadata scan progress update",
+              folderPath: job.folder_path,
+            },
+          );
         }
       } catch (error) {
         logger.syncError(
@@ -1116,43 +1222,9 @@ export class SyncService {
 
               const buffer = Buffer.concat(chunks);
               const tags = ExifReader.load(buffer);
+              const metadata = parseExifToMetadata(tags);
 
-              const metadata: PhotoMetadata = {};
-
-              if (tags.DateTime?.description) {
-                const dateStr = tags.DateTime.description;
-                const date = new Date(
-                  dateStr
-                    .replace(/:/g, "-")
-                    .replace(/(\d{4})-(\d{2})-(\d{2}) /, "$1-$2-$3T") + "Z",
-                );
-                if (!isNaN(date.getTime())) {
-                  metadata.date_taken = date.toISOString();
-                }
-              }
-
-              if (
-                tags.GPSLatitude?.description &&
-                tags.GPSLongitude?.description
-              ) {
-                const lat = parseFloat(tags.GPSLatitude.description);
-                const lon = parseFloat(tags.GPSLongitude.description);
-                if (!isNaN(lat) && !isNaN(lon)) {
-                  metadata.location = { latitude: lat, longitude: lon };
-                }
-              }
-
-              if (tags["Image Width"]?.value && tags["Image Height"]?.value) {
-                const width = parseInt(tags["Image Width"].value);
-                const height = parseInt(tags["Image Height"].value);
-                if (!isNaN(width) && !isNaN(height)) {
-                  metadata.dimensions = { width, height };
-                }
-              }
-
-              safeResolve(
-                Object.keys(metadata).length > 0 ? metadata : undefined,
-              );
+              safeResolve(metadata);
             } catch (error) {
               logger.warn("Error parsing EXIF data", {
                 component: "SyncService",

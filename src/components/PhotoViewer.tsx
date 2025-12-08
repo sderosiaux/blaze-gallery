@@ -3,23 +3,17 @@
 import { useEffect, useState, useCallback } from "react";
 import { Photo } from "@/types";
 import {
-  X,
-  Download,
   Calendar,
   MapPin,
   HardDrive,
-  Heart,
   ChevronLeft,
   ChevronRight,
-  Play,
-  Pause,
   ImageOff,
   AlertCircle,
   ChevronRight as ChevronRightIcon,
-  Expand,
-  Minimize2,
   Film,
 } from "lucide-react";
+import PhotoViewerControls from "./PhotoViewerControls";
 
 // Helper to check if a file is a video based on mime_type
 function isVideoMimeType(mimeType: string): boolean {
@@ -41,6 +35,7 @@ function triggerDownload(url: string, filename: string): void {
 }
 
 import { loadImageWithSession, revokeBlobUrl } from "@/lib/shareClient";
+import { formatFileSize } from "@/lib/format";
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -527,13 +522,6 @@ export default function PhotoViewer({
     }));
   };
 
-  const formatFileSize = (bytes: number) => {
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    if (bytes === 0) return "0 Bytes";
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
-  };
-
   const handleBackgroundClick = (e: React.MouseEvent) => {
     // Only close if clicked on the background, not the content
     if (e.target === e.currentTarget) {
@@ -561,106 +549,22 @@ export default function PhotoViewer({
                 </div>
               </div>
             </div>
-            <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
-              {/* Photo counter */}
-              {photos && photos.length > 1 && (
-                <div className="text-sm text-gray-300 bg-black bg-opacity-30 px-3 py-1 rounded-lg">
-                  {currentIndex + 1} of {photos.length}
-                </div>
-              )}
-
-              {/* Slideshow controls */}
-              {photos && photos.length > 1 && (
-                <button
-                  onClick={() => setIsSlideshow((prev) => !prev)}
-                  className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
-                    isSlideshow ? "bg-white bg-opacity-20" : ""
-                  }`}
-                  title={
-                    isSlideshow
-                      ? "Pause slideshow (Space)"
-                      : "Start slideshow (Space)"
-                  }
-                >
-                  {isSlideshow ? (
-                    <Pause className="w-5 h-5" />
-                  ) : (
-                    <Play className="w-5 h-5" />
-                  )}
-                </button>
-              )}
-
-              <button
-                onClick={() => setIsExpanded((prev) => !prev)}
-                className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
-                  isExpanded ? "bg-white bg-opacity-20" : ""
-                }`}
-                title={isExpanded ? "Fit to screen (E)" : "Expand image (E)"}
-              >
-                {isExpanded ? (
-                  <Minimize2 className="w-5 h-5" />
-                ) : (
-                  <Expand className="w-5 h-5" />
-                )}
-              </button>
-
-              {/* Favorite button - only show in regular view */}
-              {!isSharedView && (
-                <button
-                  onClick={handleFavoriteToggle}
-                  disabled={favoriteLoading}
-                  className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
-                    favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
-                  }`}
-                  title={
-                    favoriteLoading
-                      ? "Updating..."
-                      : currentFavoriteState
-                        ? "Remove from favorites (F)"
-                        : "Add to favorites (F)"
-                  }
-                >
-                  {favoriteLoading ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Heart
-                      className={`w-5 h-5 transition-all duration-300 ease-out ${
-                        currentFavoriteState
-                          ? "text-red-500 fill-current"
-                          : "text-white hover:text-red-400"
-                      } ${
-                        heartAnimating
-                          ? "transform scale-125 rotate-12"
-                          : "transform scale-100 rotate-0"
-                      }`}
-                      style={{
-                        filter: heartAnimating
-                          ? "drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))"
-                          : "none",
-                      }}
-                    />
-                  )}
-                </button>
-              )}
-
-              {/* Download button - only show if downloads are allowed */}
-              {allowDownload && (
-                <button
-                  onClick={handleDownload}
-                  className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-                  title="Download original"
-                >
-                  <Download className="w-5 h-5" />
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-                title="Close (Esc)"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            <PhotoViewerControls
+              totalPhotos={photos?.length ?? 0}
+              currentIndex={currentIndex}
+              isSlideshow={isSlideshow}
+              onSlideshowToggle={() => setIsSlideshow((prev) => !prev)}
+              isExpanded={isExpanded}
+              onExpandToggle={() => setIsExpanded((prev) => !prev)}
+              isSharedView={isSharedView}
+              favoriteLoading={favoriteLoading}
+              isFavorite={currentFavoriteState}
+              heartAnimating={heartAnimating}
+              onFavoriteToggle={handleFavoriteToggle}
+              allowDownload={allowDownload}
+              onDownload={handleDownload}
+              onClose={onClose}
+            />
           </div>
 
           {/* Full width breadcrumb row */}

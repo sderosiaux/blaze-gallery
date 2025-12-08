@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Photo } from "@/types";
+import { formatFileSize } from "@/lib/format";
 
 interface PhotoTooltipProps {
   photo: Photo;
@@ -10,13 +11,6 @@ interface PhotoTooltipProps {
 export default function PhotoTooltip({ photo, children }: PhotoTooltipProps) {
   const [showTooltip, setShowTooltip] = useState(false);
   const pathname = usePathname();
-
-  const formatFileSize = (bytes: number) => {
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    if (bytes === 0) return "0 Bytes";
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
-  };
 
   const getFolderPath = (s3Key: string) => {
     const folderPath = s3Key.substring(0, s3Key.lastIndexOf("/"));

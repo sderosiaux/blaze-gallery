@@ -6,6 +6,7 @@ import { Heart, AlertTriangle, ImageOff, Film, Download } from "lucide-react";
 import PhotoTooltip from "./PhotoTooltip";
 import { useIntersectionObserver } from "@/hooks/useIntersectionObserver";
 import { useThumbnailLoader } from "@/hooks/useThumbnailLoader";
+import { formatFileSize } from "@/lib/format";
 
 // Helper to check if a file is a video based on mime_type
 function isVideoMimeType(mimeType: string): boolean {
@@ -68,14 +69,6 @@ export default function PhotoItem({
       };
     }
   }, [blob]);
-
-  // Format file size for display
-  const formatFileSize = (bytes: number) => {
-    const sizes = ["B", "KB", "MB", "GB"];
-    if (bytes === 0) return "0 B";
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
-  };
 
   // Handle video download
   const handleDownload = (e: React.MouseEvent) => {
