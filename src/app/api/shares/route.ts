@@ -42,7 +42,10 @@ export async function POST(request: NextRequest) {
     const folder = await getFolderByPath(decodedPath);
     if (!folder) {
       console.log("[API] Folder not found for path:", decodedPath);
-      return NextResponse.json({ error: "Folder not found", path: decodedPath }, { status: 404 });
+      return NextResponse.json(
+        { error: "Folder not found", path: decodedPath },
+        { status: 404 },
+      );
     }
 
     console.log("[API] Found folder:", folder.id, folder.name);
@@ -80,7 +83,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[API] Error creating folder share:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
       { error: "Failed to create folder share", details: errorMessage },
       { status: 500 },

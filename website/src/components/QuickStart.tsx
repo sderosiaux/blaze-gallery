@@ -13,18 +13,7 @@ export default function QuickStart() {
 
   const steps = [
     {
-      title: 'Create Backblaze B2 Account',
-      time: '2 min',
-      icon: '☁️',
-      description: 'Sign up for Backblaze B2 and create a bucket for your photos',
-      action: {
-        type: 'link',
-        text: 'Sign Up Free →',
-        url: 'https://backblaze.com/b2'
-      }
-    },
-    {
-      title: 'Get Blaze Gallery',
+      title: 'Clone & Configure',
       time: '1 min',
       icon: '📥',
       description: 'Clone the repository and copy the environment template',
@@ -34,17 +23,17 @@ export default function QuickStart() {
       }
     },
     {
-      title: 'Add Your B2 Credentials',
+      title: 'Add Your S3 Credentials',
       time: '1 min',
       icon: '🔑',
-      description: 'Edit .env file with your B2 bucket name, endpoint, and API keys',
+      description: 'Edit .env file with your S3-compatible storage credentials',
       action: {
         type: 'copy',
         text: 'BACKBLAZE_ENDPOINT=https://s3.us-west-004.backblazeb2.com\nBACKBLAZE_BUCKET=your-photo-bucket\nBACKBLAZE_ACCESS_KEY=your_key_id\nBACKBLAZE_SECRET_KEY=your_secret'
       }
     },
     {
-      title: 'Launch Blaze Gallery',
+      title: 'Launch',
       time: '30 sec',
       icon: '🚀',
       description: 'Start the Docker container and your gallery is ready!',
@@ -54,10 +43,10 @@ export default function QuickStart() {
       }
     },
     {
-      title: 'Access & Sync',
+      title: 'Browse Your Photos',
       time: '30 sec',
       icon: '🎉',
-      description: 'Visit localhost:3000 and your photos will sync automatically',
+      description: 'Open localhost:3000 - your photos will be automatically indexed',
       action: {
         type: 'link',
         text: 'Open Gallery →',
@@ -71,10 +60,10 @@ export default function QuickStart() {
       <div className="container mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            5-Minute Setup. Seriously.
+            Get Started in 2 Minutes
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            <span className="font-semibold text-green-600">Blaze Gallery is 100% free and open source</span> - get your own lightning-fast photo gallery running in the time it takes to make coffee.
+            <span className="font-semibold text-green-600">Free and open source</span> - connect to your S3 storage and start browsing your photos.
           </p>
           
           {/* Prerequisites */}

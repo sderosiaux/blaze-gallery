@@ -16,12 +16,14 @@ export default function HeroSection() {
           <h1 className="text-6xl md:text-8xl lg:text-9xl font-semibold text-black mb-8 leading-none tracking-tight">
             Your photos.
             <br />
-            <span className="text-gray-400">Your rules.</span>
+            <span className="text-gray-400">Your cloud.</span>
+            <br />
+            Your control.
           </h1>
-          
+
           {/* Minimal subtext */}
           <p className="text-2xl md:text-3xl text-gray-600 font-light mb-12 max-w-4xl mx-auto leading-relaxed">
-            The self-hosted photo gallery with AI integration that puts you in control.
+            A beautiful, self-hosted photo gallery that connects to your S3-compatible storage.
           </p>
           
           {/* Simple, clean terminal */}
@@ -33,10 +35,10 @@ export default function HeroSection() {
           >
             <div className="font-mono text-green-400 text-lg space-y-2">
               <div>git clone https://github.com/sderosiaux/blaze-gallery.git</div>
-              <div>cd blaze-gallery</div>
-              <div className="text-gray-500"># Edit .env to setup your B2 bucket</div>
-              <div>npm run dev</div>
-              <div className="text-gray-500"># Done!</div>
+              <div>cd blaze-gallery && cp .env.template .env</div>
+              <div className="text-gray-500"># Edit .env with your S3 credentials</div>
+              <div>docker-compose up -d</div>
+              <div className="text-gray-500"># Open localhost:3000</div>
             </div>
           </motion.div>
 

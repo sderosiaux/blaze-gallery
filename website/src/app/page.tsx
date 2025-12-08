@@ -52,8 +52,11 @@ export default function Home() {
             <a href="https://github.com/sderosiaux/blaze-gallery" className="text-gray-400 hover:text-white transition-colors font-medium">
               GitHub
             </a>
-            <a href="https://github.com/sderosiaux/blaze-gallery/blob/main/README.md" className="text-gray-400 hover:text-white transition-colors font-medium">
-              Documentation
+            <a href="https://github.com/sderosiaux/blaze-gallery/blob/main/docs/SETUP.md" className="text-gray-400 hover:text-white transition-colors font-medium">
+              Setup Guide
+            </a>
+            <a href="https://github.com/sderosiaux/blaze-gallery/blob/main/docs/CONFIGURATION.md" className="text-gray-400 hover:text-white transition-colors font-medium">
+              Configuration
             </a>
             <a href="https://github.com/sderosiaux/blaze-gallery/issues" className="text-gray-400 hover:text-white transition-colors font-medium">
               Support

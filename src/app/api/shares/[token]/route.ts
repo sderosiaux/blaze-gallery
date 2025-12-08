@@ -7,7 +7,7 @@ import {
   getPhotosInFolder,
   getFolderByPath,
 } from "@/lib/database";
-import { shouldCountView } from "@/lib/shareHelpers";
+import { shouldCountViewAsync } from "@/lib/shareHelpers";
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic";
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const photos = await getPhotosInFolder(folder.id);
 
     // Increment view count with rate limiting (1 view per IP per hour)
-    if (shouldCountView(request, token)) {
+    if (await shouldCountViewAsync(request, token)) {
       await incrementShareViewCount(token);
     }
     await logShareAccess(share.id, {
@@ -101,7 +101,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error) {
     console.error("[API] Error accessing shared folder:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
       { error: "Failed to access shared folder", details: errorMessage },
       { status: 500 },

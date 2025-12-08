@@ -17,8 +17,8 @@ export const GET = requireAuth(async function GET(
       request.headers.get("x-real-ip") ||
       "127.0.0.1";
 
-    if (!thumbnailRateLimiter.isAllowed(clientIP)) {
-      const stats = thumbnailRateLimiter.getStats(clientIP);
+    if (!(await thumbnailRateLimiter.isAllowed(clientIP))) {
+      const stats = await thumbnailRateLimiter.getStats(clientIP);
       return new NextResponse("Rate limit exceeded", {
         status: 429,
         headers: {

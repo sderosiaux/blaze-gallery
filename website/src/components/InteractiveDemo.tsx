@@ -159,11 +159,11 @@ export default function InteractiveDemo() {
                 <div>
                   <div className="text-6xl mb-6">👨‍👩‍👧‍👦</div>
                   <h4 className="text-3xl font-semibold text-black mb-6">
-                    "Finally, our family photos are safe and private"
+                    &quot;Finally, our family photos are safe and private&quot;
                   </h4>
                   <p className="text-xl text-gray-600 mb-8 leading-relaxed">
                     Sarah moved her 10,000+ family photos from Google Photos to Blaze Gallery. 
-                    Now she controls who sees her children's photos, with secure sharing links 
+                    Now she controls who sees her children&apos;s photos, with secure sharing links 
                     and no AI scanning their precious memories.
                   </p>
                   <div className="space-y-3">
@@ -240,7 +240,7 @@ export default function InteractiveDemo() {
                 <div>
                   <div className="text-6xl mb-6">📷</div>
                   <h4 className="text-3xl font-semibold mb-6">
-                    "My clients love the secure sharing"
+                    &quot;My clients love the secure sharing&quot;
                   </h4>
                   <p className="text-xl text-gray-300 mb-8 leading-relaxed">
                     Marcus runs a photography studio and uses Blaze Gallery to share high-res 
@@ -277,7 +277,7 @@ export default function InteractiveDemo() {
                 <div>
                   <div className="text-6xl mb-6">🔐</div>
                   <h4 className="text-3xl font-semibold text-black mb-6">
-                    "No more scanning my private moments"
+                    &quot;No more scanning my private moments&quot;
                   </h4>
                   <p className="text-xl text-gray-600 mb-8 leading-relaxed">
                     Alex was concerned about AI companies training on personal photos. 

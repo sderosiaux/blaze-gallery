@@ -1,112 +1,64 @@
 # Blaze Gallery
 
-A self-hosted photo gallery that integrates with *Backblaze B2* cloud storage (or any S3 storage actually). Browse and organize your photo collection with a modern web interface that never modifies your original files.
+**Your photos. Your cloud. Your control.**
 
-<img width="1623" height="839" alt="Screenshot 2025-08-09 at 20 11 30" src="https://github.com/user-attachments/assets/138a5e6a-2133-495c-a398-aafc1607a4c3" />
+A beautiful, self-hosted photo gallery that connects to your S3-compatible storage. Browse thousands of photos with a fast, modern interface that never touches your original files.
+
+<img width="1623" height="839" alt="Blaze Gallery Screenshot" src="https://github.com/user-attachments/assets/138a5e6a-2133-495c-a398-aafc1607a4c3" />
+
+## Why Blaze Gallery?
+
+- **Own your data** - Photos stay in your storage, not someone else's servers
+- **No lock-in** - Works with any S3-compatible storage (Backblaze B2, AWS S3, Cloudflare R2, MinIO)
+- **Read-only** - Never modifies your original photos
+- **Fast** - Smart thumbnails and caching for instant browsing
+- **Share privately** - Password-protected links with expiration dates
+
+## Get Started in 2 Minutes
+
+```bash
+git clone https://github.com/sderosiaux/blaze-gallery.git
+cd blaze-gallery
+cp .env.template .env
+# Edit .env with your S3 credentials
+docker-compose up -d
+```
+
+Open http://localhost:3000 and your photos will be automatically indexed.
 
 ## Features
 
-- **Fast browsing** with smart caching, lazy loading, and progressive image loading
-- **Backblaze B2 integration** using S3-compatible API
-- **Read-only mode** - never modifies your original photos
-- **Responsive design** - works on desktop, tablet, and mobile
-- **Photo lightbox** with slideshow mode and keyboard navigation
-- **Favorites system** and folder navigation
-- **EXIF metadata** display including GPS location
-- **Automatic thumbnails** with configurable size limits
-- **Gallery statistics** with duplicate detection and space optimization
-- **Audit dashboard** with performance monitoring and thumbnail analytics
-- **Search functionality** across your entire photo collection
-- **Random photo discovery** to rediscover forgotten memories
-- **Folder sharing** with password protection and expiration dates
-- **Share management** dashboard with access logs and analytics
-- **RAW file support** with intelligent handling (see limitations below)
-- **AI Integration** via MCP server - query your photos with Claude using natural language
+| Feature | Description |
+|---------|-------------|
+| **Fast browsing** | Lazy loading, smart caching, progressive images |
+| **Folder navigation** | Browse your existing folder structure |
+| **Photo lightbox** | Slideshow mode, keyboard navigation, EXIF data |
+| **Search** | Find photos across your entire collection |
+| **Favorites** | Mark and filter your best shots |
+| **Sharing** | Password-protected links with expiration |
+| **Random discovery** | Rediscover forgotten memories |
+| **Mobile-ready** | Responsive design for any device |
 
-## Quick Start
+## Documentation
 
-### Prerequisites
-- Docker and Docker Compose
-- Backblaze B2 account with a bucket containing photos
+- **[Setup Guide](./docs/SETUP.md)** - Detailed installation and configuration
+- **[Configuration](./docs/CONFIGURATION.md)** - Environment variables and options
+- **[Deployment](./docs/DEPLOYMENT.md)** - Production deployment guides
 
-### Installation
+## Requirements
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/sderosiaux/blaze-gallery.git
-   cd blaze-gallery
-   ```
+- Docker and Docker Compose (recommended)
+- Or: Node.js 18+ and PostgreSQL
+- S3-compatible storage with your photos
 
-2. **Configure environment**
-   ```bash
-   cp .env.template .env
-   ```
-   
-   Edit `.env` with your Backblaze B2 credentials:
-   ```env
-   BACKBLAZE_ENDPOINT=https://s3.us-west-004.backblazeb2.com
-   BACKBLAZE_BUCKET=your-photo-bucket-name
-   BACKBLAZE_ACCESS_KEY=your_application_key_id
-   BACKBLAZE_SECRET_KEY=your_application_key_secret
-   ```
+## Contributing
 
-3. **Start the application**
-   ```bash
-   docker-compose up -d
-   ```
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
-4. **Access your gallery**
-   Open http://localhost:3000 and your photos will be automatically scanned and indexed
+## License
 
-### Thumbnail storage configuration
-
-Blaze Gallery generates lightweight thumbnails for fast browsing. By default they
-are stored on the local filesystem inside `data/thumbnails`. To keep your
-deployment fully stateless you can instruct the app to write thumbnails back to
-the same S3-compatible bucket that contains your photos:
-
-```env
-# Save thumbnails alongside your photos in S3 instead of local disk
-THUMBNAIL_STORAGE=s3
-THUMBNAIL_S3_PREFIX=thumbnails
-```
-
-Thumbnails are stored in a dedicated prefix (default `thumbnails/`) that mirrors
-your original folder structure and appends the internal photo ID to the file
-name to avoid collisions (e.g. `thumbnails/vacation/IMG_0001-42.jpeg`).
-
-## AI Integration (MCP Server)
-
-Blaze Gallery includes an **MCP (Model Context Protocol) server** that lets you query your photo collection using natural language with Claude and other AI assistants.
-
-### Quick Setup
-```bash
-cd mcp-server
-npm install && npm run build
-```
-
-### Example Queries
-Once configured with Claude Desktop, you can ask:
-- *"Show me all my photos from 2023"*
-- *"Find photos taken with my Canon camera"*
-- *"What's my photo collection breakdown by year?"*
-- *"Show me trends in my photo uploads over time"*
-
-**→ [Full MCP Setup Guide](./mcp-server/README.md)**
-
-## Limitations
-
-### RAW File Support
-RAW camera files are supported but with limitations due to browser technology:
-
-**❌ Cannot display in browser:**
-- RAW files cannot be previewed directly in web browsers
-- Files are detected and catalogued but show a helpful message instead of the image
-- Download functionality works perfectly for editing in external software
-- EXIF metadata is extracted and displayed when available
+MIT License - see [LICENSE](./LICENSE) for details.
 
 ---
 
-**⭐ If you find Blaze Gallery useful, please give it a star on GitHub!**
-
-Built with ❤️ for photographers and self-hosting enthusiasts who want to keep their memories safe and beautifully browsable.
+**[View Demo](https://sderosiaux.github.io/blaze-gallery)** | **[Report Issue](https://github.com/sderosiaux/blaze-gallery/issues)** | **[Star on GitHub](https://github.com/sderosiaux/blaze-gallery)**

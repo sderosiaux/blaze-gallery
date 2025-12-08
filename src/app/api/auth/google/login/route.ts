@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     // Rate limiting by IP
     const clientIP =
       request.ip || request.headers.get("x-forwarded-for") || "unknown";
-    if (!authRateLimiter.isAllowed(`auth:${clientIP}`, 10, 15 * 60 * 1000)) {
+    if (!(await authRateLimiter.isAllowed(`auth:${clientIP}`, 10, 15 * 60 * 1000))) {
       return NextResponse.json(
         { error: "Too many authentication attempts. Please try again later." },
         { status: 429 },

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // Rate limiting by IP
     const clientIP =
       request.ip || request.headers.get("x-forwarded-for") || "unknown";
-    if (!authRateLimiter.isAllowed(`callback:${clientIP}`, 5, 15 * 60 * 1000)) {
+    if (!(await authRateLimiter.isAllowed(`callback:${clientIP}`, 5, 15 * 60 * 1000))) {
       return NextResponse.redirect(new URL("/?error=rate_limit", request.url));
     }
 

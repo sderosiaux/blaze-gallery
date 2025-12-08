@@ -631,86 +631,118 @@ const toolSchemas = {
   },
 };
 
+// MCP server capabilities and info
+const SERVER_INFO = {
+  name: "blaze-gallery",
+  version: "1.0.0",
+};
+
+const SERVER_CAPABILITIES = {
+  tools: {},
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { method, params } = body;
+    const { jsonrpc, id, method, params } = body;
+
+    // Helper to format JSON-RPC response
+    const jsonRpcResponse = (result: any) => {
+      if (jsonrpc === "2.0") {
+        return NextResponse.json({ jsonrpc: "2.0", id, result });
+      }
+      return NextResponse.json(result);
+    };
+
+    const jsonRpcError = (code: number, message: string, status = 400) => {
+      if (jsonrpc === "2.0") {
+        return NextResponse.json(
+          { jsonrpc: "2.0", id, error: { code, message } },
+          { status }
+        );
+      }
+      return NextResponse.json({ error: { code, message } }, { status });
+    };
 
     switch (method) {
+      // MCP Protocol methods
+      case "initialize":
+        return jsonRpcResponse({
+          protocolVersion: "2024-11-05",
+          capabilities: SERVER_CAPABILITIES,
+          serverInfo: SERVER_INFO,
+        });
+
+      case "notifications/initialized":
+        // Client notification that initialization is complete
+        return jsonRpcResponse({});
+
+      case "ping":
+        return jsonRpcResponse({});
+
       case "tools/list":
-        return NextResponse.json({
+        return jsonRpcResponse({
           tools: [
             {
               name: "search_photos",
               description:
                 "Search for photos in the gallery with various filters",
               inputSchema: toolSchemas.search_photos.inputSchema,
-              outputSchema: toolSchemas.search_photos.outputSchema,
             },
             {
               name: "get_photo",
               description:
                 "Get detailed information about a specific photo by ID",
               inputSchema: toolSchemas.get_photo.inputSchema,
-              outputSchema: toolSchemas.get_photo.outputSchema,
             },
             {
               name: "search_folders",
               description:
                 "Search for folders in the gallery with various filters",
               inputSchema: toolSchemas.search_folders.inputSchema,
-              outputSchema: toolSchemas.search_folders.outputSchema,
             },
             {
               name: "get_folder",
               description:
                 "Get detailed information about a specific folder by path",
               inputSchema: toolSchemas.get_folder.inputSchema,
-              outputSchema: toolSchemas.get_folder.outputSchema,
             },
             {
               name: "get_folder_photos",
               description: "Get all photos in a specific folder",
               inputSchema: toolSchemas.get_folder_photos.inputSchema,
-              outputSchema: toolSchemas.get_folder_photos.outputSchema,
             },
             {
               name: "get_folder_tree",
               description: "Get the folder hierarchy/tree structure",
               inputSchema: toolSchemas.get_folder_tree.inputSchema,
-              outputSchema: toolSchemas.get_folder_tree.outputSchema,
             },
             {
               name: "get_favorite_photos",
               description: "Get all favorite photos",
               inputSchema: toolSchemas.get_favorite_photos.inputSchema,
-              outputSchema: toolSchemas.get_favorite_photos.outputSchema,
             },
             {
               name: "get_recent_photos",
               description: "Get recently added/modified photos",
               inputSchema: toolSchemas.get_recent_photos.inputSchema,
-              outputSchema: toolSchemas.get_recent_photos.outputSchema,
             },
             {
               name: "get_gallery_stats",
               description: "Get overall gallery statistics and metrics",
               inputSchema: toolSchemas.get_gallery_stats.inputSchema,
-              outputSchema: toolSchemas.get_gallery_stats.outputSchema,
             },
             {
               name: "get_photo_analytics",
               description:
                 "Get efficient analytics breakdown of photos by year, month, or folder",
               inputSchema: toolSchemas.get_photo_analytics.inputSchema,
-              outputSchema: toolSchemas.get_photo_analytics.outputSchema,
             },
             {
               name: "get_photo_trends",
               description:
                 "Get photo trends over time with various metrics and time ranges",
               inputSchema: toolSchemas.get_photo_trends.inputSchema,
-              outputSchema: toolSchemas.get_photo_trends.outputSchema,
             },
           ],
         });
@@ -722,7 +754,7 @@ export async function POST(request: NextRequest) {
           switch (name) {
             case "search_photos": {
               const results = await mcpHandler.searchPhotos(args || {});
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -741,29 +773,20 @@ export async function POST(request: NextRequest) {
 
             case "get_photo": {
               if (!args || typeof args.photo_id !== "number") {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: "photo_id is required and must be a number",
-                    },
-                  },
-                  { status: 400 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  "photo_id is required and must be a number",
                 );
               }
               const photo = await getPhoto(args.photo_id);
               if (!photo) {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: `Photo with ID ${args.photo_id} not found`,
-                    },
-                  },
-                  { status: 404 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  `Photo with ID ${args.photo_id} not found`,
+                  404,
                 );
               }
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -775,7 +798,7 @@ export async function POST(request: NextRequest) {
 
             case "search_folders": {
               const results = await mcpHandler.searchFolders(args || {});
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -794,29 +817,20 @@ export async function POST(request: NextRequest) {
 
             case "get_folder": {
               if (!args || typeof args.folder_path !== "string") {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: "folder_path is required and must be a string",
-                    },
-                  },
-                  { status: 400 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  "folder_path is required and must be a string",
                 );
               }
               const folder = await getFolderByPath(args.folder_path);
               if (!folder) {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: `Folder with path "${args.folder_path}" not found`,
-                    },
-                  },
-                  { status: 404 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  `Folder with path "${args.folder_path}" not found`,
+                  404,
                 );
               }
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -828,31 +842,21 @@ export async function POST(request: NextRequest) {
 
             case "get_folder_photos": {
               if (!args || typeof args.folder_path !== "string") {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: "folder_path is required and must be a string",
-                    },
-                  },
-                  { status: 400 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  "folder_path is required and must be a string",
                 );
               }
               const folder = await getFolderByPath(args.folder_path);
               if (!folder) {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: `Folder with path "${args.folder_path}" not found`,
-                    },
-                  },
-                  { status: 404 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  `Folder with path "${args.folder_path}" not found`,
+                  404,
                 );
               }
-              const limit = typeof args.limit === "number" ? args.limit : 100;
               const photos = await getPhotosInFolder(folder.id);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -876,7 +880,7 @@ export async function POST(request: NextRequest) {
                   ? args.root_path
                   : undefined;
               const folders = await mcpHandler.getFolderTree(rootPath);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -898,7 +902,7 @@ export async function POST(request: NextRequest) {
               const limit =
                 args && typeof args.limit === "number" ? args.limit : 100;
               const photos = await mcpHandler.getFavoritePhotos(limit);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -919,7 +923,7 @@ export async function POST(request: NextRequest) {
               const limit =
                 args && typeof args.limit === "number" ? args.limit : 50;
               const photos = await mcpHandler.getRecentPhotos(limit);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -938,7 +942,7 @@ export async function POST(request: NextRequest) {
 
             case "get_gallery_stats": {
               const stats = await mcpHandler.getGalleryStats();
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -950,14 +954,9 @@ export async function POST(request: NextRequest) {
 
             case "get_photo_analytics": {
               if (!args || typeof args.groupBy !== "string") {
-                return NextResponse.json(
-                  {
-                    error: {
-                      code: ErrorCode.InvalidRequest,
-                      message: "groupBy is required and must be a string",
-                    },
-                  },
-                  { status: 400 },
+                return jsonRpcError(
+                  ErrorCode.InvalidRequest,
+                  "groupBy is required and must be a string",
                 );
               }
 
@@ -975,7 +974,7 @@ export async function POST(request: NextRequest) {
               };
 
               const analytics = await mcpHandler.getPhotoAnalytics(options);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -1011,7 +1010,7 @@ export async function POST(request: NextRequest) {
               };
 
               const trends = await mcpHandler.getPhotoTrends(options);
-              return NextResponse.json({
+              return jsonRpcResponse({
                 content: [
                   {
                     type: "text",
@@ -1032,44 +1031,34 @@ export async function POST(request: NextRequest) {
             }
 
             default:
-              return NextResponse.json(
-                {
-                  error: {
-                    code: ErrorCode.MethodNotFound,
-                    message: `Unknown tool: ${name}`,
-                  },
-                },
-                { status: 404 },
+              return jsonRpcError(
+                ErrorCode.MethodNotFound,
+                `Unknown tool: ${name}`,
+                404,
               );
           }
         } catch (error) {
           console.error(`Error executing ${name}:`, error);
-          return NextResponse.json(
-            {
-              error: {
-                code: ErrorCode.InternalError,
-                message: `Failed to execute ${name}: ${error instanceof Error ? error.message : String(error)}`,
-              },
-            },
-            { status: 500 },
+          return jsonRpcError(
+            ErrorCode.InternalError,
+            `Failed to execute ${name}: ${error instanceof Error ? error.message : String(error)}`,
+            500,
           );
         }
 
       default:
-        return NextResponse.json(
-          {
-            error: {
-              code: ErrorCode.MethodNotFound,
-              message: `Unknown method: ${method}`,
-            },
-          },
-          { status: 404 },
+        return jsonRpcError(
+          ErrorCode.MethodNotFound,
+          `Unknown method: ${method}`,
+          404,
         );
     }
   } catch (error) {
     console.error("MCP API Error:", error);
     return NextResponse.json(
       {
+        jsonrpc: "2.0",
+        id: null,
         error: {
           code: ErrorCode.InternalError,
           message:

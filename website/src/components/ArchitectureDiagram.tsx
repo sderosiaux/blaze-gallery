@@ -126,7 +126,7 @@ export default function ArchitectureDiagram() {
                 Read-only access.
               </h4>
               <p className="text-xl text-gray-600 font-light">
-                Can't delete. Can't modify.
+                Can&apos;t delete. Can&apos;t modify.
                 <br />
                 Only view and share.
               </p>

@@ -100,42 +100,90 @@ export function validateState(
   );
 }
 
-/**
- * Rate limiting helper (simple in-memory implementation)
- */
-class RateLimiter {
-  private attempts = new Map<string, { count: number; resetTime: number }>();
+import { query } from "@/lib/database";
 
-  isAllowed(
+/**
+ * Database-backed rate limiting helper for serverless deployments
+ */
+class DatabaseAuthRateLimiter {
+  private initialized = false;
+
+  private async ensureTable(): Promise<void> {
+    if (this.initialized) return;
+
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS rate_limits (
+          identifier VARCHAR(255) PRIMARY KEY,
+          count INTEGER NOT NULL DEFAULT 1,
+          reset_time BIGINT NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_time
+        ON rate_limits(reset_time)
+      `);
+
+      this.initialized = true;
+    } catch (error) {
+      console.error("[AUTH_RATE_LIMITER] Error ensuring table:", error);
+      this.initialized = true;
+    }
+  }
+
+  async isAllowed(
     key: string,
     maxAttempts: number = 5,
     windowMs: number = 15 * 60 * 1000,
-  ): boolean {
-    const now = Date.now();
-    const record = this.attempts.get(key);
+  ): Promise<boolean> {
+    await this.ensureTable();
 
-    // Reset if window has passed
-    if (!record || now > record.resetTime) {
-      this.attempts.set(key, { count: 1, resetTime: now + windowMs });
+    const now = Date.now();
+    const resetTime = now + windowMs;
+
+    try {
+      const result = await query(
+        `
+        INSERT INTO rate_limits (identifier, count, reset_time)
+        VALUES ($1, 1, $2)
+        ON CONFLICT (identifier) DO UPDATE
+        SET
+          count = CASE
+            WHEN rate_limits.reset_time < $3 THEN 1
+            ELSE rate_limits.count + 1
+          END,
+          reset_time = CASE
+            WHEN rate_limits.reset_time < $3 THEN $2
+            ELSE rate_limits.reset_time
+          END
+        RETURNING count, reset_time
+      `,
+        [key, resetTime, now]
+      );
+
+      const entry = result.rows[0];
+      return entry.count <= maxAttempts;
+    } catch (error) {
+      console.error("[AUTH_RATE_LIMITER] Error checking rate limit:", error);
+      // On error, allow the request (fail open)
       return true;
     }
-
-    // Check if limit exceeded
-    if (record.count >= maxAttempts) {
-      return false;
-    }
-
-    // Increment count
-    record.count++;
-    return true;
   }
 
-  reset(key: string): void {
-    this.attempts.delete(key);
+  async reset(key: string): Promise<void> {
+    await this.ensureTable();
+
+    try {
+      await query(`DELETE FROM rate_limits WHERE identifier = $1`, [key]);
+    } catch (error) {
+      console.error("[AUTH_RATE_LIMITER] Error resetting rate limit:", error);
+    }
   }
 }
 
-export const authRateLimiter = new RateLimiter();
+export const authRateLimiter = new DatabaseAuthRateLimiter();
 
 /**
  * Validate request origin for CSRF protection

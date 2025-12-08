@@ -66,7 +66,7 @@ export default function FeaturesGrid() {
               </h4>
               <p className="text-xl text-gray-300 font-light">
                 Docker command.
-                <br />You're live.
+                <br />You&apos;re live.
               </p>
             </motion.div>
 
@@ -108,26 +108,26 @@ export default function FeaturesGrid() {
               </p>
             </motion.div>
 
-            {/* Large Feature - AI Integration */}
-            <motion.div 
-              className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-3xl p-12 flex flex-col justify-center overflow-hidden border border-purple-100"
+            {/* Large Feature - No Lock-in */}
+            <motion.div
+              className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-3xl p-12 flex flex-col justify-center overflow-hidden border border-green-100"
               initial={{ opacity: 1, x: 40 }}
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
               viewport={{ once: true }}
             >
-              <div className="text-8xl mb-8">🤖</div>
+              <div className="text-8xl mb-8">🔓</div>
               <h4 className="text-4xl font-semibold text-black mb-4 leading-none">
-                AI-powered
+                No
                 <br />
-                queries.
+                lock-in.
               </h4>
               <p className="text-xl text-gray-600 font-light mb-4">
-                "Show me photos from 2023"
-                <br />"Find my Canon pictures"
+                Backblaze B2, AWS S3,
+                <br />Cloudflare R2, MinIO.
               </p>
-              <p className="text-sm text-purple-600 font-medium">
-                Claude integration via MCP
+              <p className="text-sm text-green-600 font-medium">
+                Any S3-compatible storage
               </p>
             </motion.div>
             

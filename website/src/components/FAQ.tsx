@@ -111,7 +111,7 @@ export default function FAQ() {
             </h3>
             <p className="text-2xl md:text-3xl text-gray-600 font-light mb-12 leading-relaxed">
               Check the documentation or ask on GitHub.
-              <br />We're here to help.
+              <br />We&apos;re here to help.
             </p>
             <div className="flex flex-col sm:flex-row gap-6 justify-center">
               <motion.a

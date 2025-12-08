@@ -36,7 +36,7 @@ function FolderContent({ params }: FolderPageProps) {
 
   // Get the current folder path from URL params (decode to handle %20 etc.)
   const currentPath = params.path
-    ? params.path.map(p => decodeURIComponent(p)).join("/")
+    ? params.path.map((p) => decodeURIComponent(p)).join("/")
     : "";
 
   // Get selected photo ID from URL search params
