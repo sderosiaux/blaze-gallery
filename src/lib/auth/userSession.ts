@@ -44,7 +44,7 @@ export async function createUserSession(user: {
       now,
       expiresAt,
       now,
-    ]
+    ],
   );
 
   // Clean up expired sessions periodically (async, don't wait)
@@ -63,12 +63,11 @@ export async function createUserSession(user: {
  * Validate and refresh a user session from the database
  */
 export async function validateUserSession(
-  sessionId: string
+  sessionId: string,
 ): Promise<UserSession | null> {
-  const result = await query(
-    `SELECT * FROM user_sessions WHERE id = $1`,
-    [sessionId]
-  );
+  const result = await query(`SELECT * FROM user_sessions WHERE id = $1`, [
+    sessionId,
+  ]);
 
   const dbSession = result.rows[0] as DbSession | undefined;
 
@@ -93,10 +92,12 @@ export async function validateUserSession(
   const oneHour = 60 * 60 * 1000;
   const lastActivity = new Date(dbSession.last_activity);
   if (now.getTime() - lastActivity.getTime() > oneHour) {
-    const newExpiresAt = new Date(now.getTime() + authConfig.sessionDuration * 1000);
+    const newExpiresAt = new Date(
+      now.getTime() + authConfig.sessionDuration * 1000,
+    );
     await query(
       `UPDATE user_sessions SET last_activity = $1, expires_at = $2 WHERE id = $3`,
-      [now, newExpiresAt, sessionId]
+      [now, newExpiresAt, sessionId],
     );
   }
 
@@ -117,7 +118,7 @@ export async function validateUserSession(
 export async function revokeUserSession(sessionId: string): Promise<void> {
   const result = await query(
     `DELETE FROM user_sessions WHERE id = $1 RETURNING email`,
-    [sessionId]
+    [sessionId],
   );
 
   if (result.rows[0]) {
@@ -135,7 +136,7 @@ export async function getUserSessions(email: string): Promise<UserSession[]> {
   const normalizedEmail = email.toLowerCase();
   const result = await query(
     `SELECT * FROM user_sessions WHERE email = $1 AND expires_at > NOW()`,
-    [normalizedEmail]
+    [normalizedEmail],
   );
 
   return result.rows.map((row: DbSession) => ({
@@ -154,10 +155,9 @@ export async function getUserSessions(email: string): Promise<UserSession[]> {
  */
 export async function revokeUserSessions(email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
-  const result = await query(
-    `DELETE FROM user_sessions WHERE email = $1`,
-    [normalizedEmail]
-  );
+  const result = await query(`DELETE FROM user_sessions WHERE email = $1`, [
+    normalizedEmail,
+  ]);
 
   console.log("User sessions revoked (bulk):", {
     email: normalizedEmail,

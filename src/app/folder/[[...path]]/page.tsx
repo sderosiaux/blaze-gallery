@@ -34,8 +34,10 @@ function FolderContent({ params }: FolderPageProps) {
   const [bucketName, setBucketName] = useState("");
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
 
-  // Get the current folder path from URL params
-  const currentPath = params.path ? params.path.join("/") : "";
+  // Get the current folder path from URL params (decode to handle %20 etc.)
+  const currentPath = params.path
+    ? params.path.map(p => decodeURIComponent(p)).join("/")
+    : "";
 
   // Get selected photo ID from URL search params
   const selectedPhotoId = searchParams.get("photo");

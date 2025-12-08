@@ -72,8 +72,11 @@ export default function ShareDialog({
     setError(null);
 
     try {
+      // Ensure path is decoded (in case it contains URL-encoded characters like %20)
+      const decodedPath = decodeURIComponent(folderPath);
+
       const payload: any = {
-        folder_path: folderPath,
+        folder_path: decodedPath,
         allow_download: allowDownload,
       };
 
@@ -100,7 +103,10 @@ export default function ShareDialog({
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to create share");
+        const errorMsg = data.details
+          ? `${data.error}: ${data.details}`
+          : data.error || "Failed to create share";
+        throw new Error(errorMsg);
       }
 
       setShareData(data);

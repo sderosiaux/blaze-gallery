@@ -101,8 +101,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error) {
     console.error("[API] Error accessing shared folder:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to access shared folder" },
+      { error: "Failed to access shared folder", details: errorMessage },
       { status: 500 },
     );
   }

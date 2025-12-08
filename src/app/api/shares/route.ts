@@ -32,11 +32,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Decode URL-encoded path (e.g., %20 -> space)
+    const decodedPath = decodeURIComponent(folder_path);
+
+    console.log("[API] Share request - raw path:", folder_path);
+    console.log("[API] Share request - decoded path:", decodedPath);
+
     // Validate that the folder exists
-    const folder = await getFolderByPath(folder_path);
+    const folder = await getFolderByPath(decodedPath);
     if (!folder) {
-      return NextResponse.json({ error: "Folder not found" }, { status: 404 });
+      console.log("[API] Folder not found for path:", decodedPath);
+      return NextResponse.json({ error: "Folder not found", path: decodedPath }, { status: 404 });
     }
+
+    console.log("[API] Found folder:", folder.id, folder.name);
 
     // Validate expiration date if provided
     if (expires_at) {
@@ -49,9 +58,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create the share
+    // Create the share with decoded path
     const shareData: CreateShareData = {
-      folder_path,
+      folder_path: decodedPath,
       folder_id: folder.id,
       password,
       expires_at,
@@ -71,8 +80,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[API] Error creating folder share:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to create folder share" },
+      { error: "Failed to create folder share", details: errorMessage },
       { status: 500 },
     );
   }

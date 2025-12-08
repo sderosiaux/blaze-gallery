@@ -763,6 +763,9 @@ export interface CreateShareData {
 export async function createFolderShare(
   shareData: CreateShareData,
 ): Promise<SharedFolder> {
+  // Generate a unique share token
+  const shareToken = crypto.randomUUID();
+
   // Hash password if provided
   let passwordHash = null;
   if (shareData.password) {
@@ -780,13 +783,14 @@ export async function createFolderShare(
   const result = await query(
     `
     INSERT INTO shared_folders (
-      folder_path, folder_id, password_hash,
+      share_token, folder_path, folder_id, password_hash,
       expires_at, description, allow_download
     )
-    VALUES ($1, $2, $3, $4, $5, $6)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING *
   `,
     [
+      shareToken,
       shareData.folder_path,
       folderId,
       passwordHash,
@@ -881,7 +885,7 @@ export async function logShareAccess(
   await query(
     `
     INSERT INTO share_access_logs (
-      share_id, ip_address, user_agent, access_type, success
+      shared_folder_id, ip_address, user_agent, access_type, success
     )
     VALUES ($1, $2, $3, $4, $5)
   `,
