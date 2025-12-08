@@ -90,8 +90,8 @@ interface PhotoBatchItem {
   size: number;
   mime_type: string;
   modified_at: string;
-  metadata_status: string;
-  thumbnail_status: string;
+  metadata_status: "none" | "pending" | "extracted" | "skipped_size";
+  thumbnail_status: "none" | "pending" | "generated" | "skipped_size";
 }
 
 /**
@@ -221,7 +221,9 @@ function parseExifToMetadata(tags: ExifTags): PhotoMetadata | undefined {
   if (tags.DateTime?.description) {
     const dateStr = tags.DateTime.description;
     const date = new Date(
-      dateStr.replace(/:/g, "-").replace(/(\d{4})-(\d{2})-(\d{2}) /, "$1-$2-$3T") + "Z",
+      dateStr
+        .replace(/:/g, "-")
+        .replace(/(\d{4})-(\d{2})-(\d{2}) /, "$1-$2-$3T") + "Z",
     );
     if (!isNaN(date.getTime())) {
       metadata.date_taken = date.toISOString();
