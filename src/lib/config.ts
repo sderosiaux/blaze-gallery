@@ -10,11 +10,22 @@ export function getConfig(): Config {
 
   logger.configInfo("Loading configuration from environment variables");
 
+  const storageMode = (process.env.THUMBNAIL_STORAGE || "local").toLowerCase();
+  const normalizedStorageMode: "local" | "s3" =
+    storageMode === "s3" ? "s3" : "local";
+  const thumbnailPrefix = process.env.THUMBNAIL_S3_PREFIX || "thumbnails";
+
   const defaultConfig: Config = {
     backblaze_endpoint: process.env.BACKBLAZE_ENDPOINT || "",
     backblaze_bucket: process.env.BACKBLAZE_BUCKET || "",
     backblaze_access_key: process.env.BACKBLAZE_ACCESS_KEY || "",
     backblaze_secret_key: process.env.BACKBLAZE_SECRET_KEY || "",
+    thumbnail_storage: normalizedStorageMode,
+    thumbnail_s3_endpoint: process.env.THUMBNAIL_S3_ENDPOINT || undefined,
+    thumbnail_s3_bucket: process.env.THUMBNAIL_S3_BUCKET || undefined,
+    thumbnail_s3_access_key: process.env.THUMBNAIL_S3_ACCESS_KEY || undefined,
+    thumbnail_s3_secret_key: process.env.THUMBNAIL_S3_SECRET_KEY || undefined,
+    thumbnail_s3_prefix: thumbnailPrefix,
     thumbnail_max_age_days: parseInt(
       process.env.THUMBNAIL_MAX_AGE_DAYS || "30",
     ),
@@ -34,6 +45,12 @@ export function getConfig(): Config {
     BACKBLAZE_BUCKET: !!process.env.BACKBLAZE_BUCKET,
     BACKBLAZE_ACCESS_KEY: !!process.env.BACKBLAZE_ACCESS_KEY,
     BACKBLAZE_SECRET_KEY: !!process.env.BACKBLAZE_SECRET_KEY,
+    THUMBNAIL_STORAGE: !!process.env.THUMBNAIL_STORAGE,
+    THUMBNAIL_S3_ENDPOINT: !!process.env.THUMBNAIL_S3_ENDPOINT,
+    THUMBNAIL_S3_BUCKET: !!process.env.THUMBNAIL_S3_BUCKET,
+    THUMBNAIL_S3_ACCESS_KEY: !!process.env.THUMBNAIL_S3_ACCESS_KEY,
+    THUMBNAIL_S3_SECRET_KEY: !!process.env.THUMBNAIL_S3_SECRET_KEY,
+    THUMBNAIL_S3_PREFIX: !!process.env.THUMBNAIL_S3_PREFIX,
     THUMBNAIL_MAX_AGE_DAYS: !!process.env.THUMBNAIL_MAX_AGE_DAYS,
     SYNC_INTERVAL_HOURS: !!process.env.SYNC_INTERVAL_HOURS,
     AUTO_METADATA_THRESHOLD_MB: !!process.env.AUTO_METADATA_THRESHOLD_MB,
@@ -106,6 +123,39 @@ export function validateConfig(config: Config): string[] {
 
   if (!config.backblaze_secret_key) {
     errors.push("Backblaze secret key is required");
+  }
+
+  if (!["local", "s3"].includes(config.thumbnail_storage)) {
+    errors.push("Thumbnail storage must be either 'local' or 's3'");
+  }
+
+  if (config.thumbnail_storage === "s3") {
+    if (!config.thumbnail_s3_prefix) {
+      errors.push("Thumbnail S3 prefix is required when using S3 storage");
+    }
+    // Validate separate thumbnail S3 config if provided (for R2 or other S3-compatible storage)
+    if (config.thumbnail_s3_endpoint || config.thumbnail_s3_bucket ||
+        config.thumbnail_s3_access_key || config.thumbnail_s3_secret_key) {
+      // If any thumbnail S3 config is set, all must be set
+      if (!config.thumbnail_s3_endpoint) {
+        errors.push("Thumbnail S3 endpoint is required when using separate thumbnail storage");
+      } else {
+        try {
+          new URL(config.thumbnail_s3_endpoint);
+        } catch {
+          errors.push("Thumbnail S3 endpoint must be a valid URL");
+        }
+      }
+      if (!config.thumbnail_s3_bucket) {
+        errors.push("Thumbnail S3 bucket is required when using separate thumbnail storage");
+      }
+      if (!config.thumbnail_s3_access_key) {
+        errors.push("Thumbnail S3 access key is required when using separate thumbnail storage");
+      }
+      if (!config.thumbnail_s3_secret_key) {
+        errors.push("Thumbnail S3 secret key is required when using separate thumbnail storage");
+      }
+    }
   }
 
   if (config.thumbnail_max_age_days < 1) {
