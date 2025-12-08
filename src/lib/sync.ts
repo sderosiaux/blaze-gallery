@@ -62,9 +62,10 @@ export class SyncService {
         logger.syncOperation("Found existing full_scan job, resuming", {
           component: "SyncService",
           jobId: existingFullScan.id,
-          status: existingFullScan.status,
-          processed: existingFullScan.processed_items,
-          total: existingFullScan.total_items,
+          progress: {
+            processed: existingFullScan.processed_items ?? 0,
+            total: existingFullScan.total_items ?? 0,
+          },
         });
         return; // Don't create a new one, let existing job continue
       }

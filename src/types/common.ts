@@ -54,6 +54,9 @@ export interface S3LogContext extends BaseLogContext {
 export interface SyncLogContext extends BaseLogContext {
   jobId?: number;
   jobType?: SyncJobType;
+  jobCount?: number;
+  runningJobId?: number;
+  runningJobType?: SyncJobType;
   folderPath?: string;
   photoId?: number;
   s3Key?: string;
@@ -78,6 +81,10 @@ export interface SyncLogContext extends BaseLogContext {
   maxAgeDays?: number;
   thumbnailPath?: string;
   fileSize?: number;
+  lastCompletedAt?: string | Date;
+  pausedJobId?: number;
+  priorityJobId?: number;
+  priorityJobType?: SyncJobType;
 }
 
 export interface ThumbnailLogContext extends BaseLogContext {
