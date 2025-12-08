@@ -8,6 +8,7 @@ import {
   query,
 } from "@/lib/database";
 import { Photo, Folder } from "@/types";
+import { QueryBuilder } from "@/lib/queryBuilder";
 
 interface SearchFilters {
   folder_path?: string;
@@ -35,83 +36,34 @@ interface FolderSearchFilters {
 
 class BlazeGalleryMCPHandler {
   async searchPhotos(filters: SearchFilters): Promise<Photo[]> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramCount = 1;
+    const qb = new QueryBuilder();
 
-    // Build WHERE conditions
-    if (filters.folder_path) {
-      conditions.push(
-        `(f.path = $${paramCount} OR f.path LIKE $${paramCount + 1})`,
-      );
-      params.push(filters.folder_path, `${filters.folder_path}/%`);
-      paramCount += 2;
-    }
+    // Build WHERE conditions using QueryBuilder
+    qb.pathMatch("f.path", filters.folder_path)
+      .ilike("p.filename", filters.filename)
+      .equals("p.mime_type", filters.mime_type)
+      .boolean("p.is_favorite", filters.is_favorite)
+      .hasValue("p.metadata", filters.has_metadata)
+      .gte("p.size", filters.min_size)
+      .lte("p.size", filters.max_size)
+      .gte("p.modified_at", filters.date_from)
+      .lte("p.modified_at", filters.date_to);
 
-    if (filters.filename) {
-      conditions.push(`p.filename ILIKE $${paramCount}`);
-      params.push(`%${filters.filename}%`);
-      paramCount++;
-    }
-
-    if (filters.mime_type) {
-      conditions.push(`p.mime_type = $${paramCount}`);
-      params.push(filters.mime_type);
-      paramCount++;
-    }
-
-    if (typeof filters.is_favorite === "boolean") {
-      conditions.push(`p.is_favorite = $${paramCount}`);
-      params.push(filters.is_favorite);
-      paramCount++;
-    }
-
-    if (typeof filters.has_metadata === "boolean") {
-      conditions.push(
-        filters.has_metadata ? "p.metadata IS NOT NULL" : "p.metadata IS NULL",
-      );
-    }
-
-    if (filters.min_size) {
-      conditions.push(`p.size >= $${paramCount}`);
-      params.push(filters.min_size);
-      paramCount++;
-    }
-
-    if (filters.max_size) {
-      conditions.push(`p.size <= $${paramCount}`);
-      params.push(filters.max_size);
-      paramCount++;
-    }
-
-    if (filters.date_from) {
-      conditions.push(`p.modified_at >= $${paramCount}`);
-      params.push(filters.date_from);
-      paramCount++;
-    }
-
-    if (filters.date_to) {
-      conditions.push(`p.modified_at <= $${paramCount}`);
-      params.push(filters.date_to);
-      paramCount++;
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const limit = filters.limit || 100;
-    const offset = filters.offset || 0;
+    const { limitParam, offsetParam } = qb.pagination(
+      filters.limit || 100,
+      filters.offset || 0,
+    );
 
     const queryText = `
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      ${whereClause}
+      ${qb.getWhereClause()}
       ORDER BY p.modified_at DESC, p.filename
-      LIMIT $${paramCount} OFFSET $${paramCount + 1}
+      LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
 
-    params.push(limit, offset);
-    const result = await query(queryText, params);
+    const result = await query(queryText, qb.getParams());
 
     return result.rows.map((photo) => ({
       ...photo,
@@ -122,48 +74,31 @@ class BlazeGalleryMCPHandler {
   }
 
   async searchFolders(filters: FolderSearchFilters): Promise<Folder[]> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramCount = 1;
+    const qb = new QueryBuilder();
 
+    // Handle parent_path filter (special case: empty string means root)
     if (filters.parent_path !== undefined) {
       if (filters.parent_path === "") {
-        conditions.push("f.parent_id IS NULL");
+        qb.custom("f.parent_id IS NULL");
       } else {
-        conditions.push(`parent.path = $${paramCount}`);
-        params.push(filters.parent_path);
-        paramCount++;
+        qb.equals("parent.path", filters.parent_path);
       }
     }
 
-    if (filters.folder_name) {
-      conditions.push(`f.name ILIKE $${paramCount}`);
-      params.push(`%${filters.folder_name}%`);
-      paramCount++;
-    }
+    qb.ilike("f.name", filters.folder_name);
 
+    // Handle has_photos filter (different conditions based on value)
     if (typeof filters.has_photos === "boolean") {
-      conditions.push(
-        filters.has_photos ? "f.photo_count > 0" : "f.photo_count = 0",
-      );
+      qb.custom(filters.has_photos ? "f.photo_count > 0" : "f.photo_count = 0");
     }
 
-    if (filters.min_photo_count) {
-      conditions.push(`f.photo_count >= $${paramCount}`);
-      params.push(filters.min_photo_count);
-      paramCount++;
-    }
+    qb.gte("f.photo_count", filters.min_photo_count)
+      .lte("f.photo_count", filters.max_photo_count);
 
-    if (filters.max_photo_count) {
-      conditions.push(`f.photo_count <= $${paramCount}`);
-      params.push(filters.max_photo_count);
-      paramCount++;
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const limit = filters.limit || 100;
-    const offset = filters.offset || 0;
+    const { limitParam, offsetParam } = qb.pagination(
+      filters.limit || 100,
+      filters.offset || 0,
+    );
 
     const queryText = `
       SELECT f.*,
@@ -172,14 +107,13 @@ class BlazeGalleryMCPHandler {
       FROM folders f
       LEFT JOIN folders parent ON f.parent_id = parent.id
       LEFT JOIN photos p ON p.folder_id = f.id
-      ${whereClause}
+      ${qb.getWhereClause()}
       GROUP BY f.id
       ORDER BY f.name
-      LIMIT $${paramCount} OFFSET $${paramCount + 1}
+      LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
 
-    params.push(limit, offset);
-    const result = await query(queryText, params);
+    const result = await query(queryText, qb.getParams());
     return result.rows as Folder[];
   }
 
@@ -455,11 +389,18 @@ const toolHandlers: Record<string, ToolHandler> = {
 
   get_photo: async (args) => {
     if (!args || typeof args.photo_id !== "number") {
-      throw { code: ErrorCode.InvalidRequest, message: "photo_id is required and must be a number" };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: "photo_id is required and must be a number",
+      };
     }
     const photo = await getPhoto(args.photo_id);
     if (!photo) {
-      throw { code: ErrorCode.InvalidRequest, message: `Photo with ID ${args.photo_id} not found`, status: 404 };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: `Photo with ID ${args.photo_id} not found`,
+        status: 404,
+      };
     }
     return photo;
   },
@@ -471,29 +412,44 @@ const toolHandlers: Record<string, ToolHandler> = {
 
   get_folder: async (args) => {
     if (!args || typeof args.folder_path !== "string") {
-      throw { code: ErrorCode.InvalidRequest, message: "folder_path is required and must be a string" };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: "folder_path is required and must be a string",
+      };
     }
     const folder = await getFolderByPath(args.folder_path);
     if (!folder) {
-      throw { code: ErrorCode.InvalidRequest, message: `Folder with path "${args.folder_path}" not found`, status: 404 };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: `Folder with path "${args.folder_path}" not found`,
+        status: 404,
+      };
     }
     return folder;
   },
 
   get_folder_photos: async (args) => {
     if (!args || typeof args.folder_path !== "string") {
-      throw { code: ErrorCode.InvalidRequest, message: "folder_path is required and must be a string" };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: "folder_path is required and must be a string",
+      };
     }
     const folder = await getFolderByPath(args.folder_path);
     if (!folder) {
-      throw { code: ErrorCode.InvalidRequest, message: `Folder with path "${args.folder_path}" not found`, status: 404 };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: `Folder with path "${args.folder_path}" not found`,
+        status: 404,
+      };
     }
     const photos = await getPhotosInFolder(folder.id);
     return { folder_path: args.folder_path, photos, count: photos.length };
   },
 
   get_folder_tree: async (args) => {
-    const rootPath = args && typeof args.root_path === "string" ? args.root_path : undefined;
+    const rootPath =
+      args && typeof args.root_path === "string" ? args.root_path : undefined;
     const folders = await mcpHandler.getFolderTree(rootPath);
     return { root_path: rootPath || "", folders, count: folders.length };
   },
@@ -516,7 +472,10 @@ const toolHandlers: Record<string, ToolHandler> = {
 
   get_photo_analytics: async (args) => {
     if (!args || typeof args.groupBy !== "string") {
-      throw { code: ErrorCode.InvalidRequest, message: "groupBy is required and must be a string" };
+      throw {
+        code: ErrorCode.InvalidRequest,
+        message: "groupBy is required and must be a string",
+      };
     }
     const options = {
       groupBy: args.groupBy as "year" | "month" | "year-month" | "folder",
@@ -530,12 +489,20 @@ const toolHandlers: Record<string, ToolHandler> = {
 
   get_photo_trends: async (args) => {
     const options = {
-      timeRange: (args?.timeRange as "last-30-days" | "last-year" | "all-time") || "last-year",
+      timeRange:
+        (args?.timeRange as "last-30-days" | "last-year" | "all-time") ||
+        "last-year",
       groupBy: (args?.groupBy as "day" | "week" | "month") || "month",
       metric: (args?.metric as "count" | "size" | "favorites") || "count",
     };
     const trends = await mcpHandler.getPhotoTrends(options);
-    return { trends, timeRange: options.timeRange, groupBy: options.groupBy, metric: options.metric, count: trends.length };
+    return {
+      trends,
+      timeRange: options.timeRange,
+      groupBy: options.groupBy,
+      metric: options.metric,
+      count: trends.length,
+    };
   },
 };
 
@@ -848,7 +815,11 @@ export async function POST(request: NextRequest) {
         const handler = toolHandlers[name];
 
         if (!handler) {
-          return jsonRpcError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`, 404);
+          return jsonRpcError(
+            ErrorCode.MethodNotFound,
+            `Unknown tool: ${name}`,
+            404,
+          );
         }
 
         try {

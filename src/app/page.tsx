@@ -9,11 +9,7 @@ import RandomPhotosTeaser from "@/components/RandomPhotosTeaser";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/components/auth/AuthProvider";
-
-interface BreadcrumbItem {
-  name: string;
-  path: string;
-}
+import { BreadcrumbItem, buildBreadcrumbs } from "@/lib/navigation";
 
 function HomePageContent() {
   const router = useRouter();
@@ -46,7 +42,7 @@ function HomePageContent() {
       const data = await response.json();
       if (data.success && data.bucket) {
         setBucketName(data.bucket);
-        setBreadcrumbs([{ name: data.bucket, path: "" }]);
+        setBreadcrumbs(buildBreadcrumbs(data.bucket, ""));
       }
     } catch (error) {
       console.error("[CLIENT] Failed to load bucket name:", error);

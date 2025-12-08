@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logShareAccess } from "@/lib/database";
 import { getObjectStreamAuto } from "@/lib/s3";
 import { validateSharedPhotoAccess } from "@/lib/shareHelpers";
+import { getRequestContext } from "@/lib/requestContext";
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic";
@@ -15,9 +16,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { token, photoId } = params;
 
     // Validate shared photo access (requires download permission)
-    const validation = await validateSharedPhotoAccess(request, token, photoId, {
-      requireDownloadPermission: true,
-    });
+    const validation = await validateSharedPhotoAccess(
+      request,
+      token,
+      photoId,
+      {
+        requireDownloadPermission: true,
+      },
+    );
     if (validation.error) {
       return validation.error;
     }
@@ -25,10 +31,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { share, photo } = validation;
 
     // Log download access
+    const ctx = getRequestContext(request);
     await logShareAccess(share.id, {
-      ip_address:
-        request.ip || request.headers.get("x-forwarded-for") || "unknown",
-      user_agent: request.headers.get("user-agent") || "unknown",
+      ip_address: ctx.ip,
+      user_agent: ctx.userAgent,
       access_type: "download",
       success: true,
     });

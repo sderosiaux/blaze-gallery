@@ -10,7 +10,8 @@ import {
   validateState,
   authRateLimiter,
 } from "@/lib/auth/validators";
-import { authConfig } from "@/lib/auth/config";
+import { authConfig, AUTH_RATE_LIMITS } from "@/lib/auth/config";
+import { getClientIP } from "@/lib/requestContext";
 
 // Force dynamic rendering for auth routes
 export const dynamic = "force-dynamic";
@@ -45,13 +46,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Rate limiting by IP
-    const clientIP =
-      request.ip || request.headers.get("x-forwarded-for") || "unknown";
+    const clientIP = getClientIP(request);
     if (
       !(await authRateLimiter.isAllowed(
         `callback:${clientIP}`,
-        5,
-        15 * 60 * 1000,
+        AUTH_RATE_LIMITS.CALLBACK_MAX_ATTEMPTS,
+        AUTH_RATE_LIMITS.WINDOW_MS,
       ))
     ) {
       return NextResponse.redirect(new URL("/?error=rate_limit", request.url));

@@ -8,11 +8,11 @@ import PhotoGrid from "@/components/PhotoGrid";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/components/auth/AuthProvider";
-
-interface BreadcrumbItem {
-  name: string;
-  path: string;
-}
+import {
+  BreadcrumbItem,
+  buildBreadcrumbs,
+  getFolderNameFromPath,
+} from "@/lib/navigation";
 
 interface FolderPageProps {
   params: {
@@ -83,30 +83,12 @@ function FolderContent({ params }: FolderPageProps) {
   // Rebuild breadcrumbs when bucket name loads (regardless of when it loads)
   useEffect(() => {
     if (!bucketName) return; // Wait until we have the bucket name
-
-    if (currentPath === "") {
-      // We're at root
-      setBreadcrumbs([{ name: bucketName, path: "" }]);
-    } else {
-      // We're in a folder - rebuild breadcrumbs with bucket name at root
-      const pathParts = currentPath.split("/").filter((part) => part);
-      const newBreadcrumbs: BreadcrumbItem[] = [{ name: bucketName, path: "" }];
-
-      let buildPath = "";
-      for (const part of pathParts) {
-        buildPath = buildPath ? `${buildPath}/${part}` : part;
-        newBreadcrumbs.push({ name: part, path: buildPath });
-      }
-
-      setBreadcrumbs(newBreadcrumbs);
-    }
+    setBreadcrumbs(buildBreadcrumbs(bucketName, currentPath));
   }, [bucketName, currentPath]); // Trigger when bucket loads OR when path changes
 
   // Update page title dynamically
   useEffect(() => {
-    const folderName = currentPath
-      ? currentPath.split("/").pop()
-      : bucketName || "Gallery";
+    const folderName = getFolderNameFromPath(currentPath, bucketName || "Gallery");
     document.title = `${folderName} - Blaze Gallery`;
   }, [currentPath, bucketName]);
 

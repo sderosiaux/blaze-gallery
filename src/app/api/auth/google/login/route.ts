@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateGoogleAuthUrl } from "@/lib/auth/googleOAuth";
-import { authConfig } from "@/lib/auth/config";
+import { authConfig, AUTH_RATE_LIMITS } from "@/lib/auth/config";
 import { authRateLimiter, validateOrigin } from "@/lib/auth/validators";
+import { getClientIP } from "@/lib/requestContext";
 
 // Force dynamic rendering for auth routes
 export const dynamic = "force-dynamic";
@@ -22,10 +23,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Rate limiting by IP
-    const clientIP =
-      request.ip || request.headers.get("x-forwarded-for") || "unknown";
+    const clientIP = getClientIP(request);
     if (
-      !(await authRateLimiter.isAllowed(`auth:${clientIP}`, 10, 15 * 60 * 1000))
+      !(await authRateLimiter.isAllowed(
+        `auth:${clientIP}`,
+        AUTH_RATE_LIMITS.LOGIN_MAX_ATTEMPTS,
+        AUTH_RATE_LIMITS.WINDOW_MS,
+      ))
     ) {
       return NextResponse.json(
         { error: "Too many authentication attempts. Please try again later." },
@@ -47,7 +51,7 @@ export async function GET(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 10 * 60, // 10 minutes
+      maxAge: AUTH_RATE_LIMITS.OAUTH_STATE_EXPIRY_SECONDS,
       path: "/",
     });
 
@@ -55,7 +59,7 @@ export async function GET(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 10 * 60, // 10 minutes
+      maxAge: AUTH_RATE_LIMITS.OAUTH_STATE_EXPIRY_SECONDS,
       path: "/",
     });
 

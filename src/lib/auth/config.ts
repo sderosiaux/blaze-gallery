@@ -1,5 +1,19 @@
 import { AuthConfig } from "./types";
 
+/**
+ * Auth rate limiting constants
+ */
+export const AUTH_RATE_LIMITS = {
+  /** Window duration in milliseconds (15 minutes) */
+  WINDOW_MS: 15 * 60 * 1000,
+  /** Max login attempts per window */
+  LOGIN_MAX_ATTEMPTS: 10,
+  /** Max callback attempts per window */
+  CALLBACK_MAX_ATTEMPTS: 5,
+  /** OAuth state/cookie expiry in seconds (10 minutes) */
+  OAUTH_STATE_EXPIRY_SECONDS: 10 * 60,
+} as const;
+
 function getAuthConfig(): AuthConfig {
   const enabled =
     process.env.GOOGLE_AUTH_ENABLED?.trim().replace(/\\n/g, "") === "true";

@@ -152,7 +152,9 @@ export class DatabaseRateLimiter {
     await this.ensureTable();
 
     try {
-      await query(`DELETE FROM rate_limits WHERE identifier = $1`, [identifier]);
+      await query(`DELETE FROM rate_limits WHERE identifier = $1`, [
+        identifier,
+      ]);
     } catch (error) {
       console.error("[RATE_LIMITER] Error resetting:", error);
     }

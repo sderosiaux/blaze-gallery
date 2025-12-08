@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { authConfig } from "./config";
+import { authConfig, AUTH_RATE_LIMITS } from "./config";
 import { GoogleUserInfo } from "./types";
 
 /**
@@ -102,8 +102,11 @@ export function validateState(
 
 import { DatabaseRateLimiter } from "@/lib/rateLimiter";
 
-// Auth rate limiter: 5 attempts per 15 minutes
-export const authRateLimiter = new DatabaseRateLimiter(15 * 60 * 1000, 5);
+// Auth rate limiter using configured limits
+export const authRateLimiter = new DatabaseRateLimiter(
+  AUTH_RATE_LIMITS.WINDOW_MS,
+  AUTH_RATE_LIMITS.CALLBACK_MAX_ATTEMPTS,
+);
 
 /**
  * Validate request origin for CSRF protection

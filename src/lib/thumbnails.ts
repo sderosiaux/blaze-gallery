@@ -257,9 +257,7 @@ export class ThumbnailService {
     return allObjects;
   }
 
-  async generateThumbnail(
-    params: GenerateThumbnailParams,
-  ): Promise<string> {
+  async generateThumbnail(params: GenerateThumbnailParams): Promise<string> {
     const {
       bucket,
       s3Key,

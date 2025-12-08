@@ -560,7 +560,12 @@ export default function PhotoViewer({
               favoriteLoading={favoriteLoading}
               isFavorite={currentFavoriteState}
               heartAnimating={heartAnimating}
-              onFavoriteToggle={() => handleFavoriteToggle({ preventDefault: () => {}, stopPropagation: () => {} } as React.MouseEvent)}
+              onFavoriteToggle={() =>
+                handleFavoriteToggle({
+                  preventDefault: () => {},
+                  stopPropagation: () => {},
+                } as React.MouseEvent)
+              }
               allowDownload={allowDownload}
               onDownload={handleDownload}
               onClose={onClose}

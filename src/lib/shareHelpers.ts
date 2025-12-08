@@ -51,7 +51,8 @@ export async function validateSharedPhotoAccess(
   photoId: string,
   options: ValidationOptions = {},
 ): Promise<ShareValidationResult> {
-  const { requireDownloadPermission = false, skipSessionCheck = false } = options;
+  const { requireDownloadPermission = false, skipSessionCheck = false } =
+    options;
   const sessionToken = request.headers.get("x-share-session");
 
   // Get the shared folder
@@ -141,5 +142,7 @@ export async function validateSharedThumbnailAccess(
   photoId: string,
 ): Promise<ShareValidationResult> {
   // Thumbnails skip session check to allow gallery view with simple img tags
-  return validateSharedPhotoAccess(request, token, photoId, { skipSessionCheck: true });
+  return validateSharedPhotoAccess(request, token, photoId, {
+    skipSessionCheck: true,
+  });
 }

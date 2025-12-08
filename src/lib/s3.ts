@@ -361,9 +361,7 @@ export interface ListObjectsOptions {
   request?: Request;
 }
 
-export async function listObjects(
-  options: ListObjectsOptions,
-): Promise<{
+export async function listObjects(options: ListObjectsOptions): Promise<{
   objects: S3Object[];
   nextContinuationToken?: string;
   isTruncated: boolean;
