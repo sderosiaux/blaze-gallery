@@ -25,6 +25,21 @@ import {
 function isVideoMimeType(mimeType: string): boolean {
   return mimeType.startsWith("video/");
 }
+
+/**
+ * Trigger a file download via anchor element
+ * Handles both blob URLs and regular URLs
+ */
+function triggerDownload(url: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 import { loadImageWithSession, revokeBlobUrl } from "@/lib/shareClient";
 
 interface PhotoViewerProps {
@@ -471,7 +486,7 @@ export default function PhotoViewer({
   const handleDownload = async () => {
     try {
       if (isSharedView && shareToken) {
-        // For shared downloads, use fetch with session token then create blob URL for download
+        // For shared downloads, fetch with session token then create blob URL
         const response = await fetch(
           `/api/shares/${shareToken}/download/${currentPhoto.id}`,
           {
@@ -485,27 +500,14 @@ export default function PhotoViewer({
 
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
-
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = currentPhoto.filename;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        // Clean up the blob URL
+        triggerDownload(url, currentPhoto.filename);
         URL.revokeObjectURL(url);
       } else {
         // Regular download
-        const a = document.createElement("a");
-        a.href = `/api/photos/${currentPhoto.id}/download`;
-        a.download = currentPhoto.filename;
-        a.target = "_blank";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        triggerDownload(
+          `/api/photos/${currentPhoto.id}/download`,
+          currentPhoto.filename,
+        );
       }
     } catch (error) {
       console.error("[CLIENT] Download failed:", error);

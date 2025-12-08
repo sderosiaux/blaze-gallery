@@ -15,12 +15,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { token, photoId } = params;
 
     // Validate shared photo access (requires download permission)
-    const validation = await validateSharedPhotoAccess(
-      request,
-      token,
-      photoId,
-      true,
-    );
+    const validation = await validateSharedPhotoAccess(request, token, photoId, {
+      requireDownloadPermission: true,
+    });
     if (validation.error) {
       return validation.error;
     }

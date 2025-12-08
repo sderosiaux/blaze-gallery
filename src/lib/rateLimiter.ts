@@ -1,18 +1,12 @@
 import { query } from "./database";
 
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
 /**
  * Database-backed rate limiter for serverless deployments
  * Uses PostgreSQL to store rate limit state across instances
  */
-class DatabaseRateLimiter {
+export class DatabaseRateLimiter {
   private readonly windowMs: number;
   private readonly maxRequests: number;
-  private readonly tableName = "rate_limits";
   private initialized = false;
 
   constructor(windowMs = 60000, maxRequests = 100) {
@@ -50,11 +44,17 @@ class DatabaseRateLimiter {
     }
   }
 
-  async isAllowed(identifier: string): Promise<boolean> {
+  async isAllowed(
+    identifier: string,
+    overrideMaxRequests?: number,
+    overrideWindowMs?: number,
+  ): Promise<boolean> {
     await this.ensureTable();
 
+    const maxRequests = overrideMaxRequests ?? this.maxRequests;
+    const windowMs = overrideWindowMs ?? this.windowMs;
     const now = Date.now();
-    const resetTime = now + this.windowMs;
+    const resetTime = now + windowMs;
 
     try {
       // Try to insert or update the rate limit entry atomically
@@ -74,11 +74,11 @@ class DatabaseRateLimiter {
           END
         RETURNING count, reset_time
       `,
-        [identifier, resetTime, now]
+        [identifier, resetTime, now],
       );
 
       const entry = result.rows[0];
-      return entry.count <= this.maxRequests;
+      return entry.count <= maxRequests;
     } catch (error) {
       console.error("[RATE_LIMITER] Error checking rate limit:", error);
       // On error, allow the request (fail open)
@@ -98,7 +98,7 @@ class DatabaseRateLimiter {
     try {
       const result = await query(
         `SELECT count, reset_time FROM rate_limits WHERE identifier = $1`,
-        [identifier]
+        [identifier],
       );
 
       if (result.rows.length === 0 || result.rows[0].reset_time < now) {
@@ -136,12 +136,25 @@ class DatabaseRateLimiter {
     try {
       const result = await query(
         `DELETE FROM rate_limits WHERE reset_time < $1`,
-        [now]
+        [now],
       );
       return result.rowCount || 0;
     } catch (error) {
       console.error("[RATE_LIMITER] Error during cleanup:", error);
       return 0;
+    }
+  }
+
+  /**
+   * Reset rate limit for a specific identifier
+   */
+  async reset(identifier: string): Promise<void> {
+    await this.ensureTable();
+
+    try {
+      await query(`DELETE FROM rate_limits WHERE identifier = $1`, [identifier]);
+    } catch (error) {
+      console.error("[RATE_LIMITER] Error resetting:", error);
     }
   }
 }

@@ -43,6 +43,29 @@ interface DatabasePhoto {
   last_synced?: string;
 }
 
+/**
+ * Normalize database photo row to Photo type with proper boolean and URL handling
+ */
+function normalizePhoto(dbPhoto: DatabasePhoto): Photo {
+  return {
+    ...dbPhoto,
+    is_favorite: Boolean(dbPhoto.is_favorite),
+    thumbnail_url: `/api/photos/${dbPhoto.id}/thumbnail`,
+    metadata: dbPhoto.metadata,
+  } as Photo;
+}
+
+/**
+ * Normalize database share row to SharedFolder type with proper boolean handling
+ */
+function normalizeShare(dbShare: any): any {
+  return {
+    ...dbShare,
+    allow_download: Boolean(dbShare.allow_download),
+    is_active: Boolean(dbShare.is_active),
+  };
+}
+
 class DatabaseManager {
   private static instance: DatabaseManager;
   private pool: Pool | null = null;
@@ -189,21 +212,6 @@ export async function query(
   return pool.query(text, params);
 }
 
-// PostgreSQL schema is already created via Neon migration
-// This function is no longer needed but kept for reference
-function initializeDatabase() {
-  // Schema is already created in Neon PostgreSQL
-  // Tables: folders, photos, sync_jobs, shared_folders, share_access_logs
-  // All indexes and constraints are already in place
-  console.log("PostgreSQL schema already exists in Neon database");
-}
-
-// PostgreSQL migrations are handled via Neon
-// Schema version tracking not needed as schema is already deployed
-function runMigrations() {
-  console.log("PostgreSQL migrations handled via Neon deployment");
-}
-
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
   let sql: string;
   let params: any[];
@@ -291,16 +299,7 @@ export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
   );
 
   const photos = result.rows as DatabasePhoto[];
-
-  return photos.map(
-    (photo) =>
-      ({
-        ...photo,
-        is_favorite: Boolean(photo.is_favorite),
-        thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-        metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-      }) as Photo,
-  );
+  return photos.map(normalizePhoto);
 }
 
 export async function createOrUpdatePhoto(
@@ -343,13 +342,7 @@ export async function createOrUpdatePhoto(
   );
 
   const photo = result.rows[0] as DatabasePhoto;
-
-  return {
-    ...photo,
-    is_favorite: Boolean(photo.is_favorite),
-    thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-    metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-  } as Photo;
+  return normalizePhoto(photo);
 }
 
 // Bulk operations for sync performance
@@ -411,12 +404,7 @@ export async function bulkCreateOrUpdatePhotos(
     );
 
     // Convert results to Photo objects
-    return result.rows.map((photo: DatabasePhoto) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata,
-    })) as Photo[];
+    return result.rows.map((photo: DatabasePhoto) => normalizePhoto(photo));
   });
 }
 
@@ -512,12 +500,7 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
 
   if (!photo) return null;
 
-  return {
-    ...photo,
-    is_favorite: Boolean(photo.is_favorite),
-    thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-    metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-  } as Photo;
+  return normalizePhoto(photo);
 }
 
 export async function createSyncJob(
@@ -801,12 +784,7 @@ export async function createFolderShare(
   );
 
   const share = result.rows[0] as SharedFolder;
-
-  return {
-    ...share,
-    allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active),
-  };
+  return normalizeShare(share);
 }
 
 export async function getSharedFolder(
@@ -829,11 +807,7 @@ export async function getSharedFolder(
     return null;
   }
 
-  return {
-    ...share,
-    allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active),
-  };
+  return normalizeShare(share);
 }
 
 export async function validateSharePassword(
@@ -908,12 +882,7 @@ export async function getAllSharedFolders(): Promise<SharedFolder[]> {
   `);
 
   const shares = result.rows as (SharedFolder & { folder_name: string })[];
-
-  return shares.map((share) => ({
-    ...share,
-    allow_download: Boolean(share.allow_download),
-    is_active: Boolean(share.is_active),
-  }));
+  return shares.map(normalizeShare);
 }
 
 export async function deactivateShare(shareToken: string): Promise<void> {

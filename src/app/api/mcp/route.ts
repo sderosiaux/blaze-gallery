@@ -443,6 +443,102 @@ class BlazeGalleryMCPHandler {
 
 const mcpHandler = new BlazeGalleryMCPHandler();
 
+// Tool handler type
+type ToolHandler = (args: any) => Promise<any>;
+
+// Tool dispatch map - replaces switch statement
+const toolHandlers: Record<string, ToolHandler> = {
+  search_photos: async (args) => {
+    const results = await mcpHandler.searchPhotos(args || {});
+    return { photos: results, count: results.length };
+  },
+
+  get_photo: async (args) => {
+    if (!args || typeof args.photo_id !== "number") {
+      throw { code: ErrorCode.InvalidRequest, message: "photo_id is required and must be a number" };
+    }
+    const photo = await getPhoto(args.photo_id);
+    if (!photo) {
+      throw { code: ErrorCode.InvalidRequest, message: `Photo with ID ${args.photo_id} not found`, status: 404 };
+    }
+    return photo;
+  },
+
+  search_folders: async (args) => {
+    const results = await mcpHandler.searchFolders(args || {});
+    return { folders: results, count: results.length };
+  },
+
+  get_folder: async (args) => {
+    if (!args || typeof args.folder_path !== "string") {
+      throw { code: ErrorCode.InvalidRequest, message: "folder_path is required and must be a string" };
+    }
+    const folder = await getFolderByPath(args.folder_path);
+    if (!folder) {
+      throw { code: ErrorCode.InvalidRequest, message: `Folder with path "${args.folder_path}" not found`, status: 404 };
+    }
+    return folder;
+  },
+
+  get_folder_photos: async (args) => {
+    if (!args || typeof args.folder_path !== "string") {
+      throw { code: ErrorCode.InvalidRequest, message: "folder_path is required and must be a string" };
+    }
+    const folder = await getFolderByPath(args.folder_path);
+    if (!folder) {
+      throw { code: ErrorCode.InvalidRequest, message: `Folder with path "${args.folder_path}" not found`, status: 404 };
+    }
+    const photos = await getPhotosInFolder(folder.id);
+    return { folder_path: args.folder_path, photos, count: photos.length };
+  },
+
+  get_folder_tree: async (args) => {
+    const rootPath = args && typeof args.root_path === "string" ? args.root_path : undefined;
+    const folders = await mcpHandler.getFolderTree(rootPath);
+    return { root_path: rootPath || "", folders, count: folders.length };
+  },
+
+  get_favorite_photos: async (args) => {
+    const limit = args && typeof args.limit === "number" ? args.limit : 100;
+    const photos = await mcpHandler.getFavoritePhotos(limit);
+    return { favorite_photos: photos, count: photos.length };
+  },
+
+  get_recent_photos: async (args) => {
+    const limit = args && typeof args.limit === "number" ? args.limit : 50;
+    const photos = await mcpHandler.getRecentPhotos(limit);
+    return { recent_photos: photos, count: photos.length };
+  },
+
+  get_gallery_stats: async () => {
+    return mcpHandler.getGalleryStats();
+  },
+
+  get_photo_analytics: async (args) => {
+    if (!args || typeof args.groupBy !== "string") {
+      throw { code: ErrorCode.InvalidRequest, message: "groupBy is required and must be a string" };
+    }
+    const options = {
+      groupBy: args.groupBy as "year" | "month" | "year-month" | "folder",
+      orderBy: (args.orderBy as "period" | "count" | "size") || "period",
+      orderDirection: (args.orderDirection as "ASC" | "DESC") || "DESC",
+      limit: typeof args.limit === "number" ? args.limit : 100,
+    };
+    const analytics = await mcpHandler.getPhotoAnalytics(options);
+    return { analytics, groupBy: options.groupBy, count: analytics.length };
+  },
+
+  get_photo_trends: async (args) => {
+    const options = {
+      timeRange: (args?.timeRange as "last-30-days" | "last-year" | "all-time") || "last-year",
+      groupBy: (args?.groupBy as "day" | "week" | "month") || "month",
+      metric: (args?.metric as "count" | "size" | "favorites") || "count",
+    };
+    const trends = await mcpHandler.getPhotoTrends(options);
+    return { trends, timeRange: options.timeRange, groupBy: options.groupBy, metric: options.metric, count: trends.length };
+  },
+};
+
 // Tool schemas
 const toolSchemas = {
   search_photos: {
@@ -658,7 +754,7 @@ export async function POST(request: NextRequest) {
       if (jsonrpc === "2.0") {
         return NextResponse.json(
           { jsonrpc: "2.0", id, error: { code, message } },
-          { status }
+          { status },
         );
       }
       return NextResponse.json({ error: { code, message } }, { status });
@@ -747,297 +843,24 @@ export async function POST(request: NextRequest) {
           ],
         });
 
-      case "tools/call":
+      case "tools/call": {
         const { name, arguments: args } = params;
+        const handler = toolHandlers[name];
+
+        if (!handler) {
+          return jsonRpcError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`, 404);
+        }
 
         try {
-          switch (name) {
-            case "search_photos": {
-              const results = await mcpHandler.searchPhotos(args || {});
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        photos: results,
-                        count: results.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_photo": {
-              if (!args || typeof args.photo_id !== "number") {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  "photo_id is required and must be a number",
-                );
-              }
-              const photo = await getPhoto(args.photo_id);
-              if (!photo) {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  `Photo with ID ${args.photo_id} not found`,
-                  404,
-                );
-              }
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(photo, null, 2),
-                  },
-                ],
-              });
-            }
-
-            case "search_folders": {
-              const results = await mcpHandler.searchFolders(args || {});
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        folders: results,
-                        count: results.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_folder": {
-              if (!args || typeof args.folder_path !== "string") {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  "folder_path is required and must be a string",
-                );
-              }
-              const folder = await getFolderByPath(args.folder_path);
-              if (!folder) {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  `Folder with path "${args.folder_path}" not found`,
-                  404,
-                );
-              }
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(folder, null, 2),
-                  },
-                ],
-              });
-            }
-
-            case "get_folder_photos": {
-              if (!args || typeof args.folder_path !== "string") {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  "folder_path is required and must be a string",
-                );
-              }
-              const folder = await getFolderByPath(args.folder_path);
-              if (!folder) {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  `Folder with path "${args.folder_path}" not found`,
-                  404,
-                );
-              }
-              const photos = await getPhotosInFolder(folder.id);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        folder_path: args.folder_path,
-                        photos: photos,
-                        count: photos.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_folder_tree": {
-              const rootPath =
-                args && typeof args.root_path === "string"
-                  ? args.root_path
-                  : undefined;
-              const folders = await mcpHandler.getFolderTree(rootPath);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        root_path: rootPath || "",
-                        folders: folders,
-                        count: folders.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_favorite_photos": {
-              const limit =
-                args && typeof args.limit === "number" ? args.limit : 100;
-              const photos = await mcpHandler.getFavoritePhotos(limit);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        favorite_photos: photos,
-                        count: photos.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_recent_photos": {
-              const limit =
-                args && typeof args.limit === "number" ? args.limit : 50;
-              const photos = await mcpHandler.getRecentPhotos(limit);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        recent_photos: photos,
-                        count: photos.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_gallery_stats": {
-              const stats = await mcpHandler.getGalleryStats();
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(stats, null, 2),
-                  },
-                ],
-              });
-            }
-
-            case "get_photo_analytics": {
-              if (!args || typeof args.groupBy !== "string") {
-                return jsonRpcError(
-                  ErrorCode.InvalidRequest,
-                  "groupBy is required and must be a string",
-                );
-              }
-
-              const options = {
-                groupBy: args.groupBy as
-                  | "year"
-                  | "month"
-                  | "year-month"
-                  | "folder",
-                orderBy:
-                  (args.orderBy as "period" | "count" | "size") || "period",
-                orderDirection:
-                  (args.orderDirection as "ASC" | "DESC") || "DESC",
-                limit: typeof args.limit === "number" ? args.limit : 100,
-              };
-
-              const analytics = await mcpHandler.getPhotoAnalytics(options);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        analytics,
-                        groupBy: options.groupBy,
-                        count: analytics.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            case "get_photo_trends": {
-              const options = {
-                timeRange:
-                  (args &&
-                    (args.timeRange as
-                      | "last-30-days"
-                      | "last-year"
-                      | "all-time")) ||
-                  "last-year",
-                groupBy:
-                  (args && (args.groupBy as "day" | "week" | "month")) ||
-                  "month",
-                metric:
-                  (args && (args.metric as "count" | "size" | "favorites")) ||
-                  "count",
-              };
-
-              const trends = await mcpHandler.getPhotoTrends(options);
-              return jsonRpcResponse({
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(
-                      {
-                        trends,
-                        timeRange: options.timeRange,
-                        groupBy: options.groupBy,
-                        metric: options.metric,
-                        count: trends.length,
-                      },
-                      null,
-                      2,
-                    ),
-                  },
-                ],
-              });
-            }
-
-            default:
-              return jsonRpcError(
-                ErrorCode.MethodNotFound,
-                `Unknown tool: ${name}`,
-                404,
-              );
+          const result = await handler(args);
+          return jsonRpcResponse({
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          });
+        } catch (error: any) {
+          // Handle validation errors thrown from handlers
+          if (error.code && error.message) {
+            return jsonRpcError(error.code, error.message, error.status || 400);
           }
-        } catch (error) {
           console.error(`Error executing ${name}:`, error);
           return jsonRpcError(
             ErrorCode.InternalError,
@@ -1045,6 +868,7 @@ export async function POST(request: NextRequest) {
             500,
           );
         }
+      }
 
       default:
         return jsonRpcError(

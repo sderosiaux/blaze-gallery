@@ -29,6 +29,57 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 import { PhotoMetadata, Photo } from "@/types";
 
+/**
+ * Progress tracking for sync operations
+ */
+interface SyncProgress {
+  total: number;
+  processed: number;
+  images: number;
+  skipped: number;
+  currentPage: number;
+}
+
+/**
+ * Pagination state for S3 listing operations
+ */
+interface PaginationState {
+  continuationToken?: string;
+  hasMorePages: boolean;
+  currentObjects: S3Object[];
+}
+
+/**
+ * Helper to update sync job progress and optionally log
+ */
+async function updateJobProgress(
+  jobId: number,
+  processed: number,
+  total?: number,
+  logOptions?: {
+    message: string;
+    folderPath?: string;
+    extra?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const update: { processed_items: number; total_items?: number } = {
+    processed_items: processed,
+  };
+  if (total !== undefined) {
+    update.total_items = total;
+  }
+  await updateSyncJob(jobId, update);
+
+  if (logOptions) {
+    logger.syncOperation(logOptions.message, {
+      jobId,
+      ...(logOptions.folderPath && { folderPath: logOptions.folderPath }),
+      progress: { processed, total: total ?? 0 },
+      ...(logOptions.extra || {}),
+    });
+  }
+}
+
 export class SyncService {
   private isRunning = false;
   private currentJob: SyncJob | null = null;
@@ -374,54 +425,57 @@ export class SyncService {
       endpoint: config.backblaze_endpoint,
     });
 
-    let continuationToken: string | undefined;
-    let totalObjects = 0;
-    let processedObjects = 0;
-    let imageObjects = 0;
-    let skippedObjects = 0;
-    let pageNumber = 1;
+    const progress: SyncProgress = {
+      total: 0,
+      processed: 0,
+      images: 0,
+      skipped: 0,
+      currentPage: 1,
+    };
 
     const folderMap = new Map<string, number>();
     const seenFolders = new Set<string>();
-    const foldersToCreate: any[] = [];
     const photosToCreate: any[] = [];
     const BATCH_SIZE = 100;
 
     // Pipeline S3 fetching with database processing
     let nextPagePromise: Promise<any> | null = null;
-    let currentObjects: any[] = [];
-    let hasMorePages = true;
+    const pagination: PaginationState = {
+      continuationToken: undefined,
+      hasMorePages: true,
+      currentObjects: [],
+    };
 
     // Fetch first page
     const firstPage = await listObjectsAuto(
       "",
-      continuationToken,
+      pagination.continuationToken,
       1000,
-      pageNumber,
+      progress.currentPage,
     );
-    currentObjects = firstPage.objects;
-    continuationToken = firstPage.nextContinuationToken;
-    hasMorePages = firstPage.isTruncated;
+    pagination.currentObjects = firstPage.objects;
+    pagination.continuationToken = firstPage.nextContinuationToken;
+    pagination.hasMorePages = firstPage.isTruncated;
 
-    while (currentObjects.length > 0 || hasMorePages) {
+    while (pagination.currentObjects.length > 0 || pagination.hasMorePages) {
       // Start fetching next page while processing current page
-      if (hasMorePages && continuationToken) {
+      if (pagination.hasMorePages && pagination.continuationToken) {
         nextPagePromise = listObjectsAuto(
           "",
-          continuationToken,
+          pagination.continuationToken,
           1000,
-          pageNumber + 1,
+          progress.currentPage + 1,
         );
       }
 
-      totalObjects += currentObjects.length;
+      progress.total += pagination.currentObjects.length;
 
       await updateSyncJob(job.id, {
-        total_items: totalObjects,
-        processed_items: processedObjects,
+        total_items: progress.total,
+        processed_items: progress.processed,
       });
 
-      for (const object of currentObjects) {
+      for (const object of pagination.currentObjects) {
         try {
           const folderPath = getFolderFromKey(object.key);
 
@@ -444,7 +498,7 @@ export class SyncService {
 
           // Skip non-media files for photo processing, but folder was still created
           if (!isMediaFile(object.key)) {
-            processedObjects++;
+            progress.processed++;
 
             // DEBUG: Log non-media files that are creating folders
             if (process.env.LOG_LEVEL === "DEBUG") {
@@ -486,7 +540,8 @@ export class SyncService {
             thumbnail_status: thumbnailStatus,
           });
 
-          processedObjects++;
+          progress.processed++;
+          progress.images++;
 
           // Process batches for better performance
           if (photosToCreate.length >= BATCH_SIZE) {
@@ -494,7 +549,7 @@ export class SyncService {
             photosToCreate.length = 0; // Clear array
 
             await updateSyncJob(job.id, {
-              processed_items: processedObjects,
+              processed_items: progress.processed,
             });
             if (process.env.LOG_LEVEL === "DEBUG") {
               logger.syncOperation(
@@ -502,11 +557,11 @@ export class SyncService {
                 {
                   jobId: job.id,
                   progress: {
-                    processed: processedObjects,
-                    total: totalObjects,
+                    processed: progress.processed,
+                    total: progress.total,
                   },
                   percentComplete: Math.round(
-                    (processedObjects / totalObjects) * 100,
+                    (progress.processed / progress.total) * 100,
                   ),
                 },
               );
@@ -521,22 +576,23 @@ export class SyncService {
               s3Key: object.key,
             },
           );
-          processedObjects++;
+          progress.processed++;
+          progress.skipped++;
         }
       }
 
       // Get next page if we started fetching it
       if (nextPagePromise) {
         const nextPage = await nextPagePromise;
-        currentObjects = nextPage.objects;
-        continuationToken = nextPage.nextContinuationToken;
-        hasMorePages = nextPage.isTruncated;
-        pageNumber++;
+        pagination.currentObjects = nextPage.objects;
+        pagination.continuationToken = nextPage.nextContinuationToken;
+        pagination.hasMorePages = nextPage.isTruncated;
+        progress.currentPage++;
         nextPagePromise = null;
       } else {
         // No more pages
-        currentObjects = [];
-        hasMorePages = false;
+        pagination.currentObjects = [];
+        pagination.hasMorePages = false;
       }
     }
 
@@ -546,8 +602,8 @@ export class SyncService {
     }
 
     await updateSyncJob(job.id, {
-      processed_items: processedObjects,
-      total_items: totalObjects,
+      processed_items: progress.processed,
+      total_items: progress.total,
     });
 
     // Bulk update folder counts and sync status for better performance
@@ -556,7 +612,7 @@ export class SyncService {
     await bulkUpdateFoldersLastSynced(folderIds);
 
     logger.syncOperation(
-      `Full scan completed: processed ${processedObjects}/${totalObjects} objects, created ${folderMap.size} folders`,
+      `Full scan completed: processed ${progress.processed}/${progress.total} objects (${progress.images} images, ${progress.skipped} errors), created ${folderMap.size} folders`,
     );
   }
 
@@ -708,13 +764,9 @@ export class SyncService {
         processedCount++;
 
         if (processedCount % 50 === 0) {
-          await updateSyncJob(job.id, {
-            processed_items: processedCount,
-          });
-          logger.syncOperation("Folder scan progress update", {
-            jobId: job.id,
+          await updateJobProgress(job.id, processedCount, imageObjects.length, {
+            message: "Folder scan progress update",
             folderPath: job.folder_path,
-            progress: { processed: processedCount, total: imageObjects.length },
           });
         }
       } catch (error) {
@@ -736,15 +788,9 @@ export class SyncService {
       await updateFolderLastSynced(folder.id);
     }
 
-    await updateSyncJob(job.id, {
-      processed_items: processedCount,
-    });
-
-    logger.syncOperation("Folder scan completed", {
-      jobId: job.id,
+    await updateJobProgress(job.id, processedCount, imageObjects.length, {
+      message: "Folder scan completed",
       folderPath: job.folder_path,
-      processedCount,
-      totalObjects: imageObjects.length,
     });
   }
 
@@ -817,16 +863,9 @@ export class SyncService {
         processedCount++;
 
         if (processedCount % 10 === 0) {
-          await updateSyncJob(job.id, {
-            processed_items: processedCount,
-          });
-          logger.syncOperation("Metadata scan progress update", {
-            jobId: job.id,
+          await updateJobProgress(job.id, processedCount, photosToProcess.length, {
+            message: "Metadata scan progress update",
             folderPath: job.folder_path,
-            progress: {
-              processed: processedCount,
-              total: photosToProcess.length,
-            },
           });
         }
       } catch (error) {
@@ -844,15 +883,9 @@ export class SyncService {
       }
     }
 
-    await updateSyncJob(job.id, {
-      processed_items: processedCount,
-    });
-
-    logger.syncOperation("Metadata scan completed", {
-      jobId: job.id,
+    await updateJobProgress(job.id, processedCount, photosToProcess.length, {
+      message: "Metadata scan completed",
       folderPath: job.folder_path,
-      processedCount,
-      totalPhotos: photosToProcess.length,
     });
   }
 
@@ -881,13 +914,8 @@ export class SyncService {
         }
 
         if (deletedCount % 100 === 0) {
-          await updateSyncJob(job.id, {
-            processed_items: deletedCount,
-          });
-          logger.syncOperation("Cleanup progress update", {
-            jobId: job.id,
-            deletedCount,
-            totalThumbnails: thumbnailPaths.length,
+          await updateJobProgress(job.id, deletedCount, thumbnailPaths.length, {
+            message: "Cleanup progress update",
           });
         }
       } catch (error) {
@@ -902,15 +930,9 @@ export class SyncService {
       }
     }
 
-    await updateSyncJob(job.id, {
-      processed_items: deletedCount,
-    });
-
-    logger.syncOperation("Cleanup completed", {
-      jobId: job.id,
-      deletedCount,
-      totalThumbnails: thumbnailPaths.length,
-      maxAgeDays: config.thumbnail_max_age_days,
+    await updateJobProgress(job.id, deletedCount, thumbnailPaths.length, {
+      message: "Cleanup completed",
+      extra: { maxAgeDays: config.thumbnail_max_age_days },
     });
   }
 

@@ -14,6 +14,32 @@ import crypto from "crypto";
 // Initialize audit middleware
 const auditMiddleware = createS3AuditMiddleware();
 
+/**
+ * Extract error information from AWS SDK errors
+ * Handles $metadata.httpStatusCode extraction
+ */
+function extractS3ErrorInfo(error: unknown): {
+  statusCode: number;
+  message: string;
+} {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  let statusCode = 500;
+
+  if (typeof error === "object" && error !== null) {
+    if (
+      "$metadata" in error &&
+      typeof (error as any).$metadata === "object"
+    ) {
+      const httpStatusCode = (error as any).$metadata?.httpStatusCode;
+      if (httpStatusCode) {
+        statusCode = httpStatusCode;
+      }
+    }
+  }
+
+  return { statusCode, message };
+}
+
 // Presigned URL cache interface
 interface CachedUrl {
   url: string;
@@ -454,20 +480,9 @@ export async function listObjects(
     const folderDesc = prefix ? `${bucket}/${prefix}` : `${bucket} (root)`;
 
     // Extract status code from error
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     // Audit logging for error
     await auditMiddleware.log({
@@ -528,20 +543,9 @@ export async function getObjectMetadata(
     return result;
   } catch (error) {
     // Extract status code from error
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     // Audit logging for error
     await auditMiddleware.log({
@@ -637,20 +641,9 @@ export async function getSignedDownloadUrl(
     return signedUrl;
   } catch (error) {
     // Extract status code from error
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     // Audit logging for error
     await auditMiddleware.log({
@@ -713,20 +706,9 @@ export async function getObjectStream(
     return response.Body;
   } catch (error) {
     // Extract status code from error
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     // Audit logging for error
     await auditMiddleware.log({
@@ -804,20 +786,9 @@ export async function putObject(
       `Successfully uploaded object ${key} (${bytesTransferred} bytes)`,
     );
   } catch (error) {
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     await auditMiddleware.log({
       operation: "PutObject",
@@ -872,20 +843,9 @@ export async function deleteObject(
 
     logger.debug(`Deleted object ${key} from bucket ${bucket}`);
   } catch (error) {
-    statusCode = 500;
-    errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (typeof error === "object" && error !== null) {
-      if (
-        "$metadata" in error &&
-        typeof (error as any).$metadata === "object"
-      ) {
-        const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-    }
+    const errorInfo = extractS3ErrorInfo(error);
+    statusCode = errorInfo.statusCode;
+    errorMessage = errorInfo.message;
 
     await auditMiddleware.log({
       operation: "DeleteObject",
