@@ -359,6 +359,8 @@ export interface ListObjectsOptions {
   maxKeys?: number;
   pageNumber?: number;
   request?: Request;
+  /** Use the thumbnail S3 client (R2) instead of the default (Backblaze) */
+  useThumbnailClient?: boolean;
 }
 
 export async function listObjects(options: ListObjectsOptions): Promise<{
@@ -373,9 +375,10 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
     maxKeys = 1000,
     pageNumber = 1,
     request,
+    useThumbnailClient = false,
   } = options;
 
-  const client = getS3Client();
+  const client = useThumbnailClient ? getThumbnailS3Client() : getS3Client();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;

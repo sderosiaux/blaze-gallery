@@ -97,6 +97,7 @@ async function getThumbnailS3Stats(bucket: string, prefix?: string) {
       continuationToken,
       maxKeys: 1000,
       pageNumber,
+      useThumbnailClient: true,
     });
 
     for (const obj of objects) {

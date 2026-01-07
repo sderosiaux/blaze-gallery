@@ -14,6 +14,8 @@ import {
   Image,
   HardDrive,
   Zap,
+  Cloud,
+  FolderOpen,
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import {
@@ -743,15 +745,21 @@ export default function AuditDashboard() {
           {/* Thumbnails Section */}
           <section id="thumbnails" className="scroll-mt-24">
             {/* Thumbnail Monitoring */}
-            {thumbnailStats && (
-              <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                    <Image className="w-5 h-5 mr-2" />
-                    Thumbnail Monitoring
-                  </h2>
-                </div>
-                <div className="p-6">
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <Image className="w-5 h-5 mr-2" />
+                  Thumbnail Monitoring
+                </h2>
+              </div>
+              <div className="p-6">
+                {!thumbnailStats ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Image className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                    <p>Loading thumbnail statistics...</p>
+                  </div>
+                ) : (
+                  <>
                   {/* Generation Overview */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="bg-blue-50 rounded-lg p-4">
@@ -803,10 +811,16 @@ export default function AuditDashboard() {
 
                     <div className="bg-green-50 rounded-lg p-4">
                       <div className="flex items-center">
-                        <Zap className="w-8 h-8 text-green-600" />
+                        {thumbnailStats?.debug_info?.thumbnail_directory_path?.startsWith("s3://") ? (
+                          <Cloud className="w-8 h-8 text-green-600" />
+                        ) : (
+                          <FolderOpen className="w-8 h-8 text-green-600" />
+                        )}
                         <div className="ml-4">
                           <p className="text-sm font-medium text-gray-600">
-                            Storage Used
+                            {thumbnailStats?.debug_info?.thumbnail_directory_path?.startsWith("s3://")
+                              ? "S3 Storage"
+                              : "Local Storage"}
                           </p>
                           <p className="text-2xl font-bold text-gray-900">
                             {formatBytes(
@@ -822,11 +836,12 @@ export default function AuditDashboard() {
                             files
                           </p>
                           <p
-                            className={`text-xs font-mono mt-1 ${
+                            className={`text-xs font-mono mt-1 truncate max-w-48 ${
                               thumbnailStats?.debug_info?.directory_exists
                                 ? "text-green-600"
                                 : "text-red-600"
                             }`}
+                            title={thumbnailStats?.debug_info?.thumbnail_directory_path}
                           >
                             {thumbnailStats?.debug_info
                               ?.thumbnail_directory_path ?? "Not available"}
@@ -945,9 +960,10 @@ export default function AuditDashboard() {
                       </div>
                     </div>
                   )}
-                </div>
+                  </>
+                )}
               </div>
-            )}
+            </div>
           </section>
         </div>
       </ProtectedRoute>

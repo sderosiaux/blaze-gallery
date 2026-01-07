@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    // If authentication is disabled, return no session
+    // If authentication is disabled, allow access (bypass auth)
     if (!authConfig.enabled) {
       return NextResponse.json({
-        isAuthenticated: false,
-        user: null,
+        isAuthenticated: true,
+        user: { name: "Guest", email: "guest@local" },
       });
     }
 
