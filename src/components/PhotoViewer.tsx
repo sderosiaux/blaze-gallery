@@ -43,6 +43,7 @@ interface PhotoViewerProps {
   onClose: () => void;
   onFavoriteToggle?: (photo: Photo) => void;
   onPhotoChange?: (photo: Photo) => void; // Callback when photo changes
+  onDelete?: (photo: Photo) => void; // Callback when photo is deleted
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
@@ -55,6 +56,7 @@ export default function PhotoViewer({
   onClose,
   onFavoriteToggle,
   onPhotoChange,
+  onDelete,
   isSharedView = false,
   shareToken,
   allowDownload = true,
@@ -74,6 +76,8 @@ export default function PhotoViewer({
 
   // UI state - single useState for simple toggle
   const [isExpanded, setIsExpanded] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Sync favorite state when photo changes
   useEffect(() => {
@@ -206,6 +210,47 @@ export default function PhotoViewer({
     [favoriteActions, navState.currentPhoto, onFavoriteToggle],
   );
 
+  const handleDelete = useCallback(async () => {
+    if (deleteLoading) return;
+
+    // Show confirmation first
+    if (!showDeleteConfirm) {
+      setShowDeleteConfirm(true);
+      return;
+    }
+
+    setDeleteLoading(true);
+    try {
+      const response = await fetch(`/api/photos/${navState.currentPhoto.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to delete photo");
+      }
+
+      // Call onDelete callback to update parent state
+      if (onDelete) {
+        onDelete(navState.currentPhoto);
+      }
+
+      // Close the viewer after successful deletion
+      onClose();
+    } catch (error) {
+      console.error("Failed to delete photo:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete photo");
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [deleteLoading, showDeleteConfirm, navState.currentPhoto, onDelete, onClose]);
+
+  // Reset delete confirmation when photo changes
+  useEffect(() => {
+    setShowDeleteConfirm(false);
+  }, [navState.currentPhoto.id]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -226,6 +271,11 @@ export default function PhotoViewer({
       } else if (e.key === "e" || e.key === "E") {
         e.preventDefault();
         setIsExpanded((prev) => !prev);
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        if (!isSharedView) {
+          handleDelete();
+        }
       }
     };
 
@@ -236,7 +286,7 @@ export default function PhotoViewer({
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "unset";
     };
-  }, [onClose, goToPrevious, goToNext, navActions, handleFavoriteToggle]);
+  }, [onClose, goToPrevious, goToNext, navActions, handleFavoriteToggle, handleDelete, isSharedView]);
 
   const handleDownload = async () => {
     const currentPhoto = navState.currentPhoto;
@@ -331,6 +381,8 @@ export default function PhotoViewer({
               allowDownload={allowDownload}
               onDownload={handleDownload}
               onClose={onClose}
+              onDelete={handleDelete}
+              deleteLoading={deleteLoading || showDeleteConfirm}
             />
           </div>
 
@@ -630,6 +682,41 @@ export default function PhotoViewer({
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 z-[60] flex items-center justify-center">
+          <div className="bg-gray-900 rounded-lg p-6 max-w-sm mx-4 text-white">
+            <h3 className="text-lg font-semibold mb-2">Delete Photo?</h3>
+            <p className="text-gray-300 mb-4">
+              This will permanently delete &quot;{currentPhoto.filename}&quot; from storage. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteLoading}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 transition-colors flex items-center gap-2"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

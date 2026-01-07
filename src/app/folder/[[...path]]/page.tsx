@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Folder, Photo } from "@/types";
 import FolderBrowser from "@/components/FolderBrowser";
 import PhotoGrid from "@/components/PhotoGrid";
+import UploadZone from "@/components/UploadZone";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -164,21 +165,33 @@ function FolderContent({ params }: FolderPageProps) {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : (
-          <div className="space-y-6">
-            <FolderBrowser
-              currentFolder={currentFolder}
-              folders={folders}
-              breadcrumbs={breadcrumbs}
-              onFolderSelect={navigateToFolder}
-              onBreadcrumbClick={navigateToBreadcrumb}
-            />
-            <PhotoGrid
-              photos={photos}
-              loading={loading}
-              selectedPhotoId={selectedPhotoId}
-              onPhotoUrlChange={handlePhotoUrlChange}
-            />
-          </div>
+          <UploadZone
+            folderPath={currentPath}
+            onUploadComplete={() => {
+              // Reload folder contents after upload
+              if (currentPath === "") {
+                loadRootFolders();
+              } else {
+                loadFolder(currentPath);
+              }
+            }}
+          >
+            <div className="space-y-6">
+              <FolderBrowser
+                currentFolder={currentFolder}
+                folders={folders}
+                breadcrumbs={breadcrumbs}
+                onFolderSelect={navigateToFolder}
+                onBreadcrumbClick={navigateToBreadcrumb}
+              />
+              <PhotoGrid
+                photos={photos}
+                loading={loading}
+                selectedPhotoId={selectedPhotoId}
+                onPhotoUrlChange={handlePhotoUrlChange}
+              />
+            </div>
+          </UploadZone>
         )}
       </ProtectedRoute>
     </AppLayout>
