@@ -503,6 +503,14 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
   return normalizePhoto(photo);
 }
 
+export async function deletePhoto(photoId: number): Promise<boolean> {
+  const result = await query(
+    "DELETE FROM photos WHERE id = $1 RETURNING id",
+    [photoId],
+  );
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
 export async function createSyncJob(
   jobData: CreateSyncJobData,
 ): Promise<SyncJob> {

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Folder, Photo } from "@/types";
 import FolderBrowser from "@/components/FolderBrowser";
 import PhotoGrid from "@/components/PhotoGrid";
+import UploadZone from "@/components/UploadZone";
 import RandomPhotosTeaser from "@/components/RandomPhotosTeaser";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
@@ -101,31 +102,33 @@ function HomePageContent() {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : (
-          <div className="space-y-6">
-            <FolderBrowser
-              currentFolder={currentFolder}
-              folders={folders}
-              breadcrumbs={breadcrumbs}
-              onFolderSelect={navigateToFolder}
-              onBreadcrumbClick={navigateToBreadcrumb}
-            />
+          <UploadZone folderPath="" onUploadComplete={loadRootFolders}>
+            <div className="space-y-6">
+              <FolderBrowser
+                currentFolder={currentFolder}
+                folders={folders}
+                breadcrumbs={breadcrumbs}
+                onFolderSelect={navigateToFolder}
+                onBreadcrumbClick={navigateToBreadcrumb}
+              />
 
-            {/* Show photos in root if any exist */}
-            <PhotoGrid
-              photos={photos}
-              loading={loading}
-              selectedPhotoId={selectedPhotoId}
-              onPhotoUrlChange={handlePhotoUrlChange}
-            />
-
-            {/* Show random photos teaser when at root with folders but no photos */}
-            {showRandomPhotosTeaser && (
-              <RandomPhotosTeaser
+              {/* Show photos in root if any exist */}
+              <PhotoGrid
+                photos={photos}
+                loading={loading}
                 selectedPhotoId={selectedPhotoId}
                 onPhotoUrlChange={handlePhotoUrlChange}
               />
-            )}
-          </div>
+
+              {/* Show random photos teaser when at root with folders but no photos */}
+              {showRandomPhotosTeaser && (
+                <RandomPhotosTeaser
+                  selectedPhotoId={selectedPhotoId}
+                  onPhotoUrlChange={handlePhotoUrlChange}
+                />
+              )}
+            </div>
+          </UploadZone>
         )}
       </ProtectedRoute>
     </AppLayout>

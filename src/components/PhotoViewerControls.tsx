@@ -8,6 +8,7 @@ import {
   Pause,
   Expand,
   Minimize2,
+  Trash2,
 } from "lucide-react";
 
 interface PhotoViewerControlsProps {
@@ -39,6 +40,10 @@ interface PhotoViewerControlsProps {
   onDownload: () => void;
   /** Handle close */
   onClose: () => void;
+  /** Handle delete */
+  onDelete?: () => void;
+  /** Whether delete operation is in progress */
+  deleteLoading?: boolean;
 }
 
 export default function PhotoViewerControls({
@@ -56,6 +61,8 @@ export default function PhotoViewerControls({
   allowDownload,
   onDownload,
   onClose,
+  onDelete,
+  deleteLoading,
 }: PhotoViewerControlsProps) {
   return (
     <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
@@ -146,6 +153,24 @@ export default function PhotoViewerControls({
           title="Download original"
         >
           <Download className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Delete button - only show in regular view */}
+      {!isSharedView && onDelete && (
+        <button
+          onClick={onDelete}
+          disabled={deleteLoading}
+          className={`p-2 hover:bg-red-500 hover:bg-opacity-30 rounded-lg transition-colors ${
+            deleteLoading ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+          title={deleteLoading ? "Deleting..." : "Delete photo (Del)"}
+        >
+          {deleteLoading ? (
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Trash2 className="w-5 h-5 text-white hover:text-red-400" />
+          )}
         </button>
       )}
 

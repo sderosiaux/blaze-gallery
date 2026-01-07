@@ -13,6 +13,7 @@ interface PhotoGridProps {
   loading?: boolean;
   selectedPhotoId?: string | null;
   onPhotoUrlChange?: (photoId: string | null) => void;
+  onPhotoDeleted?: (photo: Photo) => void;
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
@@ -24,6 +25,7 @@ export default function PhotoGrid({
   loading = false,
   selectedPhotoId,
   onPhotoUrlChange,
+  onPhotoDeleted,
   isSharedView = false,
   shareToken,
   allowDownload = true,
@@ -86,6 +88,16 @@ export default function PhotoGrid({
   const handlePhotoClose = () => {
     setSelectedPhoto(null);
     onPhotoUrlChange?.(null);
+  };
+
+  // Handle photo deletion
+  const handlePhotoDelete = (deletedPhoto: Photo) => {
+    // Remove from local state immediately
+    setPhotosState((prevPhotos) =>
+      prevPhotos.filter((p) => p.id !== deletedPhoto.id)
+    );
+    // Notify parent if callback provided
+    onPhotoDeleted?.(deletedPhoto);
   };
 
   const toggleFavorite = async (photo: Photo, event: React.MouseEvent) => {
@@ -177,7 +189,7 @@ export default function PhotoGrid({
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-medium text-gray-900">
-            Media ({photos.length})
+            Media ({photosState.length})
           </h2>
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
@@ -240,6 +252,7 @@ export default function PhotoGrid({
             setSelectedPhoto(newPhoto);
             onPhotoUrlChange?.(newPhoto.id.toString());
           }}
+          onDelete={!isSharedView ? handlePhotoDelete : undefined}
           isSharedView={isSharedView}
           shareToken={shareToken}
           allowDownload={allowDownload}
