@@ -188,7 +188,7 @@ function TimelineContent() {
     const update = () => {
       frame = 0;
       const sections = document.querySelectorAll<HTMLElement>("[data-month]");
-      let current = sections[0].dataset.month ?? null;
+      let current = sections[0]?.dataset.month ?? null;
       for (const section of Array.from(sections)) {
         if (section.getBoundingClientRect().top > SPY_LINE) break;
         current = section.dataset.month ?? current;

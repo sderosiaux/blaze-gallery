@@ -43,7 +43,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const photos = await getTimelinePhotos(before, limit);
     const last = photos[photos.length - 1];
     const next_before =
-      photos.length === limit && last.metadata?.date_taken
+      photos.length === limit && last?.metadata?.date_taken
         ? `${last.metadata.date_taken}|${last.id}`
         : null;
 

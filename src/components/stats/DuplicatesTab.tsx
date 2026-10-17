@@ -265,7 +265,7 @@ function FolderGroups({ data }: { data: DuplicateFolders }) {
       <ol className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
         {data.duplicates.slice(0, visible).map((g) => {
           const first = g.folders[0];
-          const name = first.name ?? "";
+          const name = first?.name ?? "";
           const { title } = parseAlbumName(name);
           return (
             <li key={g.folder_signature} className="min-w-0">
