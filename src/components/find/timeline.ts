@@ -57,6 +57,17 @@ export function endOfMonthCursor(month: string): string {
   return new Date(Date.UTC(y ?? 1970, m ?? 12, 1)).toISOString();
 }
 
+/** Photos per year ("2019") and per month ("2019-07"), for the index beside the timeline. */
+export function countsOf(months: MonthCount[]): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const { month, count } of months) {
+    const year = month.slice(0, 4);
+    counts.set(month, count);
+    counts.set(year, (counts.get(year) ?? 0) + count);
+  }
+  return counts;
+}
+
 /** Months with photos in one year, newest first like the timeline. */
 export function monthsOfYear(months: MonthCount[], year: number): string[] {
   const prefix = `${year}-`;

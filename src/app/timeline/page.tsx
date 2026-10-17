@@ -30,6 +30,7 @@ import { usePhotoParam } from "@/components/find/usePhotoParam";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import {
   endOfMonthCursor,
+  countsOf,
   endOfYearCursor,
   fetchTimelineSummary,
   groupByMonth,
@@ -271,6 +272,7 @@ function TimelineContent() {
     window.history.pushState(null, "", `/timeline?month=${month}`);
   }, []);
 
+  const counts = useMemo(() => countsOf(summaryMonths), [summaryMonths]);
   const activeYearMonths = useMemo(
     () => (activeYear === null ? [] : monthsOfYear(summaryMonths, activeYear)),
     [summaryMonths, activeYear],
@@ -396,7 +398,7 @@ function TimelineContent() {
     <>
       {header}
 
-      <div className="md:grid md:grid-cols-[minmax(0,1fr)_4.5rem] md:gap-8">
+      <div className="md:grid md:grid-cols-[minmax(0,1fr)_6rem] md:gap-8">
         <div className="min-w-0">
           {startYear && (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-y border-line py-2 text-sm text-ink-muted">
@@ -462,6 +464,7 @@ function TimelineContent() {
         {years.length > 1 && (
           <YearRail
             years={years}
+            counts={counts}
             active={activeYear}
             activeYearMonths={activeYearMonths}
             activeMonth={activeMonth}
@@ -474,6 +477,7 @@ function TimelineContent() {
       {years.length > 1 && (
         <YearPicker
           years={years}
+          counts={counts}
           active={activeYear}
           activeYearMonths={activeYearMonths}
           activeMonth={activeMonth}

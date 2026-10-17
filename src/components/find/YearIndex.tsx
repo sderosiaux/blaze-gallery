@@ -4,10 +4,13 @@ import { useEffect, useRef } from "react";
 import { CalendarDays } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Select } from "@/components/ui";
+import { formatCount, formatNumber } from "@/lib/albums";
 import { monthLabel, shortMonthLabel } from "./timeline";
 
 interface YearIndexProps {
   years: number[];
+  /** Photos per year ("2019") and per month ("2019-07") */
+  counts: ReadonlyMap<string, number>;
   active: number | null;
   /** Months with photos in the active year ("YYYY-MM", newest first) */
   activeYearMonths: string[];
@@ -16,12 +19,32 @@ interface YearIndexProps {
   onJumpMonth: (month: string) => void;
 }
 
+/** How many photos a year or month holds, set back so the dates lead. */
+function Count({ value }: { value: number | undefined }) {
+  if (value === undefined) return null;
+  return (
+    <span
+      aria-hidden
+      className="ml-auto pr-1 text-[0.6875rem] font-normal text-ink-faint tabular"
+    >
+      {formatNumber(value)}
+    </span>
+  );
+}
+
+function countLabel(label: string, value: number | undefined): string {
+  return value === undefined
+    ? label
+    : `${label}, ${formatCount(value, "photo")}`;
+}
+
 /**
  * Slim column of years beside the months, from md up. The year being read
  * unfolds into its months, so moving inside a year is one click too.
  */
 export function YearRail({
   years,
+  counts,
   active,
   activeYearMonths,
   activeMonth,
@@ -53,6 +76,7 @@ export function YearRail({
                   onJump(year);
                 }}
                 aria-current={current ? "true" : undefined}
+                aria-label={countLabel(String(year), counts.get(String(year)))}
                 className={cn(
                   "touch-target relative -ml-px flex h-7 w-full items-center border-l-2 pl-3 text-left text-xs tabular transition-colors duration-150",
                   current
@@ -61,6 +85,7 @@ export function YearRail({
                 )}
               >
                 {year}
+                <Count value={counts.get(String(year))} />
               </button>
               {current && activeYearMonths.length > 0 && (
                 <ol aria-label={`Mois de ${year}`} className="pb-1">
@@ -74,7 +99,10 @@ export function YearRail({
                             onJumpMonth(month);
                           }}
                           aria-current={here ? "true" : undefined}
-                          aria-label={monthLabel(month)}
+                          aria-label={countLabel(
+                            monthLabel(month),
+                            counts.get(month),
+                          )}
                           className={cn(
                             "touch-target -ml-px flex h-6 w-full items-center border-l-2 pl-6 text-left text-xs transition-colors duration-150",
                             here
@@ -83,6 +111,7 @@ export function YearRail({
                           )}
                         >
                           {shortMonthLabel(month)}
+                          <Count value={counts.get(month)} />
                         </button>
                       </li>
                     );
@@ -97,12 +126,18 @@ export function YearRail({
   );
 }
 
+// A native option holds plain text only: the count follows the date.
+function withCount(label: string, value: number | undefined): string {
+  return value === undefined ? label : `${label} · ${formatNumber(value)}`;
+}
+
 /**
  * Floating picker for narrow screens, always within thumb reach: the years,
  * with the months of the year being read listed under it.
  */
 export function YearPicker({
   years,
+  counts,
   active,
   activeYearMonths,
   activeMonth,
@@ -137,12 +172,12 @@ export function YearPicker({
         {value === "" && <option value="">Année</option>}
         {years.map((year) => [
           <option key={year} value={`y:${year}`}>
-            {year}
+            {withCount(String(year), counts.get(String(year)))}
           </option>,
           ...(year === active
             ? activeYearMonths.map((month) => (
                 <option key={month} value={`m:${month}`}>
-                  {`\u00a0\u00a0${monthLabel(month)}`}
+                  {`\u00a0\u00a0${withCount(monthLabel(month), counts.get(month))}`}
                 </option>
               ))
             : []),
