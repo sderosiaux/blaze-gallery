@@ -32,7 +32,7 @@ import {
   placeholderSources,
   viewerSources,
 } from "./viewer/sources";
-import { formatTaken } from "./viewer/format";
+import { formatTakenDay } from "./viewer/format";
 import { useAutoHide } from "./viewer/useAutoHide";
 import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
 import { useSwipe } from "./viewer/useSwipe";
@@ -72,10 +72,10 @@ function triggerDownload(href: string, filename: string, newTab = false) {
 }
 
 /**
- * Looking at one photo. A paper stage, the photo as large as the window
- * allows, a quiet caption; controls fade away while you look and come back
- * when the mouse moves. Rendered in a portal so no page stacking context can
- * clip it.
+ * Looking at one photo. A white stage, the photo as large as the window
+ * allows, under it only its day, its folder and its place in the folder;
+ * controls fade away while you look and come back when the mouse moves.
+ * Rendered in a portal so no page stacking context can clip it.
  */
 export default function PhotoViewer({
   photo,
@@ -91,7 +91,6 @@ export default function PhotoViewer({
 }: PhotoViewerProps) {
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
   const infoId = useId();
   const helpId = useId();
   const [mounted, setMounted] = useState(false);
@@ -144,13 +143,13 @@ export default function PhotoViewer({
   const favorite = useFavoriteToggle(current, {
     enabled: canFavorite,
     onChange: onFavoriteToggle,
-    onError: () => toast.show("Couldn't update favorites. Try again.", "error"),
+    onError: () => toast.show("Le favori n’a pas été enregistré", "error"),
   });
 
   const toggleFavorite = useCallback(() => {
     if (!canFavorite) return;
     setAnnouncement(
-      favorite.isFavorite ? "Removed from favorites" : "Added to favorites",
+      favorite.isFavorite ? "Retirée des favoris" : "Ajoutée aux favoris",
     );
     favorite.toggle();
   }, [canFavorite, favorite]);
@@ -177,7 +176,7 @@ export default function PhotoViewer({
       triggerDownload(url, current.filename);
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch {
-      toast.show("The download didn't start. Try again.", "error");
+      toast.show("Le téléchargement n’a pas démarré", "error");
     }
   }, [
     allowDownload,
@@ -197,11 +196,11 @@ export default function PhotoViewer({
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success === false) throw new Error(data.error);
       onDelete?.(current);
-      toast.show("Photo deleted.", "success");
+      toast.show("Photo supprimée", "success");
       setConfirmOpen(false);
       onClose();
     } catch {
-      toast.show("Couldn't delete the photo. Try again.", "error");
+      toast.show("La photo n’a pas été supprimée", "error");
     } finally {
       setDeleting(false);
     }
@@ -286,21 +285,22 @@ export default function PhotoViewer({
 
   // ---- caption ----------------------------------------------------------
 
-  const taken = current.metadata?.date_taken
-    ? formatTaken(current.metadata.date_taken)
+  const day = current.metadata?.date_taken
+    ? formatTakenDay(current.metadata.date_taken)
     : null;
   const album = isSharedView ? null : albumOf(current);
-  const position =
-    nav.index >= 0 && nav.total > 1 ? `${nav.index + 1} / ${nav.total}` : null;
-  const captionTitle = taken?.day ?? current.filename;
+  const inList = nav.index >= 0 && nav.total > 1;
+  const position = inList ? `${nav.index + 1} / ${nav.total}` : null;
+  // An undated photo shows no title; assistive tech still gets its name.
+  const name = day ?? current.filename;
 
   useEffect(() => {
     setAnnouncement(
-      [position && `Photo ${position.replace(" / ", " of ")}`, captionTitle]
+      [inList && `Photo ${nav.index + 1} sur ${nav.total}`, name]
         .filter(Boolean)
         .join(", "),
     );
-  }, [currentId, position, captionTitle]);
+  }, [currentId, inList, nav.index, nav.total, name]);
 
   // ---- focus, keyboard, scroll lock -------------------------------------
 
@@ -483,49 +483,32 @@ export default function PhotoViewer({
 
   if (!mounted) return null;
 
+  // Only what changes what you can do: a preview standing in for a file the
+  // browser can't show, or an original that didn't come.
   const note = (() => {
     if (video) return null;
-    if (full.status === "unavailable") {
-      const kind = isRawFile(current)
-        ? `${current.filename.split(".").pop()?.toUpperCase()} RAW files`
-        : "Files of this type";
-      return full.placeholder === "shown" ? (
-        <>
-          This is a preview. {kind} can&rsquo;t be shown at full size in a
-          browser.
-          {allowDownload && (
-            <button
-              type="button"
-              onClick={download}
-              className="ml-1 text-accent-strong underline-offset-2 hover:underline"
-            >
-              Download the original
-            </button>
-          )}
-        </>
-      ) : null;
-    }
-    if (full.status === "error") {
+    if (full.status === "unavailable" && full.placeholder === "shown") {
       return (
         <>
-          The full-size photo didn&rsquo;t load.
-          <button
-            type="button"
-            onClick={() => setRetry({ id: currentId, value: retryKey + 1 })}
-            className="ml-1 text-accent-strong underline-offset-2 hover:underline"
-          >
-            Try again
-          </button>
+          {isRawFile(current)
+            ? "Aperçu du fichier RAW."
+            : "Aperçu, ce format ne s’affiche pas en grand."}
+          {allowDownload && (
+            <NoteAction onClick={download}>Télécharger l’original</NoteAction>
+          )}
         </>
       );
     }
-    if (full.status === "loading") {
+    if (full.status === "error" && full.placeholder === "shown") {
       return (
-        <span className="animate-fade-in [animation-delay:1200ms]">
-          {full.placeholder === "shown"
-            ? "Loading full size…"
-            : "Loading the photo…"}
-        </span>
+        <>
+          L’original n’a pas chargé.
+          <NoteAction
+            onClick={() => setRetry({ id: currentId, value: retryKey + 1 })}
+          >
+            Réessayer
+          </NoteAction>
+        </>
       );
     }
     return null;
@@ -565,7 +548,7 @@ export default function PhotoViewer({
         ref={rootRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={name}
         tabIndex={-1}
         className={cn(
           "fixed inset-0 z-viewer flex animate-fade-in flex-col bg-paper text-ink outline-none",
@@ -583,7 +566,7 @@ export default function PhotoViewer({
         >
           <IconButton
             icon={X}
-            label="Close (Esc)"
+            label="Fermer (Échap)"
             aria-keyshortcuts="Escape"
             onClick={onClose}
           />
@@ -683,7 +666,7 @@ export default function PhotoViewer({
                   >
                     <IconButton
                       icon={ChevronLeft}
-                      label="Previous photo (←)"
+                      label="Photo précédente (←)"
                       aria-keyshortcuts="ArrowLeft"
                       variant="secondary"
                       size="lg"
@@ -701,7 +684,7 @@ export default function PhotoViewer({
                   >
                     <IconButton
                       icon={ChevronRight}
-                      label="Next photo (→)"
+                      label="Photo suivante (→)"
                       aria-keyshortcuts="ArrowRight"
                       variant="secondary"
                       size="lg"
@@ -714,11 +697,11 @@ export default function PhotoViewer({
               )}
             </div>
 
-            <div className="flex h-[5.75rem] shrink-0 items-center gap-1 px-1 sm:px-6">
+            <div className="flex h-20 shrink-0 items-center gap-1 px-1 sm:px-6">
               {nav.total > 1 && (
                 <IconButton
                   icon={ChevronLeft}
-                  label="Previous photo"
+                  label="Photo précédente"
                   disabled={!nav.hasPrevious}
                   onClick={previous}
                   className="md:hidden"
@@ -726,39 +709,43 @@ export default function PhotoViewer({
               )}
               <figure className="min-w-0 flex-1 text-center">
                 <figcaption>
-                  <p
-                    id={titleId}
-                    className="truncate font-display text-lg font-semibold leading-tight text-ink sm:text-xl"
-                  >
-                    {captionTitle}
-                  </p>
-                  <p className="mt-1 flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted">
-                    {taken?.time && (
-                      <span className="tabular">{taken.time}</span>
-                    )}
-                    {taken?.time && (album || position) && <Dot />}
-                    {album && (
-                      <Link
-                        href={album.href}
-                        className="truncate text-ink-soft underline-offset-2 transition-colors hover:text-accent-strong hover:underline"
-                      >
-                        {album.title}
-                      </Link>
-                    )}
-                    {album && position && <Dot />}
-                    {position && (
-                      <span className="tabular shrink-0">{position}</span>
-                    )}
-                  </p>
-                  <p className="mt-1 h-4 truncate text-xs text-ink-faint">
-                    {note}
-                  </p>
+                  {day && (
+                    <p className="truncate text-lg font-semibold leading-tight text-ink sm:text-xl">
+                      {day}
+                    </p>
+                  )}
+                  {(album || position) && (
+                    <p
+                      className={cn(
+                        "flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted",
+                        day && "mt-1",
+                      )}
+                    >
+                      {album && (
+                        <Link
+                          href={album.href}
+                          className="truncate text-ink-soft underline-offset-2 transition-colors hover:text-ink hover:underline"
+                        >
+                          {album.title}
+                        </Link>
+                      )}
+                      {album && position && <Dot />}
+                      {position && (
+                        <span className="tabular shrink-0">{position}</span>
+                      )}
+                    </p>
+                  )}
+                  {note && (
+                    <p className="mt-1 truncate text-xs text-ink-muted">
+                      {note}
+                    </p>
+                  )}
                 </figcaption>
               </figure>
               {nav.total > 1 && (
                 <IconButton
                   icon={ChevronRight}
-                  label="Next photo"
+                  label="Photo suivante"
                   disabled={!nav.hasNext}
                   onClick={next}
                   className="md:hidden"
@@ -795,15 +782,15 @@ export default function PhotoViewer({
         open={confirmOpen}
         onClose={closeConfirm}
         size="sm"
-        title="Delete this photo?"
-        description={`“${current.filename}” will be removed from your library and from storage. This can't be undone.`}
+        title={"Supprimer cette photo\u00a0?"}
+        description={`«\u00a0${current.filename}\u00a0» sera effacée du stockage, définitivement.`}
         footer={
           <>
             <Button data-autofocus onClick={closeConfirm} disabled={deleting}>
-              Keep it
+              Garder
             </Button>
             <Button variant="danger" onClick={confirmDelete} loading={deleting}>
-              Delete photo
+              Supprimer
             </Button>
           </>
         }
@@ -819,6 +806,24 @@ function Dot() {
       aria-hidden
       className="h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint"
     />
+  );
+}
+
+function NoteAction({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ml-1 font-medium text-ink underline underline-offset-2 hover:decoration-2"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -861,35 +866,34 @@ function Unviewable({
   onDownload: () => void;
   onRetry?: () => void;
 }) {
-  const raw = isRawFile(photo);
+  const ext = photo.filename.includes(".")
+    ? photo.filename.split(".").pop()!.toUpperCase()
+    : null;
+  const message = onRetry
+    ? "La photo n’a pas chargé"
+    : isRawFile(photo)
+      ? `Les fichiers RAW${ext ? ` (${ext})` : ""} ne s’affichent pas dans un navigateur`
+      : "Ce format ne s’affiche pas dans un navigateur";
   return (
     <div
       data-backdrop
       className="absolute inset-0 flex items-center justify-center p-4"
     >
       <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
-        <h2 className="font-display text-display-sm font-semibold text-ink">
-          {onRetry
-            ? "This photo didn't load"
-            : "This photo can't be shown here"}
+        <h2 className="text-pretty text-display-sm font-semibold text-ink">
+          {message}
         </h2>
-        <p className="mt-2 text-pretty text-sm text-ink-muted">
-          {onRetry
-            ? "Storage may be slow right now. Try again in a moment."
-            : raw
-              ? `It's a camera RAW file (${photo.filename.split(".").pop()?.toUpperCase()}). Browsers can't display those. Download it and open it in a photo editor.`
-              : "Browsers can't display this kind of file. Download it to open it on your computer."}
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          {onRetry && (
-            <Button variant="primary" onClick={onRetry}>
-              Try again
+        {onRetry ? (
+          <Button variant="primary" className="mt-6" onClick={onRetry}>
+            Réessayer
+          </Button>
+        ) : (
+          allowDownload && (
+            <Button className="mt-6" onClick={onDownload}>
+              Télécharger l’original
             </Button>
-          )}
-          {allowDownload && (
-            <Button onClick={onDownload}>Download original</Button>
-          )}
-        </div>
+          )
+        )}
       </div>
     </div>
   );

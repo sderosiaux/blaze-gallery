@@ -71,13 +71,21 @@ export function viewerSources(
   };
 }
 
-/** True when an <img> on the page already holds this URL, decoded. */
-export function isOnPage(src: string): boolean {
-  if (typeof document === "undefined") return false;
+/**
+ * What an <img> already on the page uses for this URL, once decoded. Grid
+ * tiles load through the image scheduler: their src is a blob URL and the URL
+ * they stand for is on `data-src`. Reusing that src paints at once, where the
+ * URL itself would go back to the network.
+ */
+export function decodedOnPage(url: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const escaped = CSS.escape(url);
   const img = document.querySelector<HTMLImageElement>(
-    `img[src="${CSS.escape(src)}"]`,
+    `img[data-src="${escaped}"], img[src="${escaped}"]`,
   );
-  return Boolean(img?.complete && img.naturalWidth > 0);
+  return img?.complete && img.naturalWidth > 0
+    ? img.currentSrc || img.src
+    : undefined;
 }
 
 /**
@@ -90,12 +98,13 @@ export function placeholderSources(
   sources: ViewerSources,
 ): { preview?: string; thumb?: string } {
   if (isVideo(photo)) return {};
-  const thumbCheap =
-    photo.thumbnail_status === "generated" || isOnPage(sources.thumb);
-  return {
-    preview: sources.preview,
-    thumb: thumbCheap ? sources.thumb : undefined,
-  };
+  const preview = sources.preview
+    ? (decodedOnPage(sources.preview) ?? sources.preview)
+    : undefined;
+  const thumb =
+    decodedOnPage(sources.thumb) ??
+    (photo.thumbnail_status === "generated" ? sources.thumb : undefined);
+  return { preview, thumb };
 }
 
 export interface AlbumCrumb {
