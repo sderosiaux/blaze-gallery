@@ -26,7 +26,6 @@ export function GET(request: NextRequest) {
       backblaze_access_key: config.backblaze_access_key ? "***" : "",
       backblaze_secret_key: config.backblaze_secret_key ? "***" : "",
       thumbnail_max_age_days: config.thumbnail_max_age_days,
-      sync_interval_hours: config.sync_interval_hours,
     };
 
     return NextResponse.json({

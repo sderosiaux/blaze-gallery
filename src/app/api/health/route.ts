@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
-import { thumbnailService, getThumbnailStorageInfo } from "@/lib/thumbnails";
+import { getThumbnailStorageInfo } from "@/lib/thumbnails";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { listObjects } from "@/lib/s3";
 
+// Without it, Next renders this GET once at build time and serves that answer forever
+export const dynamic = "force-dynamic";
+
+/**
+ * Liveness for container healthchecks and uptime monitors: one database
+ * round trip and one look at thumbnail storage, so it stays cheap at any
+ * library size and when polled every few seconds. Unauthenticated, so it
+ * answers with booleans only.
+ */
 export async function GET() {
   try {
     const storageInfo = getThumbnailStorageInfo();
@@ -49,8 +58,6 @@ export async function GET() {
       );
     }
 
-    const thumbnailStats = await thumbnailService.getThumbnailStats();
-
     const isHealthy = checks.database && checks.thumbnails_directory;
 
     return NextResponse.json(
@@ -58,9 +65,6 @@ export async function GET() {
         success: true,
         healthy: isHealthy,
         checks,
-        stats: {
-          thumbnails: thumbnailStats,
-        },
       },
       {
         status: isHealthy ? 200 : 503,

@@ -2,7 +2,7 @@
 
 **Your photos. Your cloud. Your control.**
 
-A beautiful, self-hosted photo gallery that connects to your S3-compatible storage. Browse thousands of photos with a fast, modern interface that never touches your original files.
+A self-hosted photo gallery for the photos you already keep in an S3-compatible bucket. Your folders become albums, dates come from EXIF, and nothing is imported or copied.
 
 <img width="1623" height="839" alt="Blaze Gallery Screenshot" src="https://github.com/user-attachments/assets/138a5e6a-2133-495c-a398-aafc1607a4c3" />
 
@@ -10,21 +10,32 @@ A beautiful, self-hosted photo gallery that connects to your S3-compatible stora
 
 - **Own your data** - Photos stay in your storage, not someone else's servers
 - **No lock-in** - Works with any S3-compatible storage (Backblaze B2, AWS S3, Cloudflare R2, MinIO)
-- **Read-only** - Never modifies your original photos
+- **Originals untouched** - Rotations and favorites live in the database; the bucket only changes when you upload or delete
 - **Fast** - Smart thumbnails and caching for instant browsing
 - **Share privately** - Password-protected links with expiration dates
 
-## Get Started in 2 Minutes
+## Try it
+
+A demo library of 62 free photos, no account or bucket needed (Docker with Compose v2):
 
 ```bash
 git clone https://github.com/sderosiaux/blaze-gallery.git
 cd blaze-gallery
-cp .env.template .env
-# Edit .env with your S3 credentials
-docker-compose up -d
+cp .env.demo .env
+docker compose --profile demo up -d --build
 ```
 
-Open http://localhost:3000 and your photos will be automatically indexed.
+Then open http://localhost:3100. The first start downloads the sample photos and takes a few minutes.
+
+## Use it with your photos
+
+```bash
+cp .env.template .env
+# set BACKBLAZE_* to your bucket, then GOOGLE_AUTH_ENABLED or ALLOW_PUBLIC_ACCESS
+docker compose up -d --build
+```
+
+Open http://localhost:3000. Compose runs PostgreSQL next to the app and creates the tables on start. The [setup guide](./docs/SETUP.md) covers Node.js without Docker and each storage provider.
 
 ## Features
 
@@ -47,9 +58,8 @@ Open http://localhost:3000 and your photos will be automatically indexed.
 
 ## Requirements
 
-- Docker and Docker Compose (recommended)
-- Or: Node.js 18+ and PostgreSQL
-- S3-compatible storage with your photos
+- Docker with Compose v2, or Node.js 20.12+ and PostgreSQL 13+
+- S3-compatible storage with your photos (Backblaze B2, Cloudflare R2, MinIO, AWS S3 in us-east-1)
 
 ## Contributing
 
