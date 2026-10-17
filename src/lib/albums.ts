@@ -14,7 +14,8 @@ export interface AlbumName {
 
 const SEP = String.raw`[\s_\-.@]*`;
 const PATTERNS: Array<{ re: RegExp; pick: (m: RegExpMatchArray) => [number, number?, number?] }> = [
-  { re: new RegExp(String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2], +m[3]] },
+  // A "00" day means the month is known but not the day.
+  { re: new RegExp(String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2], +m[3] || undefined] },
   { re: new RegExp(String.raw`^(\d{2})-(\d{2})-(\d{4})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[3], +m[2], +m[1]] },
   { re: new RegExp(String.raw`^(\d{4})(\d{2})(\d{2})(?=_|\s|-|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2], +m[3]] },
   { re: new RegExp(String.raw`^(\d{4})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2]] },

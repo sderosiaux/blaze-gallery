@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from "pg";
+import { Pool, PoolClient, QueryResult, types } from "pg";
 import { Folder, Photo, Config, PhotoMetadata } from "@/types";
 import * as crypto from "crypto";
 import {
@@ -12,6 +12,13 @@ import {
   ThumbnailStatus,
 } from "@/types/common";
 import * as path from "path";
+
+// Columns typed `timestamp without time zone` hold UTC wall-clock values
+// (CURRENT_TIMESTAMP in a UTC session). node-pg would read them in the host's
+// zone, shifting every instant on any server not running in UTC.
+types.setTypeParser(types.builtins.TIMESTAMP, (value) =>
+  value === null ? null : new Date(value.replace(" ", "T") + "Z"),
+);
 
 export interface SyncJob {
   id: number;
@@ -212,19 +219,22 @@ export async function query(
   return pool.query(text, params);
 }
 
-export async function getFolders(parentPath?: string): Promise<Folder[]> {
-  const isRoot = parentPath === undefined || parentPath === "";
-  const parentFilter = isRoot
-    ? "f.parent_id IS NULL"
-    : "f.parent_id = (SELECT id FROM folders WHERE path = $1)";
-
+/**
+ * Adds listing fields (thumbnail state, size, date span, cover) to the
+ * folders selected by `baseSql`, which must select `f.*` from `folders f`.
+ */
+async function listFolders(
+  baseSql: string,
+  orderBy: string,
+  params: unknown[],
+): Promise<Folder[]> {
   // Cover: an image of the folder itself (generated thumbnail first, so it
   // shows instantly), else one from the first descendant folder (by path)
   // that holds images. The path range lets the btree on folders.path serve
   // the prefix lookup (C.UTF-8 orders by code point, and '/' + 1 = '0');
   // starts_with keeps it exact when names contain LIKE wildcards.
   const sql = `
-    WITH sub AS (SELECT f.* FROM folders f WHERE ${parentFilter})
+    WITH sub AS (${baseSql})
     SELECT
       s.*,
       agg.thumbnails_generated,
@@ -274,10 +284,10 @@ export async function getFolders(parentPath?: string): Promise<Folder[]> {
       ORDER BY d.path
       LIMIT 1
     ) descendant_cover ON true
-    ORDER BY s.name
+    ORDER BY ${orderBy}
   `;
 
-  const result = await query(sql, isRoot ? [] : [parentPath]);
+  const result = await query(sql, params);
 
   return result.rows.map((folder) => ({
     ...folder,
@@ -286,6 +296,95 @@ export async function getFolders(parentPath?: string): Promise<Folder[]> {
     date_from: folder.date_from ?? null,
     date_to: folder.date_to ?? null,
   })) as Folder[];
+}
+
+export async function getFolders(parentPath?: string): Promise<Folder[]> {
+  const isRoot = parentPath === undefined || parentPath === "";
+  return isRoot
+    ? listFolders("SELECT f.* FROM folders f WHERE f.parent_id IS NULL", "s.name", [])
+    : listFolders(
+        "SELECT f.* FROM folders f WHERE f.parent_id = (SELECT id FROM folders WHERE path = $1)",
+        "s.name",
+        [parentPath],
+      );
+}
+
+/**
+ * Albums (folders holding media directly) by last visit, newest first.
+ * Container folders with no direct media and the root are left out.
+ */
+export async function getRecentlyVisitedFolders(
+  limit: number,
+): Promise<Folder[]> {
+  return listFolders(
+    `SELECT f.* FROM folders f
+     WHERE f.last_visited IS NOT NULL AND f.path <> '' AND f.photo_count > 0
+     ORDER BY f.last_visited DESC
+     LIMIT $1`,
+    "s.last_visited DESC",
+    [limit],
+  );
+}
+
+/** Folders whose name or path matches an ILIKE pattern, first 20 by name, with listing fields */
+export async function searchFolders(pattern: string): Promise<Folder[]> {
+  return listFolders(
+    `SELECT f.* FROM folders f
+     WHERE f.name ILIKE $1 OR f.path ILIKE $1
+     ORDER BY f.name
+     LIMIT 20`,
+    "s.name",
+    [pattern],
+  );
+}
+
+export interface LibrarySummary {
+  photos: number;
+  videos: number;
+  /** All folders, containers included */
+  folders: number;
+  /** Folders holding media directly */
+  albums: number;
+  /** Year span of date_taken; null until some metadata exists */
+  years: { from: number; to: number } | null;
+}
+
+export async function getLibrarySummary(): Promise<LibrarySummary> {
+  // min/max read the ends of idx_photos_date_taken; the counts scan photos once
+  const [media, folders, span] = await Promise.all([
+    query(`
+      SELECT
+        COUNT(*) FILTER (WHERE mime_type LIKE 'image/%')::int AS photos,
+        COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
+      FROM photos
+    `),
+    query(`
+      SELECT COUNT(*)::int AS folders,
+             COUNT(*) FILTER (WHERE photo_count > 0)::int AS albums
+      FROM folders WHERE path <> ''
+    `),
+    query(`
+      SELECT
+        (SELECT metadata->>'date_taken' FROM photos
+         WHERE (metadata->>'date_taken') IS NOT NULL
+         ORDER BY (metadata->>'date_taken'), id LIMIT 1) AS first,
+        (SELECT metadata->>'date_taken' FROM photos
+         WHERE (metadata->>'date_taken') IS NOT NULL
+         ORDER BY (metadata->>'date_taken') DESC, id DESC LIMIT 1) AS last
+    `),
+  ]);
+
+  const { first, last } = span.rows[0];
+  return {
+    photos: media.rows[0].photos,
+    videos: media.rows[0].videos,
+    folders: folders.rows[0].folders,
+    albums: folders.rows[0].albums,
+    years:
+      first && last
+        ? { from: Number(first.slice(0, 4)), to: Number(last.slice(0, 4)) }
+        : null,
+  };
 }
 
 export async function getFolderByPath(path: string): Promise<Folder | null> {
@@ -544,17 +643,24 @@ export async function getTimelinePhotos(
   }));
 }
 
-export async function getTimelineSummary(): Promise<
-  { month: string; count: number }[]
-> {
-  const result = await query(`
-    SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
-    FROM photos p
-    WHERE (p.metadata->>'date_taken') IS NOT NULL
-    GROUP BY 1
-    ORDER BY 1 DESC
-  `);
-  return result.rows;
+export interface TimelineSummary {
+  months: { month: string; count: number }[];
+  /** Every row of photos (images and videos), dated or not */
+  total_photos: number;
+}
+
+export async function getTimelineSummary(): Promise<TimelineSummary> {
+  const [months, total] = await Promise.all([
+    query(`
+      SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
+      FROM photos p
+      WHERE (p.metadata->>'date_taken') IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1 DESC
+    `),
+    query(`SELECT COUNT(*)::int AS total FROM photos`),
+  ]);
+  return { months: months.rows, total_photos: total.rows[0].total };
 }
 
 export async function updatePhotoStatus(
@@ -822,6 +928,10 @@ export interface SharedFolder {
   allow_download: boolean;
   is_active: boolean;
   created_by: string;
+  /** Present on listings (getAllSharedFolders) only */
+  cover_photo_id?: number | null;
+  date_from?: string | null;
+  date_to?: string | null;
 }
 
 export interface ShareAccessLog {
@@ -974,10 +1084,29 @@ export async function logShareAccess(
 }
 
 export async function getAllSharedFolders(): Promise<SharedFolder[]> {
+  // A share exposes the folder's own photos, so the cover comes from those only.
   const result = await query(`
-    SELECT sf.*, f.name as folder_name
+    SELECT
+      sf.*,
+      f.name AS folder_name,
+      cover.id::int AS cover_photo_id,
+      dates.date_from,
+      dates.date_to
     FROM shared_folders sf
     LEFT JOIN folders f ON sf.folder_id = f.id
+    LEFT JOIN LATERAL (
+      SELECT p.id FROM photos p
+      WHERE p.folder_id = sf.folder_id AND p.mime_type LIKE 'image/%'
+      ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+      LIMIT 1
+    ) cover ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        MIN(p.metadata->>'date_taken') AS date_from,
+        MAX(p.metadata->>'date_taken') AS date_to
+      FROM photos p
+      WHERE p.folder_id = sf.folder_id
+    ) dates ON true
     ORDER BY sf.created_at DESC
   `);
 

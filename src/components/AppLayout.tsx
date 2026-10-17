@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -241,14 +241,14 @@ function SidebarContent({
 function TopSearch() {
   const router = useRouter();
   const pathname = usePathname();
+  const query = useSearchParams()?.get("q") ?? "";
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
 
+  // Follows Back/Forward and in-app links between /search?q= values.
   useEffect(() => {
-    if (pathname === "/search") {
-      setValue(new URLSearchParams(window.location.search).get("q") ?? "");
-    }
-  }, [pathname]);
+    if (pathname === "/search") setValue(query);
+  }, [pathname, query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -279,7 +279,7 @@ function TopSearch() {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && inputRef.current?.blur()}
-        placeholder="Search albums and photos"
+        placeholder="Search the library"
         aria-label="Search albums and photos"
         className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
@@ -374,8 +374,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           aria-modal={mobileNavOpen || undefined}
           aria-label="Menu"
           className={cn(
-            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-paper shadow-pop transition-transform duration-200 ease-out-soft",
-            mobileNavOpen ? "translate-x-0" : "-translate-x-full",
+            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-paper transition-transform duration-200 ease-out-soft",
+            mobileNavOpen ? "translate-x-0 shadow-pop" : "-translate-x-full",
           )}
         >
           {mobileNavOpen && (
@@ -406,7 +406,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link href="/" aria-label="Blaze Gallery, home" className="mr-1 shrink-0 rounded lg:hidden">
             <BrandMark compact />
           </Link>
-          {showNav && <TopSearch />}
+          {showNav && (
+            <Suspense fallback={<div className="h-10 w-full max-w-xl rounded-full border border-line bg-surface/70" />}>
+              <TopSearch />
+            </Suspense>
+          )}
         </header>
 
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1680px] px-4 pb-24 focus:outline-none sm:px-8 lg:px-12">

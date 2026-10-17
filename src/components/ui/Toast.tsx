@@ -6,14 +6,22 @@ import { cn } from "@/lib/cn";
 
 type ToastTone = "success" | "error" | "info";
 
+interface ToastOptions {
+  /** Milliseconds on screen. Defaults: 3.5 s, 6 s for errors, 8 s with an action. */
+  duration?: number;
+  /** One inline action, e.g. Undo. Clicking it also dismisses the toast. */
+  action?: { label: string; onClick: () => void };
+}
+
 interface ToastItem {
   id: number;
   tone: ToastTone;
   message: React.ReactNode;
+  action?: ToastOptions["action"];
 }
 
 interface ToastApi {
-  show: (message: React.ReactNode, tone?: ToastTone) => void;
+  show: (message: React.ReactNode, tone?: ToastTone, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -30,10 +38,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const show = useCallback(
-    (message: React.ReactNode, tone: ToastTone = "info") => {
+    (message: React.ReactNode, tone: ToastTone = "info", options: ToastOptions = {}) => {
       const id = nextId.current++;
-      setItems((all) => [...all.slice(-2), { id, tone, message }]);
-      setTimeout(() => dismiss(id), tone === "error" ? 6000 : 3500);
+      setItems((all) => [...all.slice(-2), { id, tone, message, action: options.action }]);
+      const fallback = options.action ? 8000 : tone === "error" ? 6000 : 3500;
+      setTimeout(() => dismiss(id), options.duration ?? fallback);
     },
     [dismiss],
   );
@@ -57,6 +66,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             >
               <Icon className={cn("h-4 w-4 shrink-0", iconTones[t.tone])} aria-hidden />
               <span className="min-w-0">{t.message}</span>
+              {t.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    t.action?.onClick();
+                    dismiss(t.id);
+                  }}
+                  className="shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold text-paper underline-offset-4 transition-colors hover:bg-paper/10 hover:underline"
+                >
+                  {t.action.label}
+                </button>
+              )}
               <button
                 type="button"
                 aria-label="Dismiss"
