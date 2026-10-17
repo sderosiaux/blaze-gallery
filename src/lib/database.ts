@@ -219,6 +219,12 @@ export async function query(
   return pool.query(text, params);
 }
 
+// A camera wrote it: rules out scans, screenshots, album art and sprites
+const PHOTO_LIKE = `(p.mime_type IN ('image/jpeg', 'image/heic', 'image/heif')
+  AND p.metadata->'camera'->>'make' IS NOT NULL
+  AND (p.metadata->>'date_taken') IS NOT NULL)`;
+const COVER_RANK = `${PHOTO_LIKE} DESC, (p.thumbnail_status = 'generated') DESC, p.filename, p.id`;
+
 /**
  * Adds listing fields (thumbnail state, size, date span, cover) to the
  * folders selected by `baseSql`, which must select `f.*` from `folders f`.
@@ -228,11 +234,15 @@ async function listFolders(
   orderBy: string,
   params: unknown[],
 ): Promise<Folder[]> {
-  // Cover: an image of the folder itself (generated thumbnail first, so it
-  // shows instantly), else one from the first descendant folder (by path)
-  // that holds images. The path range lets the btree on folders.path serve
-  // the prefix lookup (C.UTF-8 orders by code point, and '/' + 1 = '0');
-  // starts_with keeps it exact when names contain LIKE wildcards.
+  // Cover: a photograph rather than a scan, album art or game sprite. An
+  // image is photo-like when a camera wrote it (JPEG/HEIC with EXIF make and
+  // date taken). Order: photo-like image of the folder itself, else the first
+  // descendant folder (by path) holding one, else any image of the folder,
+  // else of the first descendant holding images. Ties go to a generated
+  // thumbnail (instant), then filename.
+  // The path range lets the btree on folders.path serve the prefix lookup
+  // (C.UTF-8 orders by code point, and '/' + 1 = '0'); starts_with keeps it
+  // exact when names contain LIKE wildcards.
   const sql = `
     WITH sub AS (${baseSql})
     SELECT
@@ -242,7 +252,9 @@ async function listFolders(
       agg.folder_created_at,
       agg.date_from,
       agg.date_to,
-      COALESCE(own_cover.id, descendant_cover.id)::int AS cover_photo_id
+      (CASE WHEN own_cover.is_photo THEN own_cover.id
+            ELSE COALESCE(descendant_photo.id, own_cover.id, descendant_image.id)
+       END)::int AS cover_photo_id
     FROM sub s
     LEFT JOIN LATERAL (
       SELECT
@@ -259,20 +271,41 @@ async function listFolders(
       WHERE p.folder_id = s.id
     ) agg ON true
     LEFT JOIN LATERAL (
-      SELECT p.id FROM photos p
+      SELECT p.id, ${PHOTO_LIKE} AS is_photo
+      FROM photos p
       WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%'
-      ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+      ORDER BY ${COVER_RANK}
       LIMIT 1
     ) own_cover ON true
     LEFT JOIN LATERAL (
       SELECT (
         SELECT p.id FROM photos p
+        WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        ORDER BY ${COVER_RANK}
+        LIMIT 1
+      ) AS id
+      FROM folders d
+      WHERE own_cover.is_photo IS NOT TRUE
+        AND d.path >= s.path || '/'
+        AND d.path < s.path || '0'
+        AND starts_with(d.path, s.path || '/')
+        AND d.photo_count > 0
+        AND EXISTS (
+          SELECT 1 FROM photos p WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        )
+      ORDER BY d.path
+      LIMIT 1
+    ) descendant_photo ON true
+    LEFT JOIN LATERAL (
+      SELECT (
+        SELECT p.id FROM photos p
         WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
-        ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+        ORDER BY ${COVER_RANK}
         LIMIT 1
       ) AS id
       FROM folders d
       WHERE own_cover.id IS NULL
+        AND descendant_photo.id IS NULL
         AND d.path >= s.path || '/'
         AND d.path < s.path || '0'
         AND starts_with(d.path, s.path || '/')
@@ -283,7 +316,7 @@ async function listFolders(
         )
       ORDER BY d.path
       LIMIT 1
-    ) descendant_cover ON true
+    ) descendant_image ON true
     ORDER BY ${orderBy}
   `;
 
