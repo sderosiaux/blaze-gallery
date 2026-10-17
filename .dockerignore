@@ -1,0 +1,18 @@
+# Build context of the image: sources, lockfile, public assets, db/, scripts/,
+# demo/. Secrets and local state stay out (.env would otherwise be baked in).
+.env
+.env.*
+.git
+.github
+.claude
+.next
+.vercel
+node_modules
+data
+website
+docs
+coverage
+*.tsbuildinfo
+**/*.md
+Dockerfile
+docker-compose.yml

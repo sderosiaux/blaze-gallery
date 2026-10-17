@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The Docker image builds with BUILD_STANDALONE=1 and runs
+  // .next/standalone/server.js, a server carrying only the node_modules it
+  // uses. `next start` does not support that output, so it stays opt-in.
+  output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
   experimental: {
     serverComponentsExternalPackages: ['pg']
   },
