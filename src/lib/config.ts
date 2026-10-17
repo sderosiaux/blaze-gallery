@@ -34,6 +34,7 @@ export function getConfig(): Config {
     backblaze_bucket: envOrDefault("BACKBLAZE_BUCKET", ""),
     backblaze_access_key: envOrDefault("BACKBLAZE_ACCESS_KEY", ""),
     backblaze_secret_key: envOrDefault("BACKBLAZE_SECRET_KEY", ""),
+    backblaze_public_endpoint: envValue("BACKBLAZE_PUBLIC_ENDPOINT"),
     thumbnail_storage: normalizedStorageMode,
     thumbnail_s3_endpoint: envValue("THUMBNAIL_S3_ENDPOINT"),
     thumbnail_s3_bucket: envValue("THUMBNAIL_S3_BUCKET"),
@@ -61,6 +62,7 @@ export function getConfig(): Config {
     BACKBLAZE_BUCKET: !!process.env.BACKBLAZE_BUCKET,
     BACKBLAZE_ACCESS_KEY: !!process.env.BACKBLAZE_ACCESS_KEY,
     BACKBLAZE_SECRET_KEY: !!process.env.BACKBLAZE_SECRET_KEY,
+    BACKBLAZE_PUBLIC_ENDPOINT: !!process.env.BACKBLAZE_PUBLIC_ENDPOINT,
     THUMBNAIL_STORAGE: !!process.env.THUMBNAIL_STORAGE,
     THUMBNAIL_S3_ENDPOINT: !!process.env.THUMBNAIL_S3_ENDPOINT,
     THUMBNAIL_S3_BUCKET: !!process.env.THUMBNAIL_S3_BUCKET,
@@ -132,6 +134,14 @@ export function validateConfig(config: Config): string[] {
       errors.push(
         "Backblaze endpoint must include protocol (https:// or http://)",
       );
+    }
+  }
+
+  if (config.backblaze_public_endpoint !== undefined) {
+    try {
+      new URL(config.backblaze_public_endpoint);
+    } catch {
+      errors.push("Backblaze public endpoint must be a valid URL");
     }
   }
 

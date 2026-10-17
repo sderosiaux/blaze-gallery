@@ -578,6 +578,36 @@ export async function getObjectMetadata(
   }
 }
 
+let publicSigner: { endpoint: string; client: S3Client } | null = null;
+
+/**
+ * Client that signs download links. A signed link only works on the host it
+ * was signed for, so when the server reaches storage at an address browsers
+ * cannot (MinIO as http://minio:9000 inside a compose network), links are
+ * signed for BACKBLAZE_PUBLIC_ENDPOINT. Signing is local: this client never
+ * sends a request itself.
+ */
+function signingClient(): S3Client {
+  const config = getConfig();
+  const endpoint = config.backblaze_public_endpoint;
+  if (endpoint === undefined) return S3Manager.getInstance().getS3Client();
+  if (publicSigner?.endpoint !== endpoint) {
+    publicSigner = {
+      endpoint,
+      client: new S3Client({
+        endpoint,
+        region: "us-east-1",
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: config.backblaze_access_key,
+          secretAccessKey: config.backblaze_secret_key,
+        },
+      }),
+    };
+  }
+  return publicSigner.client;
+}
+
 export interface SignedDownloadOptions {
   /** Signs a Content-Disposition: attachment override so the browser saves the file */
   attachmentFilename?: string;
@@ -632,7 +662,7 @@ export async function getSignedDownloadUrl(
     }
   }
 
-  const client = S3Manager.getInstance().getS3Client();
+  const client = signingClient();
   const startTime = Date.now();
   let statusCode = 200;
   let errorMessage: string | undefined;

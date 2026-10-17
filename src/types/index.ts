@@ -81,6 +81,8 @@ export interface Config {
   backblaze_bucket: string;
   backblaze_access_key: string;
   backblaze_secret_key: string;
+  /** Storage endpoint as browsers reach it, when it differs from backblaze_endpoint */
+  backblaze_public_endpoint?: string;
   thumbnail_storage: "local" | "s3";
   thumbnail_s3_endpoint?: string;
   thumbnail_s3_bucket?: string;
