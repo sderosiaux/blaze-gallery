@@ -89,6 +89,7 @@ export default function ProgressiveImage({
   return (
     <div ref={rootRef} className={cn("absolute inset-0 overflow-hidden bg-surface-sunken", className)}>
       {previewSrc && stage !== "failed" && !thumbReady && (
+        // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
         <img
           src={previewSrc}
           alt={showThumb && thumbLoaded ? "" : alt}
@@ -105,6 +106,7 @@ export default function ProgressiveImage({
         />
       )}
       {showThumb && (
+        // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
         <img
           src={thumbSrc}
           alt={alt}

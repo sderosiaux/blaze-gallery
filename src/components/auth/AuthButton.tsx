@@ -20,6 +20,7 @@ function GoogleGlyph() {
 function Avatar({ name, picture, size = "sm" }: { name: string; picture?: string; size?: "sm" | "lg" }) {
   const box = size === "lg" ? "h-10 w-10 text-base" : "h-8 w-8 text-sm";
   return picture ? (
+    // eslint-disable-next-line @next/next/no-img-element -- remote Google avatar, not worth an image-optimizer domain
     <img src={picture} alt="" className={cn(box, "rounded-full object-cover ring-1 ring-line")} />
   ) : (
     <span className={cn(box, "inline-flex items-center justify-center rounded-full bg-ink font-display italic text-paper")}>
