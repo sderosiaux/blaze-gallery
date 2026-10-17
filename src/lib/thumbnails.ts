@@ -18,6 +18,7 @@ import {
 import { setPhotoDimensions, updatePhotoThumbnail } from "./database";
 import { orientJpeg } from "./imageProbe";
 import { extractEmbeddedJpeg, isRawKey } from "./rawPreview";
+import { userRotation } from "./rotation";
 import { getConfig } from "./config";
 import { nonEmpty, prop } from "./narrow";
 import { logger } from "./logger";
@@ -73,6 +74,8 @@ export interface GenerateThumbnailParams {
   options?: ThumbnailOptions;
   bypassSizeCheck?: boolean;
   request?: Request;
+  /** Clockwise quarter turns the owner applied by hand, on top of EXIF orientation */
+  rotation?: number;
 }
 
 export function normalizeThumbnailS3Prefix(prefix?: string): string {
@@ -296,6 +299,7 @@ export class ThumbnailService {
       options = {},
       bypassSizeCheck = false,
       request,
+      rotation = 0,
     } = params;
     const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
     const thumbnailPath = this.getThumbnailPath(photoId, opts.format, s3Key);
@@ -391,7 +395,7 @@ export class ThumbnailService {
         rawInput ?? (await this.downloadOriginal(bucket, s3Key, request));
 
       // rotate() applies EXIF orientation; without it portrait photos came out lying down
-      const thumbnailBuffer = await sharp(inputBuffer)
+      const oriented = await sharp(inputBuffer)
         .rotate()
         .resize(opts.width, opts.height, {
           fit: "inside",
@@ -399,6 +403,14 @@ export class ThumbnailService {
         })
         .jpeg({ quality: opts.quality })
         .toBuffer();
+      // The owner's own correction, for files whose EXIF lies. A second pass:
+      // sharp 0.33 ignores a rotate(angle) that follows the EXIF rotate().
+      const thumbnailBuffer = rotation
+        ? await sharp(oriented)
+            .rotate(rotation)
+            .jpeg({ quality: opts.quality })
+            .toBuffer()
+        : oriented;
 
       await this.writeThumbnail(thumbnailPath, thumbnailBuffer);
       await updatePhotoThumbnail(photoId, thumbnailPath);
@@ -729,7 +741,7 @@ export class ThumbnailService {
   }
 
   async serveThumbnail(
-    photo: Pick<Photo, "id" | "s3_key" | "size"> & {
+    photo: Pick<Photo, "id" | "s3_key" | "size" | "metadata"> & {
       thumbnail_path?: string | null;
     },
     request?: Request,
@@ -765,6 +777,7 @@ export class ThumbnailService {
         photoId: photo.id,
         bypassSizeCheck: forceGenerate,
         request,
+        rotation: userRotation(photo.metadata),
       });
     } catch (error) {
       if (

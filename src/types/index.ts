@@ -60,6 +60,8 @@ export interface PhotoMetadata {
   };
   /** Raw EXIF orientation (1-8) */
   orientation?: number;
+  /** Clockwise quarter turns the owner applied by hand (see src/lib/rotation.ts) */
+  user_rotation?: 0 | 90 | 180 | 270;
 }
 
 export interface SyncJob {

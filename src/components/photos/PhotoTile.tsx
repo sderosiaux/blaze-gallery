@@ -8,6 +8,7 @@ import { formatDay, isVideo } from "@/lib/albums";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
+import { userRotation } from "@/lib/rotation";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -24,9 +25,10 @@ const RAW_EXTENSIONS = [
 ];
 
 export function photoSources(photo: Photo, shareToken?: string) {
+  const rotation = userRotation(photo.metadata);
   return {
-    preview: previewUrl(photo.id, shareToken),
-    thumb: thumbnailUrl(photo.id, shareToken),
+    preview: previewUrl(photo.id, shareToken, rotation),
+    thumb: thumbnailUrl(photo.id, shareToken, rotation),
   };
 }
 

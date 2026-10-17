@@ -1,4 +1,5 @@
 import type { Folder, Photo } from "@/types";
+import { rotatedSize, userRotation } from "./rotation";
 
 // Folder names in the bucket carry their date in many shapes
 // ("2018-01-15 toulouse", "07-12-2008-disneyland", "20100416_Anni Dadou").
@@ -150,8 +151,9 @@ export function isVideo(photo: Pick<Photo, "mime_type">): boolean {
 
 /** Width / height, clamped so panoramas and slivers don't wreck a row. */
 export function aspectRatio(photo: Photo): number {
-  const dims = photo.metadata?.dimensions;
-  if (dims && dims.width > 0 && dims.height > 0) {
+  const stored = photo.metadata?.dimensions;
+  if (stored && stored.width > 0 && stored.height > 0) {
+    const dims = rotatedSize(stored, userRotation(photo.metadata));
     return Math.min(3, Math.max(0.5, dims.width / dims.height));
   }
   return isVideo(photo) ? 16 / 9 : 4 / 3;

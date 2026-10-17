@@ -2,6 +2,7 @@ import { getFolderByPath, query } from "./database";
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { thumbnailService } from "./thumbnails";
+import { asQuarterTurn } from "./rotation";
 
 /**
  * Builds the missing thumbnails of one folder, a few at a time. The browser
@@ -40,6 +41,7 @@ interface MissingRow {
   id: string;
   s3_key: string;
   filename: string;
+  user_rotation: string | null;
 }
 
 // Opaque "filename|id" cursor, so a photo that keeps failing never blocks the rest
@@ -61,7 +63,7 @@ export async function warmFolderThumbnails(
 
   const from = parseCursor(after);
   const { rows } = await query<MissingRow>(
-    `SELECT p.id, p.s3_key, p.filename FROM photos p
+    `SELECT p.id, p.s3_key, p.filename, p.metadata->>'user_rotation' AS user_rotation FROM photos p
      WHERE p.folder_id = $1 AND ${MISSING}
        ${from ? "AND (p.filename, p.id) > ($3::text, $4::bigint)" : ""}
      ORDER BY p.filename, p.id
@@ -82,6 +84,7 @@ export async function warmFolderThumbnails(
           bucket,
           s3Key: row.s3_key,
           photoId: Number(row.id),
+          rotation: asQuarterTurn(Number(row.user_rotation)),
         });
         // An empty path means the file was marked corrupted
         (path ? generated : skipped).push(row.id);

@@ -8,21 +8,26 @@ export const THUMBNAIL_VERSION = 2;
 export function thumbnailUrl(
   photoId: number | string,
   shareToken?: string,
+  rotation = 0,
 ): string {
   const id = String(photoId);
+  // The hand rotation is part of the URL: a rotated photo is a new image.
+  const r = rotation ? `&r=${rotation}` : "";
   return shareToken
-    ? `/api/shares/${shareToken}/thumbnail/${id}?v=${THUMBNAIL_VERSION}`
-    : `/api/photos/${id}/thumbnail?v=${THUMBNAIL_VERSION}`;
+    ? `/api/shares/${shareToken}/thumbnail/${id}?v=${THUMBNAIL_VERSION}${r}`
+    : `/api/photos/${id}/thumbnail?v=${THUMBNAIL_VERSION}${r}`;
 }
 
 export function previewUrl(
   photoId: number | string,
   shareToken?: string,
+  rotation = 0,
 ): string {
   const id = String(photoId);
+  const r = rotation ? `?r=${rotation}` : "";
   return shareToken
-    ? `/api/shares/${shareToken}/preview/${id}`
-    : `/api/photos/${id}/preview`;
+    ? `/api/shares/${shareToken}/preview/${id}${r}`
+    : `/api/photos/${id}/preview${r}`;
 }
 
 /**
@@ -32,9 +37,11 @@ export function previewUrl(
 export function displayUrl(
   photoId: number | string,
   shareToken?: string,
+  rotation = 0,
 ): string {
   const id = String(photoId);
+  const r = rotation ? `?r=${rotation}` : "";
   return shareToken
-    ? `/api/shares/${shareToken}/display/${id}`
-    : `/api/photos/${id}/display`;
+    ? `/api/shares/${shareToken}/display/${id}${r}`
+    : `/api/photos/${id}/display${r}`;
 }
