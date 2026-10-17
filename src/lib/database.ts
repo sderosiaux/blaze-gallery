@@ -2,7 +2,7 @@ import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { Pool, types } from "pg";
 import type { Folder, Photo, PhotoMetadata } from "@/types";
 import * as crypto from "crypto";
-import { compare, hash } from "bcrypt";
+import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
 import { normalizeTextForSearch } from "./textUtils";
