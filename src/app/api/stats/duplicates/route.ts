@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type {
   DuplicateFileGroup,
   DuplicateFiles,
 } from "@/components/stats/types";
-import { firstRow } from "@/app/api/_lib/db";
 
 interface DuplicatesRow {
   total_groups: number;
@@ -77,7 +76,7 @@ export const GET = requireAuth(async function GET() {
       [GROUP_LIMIT, LOCATIONS_PER_GROUP],
     );
 
-    const row = firstRow(result, "Duplicate files");
+    const row = requireRow(result, "Duplicate files");
     const data: DuplicateFiles = {
       summary: {
         total_duplicate_filenames: row.total_groups,

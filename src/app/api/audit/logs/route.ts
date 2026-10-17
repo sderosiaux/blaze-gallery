@@ -1,10 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { s3AuditLogger } from "@/lib/s3Audit";
 import type { AuditLogEntry, AuditLogPage } from "@/components/audit/types";
-import { firstRow } from "@/app/api/_lib/db";
 import { isInvalidDateParam } from "@/app/api/_lib/request";
 
 interface LogRow {
@@ -101,7 +100,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }));
     const page: AuditLogPage = {
       logs,
-      total_count: firstRow(countResult, "Audit log count").count,
+      total_count: requireRow(countResult, "Audit log count").count,
     };
 
     return NextResponse.json({ success: true, data: page });

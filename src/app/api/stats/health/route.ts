@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { HealthStats } from "@/components/stats/types";
-import { firstRow } from "@/app/api/_lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +41,8 @@ export const GET = requireAuth(async function GET() {
     ]);
 
     const data: HealthStats = {
-      metadata: firstRow(metadataResult, "Metadata health"),
-      sync: firstRow(syncResult, "Sync health"),
+      metadata: requireRow(metadataResult, "Metadata health"),
+      sync: requireRow(syncResult, "Sync health"),
     };
 
     return NextResponse.json({ success: true, data });

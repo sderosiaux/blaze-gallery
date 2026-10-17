@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type {
   DuplicateFolderGroup,
   DuplicateFolders,
 } from "@/components/stats/types";
-import { firstRow } from "@/app/api/_lib/db";
 
 interface DuplicateFoldersRow {
   total_groups: number;
@@ -80,7 +79,7 @@ export const GET = requireAuth(async function GET() {
       [GROUP_LIMIT],
     );
 
-    const row = firstRow(result, "Duplicate folders");
+    const row = requireRow(result, "Duplicate folders");
     const data: DuplicateFolders = {
       summary: {
         total_duplicate_folder_groups: row.total_groups,

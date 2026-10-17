@@ -3,9 +3,8 @@ import { NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import { firstRow } from "@/app/api/_lib/db";
 import { getThumbnailStorageInfo } from "@/lib/thumbnails";
 import type { ThumbnailStorageInfo } from "@/lib/thumbnails";
 import { listObjects } from "@/lib/s3";
@@ -190,7 +189,7 @@ async function coverage(): Promise<ThumbnailCoverage> {
       (COUNT(*) FILTER (WHERE thumbnail_path IS NOT NULL AND thumbnail_path != ''))::int AS with_thumbnail
     FROM photos
   `);
-  const { total_photos, with_thumbnail } = firstRow(
+  const { total_photos, with_thumbnail } = requireRow(
     result,
     "Thumbnail coverage",
   );

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { StatsSummary } from "@/components/stats/types";
-import { firstRow } from "@/app/api/_lib/db";
 
 interface PhotosRow {
   photos: number;
@@ -56,8 +55,8 @@ export const GET = requireAuth(async function GET() {
       `),
     ]);
 
-    const p = firstRow(photosResult, "Photo stats");
-    const f = firstRow(foldersResult, "Folder stats");
+    const p = requireRow(photosResult, "Photo stats");
+    const f = requireRow(foldersResult, "Folder stats");
 
     const data: StatsSummary = {
       photos: p.photos,

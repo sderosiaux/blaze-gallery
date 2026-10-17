@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { VideoStats } from "@/components/stats/types";
-import { firstRow } from "@/app/api/_lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +73,7 @@ export const GET = requireAuth(async function GET() {
       ]);
 
     const data: VideoStats = {
-      summary: firstRow(summaryResult, "Video summary"),
+      summary: requireRow(summaryResult, "Video summary"),
       formats: formatsResult.rows,
       largest: largestResult.rows,
       albums: albumsResult.rows,

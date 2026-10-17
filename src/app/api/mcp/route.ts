@@ -7,6 +7,7 @@ import {
   getPhotosInFolder,
   getPhoto,
   query,
+  requireRow,
 } from "@/lib/database";
 import type { Photo, Folder } from "@/types";
 import { QueryBuilder } from "@/lib/queryBuilder";
@@ -18,7 +19,7 @@ import {
   optionalString,
 } from "@/app/api/_lib/request";
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
-import { firstRow, withThumbnailUrl } from "@/app/api/_lib/db";
+import { withThumbnailUrl } from "@/app/api/_lib/db";
 
 // pg delivers COUNT and SUM (bigint, numeric) as strings; the tools return them as such
 type PgBigint = string;
@@ -238,7 +239,7 @@ class BlazeGalleryMCPHandler {
         (SELECT COUNT(*) FROM photos WHERE metadata IS NOT NULL) as photos_with_metadata
     `);
 
-    return firstRow(result, "Gallery stats");
+    return requireRow(result, "Gallery stats");
   }
 
   async getPhotoAnalytics(options: {

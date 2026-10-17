@@ -211,9 +211,13 @@ export async function query<R extends QueryResultRow = QueryResultRow>(
 }
 
 /** First row of an aggregate query that always yields one */
-export function requireRow<R>(result: QueryResult<R & QueryResultRow>): R {
+/** First row of a query that always yields one (a bare aggregate); throws if the driver returned none. */
+export function requireRow<R>(
+  result: QueryResult<R & QueryResultRow>,
+  what = "Query",
+): R {
   const row = result.rows[0];
-  if (row === undefined) throw new Error("Query returned no row");
+  if (row === undefined) throw new Error(`${what} returned no row`);
   return row;
 }
 

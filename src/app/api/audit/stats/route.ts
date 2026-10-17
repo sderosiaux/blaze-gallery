@@ -1,9 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import type { AuditSummary } from "@/components/audit/types";
-import { firstRow } from "@/app/api/_lib/db";
 import { isInvalidDateParam } from "@/app/api/_lib/request";
 
 interface SummaryRow {
@@ -67,7 +66,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       params,
     );
 
-    const row = firstRow(result, "Audit summary");
+    const row = requireRow(result, "Audit summary");
     const summary: AuditSummary = {
       total_requests: row.total_requests,
       error_count: row.error_count,
