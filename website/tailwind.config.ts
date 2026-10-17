@@ -1,46 +1,37 @@
 import type { Config } from 'tailwindcss'
 
+// Same tokens as the app (src/app/globals.css there): the photos carry the color.
+const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`
+
 const config: Config = {
-  content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
+  content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        'blaze': {
-          50: '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          300: '#fdba74',
-          400: '#fb923c',
-          500: '#f97316',
-          600: '#ea580c',
-          700: '#c2410c',
-          800: '#9a3412',
-          900: '#7c2d12',
-        }
-      },
-      animation: {
-        'fade-in-up': 'fadeInUp 0.5s ease-out',
-        'bounce-subtle': 'bounceSubtle 2s infinite',
-        'pulse-soft': 'pulseSoft 3s infinite'
-      },
-      keyframes: {
-        fadeInUp: {
-          '0%': { opacity: '0', transform: 'translateY(30px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' }
+        paper: token('paper'),
+        sunken: token('sunken'),
+        ink: {
+          DEFAULT: token('ink'),
+          soft: token('ink-soft'),
+          muted: token('ink-muted'),
+          faint: token('ink-faint'),
         },
-        bounceSubtle: {
-          '0%, 100%': { transform: 'translateY(0)' },
-          '50%': { transform: 'translateY(-10px)' }
-        },
-        pulseSoft: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.8' }
-        }
-      }
+        line: { DEFAULT: token('line'), strong: token('line-strong') },
+      },
+      fontFamily: {
+        sans: ['var(--font-sans)', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        display: ['clamp(2.5rem, 5.4vw, 4.75rem)', { lineHeight: '1.02', letterSpacing: '-0.035em' }],
+        h2: ['clamp(2rem, 3.6vw, 3rem)', { lineHeight: '1.08', letterSpacing: '-0.025em' }],
+        lead: ['1.25rem', { lineHeight: '1.6' }],
+      },
+      maxWidth: { page: '77.5rem', prose: '38rem' },
+      boxShadow: {
+        frame: '0 1px 2px rgb(24 24 27 / 0.04), 0 12px 40px -12px rgb(24 24 27 / 0.18)',
+      },
+      transitionTimingFunction: { 'out-soft': 'cubic-bezier(0.22, 1, 0.36, 1)' },
     },
   },
   plugins: [],

@@ -47,9 +47,6 @@ coverage/
 ehthumbs.db
 Thumbs.db
 
-# Docker
-.dockerignore
-
 # TypeScript
 *.tsbuildinfo
 

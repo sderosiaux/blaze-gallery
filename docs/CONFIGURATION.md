@@ -1,81 +1,107 @@
-# Configuration Reference
+# Configuration
 
-All configuration is done via environment variables.
+Everything is set through environment variables, read when the server
+starts. [`.env.template`](../.env.template) has the same list with example
+values; `cp .env.template .env` is the usual starting point.
 
-## Required Variables
+An empty value counts as unset.
 
-### Storage
+## Photo storage
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `BACKBLAZE_ENDPOINT` | S3-compatible endpoint URL | `https://s3.us-west-004.backblazeb2.com` |
-| `BACKBLAZE_BUCKET` | Bucket name containing photos | `my-photos` |
-| `BACKBLAZE_ACCESS_KEY` | Access key ID | `0012345678abcdef` |
-| `BACKBLAZE_SECRET_KEY` | Secret access key | `K000xxxxxxxxxxxxx` |
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BACKBLAZE_ENDPOINT` | required | S3 endpoint of the photo bucket, with `https://` or `http://`. Any S3-compatible service. |
+| `BACKBLAZE_BUCKET` | required | Bucket holding the photos. Its folders become the albums. |
+| `BACKBLAZE_ACCESS_KEY` | required | Key ID. List and read are enough to browse; uploads, deletions and thumbnails stored in this bucket need write and delete. |
+| `BACKBLAZE_SECRET_KEY` | required | Secret of that key. |
+| `BACKBLAZE_PUBLIC_ENDPOINT` | `BACKBLAZE_ENDPOINT` | Address browsers use to reach the bucket. Download links (zoom, video, download) are signed for it. Set it when the server's address is not reachable from browsers, such as `http://minio:9000` inside Compose. |
 
-### Database
+Requests are signed for region `us-east-1`. B2, R2 and MinIO accept it;
+on AWS S3 only `us-east-1` buckets work.
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
+## Database
 
-## Optional Variables
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `DATABASE_URL` | required | PostgreSQL 13+ connection string. TLS follows `sslmode` in the URL (`require` for hosted databases). Docker Compose overrides it with its own database. |
 
-### Thumbnails
+`npm run db:migrate` creates the tables from `db/schema.sql`. It only adds
+what is missing, so it is safe on an existing database; the Docker image
+runs it on every start.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `THUMBNAIL_STORAGE` | `local` | Storage type: `local` or `s3` |
-| `THUMBNAIL_S3_PREFIX` | `thumbnails` | S3 prefix when using S3 storage |
-| `THUMBNAIL_MAX_WIDTH` | `400` | Maximum thumbnail width in pixels |
-| `THUMBNAIL_QUALITY` | `80` | JPEG quality (1-100) |
+## Access
 
-### Authentication
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `GOOGLE_AUTH_ENABLED` | `false` | `true` requires Google sign-in, limited to `AUTH_EMAIL_WHITELIST`. Setup: [SETUP_GOOGLE.md](../SETUP_GOOGLE.md). |
+| `GOOGLE_CLIENT_ID` | | OAuth client ID. Required with sign-in. |
+| `GOOGLE_CLIENT_SECRET` | | OAuth client secret. Required with sign-in. |
+| `GOOGLE_REDIRECT_URI` | `$NEXT_PUBLIC_APP_URL/api/auth/google/callback` | Must match the redirect URI registered at Google. |
+| `AUTH_EMAIL_WHITELIST` | | Comma-separated addresses allowed to sign in. Required with sign-in. |
+| `AUTH_SESSION_DURATION` | `86400` | Sign-in session length, in seconds. |
+| `AUTH_SESSION_SECRET` | random per process | 32+ characters. Required with sign-in. Also signs the sessions of password-protected shared links; without it they end when the server restarts. |
+| `ALLOW_PUBLIC_ACCESS` | `false` | `true` runs a production server without sign-in: anyone who reaches it can browse, share, upload and delete. |
+| `API_KEY` | | Sent as `Authorization: Bearer <key>` or `X-API-Key`. Required by `/api/sync/full`, `/api/sync/folder` and `/api/config`; accepted by `/api/mcp` instead of a session. |
+| `ADMIN_API_KEY` | | A second key, accepted wherever `API_KEY` is, as long as `API_KEY` is set. |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUTH_ENABLED` | `false` | Enable Google OAuth |
-| `GOOGLE_CLIENT_ID` | - | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | - | Google OAuth client secret |
-| `AUTH_ALLOWED_EMAILS` | - | Comma-separated list of allowed emails |
-| `NEXTAUTH_URL` | - | Your app's public URL |
-| `NEXTAUTH_SECRET` | - | Random secret for session encryption |
+A production server (`NODE_ENV=production`: the Docker image, `npm start`,
+Vercel) answers 503 to every API call until either `GOOGLE_AUTH_ENABLED` or
+`ALLOW_PUBLIC_ACCESS` is `true`. `npm run dev` has no such check.
 
-### Application
+## Public address
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Public URL for share links |
-| `NODE_ENV` | `development` | Environment mode |
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | | The gallery's public URL. In production, Google sign-in and sign-out only accept requests from this origin, and it is the default base of `GOOGLE_REDIRECT_URI`. |
 
-### AWS Region (for AWS S3 only)
+Next.js copies `NEXT_PUBLIC_*` values into the browser code at build time.
+Share links use `NEXT_PUBLIC_APP_URL` if it was set when `npm run build`
+ran (as on Vercel); otherwise they use the address in the browser, which is
+the case for the Docker image.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AWS_REGION` | `us-east-1` | AWS region for S3 |
+## Thumbnails
 
-## Example .env File
+Thumbnails (400 px) and the viewer's renditions (2048 px) are made from the
+originals on first view, then stored.
 
-```env
-# S3 Storage (Backblaze B2)
-BACKBLAZE_ENDPOINT=https://s3.us-west-004.backblazeb2.com
-BACKBLAZE_BUCKET=my-photo-bucket
-BACKBLAZE_ACCESS_KEY=0012345678abcdef0000
-BACKBLAZE_SECRET_KEY=K000abcdefghijklmnopqrstuvwxyz1234
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `THUMBNAIL_STORAGE` | `local` | `local`: files under `THUMBNAILS_PATH`. `s3`: objects under `THUMBNAIL_S3_PREFIX` in a bucket; use it where the disk does not persist (Vercel). |
+| `THUMBNAILS_PATH` | `./data/thumbnails` | Directory for `local`. The Docker image sets `/app/data/thumbnails`. |
+| `THUMBNAIL_S3_PREFIX` | `thumbnails` | Key prefix for `s3`. Renditions go under the sibling prefix `display`. |
+| `THUMBNAIL_S3_ENDPOINT` | photo bucket | Separate bucket for `s3` thumbnails, for example Cloudflare R2. Set all four `THUMBNAIL_S3_*` connection variables or none. |
+| `THUMBNAIL_S3_BUCKET` | photo bucket | |
+| `THUMBNAIL_S3_ACCESS_KEY` | photo bucket key | Needs read and write. |
+| `THUMBNAIL_S3_SECRET_KEY` | photo bucket key | |
+| `AUTO_THUMBNAIL_THRESHOLD_MB` | `30` | Larger photos get no automatic thumbnail. RAW files are exempt: their embedded preview is used. |
+| `THUMBNAIL_MAX_AGE_DAYS` | `30` | The cleanup job (`POST /api/sync/cleanup`) deletes thumbnails older than this; they are rebuilt on the next view. |
 
-# Database
-DATABASE_URL=postgresql://postgres:password@localhost:5432/blaze_gallery
+## S3 audit log
 
-# Thumbnails (optional - defaults to local storage)
-THUMBNAIL_STORAGE=s3
-THUMBNAIL_S3_PREFIX=thumbnails
+The app records its storage calls in the `s3_audit_logs` table (Admin, Audit).
 
-# Authentication (optional - disabled by default)
-AUTH_ENABLED=true
-GOOGLE_CLIENT_ID=123456789-abcdefg.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
-AUTH_ALLOWED_EMAILS=me@example.com,friend@example.com
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `AUDIT_CLEANUP_ENABLED` | `true` | `false` keeps entries forever. |
+| `AUDIT_RETENTION_DAYS` | `30` | Age after which entries are deleted. |
+| `AUDIT_CLEANUP_SCHEDULE` | `0 2 * * *` | Cron expression of the cleanup. It needs a long-running server: it does not run on Vercel. |
+| `B2_BUCKET_NAME` | `unknown` | Bucket name written on the audit entries of thumbnail requests. |
 
-# Application
-NEXT_PUBLIC_APP_URL=https://gallery.example.com
-```
+## Logs and runtime
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR`. |
+| `NEXT_TELEMETRY_DISABLED` | | `1` turns off Next.js telemetry. |
+| `PORT`, `HOSTNAME` | `3000`, `0.0.0.0` in the image | Where the server listens. |
+
+## Docker Compose only
+
+Read by `docker-compose.yml` from `.env`, not by the app.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BLAZE_PORT` | `3000` | Host port of the gallery. |
+| `POSTGRES_PASSWORD` | `blaze` | Password of the bundled PostgreSQL, applied when its volume is first created. The database is not published outside the Compose network. |
+| `MINIO_PORT` | `9100` | Demo only: host port of MinIO's S3 API, bound to 127.0.0.1. |
+| `COMPOSE_PROFILES` | | `demo` (as in `.env.demo`) adds MinIO and the seeding job to every `docker compose` command. |

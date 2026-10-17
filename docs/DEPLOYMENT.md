@@ -1,146 +1,111 @@
-# Deployment Guide
+# Deployment
 
-## Docker (Recommended)
+Blaze Gallery is a Next.js server plus a PostgreSQL database. It is built
+for a long-running process: the sync queue, the thumbnail work and the
+audit cleanup all run inside the server. Docker is the reference setup;
+Vercel works with the limits listed below.
 
-### Using Docker Compose
+Whatever the platform, pick an access mode first (Google sign-in or
+`ALLOW_PUBLIC_ACCESS=true`): a production server answers 503 to every API
+call until one is set. See [CONFIGURATION.md](./CONFIGURATION.md#access).
+
+## Docker Compose on a server
+
+[SETUP.md](./SETUP.md#run-it-on-your-own-bucket-with-docker-compose)
+covers the commands. For a server, also:
+
+- Put the gallery behind a reverse proxy with TLS (example below) and set
+  `NEXT_PUBLIC_APP_URL` to its public URL.
+- Set `POSTGRES_PASSWORD` before the first start, and `AUTH_SESSION_SECRET`.
+- Back up the `pgdata` volume: favorites, shares, rotations and the index
+  live there. Thumbnails can be rebuilt from the originals.
+
+Updating:
 
 ```bash
-# Clone and configure
-git clone https://github.com/sderosiaux/blaze-gallery.git
-cd blaze-gallery
-cp .env.template .env
-# Edit .env with your credentials
-
-# Start
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
+git pull
+docker compose up -d --build
 ```
 
-### Custom Docker Build
+The new container applies any schema addition before it serves.
+
+## The image alone
+
+With a database you already run:
 
 ```bash
 docker build -t blaze-gallery .
-docker run -p 3000:3000 --env-file .env blaze-gallery
+docker run -d --name blaze-gallery -p 3000:3000 --env-file .env \
+  -v blaze-thumbnails:/app/data/thumbnails blaze-gallery
 ```
+
+`DATABASE_URL` in `.env` must be reachable from the container (not
+`localhost`), with `sslmode=require` for a hosted database. The container
+runs `scripts/migrate.mjs` and then `server.js`, as user `node`. Its health
+check polls `/api/health`, which answers 200 when the database and the
+thumbnail storage respond.
+
+## Node.js on a VM
+
+```bash
+npm ci
+npm run db:migrate
+npm run build
+npm start          # port 3000; PORT changes it
+```
+
+Keep it running with your process manager (systemd, pm2). Run
+`npm run db:migrate` again after each update, before restarting.
 
 ## Vercel
 
-1. Fork the repository on GitHub
-2. Import to Vercel
-3. Add environment variables in Vercel dashboard
-4. Deploy
+Import the repository, add the environment variables, deploy. Before the
+first deployment, and after any update that changes `db/schema.sql`, run
+`npm run db:migrate` from your machine with the production `DATABASE_URL`.
 
-**Required environment variables:**
-- `DATABASE_URL` - Use Neon, Supabase, or other hosted PostgreSQL
-- `BACKBLAZE_*` - Your S3 storage credentials
+What differs from a long-running server:
 
-## Railway
+- No persistent disk: set `THUMBNAIL_STORAGE=s3`. With `local`, thumbnails
+  cannot be kept between invocations.
+- Thumbnails and viewer renditions are made inside functions: the first
+  view of each photo downloads the original from the bucket and resizes it
+  there, which counts against function duration, memory and invocations,
+  and against the bucket's egress.
+- The sync queue runs in the background of the request that started it,
+  and Vercel can freeze a function once it has answered. A full scan of a
+  large bucket may not finish there; running it from a long-lived instance
+  (Docker or `npm start`) on the same database and bucket does.
+- The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
+  the server process.
 
-1. Connect your GitHub repository
-2. Add PostgreSQL plugin
-3. Set environment variables
-4. Deploy
+## Health check
 
-## Manual (VPS/Server)
-
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL 14+
-- Nginx (optional, for reverse proxy)
-
-### Installation
+`GET /api/health` needs no authentication. It runs one database query and
+one storage check and returns booleans only:
 
 ```bash
-# Clone
-git clone https://github.com/sderosiaux/blaze-gallery.git
-cd blaze-gallery
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Start with PM2
-npm install -g pm2
-pm2 start npm --name "blaze-gallery" -- start
-pm2 save
-pm2 startup
+curl -s http://localhost:3000/api/health
+# {"success":true,"healthy":true,"checks":{"database":true,"thumbnails_directory":true,...}}
 ```
 
-### Nginx Configuration
+It answers 503 when either check fails.
+
+## Reverse proxy (nginx)
 
 ```nginx
 server {
-    listen 80;
-    server_name gallery.example.com;
+    listen 443 ssl;
+    server_name photos.example.com;
+    # ssl_certificate ... (certbot --nginx fills these in)
+
+    client_max_body_size 200m;   # uploads: the app sets no limit of its own
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
-```
-
-### SSL with Certbot
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d gallery.example.com
-```
-
-## Database Setup
-
-### Neon (Recommended for Serverless)
-
-1. Create account at neon.tech
-2. Create new project
-3. Copy connection string to `DATABASE_URL`
-
-### Supabase
-
-1. Create project at supabase.com
-2. Go to Settings → Database
-3. Copy connection string (use "Connection pooling" for serverless)
-
-### Local PostgreSQL
-
-```bash
-# Create database
-createdb blaze_gallery
-
-# Set DATABASE_URL
-export DATABASE_URL="postgresql://user:password@localhost:5432/blaze_gallery"
-```
-
-## Health Checks
-
-The app exposes `/api/health` for monitoring:
-
-```bash
-curl http://localhost:3000/api/health
-```
-
-## Updating
-
-```bash
-# Pull latest
-git pull origin main
-
-# Rebuild
-npm run build
-
-# Restart
-pm2 restart blaze-gallery
-# Or: docker-compose up -d --build
 ```

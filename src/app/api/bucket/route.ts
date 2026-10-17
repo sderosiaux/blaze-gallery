@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 
+// Read at request time: a Docker image is built without the bucket settings
+export const dynamic = "force-dynamic";
+
 export function GET() {
   try {
     const config = getConfig();

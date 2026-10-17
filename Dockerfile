@@ -1,58 +1,49 @@
-FROM node:18-alpine AS base
+# syntax=docker/dockerfile:1
 
-# Install dependencies only when needed
+# Node 22 LTS on Alpine. sharp ships prebuilt musl binaries (they come with
+# npm ci), so no compiler or system libvips is needed.
+FROM node:22-alpine AS base
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Install dependencies based on the preferred package manager
-COPY package.json package-lock.json* ./
-RUN npm ci --only=production
-
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+FROM deps AS builder
 COPY . .
+RUN BUILD_STANDALONE=1 npm run build
 
-# Install all dependencies (including devDependencies) for build
-RUN npm install
-RUN npm run build
+# One-shot job of `docker compose --profile demo`: fills the demo bucket and
+# has the app index it (demo/seed.mjs). Reuses the full node_modules for
+# sharp and the S3 client.
+FROM deps AS demo-seed
+COPY demo ./demo
+USER node
+CMD ["node", "demo/seed.mjs"]
 
-# Production image, copy all the files and run next
 FROM base AS runner
-WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    THUMBNAILS_PATH=/app/data/thumbnails
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --chown=node:node db ./db
+COPY --chown=node:node scripts/migrate.mjs ./scripts/migrate.mjs
+# Thumbnails and display renditions (THUMBNAIL_STORAGE=local): mount a volume
+# here so they survive a new image.
+RUN mkdir -p /app/data/thumbnails && chown -R node:node /app/data
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Create data directories
-RUN mkdir -p /app/data/database /app/data/thumbnails /app/data/config
-RUN chown -R nextjs:nodejs /app/data
-
-COPY --from=builder /app/public ./public
-
-# Set the correct permission for prerender cache
-RUN mkdir .next
-RUN chown nextjs:nodejs .next
-
-# Automatically leverage output traces to reduce image size
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-USER nextjs
-
+USER node
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+# /api/health: one database query and one look at thumbnail storage.
+# busybox wget is part of the Alpine base.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1
 
-# Install curl for health checks
-USER root
-RUN apk add --no-cache curl
-USER nextjs
-
-CMD ["node", "server.js"]
+# The schema first (idempotent, see scripts/migrate.mjs), then the server.
+CMD ["sh", "-c", "node scripts/migrate.mjs && exec node server.js"]

@@ -34,6 +34,7 @@ export function getConfig(): Config {
     backblaze_bucket: envOrDefault("BACKBLAZE_BUCKET", ""),
     backblaze_access_key: envOrDefault("BACKBLAZE_ACCESS_KEY", ""),
     backblaze_secret_key: envOrDefault("BACKBLAZE_SECRET_KEY", ""),
+    backblaze_public_endpoint: envValue("BACKBLAZE_PUBLIC_ENDPOINT"),
     thumbnail_storage: normalizedStorageMode,
     thumbnail_s3_endpoint: envValue("THUMBNAIL_S3_ENDPOINT"),
     thumbnail_s3_bucket: envValue("THUMBNAIL_S3_BUCKET"),
@@ -42,10 +43,6 @@ export function getConfig(): Config {
     thumbnail_s3_prefix: thumbnailPrefix,
     thumbnail_max_age_days: parseInt(
       envOrDefault("THUMBNAIL_MAX_AGE_DAYS", "30"),
-    ),
-    sync_interval_hours: parseInt(envOrDefault("SYNC_INTERVAL_HOURS", "24")),
-    auto_metadata_threshold_mb: parseInt(
-      envOrDefault("AUTO_METADATA_THRESHOLD_MB", "5"),
     ),
     auto_thumbnail_threshold_mb: parseInt(
       envOrDefault("AUTO_THUMBNAIL_THRESHOLD_MB", "30"),
@@ -61,6 +58,7 @@ export function getConfig(): Config {
     BACKBLAZE_BUCKET: !!process.env.BACKBLAZE_BUCKET,
     BACKBLAZE_ACCESS_KEY: !!process.env.BACKBLAZE_ACCESS_KEY,
     BACKBLAZE_SECRET_KEY: !!process.env.BACKBLAZE_SECRET_KEY,
+    BACKBLAZE_PUBLIC_ENDPOINT: !!process.env.BACKBLAZE_PUBLIC_ENDPOINT,
     THUMBNAIL_STORAGE: !!process.env.THUMBNAIL_STORAGE,
     THUMBNAIL_S3_ENDPOINT: !!process.env.THUMBNAIL_S3_ENDPOINT,
     THUMBNAIL_S3_BUCKET: !!process.env.THUMBNAIL_S3_BUCKET,
@@ -68,8 +66,6 @@ export function getConfig(): Config {
     THUMBNAIL_S3_SECRET_KEY: !!process.env.THUMBNAIL_S3_SECRET_KEY,
     THUMBNAIL_S3_PREFIX: !!process.env.THUMBNAIL_S3_PREFIX,
     THUMBNAIL_MAX_AGE_DAYS: !!process.env.THUMBNAIL_MAX_AGE_DAYS,
-    SYNC_INTERVAL_HOURS: !!process.env.SYNC_INTERVAL_HOURS,
-    AUTO_METADATA_THRESHOLD_MB: !!process.env.AUTO_METADATA_THRESHOLD_MB,
     AUTO_THUMBNAIL_THRESHOLD_MB: !!process.env.AUTO_THUMBNAIL_THRESHOLD_MB,
     SYNC_THROTTLE_SECONDS: !!process.env.SYNC_THROTTLE_SECONDS,
   };
@@ -135,6 +131,14 @@ export function validateConfig(config: Config): string[] {
     }
   }
 
+  if (config.backblaze_public_endpoint !== undefined) {
+    try {
+      new URL(config.backblaze_public_endpoint);
+    } catch {
+      errors.push("Backblaze public endpoint must be a valid URL");
+    }
+  }
+
   if (!config.backblaze_bucket) {
     errors.push("Backblaze bucket is required");
   }
@@ -194,10 +198,6 @@ export function validateConfig(config: Config): string[] {
 
   if (config.thumbnail_max_age_days < 1) {
     errors.push("Thumbnail max age must be at least 1 day");
-  }
-
-  if (config.sync_interval_hours < 1) {
-    errors.push("Sync interval must be at least 1 hour");
   }
 
   if (config.sync_throttle_seconds < 1) {

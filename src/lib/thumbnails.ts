@@ -111,13 +111,6 @@ export function getThumbnailStorageInfo(): ThumbnailStorageInfo {
   return { mode: "local", location: localPath };
 }
 
-export function getDatabasePath(customPath?: string): string {
-  return (
-    nonEmpty(customPath, process.env.DATABASE_PATH) ??
-    path.join(process.cwd(), "data", "database", "gallery.db")
-  );
-}
-
 const DEFAULT_THUMBNAIL_OPTIONS: Required<ThumbnailOptions> = {
   width: 400,
   height: 400,

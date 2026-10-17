@@ -1,27 +1,97 @@
-version: '3.8'
+# Blaze Gallery: the app and its own PostgreSQL.
+#
+#   cp .env.template .env      # then point BACKBLAZE_* at your bucket
+#   docker compose up -d --build
+#
+# Demo with sample photos instead (MinIO + seeded library, no account needed):
+#
+#   cp .env.demo .env
+#   docker compose --profile demo up -d --build
+#
+# Data lives in named volumes: `docker compose down` keeps it,
+# `docker compose down -v` deletes the database, thumbnails and demo bucket.
+
+name: blaze-gallery
 
 services:
-  photo-gallery:
-    build: .
-    ports:
-      - "3000:3000"
+  db:
+    image: postgres:17
     environment:
-      - NODE_ENV=production
+      POSTGRES_USER: blaze
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blaze}
+      POSTGRES_DB: blaze
+      # Same locale as the reference database: code-point text order
+      POSTGRES_INITDB_ARGS: --locale-provider=builtin --locale=C.UTF-8 --encoding=UTF8
     volumes:
-      - ./data/database:/app/data/database
-      - ./data/thumbnails:/app/data/thumbnails
-      - ./data/config:/app/data/config
-    restart: unless-stopped
+      - pgdata:/var/lib/postgresql/data
+    # No published port: only the app talks to it, over the compose network.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U blaze -d blaze"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      target: runner
+    image: blaze-gallery:local
+    env_file: .env
+    environment:
+      # Overrides any DATABASE_URL in .env: compose runs its own database.
+      DATABASE_URL: postgresql://blaze:${POSTGRES_PASSWORD:-blaze}@db:5432/blaze?sslmode=disable
+    ports:
+      - "${BLAZE_PORT:-3000}:3000"
+    volumes:
+      - thumbnails:/app/data/thumbnails
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- demo profile -------------------------------------------------------
+
+  # S3-compatible storage holding the sample library. MinIO no longer
+  # publishes official images; this is Bitnami's last MinIO build, pinned.
+  minio:
+    profiles: [demo]
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
+    environment:
+      MINIO_ROOT_USER: ${BACKBLAZE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${BACKBLAZE_SECRET_KEY}
+    # Published on the loopback only, for the signed links of the viewer's
+    # zoom and download (BACKBLAZE_PUBLIC_ENDPOINT).
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9100}:9000"
+    volumes:
+      - minio:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: uploads the sample photos (demo/photos.json), then has the app
+  # sync them, read their EXIF and build their thumbnails.
+  demo-seed:
+    profiles: [demo]
+    build:
+      context: .
+      target: demo-seed
+    image: blaze-gallery-demo-seed:local
+    env_file: .env
+    environment:
+      DEMO_APP_URL: http://app:3000
+    depends_on:
+      minio:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
-  database:
-    driver: local
+  pgdata:
   thumbnails:
-    driver: local
-  config:
-    driver: local
+  minio:

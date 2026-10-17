@@ -1,64 +1,73 @@
 # Blaze Gallery
 
-**Your photos. Your cloud. Your control.**
+**You backed up every photo. Now look at them.**
 
-A beautiful, self-hosted photo gallery that connects to your S3-compatible storage. Browse thousands of photos with a fast, modern interface that never touches your original files.
+Blaze is a private, self-hosted gallery for the photos already sitting in your Backblaze B2, Cloudflare R2, MinIO or other S3-compatible bucket. It reads the bucket as it is: your folders become albums, the dates your camera wrote become a timeline, and you can share one weekend without opening the rest. Nothing is imported or copied.
 
-<img width="1623" height="839" alt="Blaze Gallery Screenshot" src="https://github.com/user-attachments/assets/138a5e6a-2133-495c-a398-aafc1607a4c3" />
+<img src="website/public/shots/library.webp" alt="The Blaze library: folders of a demo bucket shown as albums, each with a cover photo, a date and a title" width="900" />
 
-## Why Blaze Gallery?
+[Website](https://sderosiaux.github.io/blaze-gallery/) · [Try the demo](#try-it-on-demo-photos) · [Setup guide](docs/SETUP.md)
 
-- **Own your data** - Photos stay in your storage, not someone else's servers
-- **No lock-in** - Works with any S3-compatible storage (Backblaze B2, AWS S3, Cloudflare R2, MinIO)
-- **Read-only** - Never modifies your original photos
-- **Fast** - Smart thumbnails and caching for instant browsing
-- **Share privately** - Password-protected links with expiration dates
+The interface is in French for now.
 
-## Get Started in 2 Minutes
+## What you get
+
+- Your folders, as albums. A folder named `2019-07 Lisbon` shows as *Lisbon*, July 2019, with one of its photos on the cover. Sub-folders stay sub-albums.
+- A timeline of every dated photo, month by month, with the years in the margin.
+- Big folders that stay fast. Tiles on screen load first, the rest follows in order, and opening a folder builds its missing thumbnails once. RAW files (NEF, CR2, ARW, DNG, ORF and more) show the JPEG preview the camera stored inside them.
+- A viewer made for looking: a 2048 px copy of each photo is made once and reused, the original is only fetched to zoom past it or to download. Arrows, Space for the slideshow, F to favourite, R and Shift+R to turn a photo, Z to zoom, I for details.
+- Search across folders and file names, favourites, and a random album when you don't know where to start.
+- Upload and delete from the browser, when your storage keys allow writing.
+
+## How your photos stay yours
+
+- Only the email addresses you list can sign in (Google sign-in, `AUTH_EMAIL_WHITELIST`). In production, Blaze refuses requests when sign-in is off, unless you set `ALLOW_PUBLIC_ACCESS=true` on purpose (a laptop, a private network).
+- A share link opens one folder: its own photos, not its sub-folders, not a folder with a similar name. You can add a password (hashed with bcrypt; guesses are throttled per address and per link), an end date, and choose whether guests may download. If downloads are off, guests see the 2048 px copies and never the original image files. You can revoke a link at any time.
+- Blaze never rewrites your files. Turning a photo or marking a favourite is stored in Postgres. The bucket only changes when you upload, or delete after confirming.
+- Storage keys stay on the server. Your own downloads use signed links that expire after an hour.
+- No analytics and no tracking. Pages are marked `noindex` and cannot be framed by other sites.
+- The MCP endpoint, for AI assistants, needs your session or `API_KEY` as a Bearer token.
+
+What Blaze does not do: there is no end-to-end encryption. The server reads your photos to make thumbnails, like any gallery that shows previews. TLS comes from your host (Vercel, or a reverse proxy in front of Docker).
+
+## Try it on demo photos
+
+Needs Docker with Compose v2. No bucket or account required.
 
 ```bash
 git clone https://github.com/sderosiaux/blaze-gallery.git
 cd blaze-gallery
-cp .env.template .env
-# Edit .env with your S3 credentials
-docker-compose up -d
+cp .env.demo .env
+docker compose --profile demo up -d --build
 ```
 
-Open http://localhost:3000 and your photos will be automatically indexed.
+Then open http://localhost:3100. The first start builds the image and downloads 62 free-licensed photos, so it needs a network connection. The photographers are credited in [demo/CREDITS.md](demo/CREDITS.md).
 
-## Features
+## Run it on your photos
 
-| Feature | Description |
-|---------|-------------|
-| **Fast browsing** | Lazy loading, smart caching, progressive images |
-| **Folder navigation** | Browse your existing folder structure |
-| **Photo lightbox** | Slideshow mode, keyboard navigation, EXIF data |
-| **Search** | Find photos across your entire collection |
-| **Favorites** | Mark and filter your best shots |
-| **Sharing** | Password-protected links with expiration |
-| **Random discovery** | Rediscover forgotten memories |
-| **Mobile-ready** | Responsive design for any device |
+```bash
+cp .env.template .env
+# point BACKBLAZE_* at your bucket (any S3-compatible endpoint),
+# then set up Google sign-in, or ALLOW_PUBLIC_ACCESS=true on a private network
+docker compose up -d --build
+```
 
-## Documentation
+Open http://localhost:3000. Compose runs PostgreSQL next to the app and creates the tables on start.
 
-- **[Setup Guide](./docs/SETUP.md)** - Detailed installation and configuration
-- **[Configuration](./docs/CONFIGURATION.md)** - Environment variables and options
-- **[Deployment](./docs/DEPLOYMENT.md)** - Production deployment guides
+- [Setup](docs/SETUP.md): Docker, Node.js without Docker, each storage provider.
+- [Configuration](docs/CONFIGURATION.md): every environment variable the code reads.
+- [Deployment](docs/DEPLOYMENT.md): a server, Vercel, a reverse proxy, health checks.
 
-## Requirements
+## How it works
 
-- Docker and Docker Compose (recommended)
-- Or: Node.js 18+ and PostgreSQL
-- S3-compatible storage with your photos
+Blaze lists your bucket into PostgreSQL (folders, files, EXIF dates and dimensions), then serves pages from that index. Originals stay where they are and are read on demand. Thumbnails and 2048 px copies are made the first time they're needed and kept on local disk or in a second bucket (Cloudflare R2 works well: no egress fees).
+
+Built with Next.js 14, PostgreSQL, sharp and the AWS S3 SDK.
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+Issues and pull requests are welcome. `npm run check` (strict TypeScript, ESLint and Prettier) has to pass, and CI runs it on every pull request.
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) for details.
-
----
-
-**[View Demo](https://sderosiaux.github.io/blaze-gallery)** | **[Report Issue](https://github.com/sderosiaux/blaze-gallery/issues)** | **[Star on GitHub](https://github.com/sderosiaux/blaze-gallery)**
+[MIT](LICENSE)
