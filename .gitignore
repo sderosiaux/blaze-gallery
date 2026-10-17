@@ -71,3 +71,7 @@ out/
 # Claude debug files (keep local only)
 CLAUDE_PROMPTS.md
 CLAUDE_DEBUG.md
+
+# Local agent worktrees
+.claude/worktrees/
+.env*
