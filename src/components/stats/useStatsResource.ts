@@ -31,7 +31,7 @@ export function useStatsResource<T>(url: string, enabled: boolean) {
         });
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.success) {
-          throw new Error(body?.error || `The server answered ${res.status}`);
+          throw new Error(body?.error || `Le serveur a répondu ${res.status}`);
         }
         setState({
           status: "ready",
@@ -43,7 +43,7 @@ export function useStatsResource<T>(url: string, enabled: boolean) {
         if (ctrl.signal.aborted || silent) return;
         setState({
           status: "error",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: error instanceof Error ? error.message : "Erreur inconnue",
         });
       }
     },

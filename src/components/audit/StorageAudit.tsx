@@ -72,8 +72,7 @@ export function StorageAudit() {
   return (
     <>
       <PageHeader
-        kicker="Admin"
-        title="Storage audit"
+        title="Audit stockage"
         meta={
           <>
             <span>{range.label}</span>
@@ -81,7 +80,7 @@ export function StorageAudit() {
               <>
                 <MetaDot />
                 <span className="tabular">
-                  {formatMoment(Date.parse(period.start))} to{" "}
+                  {formatMoment(Date.parse(period.start))} –{" "}
                   {formatMoment(Date.parse(period.end))}
                 </span>
               </>
@@ -89,9 +88,9 @@ export function StorageAudit() {
           </>
         }
         actions={
-          <>
+          <div className="flex items-center gap-2">
             <label htmlFor="audit-range" className="sr-only">
-              Time range
+              Période
             </label>
             <Select
               id="audit-range"
@@ -107,12 +106,12 @@ export function StorageAudit() {
             </Select>
             <IconButton
               icon={RefreshCw}
-              label="Refresh"
+              label="Actualiser"
               variant="secondary"
               loading={anyLoading && period !== null}
               onClick={refresh}
             />
-          </>
+          </div>
         }
       />
 

@@ -21,7 +21,7 @@ export const seriesFill: Record<Series, string> = {
 
 export const seriesLabel: Record<Series, string> = {
   photo: "Photos",
-  video: "Videos",
+  video: "Vidéos",
 };
 
 export function Legend({
@@ -110,18 +110,16 @@ interface BarListProps {
   step?: number;
   /** Scale against this instead of the largest item (e.g. a total). */
   max?: number;
-  noun?: string;
   className?: string;
 }
 
 /** Ranked horizontal bars: label above, a thin bar from a shared baseline,
- *  the value at the tip side. Capped, with "Show more". */
+ *  the value at the tip side. Capped, with "Afficher plus". */
 export function BarList({
   items,
   initial = 8,
   step = 8,
   max,
-  noun = "more",
   className,
 }: BarListProps) {
   const [visible, setVisible] = useState(initial);
@@ -198,7 +196,6 @@ export function BarList({
         visible={visible}
         step={step}
         initial={initial}
-        noun={noun}
         onChange={setVisible}
       />
     </div>
@@ -210,7 +207,6 @@ interface ShowMoreProps {
   visible: number;
   initial: number;
   step: number;
-  noun?: string;
   onChange: (visible: number) => void;
 }
 
@@ -219,7 +215,6 @@ export function ShowMore({
   visible,
   initial,
   step,
-  noun = "more",
   onChange,
 }: ShowMoreProps) {
   if (total <= initial) return null;
@@ -233,7 +228,7 @@ export function ShowMore({
           iconRight={ChevronDown}
           onClick={() => onChange(Math.min(total, visible + step))}
         >
-          Show {Math.min(step, remaining)} {noun}
+          Afficher plus
         </Button>
       ) : (
         <Button
@@ -242,7 +237,7 @@ export function ShowMore({
           iconRight={ChevronUp}
           onClick={() => onChange(initial)}
         >
-          Show fewer
+          Afficher moins
         </Button>
       )}
     </div>

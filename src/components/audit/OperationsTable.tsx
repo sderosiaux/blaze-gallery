@@ -1,8 +1,8 @@
 import { Badge, Section, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatBytes } from "@/lib/format";
 import type { AuditOperation } from "./types";
 import {
+  formatBytes,
   formatCount,
   formatDuration,
   formatShare,
@@ -55,14 +55,18 @@ export function OperationsTable({
   if (error) {
     body = (
       <SectionError
-        title="The operations breakdown did not load"
+        title="Le détail des opérations n’a pas chargé"
         error={error}
         onRetry={onRetry}
       />
     );
   } else if (!operations) {
     body = (
-      <div role="status" aria-label="Loading operations" className="space-y-3">
+      <div
+        role="status"
+        aria-label="Chargement des opérations"
+        className="space-y-3"
+      >
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-12 w-full" />
         ))}
@@ -71,8 +75,7 @@ export function OperationsTable({
   } else if (operations.length === 0) {
     body = (
       <p className="py-6 text-sm text-ink-muted">
-        No operations in this period. Pick a longer time range to see how
-        requests split.
+        Aucune opération sur cette période.
       </p>
     );
   } else {
@@ -90,22 +93,22 @@ export function OperationsTable({
           <thead>
             <tr className="border-b border-line text-left">
               <th scope="col" className={cn(th, "w-[30%]")}>
-                Operation
+                Opération
               </th>
               <th scope="col" className={cn(th, "text-right")}>
-                Requests
+                Requêtes
               </th>
               <th scope="col" className={cn(th, "text-right")}>
-                Average
+                Moyenne
               </th>
               <th scope="col" className={cn(th, "text-right")}>
                 p95
               </th>
               <th scope="col" className={cn(th, "w-[18%] pl-6")}>
-                Success
+                Succès
               </th>
               <th scope="col" className={cn(th, "text-right")}>
-                Data
+                Données
               </th>
             </tr>
           </thead>
@@ -134,7 +137,7 @@ export function OperationsTable({
                   <SuccessBadge op={op} />
                   {op.error_count > 0 && (
                     <span className="mt-1 block text-xs text-ink-muted">
-                      {formatCount(op.error_count)} failed
+                      {formatCount(op.error_count)} en échec
                     </span>
                   )}
                 </td>
@@ -155,10 +158,10 @@ export function OperationsTable({
               </div>
               <dl className="tabular mt-3 grid grid-cols-4 gap-2 text-sm">
                 {[
-                  ["Requests", formatCount(op.count)],
-                  ["Average", formatDuration(op.avg_duration_ms)],
+                  ["Requêtes", formatCount(op.count)],
+                  ["Moyenne", formatDuration(op.avg_duration_ms)],
                   ["p95", formatDuration(op.p95_duration_ms)],
-                  ["Data", formatBytes(op.total_bytes)],
+                  ["Données", formatBytes(op.total_bytes)],
                 ].map(([term, value]) => (
                   <div key={term} className="min-w-0">
                     <dt className="text-xs text-ink-muted">{term}</dt>
@@ -176,8 +179,8 @@ export function OperationsTable({
   return (
     <Section
       id="operations"
-      title="Operations"
-      description="Which calls the gallery makes, how long they take and how often they fail. A request fails when storage answers 400 or above."
+      title="Opérations"
+      description="Échec : réponse 400 ou plus du stockage"
     >
       {body}
     </Section>

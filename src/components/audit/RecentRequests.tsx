@@ -2,9 +2,9 @@
 
 import { Badge, Section, Select, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatBytes } from "@/lib/format";
 import type { AuditLogEntry, AuditLogPage } from "./types";
 import {
+  formatBytes,
   formatCount,
   formatDay,
   formatDuration,
@@ -37,7 +37,7 @@ function fullTarget(log: AuditLogEntry) {
   );
 }
 
-/** Requests without a page behind them (sync, scans) log "system": name the bucket instead. */
+/** Requests without a page behind them (sync, scans) log "system": name the bucket too. */
 function Endpoint({
   log,
   className,
@@ -53,7 +53,7 @@ function Endpoint({
       )}
       title={fullTarget(log)}
     >
-      {log.endpoint}
+      {log.endpoint === "system" ? "système" : log.endpoint}
       {log.endpoint === "system" && (
         <span className="text-ink-muted">
           {" "}
@@ -108,7 +108,7 @@ export function RecentRequests({
   const sizeControl = (
     <div className="flex items-center gap-2">
       <label htmlFor="audit-page-size" className="text-sm text-ink-muted">
-        Show
+        Afficher
       </label>
       <Select
         id="audit-page-size"
@@ -118,7 +118,7 @@ export function RecentRequests({
       >
         {PAGE_SIZES.map((n) => (
           <option key={n} value={n}>
-            {n} requests
+            {n} requêtes
           </option>
         ))}
       </Select>
@@ -129,14 +129,18 @@ export function RecentRequests({
   if (error) {
     body = (
       <SectionError
-        title="The request log did not load"
+        title="Le journal des requêtes n’a pas chargé"
         error={error}
         onRetry={onRetry}
       />
     );
   } else if (!page) {
     body = (
-      <div role="status" aria-label="Loading requests" className="space-y-2">
+      <div
+        role="status"
+        aria-label="Chargement des requêtes"
+        className="space-y-2"
+      >
         {Array.from({ length: 8 }).map((_, i) => (
           <Skeleton key={i} className="h-10 w-full" />
         ))}
@@ -145,8 +149,7 @@ export function RecentRequests({
   } else if (page.logs.length === 0) {
     body = (
       <p className="py-6 text-sm text-ink-muted">
-        No requests in this period. Pick a longer time range, or open an album
-        to see requests arrive.
+        Aucune requête sur cette période.
       </p>
     );
   } else {
@@ -159,30 +162,30 @@ export function RecentRequests({
         )}
       >
         <p className="mb-4 text-sm text-ink-muted">
-          Newest first. Showing {formatCount(page.logs.length)} of{" "}
-          {formatCount(page.total_count)} in this period.
+          Les plus récentes d’abord, {formatCount(page.logs.length)} sur{" "}
+          {formatCount(page.total_count)}
         </p>
 
         <table className="hidden w-full table-fixed text-sm md:table">
           <thead>
             <tr className="border-b border-line text-left">
               <th scope="col" className={cn(th, "w-[13%]")}>
-                Time
+                Heure
               </th>
               <th scope="col" className={cn(th, "w-[16%]")}>
-                Operation
+                Opération
               </th>
               <th scope="col" className={cn(th, "w-[17%]")}>
-                Status
+                Statut
               </th>
               <th scope="col" className={cn(th, "w-[10%] text-right")}>
-                Duration
+                Durée
               </th>
               <th scope="col" className={cn(th, "w-[10%] text-right")}>
-                Size
+                Taille
               </th>
               <th scope="col" className={cn(th, "pl-6")}>
-                Endpoint
+                Origine
               </th>
             </tr>
           </thead>
@@ -266,7 +269,7 @@ export function RecentRequests({
   }
 
   return (
-    <Section id="requests" title="Recent requests" action={sizeControl}>
+    <Section id="requests" title="Requêtes récentes" action={sizeControl}>
       {body}
     </Section>
   );

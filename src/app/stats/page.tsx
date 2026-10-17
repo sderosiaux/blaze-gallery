@@ -73,15 +73,14 @@ function StatsContent() {
   return (
     <>
       <PageHeader
-        kicker="Statistics"
-        title="What's in the library"
+        title="Statistiques"
         meta={
           <span className="tabular">
             {s
-              ? `Counted at ${formatTime(s.generated_at)} · updates every minute`
+              ? `Compté à ${formatTime(s.generated_at)}`
               : summary.state.status === "error"
-                ? "The count didn't come through"
-                : "Counting…"}
+                ? "Comptage indisponible"
+                : "Comptage…"}
           </span>
         }
       />
@@ -94,7 +93,7 @@ function StatsContent() {
 
       <div ref={tabsRef} className="mt-10 scroll-mt-24">
         <Tabs
-          label="Statistics sections"
+          label="Sections des statistiques"
           tabs={STATS_TABS.map((t) => ({ id: t.id, label: t.label }))}
           value={tab}
           onChange={(next) => openTab(next)}

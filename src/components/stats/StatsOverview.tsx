@@ -10,6 +10,7 @@ import {
 import { Badge, Skeleton, Stat, type Tone } from "@/components/ui";
 import type { LucideIcon } from "lucide-react";
 import { Meter, SplitBar } from "./charts";
+import { formatCount } from "@/lib/albums";
 import { formatNumber, formatPercent, formatSize, timeAgo } from "./format";
 import type { StatsSummary } from "./types";
 import type { Resource } from "./useStatsResource";
@@ -32,7 +33,7 @@ export default function StatsOverview({
   if (summary.status === "error") {
     return (
       <TabError
-        title="The headline numbers didn't load"
+        title="Les chiffres clés n’ont pas chargé"
         error={summary.error}
         onRetry={onRetry}
         className="border-y border-line"
@@ -42,7 +43,7 @@ export default function StatsOverview({
 
   if (summary.status !== "ready") {
     return (
-      <div role="status" aria-label="Loading the headline numbers">
+      <div role="status" aria-label="Chargement des chiffres clés">
         <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className={cell}>
@@ -72,37 +73,37 @@ export default function StatsOverview({
         />
         <Stat
           className={cell}
-          label="Videos"
+          label="Vidéos"
           value={formatNumber(s.videos)}
           hint={formatSize(s.video_bytes)}
         />
         <Stat
           className={cell}
-          label="Storage used"
+          label="Stockage"
           value={formatSize(s.storage_bytes)}
           hint={
             <>
               <SplitBar
                 className="mb-1.5 mt-2"
-                label={`Photos ${formatSize(photoBytes)}, videos ${formatSize(s.video_bytes)}`}
+                label={`Photos ${formatSize(photoBytes)}, vidéos ${formatSize(s.video_bytes)}`}
                 parts={[
                   { series: "photo", value: photoBytes },
                   { series: "video", value: s.video_bytes },
                 ]}
               />
-              Videos take {formatPercent(s.video_bytes, s.storage_bytes)}
+              {formatPercent(s.video_bytes, s.storage_bytes)} en vidéos
             </>
           }
         />
         <Stat
           className={cell}
-          label="Albums"
-          value={formatNumber(s.albums)}
-          hint={`in ${formatNumber(s.folders)} folders`}
+          label="Dossiers"
+          value={formatNumber(s.folders)}
+          hint={`dont ${formatNumber(s.albums)} avec des photos`}
         />
         <Stat
           className={cell}
-          label="Favorites"
+          label="Favoris"
           value={formatNumber(s.favorites)}
           hint={
             s.favorites > 0 ? (
@@ -110,16 +111,14 @@ export default function StatsOverview({
                 href="/favorites"
                 className="underline decoration-line-strong underline-offset-2 hover:text-ink"
               >
-                Open favorites
+                Voir les favoris
               </Link>
-            ) : (
-              "Tap the heart on a photo to keep it here"
-            )
+            ) : undefined
           }
         />
         <Stat
           className={cell}
-          label="Metadata"
+          label="Métadonnées"
           value={formatPercent(with_dimensions, images)}
           hint={
             <>
@@ -127,10 +126,10 @@ export default function StatsOverview({
                 className="mb-1.5 mt-2"
                 value={with_dimensions}
                 total={images}
-                label={`${formatNumber(with_dimensions)} of ${formatNumber(images)} photos have their size and date read`}
+                label={`Métadonnées lues pour ${formatNumber(with_dimensions)} photos sur ${formatNumber(images)}`}
               />
               <span className="tabular">
-                {formatNumber(with_dimensions)} of {formatNumber(images)} read
+                {formatNumber(with_dimensions)} lues sur {formatNumber(images)}
               </span>
             </>
           }
@@ -175,10 +174,10 @@ function Attention({
       key: "sync",
       tone: "warning",
       icon: AlertTriangle,
-      badge: "Sync",
+      badge: "Synchro",
       text: last_synced
-        ? `Last sync ${timeAgo(last_synced)}. New photos in the bucket won't show until the next one.`
-        : "The library has never been synced with the bucket.",
+        ? `Dernière synchronisation ${timeAgo(last_synced)}`
+        : "Jamais synchronisée avec le bucket",
       tab: "health",
     });
   }
@@ -187,21 +186,20 @@ function Attention({
       key: "metadata",
       tone: "info",
       icon: ScanLine,
-      badge: "Metadata",
-      text: `${formatNumber(pending)} photos still to read for sizes and dates (${formatNumber(withDate)} dated so far).`,
+      badge: "Métadonnées",
+      text: `${formatCount(pending, "photo")} encore à lire · ${formatCount(withDate, "datée", "datées")}`,
       tab: "health",
     });
   }
 
   return (
     <div className="mt-6 border-t border-line pt-4">
-      <h2 className="kicker mb-2">Needs attention</h2>
+      <h2 className="kicker mb-2">À traiter</h2>
       {items.length === 0 ? (
-        <p className="flex items-center gap-2 text-sm text-ink-soft">
+        <p className="text-sm text-ink-soft">
           <Badge tone="success" icon={CheckCircle2}>
-            All clear
+            Rien à signaler
           </Badge>
-          Sync and metadata are up to date.
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
@@ -221,7 +219,7 @@ function Attention({
                 </Badge>
                 <span className="min-w-0 flex-1 text-pretty">{item.text}</span>
                 <span className="hidden shrink-0 items-center gap-1 text-ink-muted transition-colors group-hover:text-accent-strong sm:inline-flex">
-                  Health
+                  Santé
                   <ArrowRight
                     className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5"
                     aria-hidden

@@ -50,7 +50,7 @@ export function useAuditData<T>(
           throw new Error(
             body?.details ||
               body?.error ||
-              `The server answered ${res.status}.`,
+              `Le serveur a répondu ${res.status}.`,
           );
         }
         setState({ data: body.data as T, error: null, loading: false });
@@ -58,10 +58,10 @@ export function useAuditData<T>(
       .catch((err: unknown) => {
         if (controller.signal.aborted && !timedOut) return;
         const message = timedOut
-          ? `No answer after ${Math.round((timeoutMs ?? 0) / 1000)} seconds.`
+          ? `Pas de réponse après ${Math.round((timeoutMs ?? 0) / 1000)} secondes.`
           : err instanceof Error && err.message !== "Failed to fetch"
             ? err.message
-            : "The server could not be reached.";
+            : "Le serveur est injoignable.";
         setState({ data: null, error: message, loading: false });
       })
       .finally(() => clearTimeout(timer));

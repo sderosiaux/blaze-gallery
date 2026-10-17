@@ -7,13 +7,15 @@ import {
 } from "lucide-react";
 import { Badge, Skeleton, Stat } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatBytes } from "@/lib/format";
 import type { AuditSummary } from "./types";
 import {
   errorRateLook,
+  formatBytes,
   formatCount,
   formatDuration,
   formatShare,
+  formatUsd,
+  formatWholePercent,
   type TimeRange,
 } from "./format";
 import { SectionError } from "./SectionError";
@@ -43,7 +45,7 @@ export function SummaryStats({
     return (
       <div className="border-y border-line">
         <SectionError
-          title="The headline numbers did not load"
+          title="Les chiffres clés n’ont pas chargé"
           error={error}
           onRetry={onRetry}
         />
@@ -55,7 +57,7 @@ export function SummaryStats({
     return (
       <div
         role="status"
-        aria-label="Loading summary"
+        aria-label="Chargement du résumé"
         className={cn(band, "md:grid-cols-4")}
       >
         {Array.from({ length: 4 }).map((_, i) => (
@@ -85,37 +87,37 @@ export function SummaryStats({
     >
       <Stat
         icon={Activity}
-        label="Requests"
+        label="Requêtes"
         value={formatCount(summary.total_requests)}
         hint={
           range.ms > 3_600_000
-            ? `About ${formatCount(Math.round(hourly))} an hour`
-            : "In the last hour"
+            ? `Environ ${formatCount(Math.round(hourly))} par heure`
+            : "Sur la dernière heure"
         }
       />
       <Stat
         icon={Timer}
-        label="Average latency"
+        label="Latence moyenne"
         value={formatDuration(summary.avg_duration_ms)}
         hint={
           summary.p95_duration_ms != null
-            ? `95% under ${formatDuration(summary.p95_duration_ms)}`
-            : "No requests yet"
+            ? `${formatWholePercent(0.95)} sous ${formatDuration(summary.p95_duration_ms)}`
+            : "Aucune requête"
         }
       />
       <Stat
         icon={ArrowDownToLine}
-        label="Transferred"
+        label="Transféré"
         value={formatBytes(summary.total_bytes)}
         hint={
           summary.total_requests > 0
-            ? `About ${formatBytes(summary.total_bytes / summary.total_requests)} per request`
-            : "Nothing moved yet"
+            ? `Environ ${formatBytes(summary.total_bytes / summary.total_requests)} par requête`
+            : "Aucun transfert"
         }
       />
       <Stat
         icon={CircleAlert}
-        label="Error rate"
+        label="Taux d’erreur"
         value={formatShare(summary.error_rate)}
         hint={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -123,7 +125,7 @@ export function SummaryStats({
               {look.label}
             </Badge>
             {summary.error_count > 0 && (
-              <span>{formatCount(summary.error_count)} failed</span>
+              <span>{formatCount(summary.error_count)} en échec</span>
             )}
           </span>
         }
@@ -131,9 +133,9 @@ export function SummaryStats({
       {hasCost && (
         <Stat
           icon={Wallet}
-          label="Estimated cost"
-          value={`$${summary.estimated_cost_usd!.toFixed(summary.estimated_cost_usd! < 1 ? 4 : 2)}`}
-          hint="From per-request estimates"
+          label="Coût estimé"
+          value={formatUsd(summary.estimated_cost_usd!)}
+          hint="Estimé requête par requête"
         />
       )}
     </div>

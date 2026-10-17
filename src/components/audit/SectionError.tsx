@@ -1,7 +1,7 @@
 import { CloudOff, RotateCw } from "lucide-react";
 import { Button, EmptyState } from "@/components/ui";
 
-/** One section's failure: says what broke and offers a retry, the rest of the page stays. */
+/** One section's failure: what broke, the raw server message, a retry. The rest of the page stays. */
 export function SectionError({
   title,
   error,
@@ -16,14 +16,11 @@ export function SectionError({
       icon={CloudOff}
       title={title}
       body={
-        <>
-          {error} Try again; if it keeps failing, the server log has the
-          details.
-        </>
+        <span className="block font-mono text-xs text-ink-faint">{error}</span>
       }
       action={
         <Button icon={RotateCw} onClick={onRetry}>
-          Try again
+          Réessayer
         </Button>
       }
       className="py-10"
