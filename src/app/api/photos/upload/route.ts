@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { putObject, getMimeType, isMediaFile } from "@/lib/s3";
-import { createOrUpdatePhoto, getFolderByPath, createOrUpdateFolder } from "@/lib/database";
+import {
+  createOrUpdatePhoto,
+  getFolderByPath,
+  createOrUpdateFolder,
+} from "@/lib/database";
 import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
@@ -21,7 +26,10 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
 
     if (!isMediaFile(file.name)) {
       return NextResponse.json(
-        { success: false, error: "Invalid file type. Only images and videos are allowed." },
+        {
+          success: false,
+          error: "Invalid file type. Only images and videos are allowed.",
+        },
         { status: 400 },
       );
     }
@@ -78,7 +86,10 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
         request,
       })
       .catch((err) => {
-        logger.error(`Failed to generate thumbnail for photo ${photo.id}:`, err);
+        logger.error(
+          `Failed to generate thumbnail for photo ${photo.id}:`,
+          err,
+        );
       });
 
     return NextResponse.json({

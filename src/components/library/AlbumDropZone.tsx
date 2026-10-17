@@ -314,11 +314,11 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
               {uploading === 0 && stored > 0 && (
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setUploads((all) =>
                       all.filter((u) => u.status !== "success"),
-                    )
-                  }
+                    );
+                  }}
                   className="shrink-0 rounded-sm text-xs text-ink-muted transition-colors hover:text-ink"
                 >
                   Effacer
@@ -329,7 +329,9 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                 label="Masquer les ajouts"
                 size="sm"
                 className="-mr-2"
-                onClick={() => setPanelOpen(false)}
+                onClick={() => {
+                  setPanelOpen(false);
+                }}
               />
             </div>
             {skipped > 0 && (
@@ -372,9 +374,9 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                       icon={X}
                       label={`Retirer ${u.file.name}`}
                       size="sm"
-                      onClick={() =>
-                        setUploads((all) => all.filter((x) => x.id !== u.id))
-                      }
+                      onClick={() => {
+                        setUploads((all) => all.filter((x) => x.id !== u.id));
+                      }}
                     />
                   )}
                 </li>

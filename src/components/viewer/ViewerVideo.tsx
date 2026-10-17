@@ -111,9 +111,15 @@ export default function ViewerVideo({
               if (v.videoWidth && v.videoHeight)
                 setNatural(v.videoWidth / v.videoHeight);
             }}
-            onPlaying={() => onSettled("playing")}
-            onEnded={() => onSettled("ended")}
-            onError={() => setFailed(true)}
+            onPlaying={() => {
+              onSettled("playing");
+            }}
+            onEnded={() => {
+              onSettled("ended");
+            }}
+            onError={() => {
+              setFailed(true);
+            }}
           />
         )}
       </div>

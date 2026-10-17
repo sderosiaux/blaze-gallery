@@ -69,7 +69,7 @@ export function Dialog({
     return () => {
       document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = overflow;
-      previouslyFocused?.focus?.();
+      previouslyFocused?.focus();
     };
   }, [open, onClose]);
 

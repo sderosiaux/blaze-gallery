@@ -14,10 +14,10 @@ export interface AlbumName {
 }
 
 const SEP = String.raw`[\s_\-.@]*`;
-const PATTERNS: Array<{
+const PATTERNS: {
   re: RegExp;
   pick: (m: RegExpMatchArray) => [number, number?, number?];
-}> = [
+}[] = [
   // A "00" day means the month is known but not the day.
   {
     re: new RegExp(

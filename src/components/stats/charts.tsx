@@ -226,7 +226,9 @@ export function ShowMore({
           variant="ghost"
           size="sm"
           iconRight={ChevronDown}
-          onClick={() => onChange(Math.min(total, visible + step))}
+          onClick={() => {
+            onChange(Math.min(total, visible + step));
+          }}
         >
           Afficher plus
         </Button>
@@ -235,7 +237,9 @@ export function ShowMore({
           variant="ghost"
           size="sm"
           iconRight={ChevronUp}
-          onClick={() => onChange(initial)}
+          onClick={() => {
+            onChange(initial);
+          }}
         >
           Afficher moins
         </Button>
@@ -250,7 +254,7 @@ export function SplitBar({
   label,
   className,
 }: {
-  parts: Array<{ series: Series; value: number }>;
+  parts: { series: Series; value: number }[];
   label: string;
   className?: string;
 }) {

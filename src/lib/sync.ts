@@ -1,3 +1,4 @@
+import type { S3Object } from "./s3";
 import {
   listObjectsAuto,
   isImageFile,
@@ -5,7 +6,6 @@ import {
   getMimeType,
   getFolderFromKey,
   getFilenameFromKey,
-  S3Object,
 } from "./s3";
 import {
   createSyncJob,
@@ -27,7 +27,7 @@ import {
 import type { SyncJob } from "./database";
 import { getConfig } from "./config";
 import { logger } from "./logger";
-import { PhotoMetadata, Photo } from "@/types";
+import type { PhotoMetadata, Photo } from "@/types";
 import type { MetadataStatus, ThumbnailStatus } from "@/types/common";
 
 /**
@@ -310,7 +310,7 @@ export class SyncService {
       try {
         const { getFolderByPath } = await import("@/lib/database");
         const folder = await getFolderByPath(folderPath);
-        if (folder && folder.last_synced) {
+        if (folder?.last_synced) {
           const lastSyncTime = new Date(folder.last_synced).getTime();
           if (now - lastSyncTime < throttleMs) {
             const secondsAgo = Math.round((now - lastSyncTime) / 1000);
@@ -694,7 +694,7 @@ export class SyncService {
     const prefix = job.folder_path === "" ? "" : `${job.folder_path}/`;
 
     // Handle pagination to get all objects in the folder
-    let allObjects: any[] = [];
+    const allObjects: any[] = [];
     let continuationToken: string | undefined;
     let isTruncated = true;
     let pageNumber = 1;

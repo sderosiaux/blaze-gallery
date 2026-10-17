@@ -61,7 +61,9 @@ export default function PhotoGrid({
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [items, setItems] = useState<Photo[]>(photos);
 
-  useEffect(() => setItems(photos), [photos]);
+  useEffect(() => {
+    setItems(photos);
+  }, [photos]);
 
   useEffect(() => {
     if (!selectedPhotoId) {

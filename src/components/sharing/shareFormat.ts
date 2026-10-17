@@ -13,7 +13,7 @@ export function formatInstant(iso: string): string {
   });
 }
 
-const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 86400],
   ["month", 30 * 86400],
   ["week", 7 * 86400],

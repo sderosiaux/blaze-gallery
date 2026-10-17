@@ -109,7 +109,7 @@ function ChartTooltip({
   bucketSeconds,
 }: {
   active?: boolean;
-  payload?: ReadonlyArray<{ payload?: Row }>;
+  payload?: readonly { payload?: Row }[];
   label?: number | string;
   series: SeriesSpec[];
   formatValue: (n: number) => string;
@@ -243,9 +243,7 @@ function TimeChart({
                 <ChartTooltip
                   active={props.active}
                   payload={
-                    props.payload as
-                      | ReadonlyArray<{ payload?: Row }>
-                      | undefined
+                    props.payload as readonly { payload?: Row }[] | undefined
                   }
                   label={props.label}
                   series={series}

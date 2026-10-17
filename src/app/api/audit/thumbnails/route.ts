@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
 import { requireAuth } from "@/lib/auth/middleware";

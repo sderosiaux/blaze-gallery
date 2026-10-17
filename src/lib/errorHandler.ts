@@ -19,8 +19,8 @@ export class AppError extends Error {
 
   constructor(
     message: string,
-    statusCode: number = 500,
-    isOperational: boolean = true,
+    statusCode = 500,
+    isOperational = true,
     context?: ErrorContext,
   ) {
     super(message);
@@ -40,37 +40,31 @@ export class ValidationError extends AppError {
 }
 
 export class AuthenticationError extends AppError {
-  constructor(
-    message: string = "Authentication required",
-    context?: ErrorContext,
-  ) {
+  constructor(message = "Authentication required", context?: ErrorContext) {
     super(message, 401, true, context);
   }
 }
 
 export class AuthorizationError extends AppError {
-  constructor(
-    message: string = "Insufficient permissions",
-    context?: ErrorContext,
-  ) {
+  constructor(message = "Insufficient permissions", context?: ErrorContext) {
     super(message, 403, true, context);
   }
 }
 
 export class NotFoundError extends AppError {
-  constructor(message: string = "Resource not found", context?: ErrorContext) {
+  constructor(message = "Resource not found", context?: ErrorContext) {
     super(message, 404, true, context);
   }
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string = "Resource conflict", context?: ErrorContext) {
+  constructor(message = "Resource conflict", context?: ErrorContext) {
     super(message, 409, true, context);
   }
 }
 
 export class RateLimitError extends AppError {
-  constructor(message: string = "Rate limit exceeded", context?: ErrorContext) {
+  constructor(message = "Rate limit exceeded", context?: ErrorContext) {
     super(message, 429, true, context);
   }
 }
@@ -215,8 +209,12 @@ export function initializeGlobalErrorHandlers(): void {
     }, 5000);
   };
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  process.on("SIGTERM", () => {
+    gracefulShutdown("SIGTERM");
+  });
+  process.on("SIGINT", () => {
+    gracefulShutdown("SIGINT");
+  });
 }
 
 /**

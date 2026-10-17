@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import {
   getFolders,
@@ -7,7 +8,7 @@ import {
   getPhoto,
   query,
 } from "@/lib/database";
-import { Photo, Folder } from "@/types";
+import type { Photo, Folder } from "@/types";
 import { QueryBuilder } from "@/lib/queryBuilder";
 
 interface SearchFilters {
@@ -127,7 +128,7 @@ class BlazeGalleryMCPHandler {
     }
   }
 
-  async getFavoritePhotos(limit: number = 100): Promise<Photo[]> {
+  async getFavoritePhotos(limit = 100): Promise<Photo[]> {
     const result = await query(
       `
       SELECT p.*, f.path as folder_path, f.name as folder_name
@@ -148,7 +149,7 @@ class BlazeGalleryMCPHandler {
     })) as Photo[];
   }
 
-  async getRecentPhotos(limit: number = 50): Promise<Photo[]> {
+  async getRecentPhotos(limit = 50): Promise<Photo[]> {
     const result = await query(
       `
       SELECT p.*, f.path as folder_path, f.name as folder_name
@@ -199,13 +200,13 @@ class BlazeGalleryMCPHandler {
     orderDirection?: "ASC" | "DESC";
     limit?: number;
   }): Promise<
-    Array<{
+    {
       period: string;
       photo_count: number;
       total_size: number;
       favorite_count: number;
       folders_involved?: number;
-    }>
+    }[]
   > {
     const { selectFields, groupByClause } = this.getAnalyticsGroupConfig(
       options.groupBy,
@@ -225,13 +226,13 @@ class BlazeGalleryMCPHandler {
     );
 
     const result = await query(queryText, [limit]);
-    return result.rows as Array<{
+    return result.rows as {
       period: string;
       photo_count: number;
       total_size: number;
       favorite_count: number;
       folders_involved?: number;
-    }>;
+    }[];
   }
 
   private getAnalyticsGroupConfig(groupBy: string): {
@@ -307,10 +308,10 @@ class BlazeGalleryMCPHandler {
     groupBy?: "day" | "week" | "month" | "year";
     metric?: "count" | "size" | "favorites";
   }): Promise<
-    Array<{
+    {
       period: string;
       value: number;
-    }>
+    }[]
   > {
     const groupBy = options.groupBy || "month";
     const metric = options.metric || "count";
@@ -378,10 +379,10 @@ class BlazeGalleryMCPHandler {
     `;
 
     const result = await query(queryText);
-    return result.rows as Array<{
+    return result.rows as {
       period: string;
       value: number;
-    }>;
+    }[];
   }
 }
 

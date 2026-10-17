@@ -129,7 +129,9 @@ export function Switch({
         role="switch"
         aria-checked={checked}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
+        onClick={() => {
+          onChange(!checked);
+        }}
         className={cn(
           "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-150",
           checked ? "bg-ink" : "bg-line-strong",

@@ -52,12 +52,12 @@ export interface S3LogContext extends BaseLogContext {
   urlLength?: number;
   contentType?: string;
   // DEBUG mode fields
-  sampleObjects?: Array<{
+  sampleObjects?: {
     key: string;
     size: number;
     lastModified: string;
     etag: string;
-  }>;
+  }[];
   totalObjects?: number;
   showingSample?: number;
   message?: string;
@@ -190,11 +190,10 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
-export interface SyncJobResponse
-  extends ApiResponse<import("./index").SyncJob> {}
-export interface PhotoResponse extends ApiResponse<import("./index").Photo> {}
-export interface FolderResponse extends ApiResponse<import("./index").Folder> {}
-export interface ConfigResponse extends ApiResponse<import("./index").Config> {}
+export type SyncJobResponse = ApiResponse<import("./index").SyncJob>;
+export type PhotoResponse = ApiResponse<import("./index").Photo>;
+export type FolderResponse = ApiResponse<import("./index").Folder>;
+export type ConfigResponse = ApiResponse<import("./index").Config>;
 
 // Thumbnail generation options
 export interface ThumbnailOptions {

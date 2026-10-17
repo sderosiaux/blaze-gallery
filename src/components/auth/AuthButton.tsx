@@ -65,7 +65,9 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +106,9 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
       <div className="relative w-full" ref={menuRef}>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen((v) => !v);
+          }}
           aria-expanded={open}
           aria-haspopup="menu"
           title={`Connecté : ${user.name}`}

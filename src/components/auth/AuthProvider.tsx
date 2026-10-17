@@ -1,13 +1,8 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useReducer,
-  useEffect,
-  ReactNode,
-} from "react";
-import { AuthState, AuthAction } from "@/lib/auth/types";
+import type { ReactNode } from "react";
+import { createContext, useContext, useReducer, useEffect } from "react";
+import type { AuthState, AuthAction } from "@/lib/auth/types";
 
 interface AuthContextType extends AuthState {
   login: () => Promise<void>;
@@ -110,7 +105,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error("Login failed:", error);
       dispatch({
         type: "AUTH_ERROR",
-        error: error instanceof Error ? error.message : "La connexion a échoué.",
+        error:
+          error instanceof Error ? error.message : "La connexion a échoué.",
       });
     }
   };

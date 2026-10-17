@@ -61,14 +61,18 @@ export default function LibraryHome() {
     const controller = new AbortController();
     loadBucketName(controller.signal).then(
       // A failed read keeps the name remembered from earlier in the session.
-      (name) => setBucket((shown) => name ?? shown ?? null),
+      (name) => {
+        setBucket((shown) => name ?? shown ?? null);
+      },
       () => {},
     );
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   // Also on `?photo=` changes: Next puts the layout's title back when Back pops the viewer entry.
-  const search = useSearchParams()?.toString();
+  const search = useSearchParams().toString();
   useEffect(() => {
     document.title = "Bibliothèque · Blaze";
   }, [search]);

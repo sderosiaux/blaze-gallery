@@ -77,7 +77,7 @@ function unseen(seen: Set<string>, photos: TimelinePhoto[]) {
 
 function TimelineContent() {
   const toast = useToast();
-  const yearParam = useSearchParams()?.get("year") ?? null;
+  const yearParam = useSearchParams().get("year") ?? null;
   const startYear =
     yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
@@ -97,10 +97,14 @@ function TimelineContent() {
   useEffect(() => {
     const controller = new AbortController();
     fetchTimelineSummary(controller.signal)
-      .then((summary) => setYears(yearsOf(summary.months)))
+      .then((summary) => {
+        setYears(yearsOf(summary.months));
+      })
       // The year index is an extra: the months still show without it.
       .catch(() => {});
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, [attempt]);
 
   useEffect(() => {
@@ -110,13 +114,13 @@ function TimelineContent() {
     seen.current = new Set();
     setFeed({ items: [], cursor: null, phase: "loading" });
     fetchPage(startYear ? endOfYearCursor(startYear) : null, controller.signal)
-      .then(({ photos, next }) =>
+      .then(({ photos, next }) => {
         setFeed({
           items: unseen(seen.current, photos),
           cursor: next,
           phase: "ready",
-        }),
-      )
+        });
+      })
       .catch(() => {
         if (!controller.signal.aborted)
           setFeed((f) => ({ ...f, phase: "error" }));
@@ -124,7 +128,9 @@ function TimelineContent() {
       .finally(() => {
         if (inFlight.current === controller) inFlight.current = null;
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, [startYear, attempt]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
@@ -137,13 +143,13 @@ function TimelineContent() {
     inFlight.current = controller;
     setFeed((f) => ({ ...f, phase: "more" }));
     fetchPage(cursor, controller.signal)
-      .then(({ photos, next }) =>
+      .then(({ photos, next }) => {
         setFeed((f) => ({
           items: [...f.items, ...unseen(seen.current, photos)],
           cursor: next,
           phase: "ready",
-        })),
-      )
+        }));
+      })
       .catch(() => {
         if (!controller.signal.aborted)
           setFeed((f) => ({ ...f, phase: "more-error" }));
@@ -164,7 +170,9 @@ function TimelineContent() {
       },
     );
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, [feed.phase, feed.cursor, loadMore]);
 
   const groupsRef = useRef<MonthGroup[]>([]);
@@ -180,7 +188,7 @@ function TimelineContent() {
     const update = () => {
       frame = 0;
       const sections = document.querySelectorAll<HTMLElement>("[data-month]");
-      let current = sections[0]?.dataset.month ?? null;
+      let current = sections[0].dataset.month ?? null;
       for (const section of Array.from(sections)) {
         if (section.getBoundingClientRect().top > SPY_LINE) break;
         current = section.dataset.month ?? current;
@@ -246,7 +254,9 @@ function TimelineContent() {
 
   // The viewer opens at once; the URL follows so Back closes it.
   const [openId, setOpenId] = useState<string | null>(selectedPhotoId);
-  useEffect(() => setOpenId(selectedPhotoId), [selectedPhotoId]);
+  useEffect(() => {
+    setOpenId(selectedPhotoId);
+  }, [selectedPhotoId]);
   const selected = openId
     ? (feed.items.find((p) => String(p.id) === openId) ?? null)
     : null;
@@ -276,7 +286,9 @@ function TimelineContent() {
     setPhotoParam(null);
   };
 
-  const retryAll = () => setAttempt((n) => n + 1);
+  const retryAll = () => {
+    setAttempt((n) => n + 1);
+  };
 
   const header = <PageHeader title="Chronologie" />;
 
@@ -391,7 +403,9 @@ function TimelineContent() {
                 variant="secondary"
                 size="sm"
                 icon={RotateCw}
-                onClick={() => loadMore(true)}
+                onClick={() => {
+                  loadMore(true);
+                }}
               >
                 Réessayer
               </Button>
@@ -414,15 +428,15 @@ function TimelineContent() {
           photos={feed.items}
           onClose={closePhoto}
           onPhotoChange={changePhoto}
-          onFavoriteToggle={(updated) =>
-            patch(updated.id, { is_favorite: updated.is_favorite })
-          }
-          onDelete={(deleted) =>
+          onFavoriteToggle={(updated) => {
+            patch(updated.id, { is_favorite: updated.is_favorite });
+          }}
+          onDelete={(deleted) => {
             setFeed((f) => ({
               ...f,
               items: f.items.filter((p) => !sameId(p, deleted)),
-            }))
-          }
+            }));
+          }}
         />
       )}
     </>

@@ -1,8 +1,10 @@
-import { Pool, PoolClient, QueryResult, types } from "pg";
-import { Folder, Photo, Config, PhotoMetadata } from "@/types";
+import type { PoolClient, QueryResult } from "pg";
+import { Pool, types } from "pg";
+import type { Folder, Photo, PhotoMetadata } from "@/types";
+import { Config } from "@/types";
 import * as crypto from "crypto";
 import { thumbnailUrl } from "./photoUrls";
-import {
+import type {
   CreatePhotoData,
   CreateFolderData,
   CreateSyncJobData,
@@ -833,7 +835,7 @@ export async function updateFolderCounts(folderId: number): Promise<void> {
 // Incremental folder count updates
 export async function incrementFolderPhotoCount(
   folderId: number,
-  delta: number = 1,
+  delta = 1,
 ): Promise<void> {
   await query(
     `
@@ -847,7 +849,7 @@ export async function incrementFolderPhotoCount(
 
 export async function incrementFolderSubfolderCount(
   folderId: number,
-  delta: number = 1,
+  delta = 1,
 ): Promise<void> {
   await query(
     `
@@ -1089,7 +1091,7 @@ export async function validateSharePassword(
     | { password_hash: string | null }
     | undefined;
 
-  if (!shareData || !shareData.password_hash) {
+  if (!shareData?.password_hash) {
     return true; // No password required
   }
 
@@ -1190,7 +1192,7 @@ export async function deleteExpiredShares(): Promise<number> {
 
 export async function getShareAccessLogs(
   shareId: number,
-  limit: number = 100,
+  limit = 100,
 ): Promise<ShareAccessLog[]> {
   const result = await query(
     `

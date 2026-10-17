@@ -207,7 +207,9 @@ function Attention({
             <li key={item.key}>
               <button
                 type="button"
-                onClick={() => onOpenTab(item.tab)}
+                onClick={() => {
+                  onOpenTab(item.tab);
+                }}
                 className="touch-target group flex w-full items-start gap-2.5 rounded-md py-1.5 text-left text-sm text-ink-soft transition-colors duration-150 hover:text-ink sm:items-center"
               >
                 <Badge

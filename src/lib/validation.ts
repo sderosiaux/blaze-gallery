@@ -148,19 +148,16 @@ export const CommonValidators = {
 };
 
 // Sanitization utilities
-export function sanitizeString(input: string, maxLength: number = 255): string {
+export function sanitizeString(input: string, maxLength = 255): string {
   return input.trim().substring(0, maxLength);
 }
 
-export function sanitizeInteger(input: any, defaultValue: number = 0): number {
+export function sanitizeInteger(input: any, defaultValue = 0): number {
   const parsed = parseInt(input);
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
-export function sanitizeBoolean(
-  input: any,
-  defaultValue: boolean = false,
-): boolean {
+export function sanitizeBoolean(input: any, defaultValue = false): boolean {
   if (typeof input === "boolean") return input;
   if (typeof input === "string") {
     return input.toLowerCase() === "true" || input === "1";

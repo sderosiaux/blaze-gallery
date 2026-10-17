@@ -200,7 +200,12 @@ function SidebarContent({
           <BrandMark compact={collapsed} />
         </Link>
         {onClose && (
-          <IconButton icon={X} label="Fermer le menu" size="sm" onClick={onClose} />
+          <IconButton
+            icon={X}
+            label="Fermer le menu"
+            size="sm"
+            onClick={onClose}
+          />
         )}
       </div>
 
@@ -322,7 +327,11 @@ function SidebarContent({
           {onToggleCollapse && (
             <IconButton
               icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-              label={collapsed ? "Déplier la barre latérale  [" : "Replier la barre latérale  ["}
+              label={
+                collapsed
+                  ? "Déplier la barre latérale  ["
+                  : "Replier la barre latérale  ["
+              }
               size="sm"
               onClick={onToggleCollapse}
             />
@@ -336,7 +345,7 @@ function SidebarContent({
 function TopSearch() {
   const router = useRouter();
   const pathname = usePathname();
-  const query = useSearchParams()?.get("q") ?? "";
+  const query = useSearchParams().get("q") ?? "";
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
 
@@ -355,7 +364,9 @@ function TopSearch() {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   const submit = (e: React.FormEvent) => {
@@ -375,7 +386,9 @@ function TopSearch() {
         ref={inputRef}
         type="search"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+        }}
         onKeyDown={(e) => e.key === "Escape" && inputRef.current?.blur()}
         placeholder="Rechercher"
         aria-label="Rechercher des dossiers et des photos"
@@ -420,15 +433,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setMounted(true);
     fetch("/api/auth/config")
       .then((r) => (r.ok ? r.json() : { enabled: false }))
-      .then(({ enabled }) => setAuthEnabled(Boolean(enabled)))
-      .catch(() => setAuthEnabled(false));
+      .then(({ enabled }) => {
+        setAuthEnabled(Boolean(enabled));
+      })
+      .catch(() => {
+        setAuthEnabled(false);
+      });
   }, []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 4);
+    };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   useEffect(() => {
@@ -448,7 +469,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
   }, [toggleSidebar]);
 
   useEffect(() => {
@@ -456,7 +479,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const onKey = (e: KeyboardEvent) =>
       e.key === "Escape" && setMobileNavOpen(false);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
   }, [mobileNavOpen, setMobileNavOpen]);
 
   const showNav = mounted && !authLoading && (!authEnabled || isAuthenticated);
@@ -499,7 +524,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         aria-hidden={!mobileNavOpen}
       >
         <div
-          onClick={() => setMobileNavOpen(false)}
+          onClick={() => {
+            setMobileNavOpen(false);
+          }}
           className={cn(
             "absolute inset-0 bg-scrim/40 transition-opacity duration-200",
             mobileNavOpen ? "opacity-100" : "opacity-0",
@@ -519,8 +546,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               collapsed={false}
               showNav={showNav}
               authEnabled={mounted && authEnabled}
-              onNavigate={() => setMobileNavOpen(false)}
-              onClose={() => setMobileNavOpen(false)}
+              onNavigate={() => {
+                setMobileNavOpen(false);
+              }}
+              onClose={() => {
+                setMobileNavOpen(false);
+              }}
             />
           )}
         </div>
@@ -546,7 +577,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             icon={Menu}
             label="Ouvrir le menu"
             className="-ml-1 lg:hidden"
-            onClick={() => setMobileNavOpen(true)}
+            onClick={() => {
+              setMobileNavOpen(true);
+            }}
           />
           <Link
             href="/"

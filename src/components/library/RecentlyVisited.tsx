@@ -36,7 +36,9 @@ export default function RecentlyVisited() {
       .catch(() => {
         // Nothing to show: the section stays away.
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   if (folders.length === 0) return null;

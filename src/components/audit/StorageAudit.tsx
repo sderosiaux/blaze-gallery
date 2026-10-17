@@ -41,7 +41,9 @@ export function StorageAudit() {
   // Pinned when the range is picked or the page refreshed, so every section
   // describes the same slice of time. Set after mount: "now" differs on the server.
   const [period, setPeriod] = useState<Period | null>(null);
-  useEffect(() => setPeriod(periodFor("24h")), []);
+  useEffect(() => {
+    setPeriod(periodFor("24h"));
+  }, []);
 
   const range = rangeById(rangeId);
   const q = period && periodQuery(period);
@@ -95,7 +97,9 @@ export function StorageAudit() {
             <Select
               id="audit-range"
               value={rangeId}
-              onChange={(e) => changeRange(e.target.value as RangeId)}
+              onChange={(e) => {
+                changeRange(e.target.value as RangeId);
+              }}
               className="w-auto min-w-[11rem]"
             >
               {RANGES.map((r) => (

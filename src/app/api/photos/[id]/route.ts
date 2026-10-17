@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getPhoto, deletePhoto } from "@/lib/database";
 import { deleteObject } from "@/lib/s3";
 import { thumbnailService } from "@/lib/thumbnails";
@@ -87,7 +88,11 @@ export const DELETE = requireAuth(async function DELETE(
         logger.info(`Deleted thumbnail: ${photo.thumbnail_path}`);
       } catch (err) {
         // Log but don't fail if thumbnail deletion fails
-        logger.warn(`Failed to delete thumbnail for photo ${photoId}`, undefined, err instanceof Error ? err : undefined);
+        logger.warn(
+          `Failed to delete thumbnail for photo ${photoId}`,
+          undefined,
+          err instanceof Error ? err : undefined,
+        );
       }
     }
 

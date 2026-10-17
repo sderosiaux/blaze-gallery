@@ -55,7 +55,7 @@ function quoted(q: string) {
 }
 
 function SearchContent() {
-  const q = (useSearchParams()?.get("q") ?? "").trim();
+  const q = (useSearchParams().get("q") ?? "").trim();
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const [state, setState] = useState<State>(() =>
     q ? { status: "loading", q } : { status: "idle" },
@@ -92,7 +92,9 @@ function SearchContent() {
       .catch(() => {
         if (!controller.signal.aborted) setState({ status: "error", q });
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, [q, attempt]);
 
   if (state.status === "idle") {
@@ -112,7 +114,9 @@ function SearchContent() {
         {header}
         <LoadError
           title="La recherche n'a pas abouti"
-          onRetry={() => setAttempt((n) => n + 1)}
+          onRetry={() => {
+            setAttempt((n) => n + 1);
+          }}
         />
       </>
     );

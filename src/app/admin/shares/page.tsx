@@ -141,7 +141,9 @@ function SharedLinks() {
       </ul>
       <RevokeDialog
         share={revoking}
-        onClose={() => setRevoking(null)}
+        onClose={() => {
+          setRevoking(null);
+        }}
         onRevoked={onRevoked}
       />
     </>
@@ -167,7 +169,9 @@ function FolderThumb({ share, title }: { share: ShareLink; title: string }) {
           thumbSrc={thumbnailUrl(cover)}
           displayWidth={56}
           alt=""
-          onFailed={() => setFailed(true)}
+          onFailed={() => {
+            setFailed(true);
+          }}
         />
       ) : (
         <span
@@ -268,7 +272,13 @@ function ShareRow({
                 window.open(url(), "_blank", "noopener,noreferrer")
               }
             />
-            <Button variant="ghost" size="sm" onClick={() => onRevoke(share)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onRevoke(share);
+              }}
+            >
               Révoquer
             </Button>
           </div>

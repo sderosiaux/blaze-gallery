@@ -6,7 +6,7 @@ import { aspectRatio } from "@/lib/albums";
 
 interface Row {
   height: number;
-  items: Array<{ photo: Photo; width: number; index: number }>;
+  items: { photo: Photo; width: number; index: number }[];
 }
 
 /**
@@ -104,7 +104,9 @@ export default function JustifiedGrid({
       setWidth((prev) => (Math.abs(prev - next) >= 1 ? next : prev));
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, []);
 
   const rows = useMemo(

@@ -6,7 +6,7 @@
  */
 
 import { createS3AuditMiddleware } from "./s3Audit";
-import { S3Operation } from "@/types/audit";
+import type { S3Operation } from "@/types/audit";
 
 const auditMiddleware = createS3AuditMiddleware();
 
@@ -209,7 +209,7 @@ export function estimateS3Cost(
     AbortMultipartUpload: 0.0004 / 1000,
   };
 
-  let requestCost = costs[operation] || 0;
+  const requestCost = costs[operation] || 0;
 
   // Add data transfer costs if applicable
   let transferCost = 0;

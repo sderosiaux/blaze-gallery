@@ -54,7 +54,10 @@ interface PhotoViewerProps {
   sessionToken?: string;
 }
 
-type Keyed<T> = { id: string; value: T };
+interface Keyed<T> {
+  id: string;
+  value: T;
+}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
@@ -136,14 +139,18 @@ export default function PhotoViewer({
   const videoOutcome = videoState?.id === currentId ? videoState.value : null;
   const retryKey = retry?.id === currentId ? retry.value : 0;
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // ---- favourites, download, delete -------------------------------------
 
   const favorite = useFavoriteToggle(current, {
     enabled: canFavorite,
     onChange: onFavoriteToggle,
-    onError: () => toast.show("Le favori n’a pas été enregistré", "error"),
+    onError: () => {
+      toast.show("Le favori n’a pas été enregistré", "error");
+    },
   });
 
   const toggleFavorite = useCallback(() => {
@@ -174,7 +181,9 @@ export default function PhotoViewer({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const url = URL.createObjectURL(await response.blob());
       triggerDownload(url, current.filename);
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 10_000);
     } catch {
       toast.show("Le téléchargement n’a pas démarré", "error");
     }
@@ -209,7 +218,9 @@ export default function PhotoViewer({
   // ---- navigation, slideshow, zoom --------------------------------------
 
   const { goToPrevious: previous, goToNext: next, goTo } = nav;
-  const stopSlideshow = useCallback(() => setPlaying(false), []);
+  const stopSlideshow = useCallback(() => {
+    setPlaying(false);
+  }, []);
   const toggleSlideshow = useCallback(() => {
     if (nav.total < 2) return;
     setPlaying((p) => !p);
@@ -221,17 +232,21 @@ export default function PhotoViewer({
   }, [video, full.status, currentId]);
 
   const onZoomedChange = useCallback(
-    (z: boolean) => setZoomedId(z ? currentId : null),
+    (z: boolean) => {
+      setZoomedId(z ? currentId : null);
+    },
     [currentId],
   );
   const onStatus = useCallback(
-    (status: FullStatus, placeholder: PlaceholderState) =>
-      setFullState({ id: currentId, value: { status, placeholder } }),
+    (status: FullStatus, placeholder: PlaceholderState) => {
+      setFullState({ id: currentId, value: { status, placeholder } });
+    },
     [currentId],
   );
   const onVideoSettled = useCallback(
-    (outcome: "playing" | "ended" | "failed") =>
-      setVideoState({ id: currentId, value: outcome }),
+    (outcome: "playing" | "ended" | "failed") => {
+      setVideoState({ id: currentId, value: outcome });
+    },
     [currentId],
   );
 
@@ -281,7 +296,13 @@ export default function PhotoViewer({
 
   // Closing cancels the originals still on their way: the grid needs the
   // bandwidth. Deferred so the stage has unsubscribed from its own first.
-  useEffect(() => () => void setTimeout(() => retainImages([]), 0), []);
+  useEffect(
+    () => () =>
+      void setTimeout(() => {
+        retainImages([]);
+      }, 0),
+    [],
+  );
 
   // ---- caption ----------------------------------------------------------
 
@@ -351,7 +372,10 @@ export default function PhotoViewer({
       const items = Array.from(
         root.querySelectorAll<HTMLElement>(FOCUSABLE),
       ).filter((el) => el.offsetParent !== null);
-      if (items.length === 0) return handled();
+      if (items.length === 0) {
+        handled();
+        return;
+      }
       const first = items[0];
       const last = items[items.length - 1];
       const inside = target && root.contains(target) && target !== root;
@@ -455,9 +479,13 @@ export default function PhotoViewer({
 
   useEffect(() => {
     // Capture phase: runs before the page's own shortcuts, which it can then stop.
-    const listener = (e: KeyboardEvent) => onKeyRef.current(e);
+    const listener = (e: KeyboardEvent) => {
+      onKeyRef.current(e);
+    };
     document.addEventListener("keydown", listener, true);
-    return () => document.removeEventListener("keydown", listener, true);
+    return () => {
+      document.removeEventListener("keydown", listener, true);
+    };
   }, []);
 
   const chromeVisible = useAutoHide(
@@ -504,7 +532,9 @@ export default function PhotoViewer({
         <>
           L’original n’a pas chargé.
           <NoteAction
-            onClick={() => setRetry({ id: currentId, value: retryKey + 1 })}
+            onClick={() => {
+              setRetry({ id: currentId, value: retryKey + 1 });
+            }}
           >
             Réessayer
           </NoteAction>
@@ -591,14 +621,24 @@ export default function PhotoViewer({
             info={{
               open: infoOpen,
               panelId: infoId,
-              onToggle: () => setInfoOpen((v) => !v),
+              onToggle: () => {
+                setInfoOpen((v) => !v);
+              },
             }}
             onDownload={allowDownload ? download : undefined}
-            onDelete={canDelete ? () => setConfirmOpen(true) : undefined}
+            onDelete={
+              canDelete
+                ? () => {
+                    setConfirmOpen(true);
+                  }
+                : undefined
+            }
             help={{
               open: helpOpen,
               panelId: helpId,
-              onToggle: () => setHelpOpen((v) => !v),
+              onToggle: () => {
+                setHelpOpen((v) => !v);
+              },
             }}
           />
         </header>
@@ -646,8 +686,9 @@ export default function PhotoViewer({
                       onDownload={download}
                       onRetry={
                         full.status === "error"
-                          ? () =>
-                              setRetry({ id: currentId, value: retryKey + 1 })
+                          ? () => {
+                              setRetry({ id: currentId, value: retryKey + 1 });
+                            }
                           : undefined
                       }
                     />
@@ -759,7 +800,9 @@ export default function PhotoViewer({
               id={infoId}
               photo={current}
               showAlbum={!isSharedView}
-              onClose={() => setInfoOpen(false)}
+              onClose={() => {
+                setInfoOpen(false);
+              }}
             />
           )}
         </div>
@@ -769,7 +812,9 @@ export default function PhotoViewer({
             id={helpId}
             canFavorite={canFavorite}
             canDelete={canDelete}
-            onClose={() => setHelpOpen(false)}
+            onClose={() => {
+              setHelpOpen(false);
+            }}
           />
         )}
 
@@ -842,7 +887,9 @@ function SlideshowProgress({ running }: { running: boolean }) {
         fill: "forwards",
       },
     );
-    return () => animation.cancel();
+    return () => {
+      animation.cancel();
+    };
   }, [running]);
   return (
     <div

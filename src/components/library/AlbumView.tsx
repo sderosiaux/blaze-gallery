@@ -158,7 +158,9 @@ export default function AlbumView({ path }: { path: string }) {
           title={title}
           selectedPhotoId={selectedPhotoId}
           onPhotoUrlChange={setPhotoParam}
-          onShare={() => setShareOpen(true)}
+          onShare={() => {
+            setShareOpen(true);
+          }}
           onAddPhotos={openPicker}
         />
       )}
@@ -166,7 +168,9 @@ export default function AlbumView({ path }: { path: string }) {
       {/* The raw name: the dialog reads the date out of it. */}
       <ShareDialog
         isOpen={shareOpen}
-        onClose={() => setShareOpen(false)}
+        onClose={() => {
+          setShareOpen(false);
+        }}
         folderPath={path}
         folderName={name}
       />

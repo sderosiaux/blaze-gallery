@@ -97,8 +97,12 @@ export default function ProgressiveImage({
       setDwelled(eager);
       return;
     }
-    const timer = setTimeout(() => setDwelled(true), GENERATION_DWELL_MS);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setDwelled(true);
+    }, GENERATION_DWELL_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [visible, eager]);
 
   // Keep queued work ordered as the tile moves in and out of view.
@@ -212,7 +216,9 @@ export default function ProgressiveImage({
           alt={thumbLoaded ? "" : alt}
           decoding="async"
           draggable={false}
-          onLoad={(e) => onPreviewLoad(e.currentTarget)}
+          onLoad={(e) => {
+            onPreviewLoad(e.currentTarget);
+          }}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-[opacity,filter,transform] duration-500 ease-out-soft",
             previewLoaded ? "opacity-100" : "opacity-0",
@@ -228,7 +234,9 @@ export default function ProgressiveImage({
           alt={alt}
           decoding="async"
           draggable={false}
-          onLoad={() => setThumbLoaded(true)}
+          onLoad={() => {
+            setThumbLoaded(true);
+          }}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ease-out-soft",
             thumbLoaded ? "opacity-100" : "opacity-0",

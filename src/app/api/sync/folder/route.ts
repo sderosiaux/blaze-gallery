@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import { SyncJobType, SyncJobResponse } from "@/types/common";
+import type { SyncJobType, SyncJobResponse } from "@/types/common";
 import { validateInput, CommonValidators } from "@/lib/validation";
 import { authenticateRequest } from "@/lib/auth";
 

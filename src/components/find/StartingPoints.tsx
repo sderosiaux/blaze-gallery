@@ -35,7 +35,9 @@ export function StartingPoints() {
     Promise.all([recent, years]).then(([r, y]) => {
       if (!controller.signal.aborted) setData({ recent: r, years: y });
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   if (!data) {

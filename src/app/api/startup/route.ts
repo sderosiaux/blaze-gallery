@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { startup, isStartupReady } from "@/scripts/startup";
 
 export const dynamic = "force-dynamic";

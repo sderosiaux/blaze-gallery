@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import {
   createFolderShare,
   getAllSharedFolders,
   getFolderByPath,
 } from "@/lib/database";
-import { CreateShareData } from "@/lib/database";
+import type { CreateShareData } from "@/lib/database";
 
 export async function POST(request: NextRequest) {
   try {

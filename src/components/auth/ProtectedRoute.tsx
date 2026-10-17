@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Lock, ShieldAlert } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import AuthButton from "./AuthButton";
@@ -30,9 +30,7 @@ export default function ProtectedRoute({
       <EmptyState
         icon={ShieldAlert}
         title={
-          notAllowed
-            ? "Ce compte n'a pas accès"
-            : "La connexion n'a pas abouti"
+          notAllowed ? "Ce compte n'a pas accès" : "La connexion n'a pas abouti"
         }
         body={
           notAllowed

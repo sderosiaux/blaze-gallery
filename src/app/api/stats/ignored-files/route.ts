@@ -42,12 +42,12 @@ export const GET = requireAuth(async function GET() {
       GROUP BY category
     `);
 
-    const rows = result.rows as Array<{
+    const rows = result.rows as {
       category: string;
       count: number;
       total_size_bytes: number;
       examples: string[];
-    }>;
+    }[];
     const breakdown = Object.keys(CATEGORIES)
       .map((category) => {
         const row = rows.find((r) => r.category === category);

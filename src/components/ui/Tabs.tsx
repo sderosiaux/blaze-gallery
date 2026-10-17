@@ -59,7 +59,9 @@ export function Tabs<T extends string>({
             data-tab={tab.id}
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(tab.id)}
+            onClick={() => {
+              onChange(tab.id);
+            }}
             className={cn(
               "touch-target relative flex shrink-0 items-center gap-2 pb-3 pt-1 text-sm font-medium transition-colors duration-150",
               selected ? "text-ink" : "text-ink-muted hover:text-ink-soft",

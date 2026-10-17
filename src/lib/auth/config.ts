@@ -1,4 +1,4 @@
-import { AuthConfig } from "./types";
+import type { AuthConfig } from "./types";
 
 /**
  * Auth rate limiting constants

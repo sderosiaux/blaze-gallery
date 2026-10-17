@@ -42,15 +42,21 @@ function StatsContent() {
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();
     }, SUMMARY_REFRESH_MS);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+    };
   }, [refresh]);
 
   // The headline numbers go first: tab queries wait for them to settle (or
   // for a short grace period) so they don't compete for the same database.
   const [grace, setGrace] = useState(false);
   useEffect(() => {
-    const id = window.setTimeout(() => setGrace(true), TAB_GRACE_MS);
-    return () => window.clearTimeout(id);
+    const id = window.setTimeout(() => {
+      setGrace(true);
+    }, TAB_GRACE_MS);
+    return () => {
+      window.clearTimeout(id);
+    };
   }, []);
   const tabsMayLoad =
     grace ||
@@ -88,7 +94,9 @@ function StatsContent() {
       <StatsOverview
         summary={summary.state}
         onRetry={summary.retry}
-        onOpenTab={(next) => openTab(next, { reveal: true })}
+        onOpenTab={(next) => {
+          openTab(next, { reveal: true });
+        }}
       />
 
       <div ref={tabsRef} className="mt-10 scroll-mt-24">
@@ -96,7 +104,9 @@ function StatsContent() {
           label="Sections des statistiques"
           tabs={STATS_TABS.map((t) => ({ id: t.id, label: t.label }))}
           value={tab}
-          onChange={(next) => openTab(next)}
+          onChange={(next) => {
+            openTab(next);
+          }}
         />
       </div>
 

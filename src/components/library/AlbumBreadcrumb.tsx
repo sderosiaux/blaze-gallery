@@ -58,7 +58,9 @@ export default function AlbumBreadcrumb({ path }: { path: string }) {
               <li key="fold" className="hidden items-center gap-1.5 sm:flex">
                 <button
                   type="button"
-                  onClick={() => setExpanded(true)}
+                  onClick={() => {
+                    setExpanded(true);
+                  }}
                   aria-label={`Afficher ${hidden.map((c) => c.label).join(", ")}`}
                   title={hidden.map((c) => c.label).join(" / ")}
                   className="rounded-sm px-1 transition-colors duration-150 hover:text-ink"

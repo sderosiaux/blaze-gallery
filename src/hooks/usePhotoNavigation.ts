@@ -29,7 +29,9 @@ export function usePhotoNavigation(
   const [currentId, setCurrentId] = useState(String(photo.id));
   const lastIndex = useRef(0);
 
-  useEffect(() => setCurrentId(String(photo.id)), [photo.id]);
+  useEffect(() => {
+    setCurrentId(String(photo.id));
+  }, [photo.id]);
 
   const found = list.findIndex((p) => String(p.id) === currentId);
   if (found !== -1) lastIndex.current = found;

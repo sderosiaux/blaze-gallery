@@ -17,8 +17,7 @@ export const metadata: Metadata = {
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   ),
   title: "Blaze Gallery",
-  description:
-    "Vos photos, depuis votre propre stockage.",
+  description: "Vos photos, depuis votre propre stockage.",
   keywords: [
     "photo gallery",
     "backblaze b2",
@@ -56,8 +55,7 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "Blaze Gallery",
     title: "Blaze Gallery",
-    description:
-      "Vos photos, depuis votre propre stockage.",
+    description: "Vos photos, depuis votre propre stockage.",
     images: [
       {
         url: "/icon.svg",
@@ -70,8 +68,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary",
     title: "Blaze Gallery",
-    description:
-      "Vos photos, depuis votre propre stockage.",
+    description: "Vos photos, depuis votre propre stockage.",
     images: ["/icon.svg"],
   },
 };

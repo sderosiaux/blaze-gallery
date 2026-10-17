@@ -1,5 +1,5 @@
 import { query, runTransaction } from "./database";
-import {
+import type {
   S3AuditLog,
   S3AuditStats,
   S3AuditQuery,
@@ -211,7 +211,7 @@ export class S3AuditLogger {
       params,
     );
 
-    const basicStats = basicStatsResult.rows[0] as any;
+    const basicStats = basicStatsResult.rows[0];
 
     // Status code distribution
     const statusResult = await query(
@@ -304,7 +304,7 @@ export class S3AuditLogger {
       [startDate, endDate],
     );
 
-    const rows = result.rows as any[];
+    const rows = result.rows;
 
     // Calculate percentiles (simplified - would need more complex query for true percentiles)
     return rows.map((row) => ({
@@ -344,7 +344,7 @@ export class S3AuditLogger {
       [startDate, endDate],
     );
 
-    const basicRows = basicResult.rows as any[];
+    const basicRows = basicResult.rows;
 
     // Calculate P95 for each operation
     const results: OperationAnalysis[] = [];

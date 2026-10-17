@@ -1,5 +1,5 @@
 import { authConfig } from "./config";
-import { GoogleTokenResponse, GoogleUserInfo } from "./types";
+import type { GoogleTokenResponse, GoogleUserInfo } from "./types";
 import { generatePKCE, generateState } from "./validators";
 
 /**

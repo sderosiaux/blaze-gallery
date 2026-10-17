@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getTimelinePhotos, TimelineCursor } from "@/lib/database";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import type { TimelineCursor } from "@/lib/database";
+import { getTimelinePhotos } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 
@@ -41,7 +43,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const photos = await getTimelinePhotos(before, limit);
     const last = photos[photos.length - 1];
     const next_before =
-      photos.length === limit && last?.metadata?.date_taken
+      photos.length === limit && last.metadata?.date_taken
         ? `${last.metadata.date_taken}|${last.id}`
         : null;
 

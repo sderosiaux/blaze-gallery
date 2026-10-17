@@ -113,7 +113,9 @@ export function RecentRequests({
       <Select
         id="audit-page-size"
         value={pageSize}
-        onChange={(e) => onPageSizeChange(Number(e.target.value) as PageSize)}
+        onChange={(e) => {
+          onPageSizeChange(Number(e.target.value) as PageSize);
+        }}
         className="w-auto"
       >
         {PAGE_SIZES.map((n) => (

@@ -170,7 +170,9 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
             variant="ghost"
             icon={RefreshCw}
             loading={scan.loading}
-            onClick={() => setRecount((n) => n + 1)}
+            onClick={() => {
+              setRecount((n) => n + 1);
+            }}
           >
             Recompter
           </Button>

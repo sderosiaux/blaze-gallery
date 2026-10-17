@@ -5,7 +5,7 @@ export enum LogLevel {
   ERROR = 3,
 }
 
-import {
+import type {
   BaseLogContext,
   S3LogContext,
   SyncLogContext,

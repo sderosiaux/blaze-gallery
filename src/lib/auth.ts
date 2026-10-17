@@ -2,7 +2,8 @@
  * Authentication middleware and utilities
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { logger } from "./logger";
 import crypto from "crypto";
 
@@ -183,8 +184,8 @@ const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
 export function checkRateLimit(
   identifier: string,
-  maxRequests: number = 100,
-  windowMs: number = 60000,
+  maxRequests = 100,
+  windowMs = 60000,
 ): boolean {
   const now = Date.now();
   const key = identifier;
@@ -226,7 +227,7 @@ export function getClientIP(request: NextRequest): string {
 /**
  * Generate secure API key
  */
-export function generateApiKey(length: number = 32): string {
+export function generateApiKey(length = 32): string {
   return crypto.randomBytes(length).toString("hex");
 }
 

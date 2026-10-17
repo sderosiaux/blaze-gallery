@@ -27,7 +27,7 @@ interface ShareDialogProps {
 
 type Expiry = "never" | "1" | "7" | "30" | "90" | "custom";
 
-const EXPIRY_OPTIONS: Array<{ value: Expiry; label: string }> = [
+const EXPIRY_OPTIONS: { value: Expiry; label: string }[] = [
   { value: "never", label: "Jamais" },
   { value: "1", label: "Dans 1 jour" },
   { value: "7", label: "Dans 7 jours" },
@@ -73,7 +73,9 @@ export default function ShareDialog({
   // Callers pass inline closures; a stable one keeps Dialog from re-running its focus setup on every parent render.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const close = useCallback(() => onCloseRef.current(), []);
+  const close = useCallback(() => {
+    onCloseRef.current();
+  }, []);
 
   const [expiry, setExpiry] = useState<Expiry>("never");
   const [customDate, setCustomDate] = useState("");
@@ -187,7 +189,9 @@ export default function ShareDialog({
             readOnly
             value={created.url}
             aria-label="Lien"
-            onFocus={(e) => e.currentTarget.select()}
+            onFocus={(e) => {
+              e.currentTarget.select();
+            }}
             className="min-w-0 bg-surface-sunken sm:flex-1"
           />
           <Button
@@ -221,7 +225,9 @@ export default function ShareDialog({
                 id="share-expiry"
                 data-autofocus
                 value={expiry}
-                onChange={(e) => setExpiry(e.target.value as Expiry)}
+                onChange={(e) => {
+                  setExpiry(e.target.value as Expiry);
+                }}
               >
                 {EXPIRY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -237,7 +243,9 @@ export default function ShareDialog({
                   type="date"
                   min={tomorrow}
                   value={customDate}
-                  onChange={(e) => setCustomDate(e.target.value)}
+                  onChange={(e) => {
+                    setCustomDate(e.target.value);
+                  }}
                 />
               </Field>
             )}
@@ -257,7 +265,9 @@ export default function ShareDialog({
                   aria-label="Mot de passe"
                   type={reveal ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                  }}
                   autoComplete="new-password"
                   autoFocus
                   className="pr-12"
@@ -270,7 +280,9 @@ export default function ShareDialog({
                       : "Afficher le mot de passe"
                   }
                   size="sm"
-                  onClick={() => setReveal((r) => !r)}
+                  onClick={() => {
+                    setReveal((r) => !r);
+                  }}
                   className="absolute right-1 top-1/2 -translate-y-1/2"
                 />
               </div>
@@ -289,7 +301,9 @@ export default function ShareDialog({
               id="share-note"
               value={note}
               maxLength={NOTE_MAX}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(e) => {
+                setNote(e.target.value);
+              }}
               rows={3}
             />
           </Field>

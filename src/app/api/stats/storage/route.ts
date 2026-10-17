@@ -49,7 +49,7 @@ export const GET = requireAuth(async function GET() {
       `),
     ]);
 
-    const rows = albumsResult.rows as Array<AlbumStat & { rank_by: string }>;
+    const rows = albumsResult.rows as (AlbumStat & { rank_by: string })[];
     const pick = (rankBy: string): AlbumStat[] =>
       rows
         .filter((r) => r.rank_by === rankBy)

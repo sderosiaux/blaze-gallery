@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { revokeUserSession } from "@/lib/auth/userSession";
 import { revokeGoogleTokens } from "@/lib/auth/googleOAuth";
 import { validateOrigin } from "@/lib/auth/validators";

@@ -64,7 +64,7 @@ const relative = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
 /** "à l’instant", "il y a 3 heures", "il y a 10 mois". */
 export function timeAgo(iso: string, now = Date.now()): string {
   const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
-  const steps: Array<[number, Intl.RelativeTimeFormatUnit]> = [
+  const steps: [number, Intl.RelativeTimeFormatUnit][] = [
     [60, "second"],
     [60, "minute"],
     [24, "hour"],

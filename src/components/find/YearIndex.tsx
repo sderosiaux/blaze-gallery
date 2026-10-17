@@ -21,7 +21,9 @@ export function YearRail({ years, active, onJump }: YearIndexProps) {
             <li key={year}>
               <button
                 type="button"
-                onClick={() => onJump(year)}
+                onClick={() => {
+                  onJump(year);
+                }}
                 aria-current={current ? "true" : undefined}
                 className={cn(
                   "touch-target relative -ml-px flex h-7 w-full items-center border-l-2 pl-3 text-left text-xs tabular transition-colors duration-150",
@@ -54,7 +56,9 @@ export function YearPicker({ years, active, onJump }: YearIndexProps) {
       <Select
         id="timeline-year"
         value={active ?? ""}
-        onChange={(e) => onJump(Number(e.target.value))}
+        onChange={(e) => {
+          onJump(Number(e.target.value));
+        }}
         className="tabular h-11 rounded-full pl-9 font-medium shadow-pop"
       >
         {active === null && <option value="">Année</option>}

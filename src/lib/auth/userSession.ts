@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { UserSession } from "./types";
+import type { UserSession } from "./types";
 import { authConfig } from "./config";
 import { query } from "../database";
 

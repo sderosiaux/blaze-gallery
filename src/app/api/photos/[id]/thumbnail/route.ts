@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { THUMBNAIL_VERSION } from "@/lib/photoUrls";
 import { getPhoto } from "@/lib/database";
 import { thumbnailService } from "@/lib/thumbnails";

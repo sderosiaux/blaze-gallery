@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { logShareAccess } from "@/lib/database";
 import { getObjectStreamAuto } from "@/lib/s3";
 import { validateSharedPhotoAccess } from "@/lib/shareHelpers";

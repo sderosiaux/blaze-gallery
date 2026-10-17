@@ -92,7 +92,9 @@ export default function PasswordGate({
               reveal ? "Masquer le mot de passe" : "Afficher le mot de passe"
             }
             size="sm"
-            onClick={() => setReveal((r) => !r)}
+            onClick={() => {
+              setReveal((r) => !r);
+            }}
             className="absolute right-2 top-1/2 -translate-y-1/2"
           />
         </div>

@@ -115,7 +115,7 @@ class S3Manager {
   private s3Client: S3Client | null = null;
   private currentConfigHash: string | null = null;
   private isInitialized = false;
-  private bucketName: string = "";
+  private bucketName = "";
 
   constructor() {}
 
@@ -603,7 +603,7 @@ export function attachmentDisposition(filename: string): string {
 export async function getSignedDownloadUrl(
   bucket: string,
   key: string,
-  expiresIn: number = 3600,
+  expiresIn = 3600,
   request?: Request,
   options: SignedDownloadOptions = {},
 ): Promise<string> {
@@ -1081,8 +1081,8 @@ export async function getObjectStreamAuto(key: string, request?: Request) {
 export async function listObjectsAuto(
   prefix?: string,
   continuationToken?: string,
-  maxKeys: number = 1000,
-  pageNumber: number = 1,
+  maxKeys = 1000,
+  pageNumber = 1,
   request?: Request,
 ) {
   const bucket = S3Manager.getInstance().getBucketName();
@@ -1102,7 +1102,7 @@ export async function listObjectsAuto(
  */
 export async function getSignedDownloadUrlAuto(
   key: string,
-  expiresIn: number = 3600,
+  expiresIn = 3600,
   request?: Request,
   options: SignedDownloadOptions = {},
 ): Promise<string> {

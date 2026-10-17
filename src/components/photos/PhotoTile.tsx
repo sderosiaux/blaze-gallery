@@ -98,7 +98,9 @@ function PhotoTile({
           alt={photo.filename}
           eager={eager}
           order={order}
-          onFailed={() => setFailed(true)}
+          onFailed={() => {
+            setFailed(true);
+          }}
           className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.025]"
         />
       )}
@@ -110,7 +112,9 @@ function PhotoTile({
 
       <button
         type="button"
-        onClick={() => onOpen(photo)}
+        onClick={() => {
+          onOpen(photo);
+        }}
         aria-label={label}
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
@@ -118,7 +122,9 @@ function PhotoTile({
       {onToggleFavorite && (
         <button
           type="button"
-          onClick={() => onToggleFavorite(photo)}
+          onClick={() => {
+            onToggleFavorite(photo);
+          }}
           aria-label={
             photo.is_favorite
               ? `Retirer ${photo.filename} des favoris`

@@ -64,7 +64,9 @@ export function useAuditData<T>(
             : "Le serveur est injoignable.";
         setState({ data: null, error: message, loading: false });
       })
-      .finally(() => clearTimeout(timer));
+      .finally(() => {
+        clearTimeout(timer);
+      });
 
     return () => {
       clearTimeout(timer);
@@ -72,6 +74,8 @@ export function useAuditData<T>(
     };
   }, [url, reloadKey, attempt, timeoutMs]);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const retry = useCallback(() => {
+    setAttempt((n) => n + 1);
+  }, []);
   return { ...state, retry };
 }

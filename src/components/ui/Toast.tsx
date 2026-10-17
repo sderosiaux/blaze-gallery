@@ -64,7 +64,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         { id, tone, message, action: options.action },
       ]);
       const fallback = options.action ? 8000 : tone === "error" ? 6000 : 3500;
-      setTimeout(() => dismiss(id), options.duration ?? fallback);
+      setTimeout(() => {
+        dismiss(id);
+      }, options.duration ?? fallback);
     },
     [dismiss],
   );
@@ -106,7 +108,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 aria-label="Fermer"
-                onClick={() => dismiss(t.id)}
+                onClick={() => {
+                  dismiss(t.id);
+                }}
                 className="rounded-full p-1 text-paper/60 transition-colors hover:text-paper"
               >
                 <X className="h-3.5 w-3.5" aria-hidden />

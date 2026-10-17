@@ -21,7 +21,9 @@ export function useElementSize(ref: RefObject<HTMLElement>): {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, [ref]);
 
   return size;

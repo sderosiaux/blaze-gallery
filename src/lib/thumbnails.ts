@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import path from "path";
 import fs from "fs";
+import type { S3Object } from "./s3";
 import {
   deleteObject,
   getObjectMetadata,
@@ -9,7 +10,6 @@ import {
   putObject,
   getThumbnailS3Client,
   getThumbnailBucketName,
-  S3Object,
 } from "./s3";
 import {
   ListObjectsV2Command,
@@ -23,7 +23,7 @@ import { orientJpeg } from "./imageProbe";
 import { extractEmbeddedJpeg, isRawKey } from "./rawPreview";
 import { getConfig } from "./config";
 import { logger } from "./logger";
-import { ThumbnailOptions, ThumbnailStats } from "@/types/common";
+import type { ThumbnailOptions, ThumbnailStats } from "@/types/common";
 
 export function getThumbnailsPath(customPath?: string): string {
   return (
@@ -273,8 +273,12 @@ export class ThumbnailService {
       (stream as any).on("data", (chunk: Buffer) =>
         chunks.push(Buffer.from(chunk)),
       );
-      (stream as any).on("end", () => resolve());
-      (stream as any).on("error", (error: Error) => reject(error));
+      (stream as any).on("end", () => {
+        resolve();
+      });
+      (stream as any).on("error", (error: Error) => {
+        reject(error);
+      });
     });
     return Buffer.concat(chunks);
   }
@@ -496,8 +500,12 @@ export class ThumbnailService {
           (stream as any).on("data", (chunk: Buffer) => {
             chunks.push(Buffer.from(chunk));
           });
-          (stream as any).on("end", () => resolve());
-          (stream as any).on("error", (error: Error) => reject(error));
+          (stream as any).on("end", () => {
+            resolve();
+          });
+          (stream as any).on("error", (error: Error) => {
+            reject(error);
+          });
         } else {
           reject(new Error("Invalid stream type from S3"));
         }
@@ -514,7 +522,7 @@ export class ThumbnailService {
 
   getThumbnailPath(
     photoId: number,
-    format: string = "jpeg",
+    format = "jpeg",
     originalKey?: string,
   ): string {
     if (this.isS3Storage()) {
@@ -731,7 +739,7 @@ export class ThumbnailService {
   async serveThumbnail(
     photo: any,
     request?: Request,
-    forceGenerate: boolean = false,
+    forceGenerate = false,
   ): Promise<
     | { buffer: Buffer; headers: Record<string, string> }
     | { error: string; status: number }

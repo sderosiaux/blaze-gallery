@@ -73,8 +73,12 @@ export function useElapsed(startedAt: number | undefined) {
   const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (startedAt === undefined) return;
-    const id = window.setInterval(() => setNow(performance.now()), 500);
-    return () => window.clearInterval(id);
+    const id = window.setInterval(() => {
+      setNow(performance.now());
+    }, 500);
+    return () => {
+      window.clearInterval(id);
+    };
   }, [startedAt]);
   return startedAt === undefined
     ? 0

@@ -79,8 +79,12 @@ export default function ViewerPhoto({
   const [settled, setSettled] = useState(readyAtOpen);
   useEffect(() => {
     if (!fullReady) return;
-    const timer = setTimeout(() => setSettled(true), 400);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setSettled(true);
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [fullReady]);
 
   const thumbSrc = layers.thumb ?? (thumbFallback ? sources.thumb : undefined);
@@ -110,10 +114,9 @@ export default function ViewerPhoto({
     : previewGone && thumbGone
       ? "none"
       : "pending";
-  useEffect(
-    () => onStatus(status, placeholder),
-    [status, placeholder, onStatus],
-  );
+  useEffect(() => {
+    onStatus(status, placeholder);
+  }, [status, placeholder, onStatus]);
 
   const { retry } = full;
   useEffect(() => {
@@ -237,9 +240,9 @@ export default function ViewerPhoto({
         <div
           ref={scrollRef}
           className="scrollbar-none absolute inset-0 cursor-grab overflow-auto overscroll-contain active:cursor-grabbing"
-          onDoubleClick={(e) =>
-            toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
-          }
+          onDoubleClick={(e) => {
+            toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
+          }}
           onPointerDown={onPanStart}
           onPointerMove={onPanMove}
           onPointerUp={onPanEnd}
@@ -271,9 +274,9 @@ export default function ViewerPhoto({
                 !hasPlaceholder && !fullReady && "skeleton",
               )}
               style={{ width: box.width, height: box.height, cursor: zoomHint }}
-              onDoubleClick={(e) =>
-                toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
-              }
+              onDoubleClick={(e) => {
+                toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
+              }}
               onPointerDown={onPointerDown}
               onPointerUp={onPointerUp}
             >
@@ -283,13 +286,15 @@ export default function ViewerPhoto({
                   alt=""
                   draggable={false}
                   decoding="async"
-                  onLoad={(e) =>
+                  onLoad={(e) => {
                     setPreview({
                       width: e.currentTarget.naturalWidth,
                       height: e.currentTarget.naturalHeight,
-                    })
-                  }
-                  onError={() => setPreview("failed")}
+                    });
+                  }}
+                  onError={() => {
+                    setPreview("failed");
+                  }}
                   className={cn(
                     "absolute inset-0 h-full w-full select-none object-cover",
                     softness(preview, box.width) > 0 && "scale-[1.04]",
@@ -303,13 +308,15 @@ export default function ViewerPhoto({
                   alt=""
                   draggable={false}
                   decoding="async"
-                  onLoad={(e) =>
+                  onLoad={(e) => {
                     setThumb({
                       width: e.currentTarget.naturalWidth,
                       height: e.currentTarget.naturalHeight,
-                    })
-                  }
-                  onError={() => setThumb("failed")}
+                    });
+                  }}
+                  onError={() => {
+                    setThumb("failed");
+                  }}
                   className={cn(
                     "absolute inset-0 h-full w-full select-none object-cover",
                     softness(thumb, box.width) > 0 && "scale-[1.02]",

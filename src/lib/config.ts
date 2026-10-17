@@ -1,4 +1,4 @@
-import { Config } from "@/types";
+import type { Config } from "@/types";
 import { logger } from "./logger";
 
 let cachedConfig: Config | null = null;
