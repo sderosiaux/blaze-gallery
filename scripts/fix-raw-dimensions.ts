@@ -10,7 +10,7 @@
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import * as dotenv from "dotenv";
-import { parseTiffHead } from "../src/lib/rawPreview";
+import { readTiffLayout } from "../src/lib/rawPreview";
 
 dotenv.config();
 
@@ -53,12 +53,16 @@ const s3 = new S3Client({
   },
 });
 
-async function head(key: string): Promise<Buffer> {
+async function readRange(
+  key: string,
+  start: number,
+  end: number,
+): Promise<Buffer> {
   const out = await s3.send(
     new GetObjectCommand({
       Bucket: process.env.BACKBLAZE_BUCKET,
       Key: key,
-      Range: `bytes=0-${HEAD - 1}`,
+      Range: `bytes=${start}-${end}`,
     }),
   );
   return Buffer.from(await out.Body!.transformToByteArray());
@@ -86,9 +90,11 @@ async function main() {
       const row = rows.shift();
       if (!row) return;
       try {
-        const { width, height, orientation } = parseTiffHead(
-          await head(row.s3_key),
+        const { layout } = await readTiffLayout(
+          (start, end) => readRange(row.s3_key, start, end),
+          HEAD,
         );
+        const { width, height, orientation } = layout;
         if (width && height && width > 1000 && height > 1000) {
           const swap = (orientation ?? 1) >= 5;
           await pool.query(

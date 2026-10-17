@@ -66,21 +66,26 @@ const TYPE_SIZES: Record<number, number> = {
   13: 4,
 };
 
-export function parseTiffHead(head: Buffer): {
+export interface TiffLayout {
   candidates: Candidate[];
   width?: number;
   height?: number;
   orientation?: number;
-} {
+  /** IFD offsets the buffer does not reach (files rewritten by editors move them) */
+  unreachable: number[];
+}
+
+export function parseTiffHead(head: Buffer): TiffLayout {
   const order = head.toString("latin1", 0, 2);
   if (head.length < 8 || (order !== "II" && order !== "MM")) {
-    return { candidates: [] };
+    return { candidates: [], unreachable: [] };
   }
   const le = order === "II";
   const u16 = (o: number) => (le ? head.readUInt16LE(o) : head.readUInt16BE(o));
   const u32 = (o: number) => (le ? head.readUInt32LE(o) : head.readUInt32BE(o));
 
   const candidates: Candidate[] = [];
+  const unreachable: number[] = [];
   let width: number | undefined;
   let height: number | undefined;
   let orientation: number | undefined;
@@ -105,8 +110,11 @@ export function parseTiffHead(head: Buffer): {
   };
 
   const walk = (offset: number, isIfd0: boolean, depth: number) => {
-    if (!offset || depth > 4 || seen.has(offset) || offset + 2 > head.length)
+    if (!offset || depth > 4 || seen.has(offset)) return;
+    if (offset + 2 > head.length) {
+      unreachable.push(offset);
       return;
+    }
     seen.add(offset);
     const count = u16(offset);
     const tags = new Map<number, number[]>();
@@ -152,7 +160,7 @@ export function parseTiffHead(head: Buffer): {
   };
 
   walk(u32(4), true, 0);
-  return { candidates, width, height, orientation };
+  return { candidates, width, height, orientation, unreachable };
 }
 
 /** Picks the smallest rendition that is still a real photo, not a strip. */
@@ -165,11 +173,36 @@ function pick(candidates: Candidate[]): Candidate | undefined {
   );
 }
 
+/**
+ * Reads the head, then — only if some IFDs lie beyond it — one more window
+ * that covers them, and parses both as one sparse buffer.
+ */
+export async function readTiffLayout(
+  read: RangeReader,
+  headBytes: number,
+): Promise<{ layout: TiffLayout; head: Buffer }> {
+  const head = await read(0, headBytes - 1);
+  const first = parseTiffHead(head);
+  if (first.unreachable.length === 0 || head.length < headBytes) {
+    return { layout: first, head };
+  }
+  const start = Math.min(...first.unreachable);
+  const end = Math.min(
+    Math.max(...first.unreachable) + 64 * 1024,
+    start + 512 * 1024,
+  );
+  const extra = await read(start, end - 1);
+  const sparse = Buffer.alloc(start + extra.length);
+  head.copy(sparse, 0);
+  extra.copy(sparse, start);
+  return { layout: parseTiffHead(sparse), head };
+}
+
 export async function extractEmbeddedJpeg(
   read: RangeReader,
 ): Promise<EmbeddedJpeg | undefined> {
-  const head = await read(0, HEAD_BYTES - 1);
-  const { candidates, width, height, orientation } = parseTiffHead(head);
+  const { layout, head } = await readTiffLayout(read, HEAD_BYTES);
+  const { candidates, width, height, orientation } = layout;
   const chosen = pick(candidates);
   if (!chosen) return undefined;
 
