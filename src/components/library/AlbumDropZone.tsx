@@ -10,6 +10,7 @@ import {
 } from "react";
 import { AlertCircle, CheckCircle2, ImagePlus, Loader2, X } from "lucide-react";
 import { IconButton } from "@/components/ui";
+import { formatNumber } from "@/lib/albums";
 import { cn } from "@/lib/cn";
 
 // Client-side media file validation (can't import from s3.ts - it uses Node modules)
@@ -60,6 +61,12 @@ function isMediaFile(filename: string): boolean {
   return MEDIA_EXTENSIONS.has(ext);
 }
 
+const FAILED = "Échec de l'envoi";
+
+/** "1 fichier ajouté", "3 fichiers ajoutés" */
+const added = (n: number) =>
+  `${formatNumber(n)} ${n <= 1 ? "fichier ajouté" : "fichiers ajoutés"}`;
+
 const hasFiles = (e: DragEvent) =>
   Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
@@ -67,7 +74,6 @@ interface UploadItem {
   id: string;
   file: File;
   status: "uploading" | "success" | "error";
-  error?: string;
 }
 
 export interface AlbumDropZoneHandle {
@@ -75,7 +81,7 @@ export interface AlbumDropZoneHandle {
 }
 
 interface AlbumDropZoneProps {
-  /** Where files go. Null on pages that are not an album: dropping is refused with a hint. */
+  /** Where files go. Null on pages that are not a folder: dropping is refused with a hint. */
   target: { path: string; title: string } | null;
   /** Called once a batch has settled with at least one file stored. */
   onUploaded?: () => void;
@@ -84,7 +90,7 @@ interface AlbumDropZoneProps {
 
 /**
  * Files dragged anywhere over the page light up a full-window overlay naming
- * the album they will land in. Listening on the window, not on a wrapper,
+ * the folder they will land in. Listening on the window, not on a wrapper,
  * means the sidebar and the top bar count too, and a stray drop never makes
  * the browser navigate away to the file.
  */
@@ -117,24 +123,15 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
           method: "POST",
           body: formData,
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || "Upload failed");
+        if (!response.ok) throw new Error(String(response.status));
         settled.current.stored++;
         setUploads((all) =>
           all.map((u) => (u.id === item.id ? { ...u, status: "success" } : u)),
         );
-      } catch (error) {
+      } catch {
+        // The route answers in English; the panel says it in French, the same way for every cause.
         setUploads((all) =>
-          all.map((u) =>
-            u.id === item.id
-              ? {
-                  ...u,
-                  status: "error",
-                  error:
-                    error instanceof Error ? error.message : "Upload failed",
-                }
-              : u,
-          ),
+          all.map((u) => (u.id === item.id ? { ...u, status: "error" } : u)),
         );
       } finally {
         settled.current.pending--;
@@ -213,12 +210,13 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
     const stored = uploads.filter((u) => u.status === "success").length;
     const failed = uploads.filter((u) => u.status === "error").length;
 
+    const destination = target?.title ?? "ce dossier";
     const summary =
       uploading > 0
-        ? `Adding ${uploading} of ${uploads.length} to ${target?.title ?? "the album"}`
+        ? `Ajout à ${destination} : ${uploads.length - uploading} sur ${uploads.length}`
         : failed > 0
-          ? `${stored} added, ${failed} didn't go through`
-          : `${stored} added to ${target?.title ?? "the album"}`;
+          ? `${added(stored)}, ${failed} en échec`
+          : `${added(stored)} à ${destination}`;
 
     return (
       <>
@@ -265,24 +263,15 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
               </span>
               {target ? (
                 <>
-                  <p className="kicker">Drop to add to</p>
-                  <p className="mt-2 max-w-2xl text-balance break-words font-display text-display-md font-semibold text-ink">
+                  <p className="kicker">Déposer pour ajouter à</p>
+                  <p className="mt-2 max-w-2xl text-balance break-words text-display-md font-semibold text-ink">
                     {target.title}
-                  </p>
-                  <p className="mt-3 text-sm text-ink-muted">
-                    Photos and videos only. Other files are left out.
                   </p>
                 </>
               ) : (
-                <>
-                  <p className="font-display text-display-sm font-semibold text-ink">
-                    Open an album first
-                  </p>
-                  <p className="mt-2 max-w-sm text-sm text-ink-muted">
-                    Photos are added to the album you are looking at. Pick one
-                    below, then drop them there.
-                  </p>
-                </>
+                <p className="max-w-sm text-balance text-display-sm font-semibold text-ink">
+                  Ouvrez un dossier pour y ajouter des photos
+                </p>
               )}
             </div>
           </div>
@@ -291,7 +280,7 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
         {panelOpen && (uploads.length > 0 || skipped > 0) && (
           <div
             role="region"
-            aria-label="Uploads"
+            aria-label="Ajouts"
             className="fixed inset-x-3 bottom-3 z-overlay flex max-h-[50dvh] animate-rise-in flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-pop sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-96"
           >
             <div className="flex items-center gap-3 border-b border-line px-4 py-3">
@@ -305,6 +294,11 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                   className="h-4 w-4 shrink-0 text-danger"
                   aria-hidden
                 />
+              ) : stored === 0 ? (
+                <AlertCircle
+                  className="h-4 w-4 shrink-0 text-warning"
+                  aria-hidden
+                />
               ) : (
                 <CheckCircle2
                   className="h-4 w-4 shrink-0 text-success"
@@ -315,7 +309,7 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                 className="min-w-0 flex-1 truncate text-sm font-medium text-ink"
                 aria-live="polite"
               >
-                {uploads.length > 0 ? summary : "Nothing to add"}
+                {uploads.length > 0 ? summary : "Aucun fichier à ajouter"}
               </p>
               {uploading === 0 && stored > 0 && (
                 <button
@@ -327,12 +321,12 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                   }
                   className="shrink-0 rounded-sm text-xs text-ink-muted transition-colors hover:text-ink"
                 >
-                  Clear
+                  Effacer
                 </button>
               )}
               <IconButton
                 icon={X}
-                label="Hide uploads"
+                label="Masquer les ajouts"
                 size="sm"
                 className="-mr-2"
                 onClick={() => setPanelOpen(false)}
@@ -341,9 +335,9 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
             {skipped > 0 && (
               <p className="border-b border-line bg-warning-soft px-4 py-2 text-xs text-warning">
                 {skipped === 1
-                  ? "1 file was left out"
-                  : `${skipped} files were left out`}
-                : only photos and videos can be added.
+                  ? "1 fichier ignoré"
+                  : `${formatNumber(skipped)} fichiers ignorés`}
+                {" : ni photo ni vidéo"}
               </p>
             )}
             <ul className="flex-1 divide-y divide-line overflow-y-auto">
@@ -358,25 +352,25 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                     )}
                     {u.status === "error" && (
                       <p className="mt-0.5 truncate text-xs text-danger">
-                        {u.error}
+                        {FAILED}
                       </p>
                     )}
                   </div>
                   {u.status === "uploading" && (
                     <span className="shrink-0 text-xs text-ink-muted">
-                      Sending
+                      Envoi
                     </span>
                   )}
                   {u.status === "success" && (
                     <CheckCircle2
                       className="h-4 w-4 shrink-0 text-success"
-                      aria-label="Added"
+                      aria-label="Ajouté"
                     />
                   )}
                   {u.status === "error" && (
                     <IconButton
                       icon={X}
-                      label={`Dismiss ${u.file.name}`}
+                      label={`Retirer ${u.file.name}`}
                       size="sm"
                       onClick={() =>
                         setUploads((all) => all.filter((x) => x.id !== u.id))

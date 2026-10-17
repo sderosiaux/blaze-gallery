@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ImageOff, Shuffle } from "lucide-react";
+import { ImageOff, RotateCw, Shuffle } from "lucide-react";
 import type { Photo } from "@/types";
 import PhotoGrid from "@/components/PhotoGrid";
 import { Button, EmptyState, Section } from "@/components/ui";
@@ -35,9 +35,9 @@ function remembered(): Photo[] | null {
 }
 
 /**
- * A random handful from the whole library. The pick is kept for the session,
- * so coming back from an album, or reloading with `?photo=`, finds the same
- * photos instead of a new draw; Shuffle is the only thing that redraws.
+ * A random handful from the whole bucket. The pick is kept for the session,
+ * so coming back from a folder, or reloading with `?photo=`, finds the same
+ * photos instead of a new draw; "Mélanger" is the only thing that redraws.
  */
 export default function RediscoverSection() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -92,8 +92,7 @@ export default function RediscoverSection() {
 
   return (
     <Section
-      title="Rediscover"
-      description="Photographs drawn at random from every album."
+      title="Redécouvrir"
       action={
         <Button
           variant="ghost"
@@ -103,14 +102,14 @@ export default function RediscoverSection() {
           onClick={draw}
           disabled={state.status === "loading"}
         >
-          Shuffle
+          Mélanger
         </Button>
       }
     >
       {state.status === "loading" && <JustifiedSkeleton count={12} />}
       {state.status === "error" && (
         <LoadError
-          title="The photos didn't come through"
+          title="Les photos n'ont pas pu être chargées"
           onRetry={draw}
           className="py-10"
         />
@@ -119,8 +118,12 @@ export default function RediscoverSection() {
         (photos.length === 0 ? (
           <EmptyState
             icon={ImageOff}
-            title="No photographs to show yet"
-            body="Once albums with photos have been synced from the bucket, a few of them will turn up here."
+            title="Aucune photo pour l'instant"
+            action={
+              <Button variant="secondary" icon={RotateCw} onClick={draw}>
+                Réessayer
+              </Button>
+            }
             className="py-10"
           />
         ) : (

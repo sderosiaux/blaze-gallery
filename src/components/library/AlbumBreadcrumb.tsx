@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { cn } from "@/lib/cn";
-import { albumTitle } from "./albumData";
+import { folderName } from "./albumData";
 
 interface Crumb {
   label: string;
@@ -16,7 +16,7 @@ function ancestorsOf(path: string): Crumb[] {
   const parts = path.split("/").filter(Boolean);
   return parts.slice(0, -1).map((_, i) => {
     const p = parts.slice(0, i + 1).join("/");
-    return { label: albumTitle(p), href: albumHref(p) };
+    return { label: folderName(p), href: albumHref(p) };
   });
 }
 
@@ -30,20 +30,21 @@ const linkClass =
   "block max-w-[9rem] truncate rounded-sm transition-colors duration-150 hover:text-ink sm:max-w-[14rem]";
 
 /**
- * Library and the ancestors of the open album; the album itself is the page
- * title. Deep chains keep the first and the last two, the middle folds into
- * an ellipsis that unfolds on click. On phones only the parent stays.
+ * Bibliothèque and the ancestors of the open folder, named exactly as in the
+ * bucket; the folder itself is the page title. Deep chains keep the first and
+ * the last two, the middle folds into an ellipsis that unfolds on click. On
+ * phones only the parent stays.
  */
 export default function AlbumBreadcrumb({ path }: { path: string }) {
   const [expanded, setExpanded] = useState(false);
   const ancestors = ancestorsOf(path);
-  const crumbs: Crumb[] = [{ label: "Library", href: "/" }, ...ancestors];
+  const crumbs: Crumb[] = [{ label: "Bibliothèque", href: "/" }, ...ancestors];
   const fold = !expanded && crumbs.length > 4;
   const hidden = fold ? crumbs.slice(2, -2) : [];
   const parentIndex = crumbs.length - 1;
 
   return (
-    <nav aria-label="Breadcrumb" className="animate-fade-in pt-6 sm:pt-8">
+    <nav aria-label="Fil d'Ariane" className="animate-fade-in pt-6 sm:pt-8">
       <ol
         className={cn(
           "flex min-w-0 items-center gap-1.5 text-sm text-ink-muted",
@@ -58,7 +59,7 @@ export default function AlbumBreadcrumb({ path }: { path: string }) {
                 <button
                   type="button"
                   onClick={() => setExpanded(true)}
-                  aria-label={`Show ${hidden.length} more: ${hidden.map((c) => c.label).join(", ")}`}
+                  aria-label={`Afficher ${hidden.map((c) => c.label).join(", ")}`}
                   title={hidden.map((c) => c.label).join(" / ")}
                   className="rounded-sm px-1 transition-colors duration-150 hover:text-ink"
                 >
@@ -68,7 +69,7 @@ export default function AlbumBreadcrumb({ path }: { path: string }) {
               </li>
             );
           }
-          // Phones keep Library and the parent; the rest collapses into "…".
+          // Phones keep Bibliothèque and the parent; the rest collapses into "…".
           const phoneHidden = i > 0 && i < parentIndex;
           return (
             <li

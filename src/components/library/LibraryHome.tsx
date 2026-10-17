@@ -1,24 +1,23 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FolderSearch } from "lucide-react";
+import { FolderSearch, RotateCw } from "lucide-react";
 import type { Folder } from "@/types";
 import { AlbumGrid } from "@/components/photos/AlbumCard";
-import {
-  EmptyState,
-  MetaDot,
-  PageHeader,
-  Section,
-  Skeleton,
-} from "@/components/ui";
+import { Button, EmptyState, Section, Skeleton } from "@/components/ui";
 import AlbumDropZone from "./AlbumDropZone";
 import { LoadError } from "./LoadError";
 import RecentlyVisited from "./RecentlyVisited";
 import RediscoverSection from "./RediscoverSection";
 import { AlbumGridSkeleton } from "./skeletons";
-import { ROOT_KEY, cached, loadRootAlbums } from "./albumData";
-import { useLibraryTotals, totalsLine } from "./useLibraryTotals";
+import {
+  ROOT_KEY,
+  cached,
+  cachedBucketName,
+  loadBucketName,
+  loadRootAlbums,
+} from "./albumData";
 
 type RootState =
   | { status: "loading" }
@@ -32,10 +31,10 @@ function initialState(): RootState {
     : { status: "loading" };
 }
 
-/** The cover of the library: what it holds, its albums, and a few photos to fall back into. */
+/** The bucket's top-level folders first, then a few photos to fall back into. */
 export default function LibraryHome() {
   const [root, setRoot] = useState<RootState>(initialState);
-  const totals = useLibraryTotals();
+  const [bucket, setBucket] = useState(cachedBucketName);
   const request = useRef<AbortController | null>(null);
 
   const load = useCallback(async (quiet: boolean) => {
@@ -58,39 +57,36 @@ export default function LibraryHome() {
     return () => request.current?.abort();
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    loadBucketName(controller.signal).then(
+      // A failed read keeps the name remembered from earlier in the session.
+      (name) => setBucket((shown) => name ?? shown ?? null),
+      () => {},
+    );
+    return () => controller.abort();
+  }, []);
+
   // Also on `?photo=` changes: Next puts the layout's title back when Back pops the viewer entry.
   const search = useSearchParams()?.toString();
   useEffect(() => {
-    document.title = "Library · Blaze";
+    document.title = "Bibliothèque · Blaze";
   }, [search]);
-
-  const line = totalsLine(totals);
 
   return (
     <AlbumDropZone target={null}>
-      <PageHeader
-        size="xl"
-        kicker="Family archive"
-        title="The library"
-        meta={
-          line === undefined ? (
-            <Skeleton className="h-4 w-72 max-w-full" />
-          ) : (
-            line.map((part, i) => (
-              <Fragment key={part}>
-                {i > 0 && <MetaDot />}
-                <span className="tabular">{part}</span>
-              </Fragment>
-            ))
-          )
-        }
-      />
+      <h1 className="sr-only">Bibliothèque</h1>
 
-      <Section title="Albums" className="pt-0 sm:pt-0">
+      <Section
+        title="Dossiers"
+        kicker={
+          bucket === undefined ? <Skeleton className="h-3 w-32" /> : bucket
+        }
+      >
         {root.status === "loading" && <AlbumGridSkeleton count={6} />}
         {root.status === "error" && (
           <LoadError
-            title="The albums didn't load"
+            title="Les dossiers n'ont pas pu être chargés"
             onRetry={() => load(false)}
             className="py-12"
           />
@@ -101,8 +97,16 @@ export default function LibraryHome() {
           ) : (
             <EmptyState
               icon={FolderSearch}
-              title="No albums yet"
-              body="Albums appear here once the bucket has been read. That runs on its own in the background; come back in a few minutes."
+              title="Aucun dossier pour l'instant"
+              action={
+                <Button
+                  variant="secondary"
+                  icon={RotateCw}
+                  onClick={() => load(false)}
+                >
+                  Réessayer
+                </Button>
+              }
               className="py-12"
             />
           ))}
@@ -110,8 +114,8 @@ export default function LibraryHome() {
 
       {/* Asked for at once: the root listing can take seconds on its own, and
           these are small JSON answers whose images load lazily below the fold. */}
-      <RecentlyVisited />
       <RediscoverSection />
+      <RecentlyVisited />
     </AlbumDropZone>
   );
 }
