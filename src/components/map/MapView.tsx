@@ -218,7 +218,7 @@ function addLayers(map: MapLibreMap) {
           16,
           ["+", 6, ["*", 22, ["get", "weight"]]],
         ],
-        "circle-color": tokenColor("chart-1", 0.7),
+        "circle-color": tokenColor("ink", 0.72),
         "circle-stroke-color": tokenColor("paper"),
         "circle-stroke-width": 1,
         "circle-opacity": [
