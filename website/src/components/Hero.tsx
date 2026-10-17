@@ -144,8 +144,15 @@ function Transformation() {
                     return (
                       <div
                         key={p.file}
-                        className="relative overflow-hidden rounded-[3px] bg-sunken"
-                        style={{ flexGrow: ratio, flexBasis: 0, aspectRatio: `${ratio}` }}
+                        className="relative overflow-hidden rounded-[3px] bg-sunken transition-opacity duration-300"
+                        // The tile leaves with its photo: its grey placeholder must not sit over the listing
+                        style={{
+                          flexGrow: ratio,
+                          flexBasis: 0,
+                          aspectRatio: `${ratio}`,
+                          opacity: album ? 1 : 0,
+                          transitionDelay: album ? `${200 + p.i * 70}ms` : '0ms',
+                        }}
                       >
                         <img
                           src={asset(p.src)}
