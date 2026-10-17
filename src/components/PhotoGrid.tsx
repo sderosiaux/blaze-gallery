@@ -73,7 +73,17 @@ export default function PhotoGrid({
         .filter((p) => !deleted.has(String(p.id)))
         .map((p) => {
           const local = changes.get(String(p.id));
-          return local ? { ...p, is_favorite: local.is_favorite } : p;
+          // Only what can change here: the favourite flag and a hand rotation.
+          if (!local) return p;
+          const rotation = local.metadata?.user_rotation;
+          return {
+            ...p,
+            is_favorite: local.is_favorite,
+            metadata:
+              p.metadata && rotation !== undefined
+                ? { ...p.metadata, user_rotation: rotation }
+                : p.metadata,
+          };
         }),
     [photos, changes, deleted],
   );
