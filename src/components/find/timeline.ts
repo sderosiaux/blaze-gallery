@@ -51,6 +51,29 @@ export function monthLabel(key: string): string {
   return formatDay(`${key}-01T00:00:00.000Z`, "month");
 }
 
+/** Cursor for "everything taken before this month ends" ("YYYY-MM"). */
+export function endOfMonthCursor(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y ?? 1970, m ?? 12, 1)).toISOString();
+}
+
+/** Months with photos in one year, newest first like the timeline. */
+export function monthsOfYear(months: MonthCount[], year: number): string[] {
+  const prefix = `${year}-`;
+  return months
+    .map(({ month }) => month)
+    .filter((month) => month.startsWith(prefix))
+    .sort((a, b) => b.localeCompare(a));
+}
+
+/** "juil." — short enough for the rail under its year. */
+export function shortMonthLabel(key: string): string {
+  return new Date(`${key}-01T00:00:00.000Z`).toLocaleDateString("fr-FR", {
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
 /** Cursor for "everything taken before this year ends", accepted by `before`. */
 export function endOfYearCursor(year: number): string {
   return new Date(Date.UTC(year + 1, 0, 1)).toISOString();

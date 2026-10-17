@@ -29,10 +29,13 @@ import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import {
+  endOfMonthCursor,
   endOfYearCursor,
   fetchTimelineSummary,
   groupByMonth,
+  monthsOfYear,
   yearsOf,
+  type MonthCount,
   type MonthGroup,
   type TimelinePhoto,
 } from "@/components/find/timeline";
@@ -80,12 +83,20 @@ function unseen(seen: Set<string>, photos: TimelinePhoto[]) {
 
 function TimelineContent() {
   const toast = useToast();
-  const yearParam = useSearchParams().get("year") ?? null;
-  const startYear =
-    yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
+  const params = useSearchParams();
+  const yearParam = params.get("year") ?? null;
+  const monthParam = params.get("month") ?? null;
+  const startMonth =
+    monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : null;
+  const startYear = startMonth
+    ? Number(startMonth.slice(0, 4))
+    : yearParam && /^\d{4}$/.test(yearParam)
+      ? Number(yearParam)
+      : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
 
   const [years, setYears] = useState<number[]>([]);
+  const [summaryMonths, setSummaryMonths] = useState<MonthCount[]>([]);
   const [feed, setFeed] = useState<Feed>({
     items: [],
     cursor: null,
@@ -102,6 +113,7 @@ function TimelineContent() {
     fetchTimelineSummary(controller.signal)
       .then((summary) => {
         setYears(yearsOf(summary.months));
+        setSummaryMonths(summary.months);
       })
       // The year index is an extra: the months still show without it.
       .catch(() => {
@@ -118,7 +130,14 @@ function TimelineContent() {
     inFlight.current = controller;
     seen.current = new Set();
     setFeed({ items: [], cursor: null, phase: "loading" });
-    fetchPage(startYear ? endOfYearCursor(startYear) : null, controller.signal)
+    fetchPage(
+      startMonth
+        ? endOfMonthCursor(startMonth)
+        : startYear
+          ? endOfYearCursor(startYear)
+          : null,
+      controller.signal,
+    )
       .then(({ photos, next }) => {
         setFeed({
           items: unseen(seen.current, photos),
@@ -136,7 +155,7 @@ function TimelineContent() {
     return () => {
       controller.abort();
     };
-  }, [startYear, attempt]);
+  }, [startYear, startMonth, attempt]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -236,6 +255,25 @@ function TimelineContent() {
       );
     },
     [years],
+  );
+
+  const jumpMonth = useCallback((month: string) => {
+    const section = document.querySelector<HTMLElement>(
+      `[data-month="${month}"]`,
+    );
+    if (section) {
+      section.scrollIntoView({ block: "start" });
+      return;
+    }
+    // Not loaded yet: start the list at that month.
+    window.scrollTo({ top: 0 });
+    setActiveMonth(month);
+    window.history.pushState(null, "", `/timeline?month=${month}`);
+  }, []);
+
+  const activeYearMonths = useMemo(
+    () => (activeYear === null ? [] : monthsOfYear(summaryMonths, activeYear)),
+    [summaryMonths, activeYear],
   );
 
   const patch = useCallback((id: Photo["id"], changes: Partial<Photo>) => {
@@ -422,12 +460,26 @@ function TimelineContent() {
         </div>
 
         {years.length > 1 && (
-          <YearRail years={years} active={activeYear} onJump={jump} />
+          <YearRail
+            years={years}
+            active={activeYear}
+            activeYearMonths={activeYearMonths}
+            activeMonth={activeMonth}
+            onJump={jump}
+            onJumpMonth={jumpMonth}
+          />
         )}
       </div>
 
       {years.length > 1 && (
-        <YearPicker years={years} active={activeYear} onJump={jump} />
+        <YearPicker
+          years={years}
+          active={activeYear}
+          activeYearMonths={activeYearMonths}
+          activeMonth={activeMonth}
+          onJump={jump}
+          onJumpMonth={jumpMonth}
+        />
       )}
 
       {selected && (
