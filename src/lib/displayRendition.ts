@@ -268,22 +268,27 @@ function renderOnce(
 ): Promise<Buffer> {
   const running = inflight.get(key);
   if (running) return running;
-  const rendered = withRenderSlot(() => render(photo, rotation, request));
+  // Stored before answering: a serverless function may be frozen as soon as
+  // its response is sent, and a write left running then never lands. Only
+  // the first view of a photo pays for it. A failed write is logged and only
+  // costs a render next time; render failures are the caller's to report.
+  const rendered = withRenderSlot(() => render(photo, rotation, request)).then(
+    async (buffer) => {
+      try {
+        await store(key, buffer);
+      } catch (error) {
+        logger.warn(
+          "Display rendition not stored",
+          { photoId: photo.id, key },
+          error instanceof Error ? error : undefined,
+        );
+      }
+      return buffer;
+    },
+  );
   inflight.set(key, rendered);
-  // Fire-and-forget: the response doesn't wait for storage. Render failures
-  // are the caller's to report; a failed write only costs a render next time.
   void rendered
-    .then(
-      (buffer) => store(key, buffer),
-      () => undefined,
-    )
-    .catch((error: unknown) => {
-      logger.warn(
-        "Display rendition not stored",
-        { photoId: photo.id, key },
-        error instanceof Error ? error : undefined,
-      );
-    })
+    .catch(() => undefined)
     .finally(() => {
       inflight.delete(key);
     });
