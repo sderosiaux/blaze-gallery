@@ -13,6 +13,7 @@ interface SummaryRow {
   p95_duration_ms: number | null;
   total_bytes: number;
   estimated_cost_usd: number | null;
+  first_request_at: Date | null;
 }
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         AVG(duration_ms)::float8 AS avg_duration_ms,
         PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_duration_ms,
         COALESCE(SUM(bytes_transferred), 0)::float8 AS total_bytes,
-        SUM(estimated_cost_usd)::float8 AS estimated_cost_usd
+        SUM(estimated_cost_usd)::float8 AS estimated_cost_usd,
+        MIN(timestamp) AS first_request_at
       FROM s3_audit_logs ${whereClause}
     `,
       params,
@@ -75,6 +77,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       p95_duration_ms: row.p95_duration_ms,
       total_bytes: row.total_bytes,
       estimated_cost_usd: row.estimated_cost_usd,
+      first_request_at: row.first_request_at?.toISOString() ?? null,
     };
 
     return NextResponse.json({ success: true, data: summary });

@@ -228,7 +228,8 @@ function TimelineContent() {
       // Not loaded yet: start the list at that year instead of paging down to it.
       window.scrollTo({ top: 0 });
       setActiveMonth(`${year}-12`);
-      window.history.replaceState(
+      // pushState: Back returns to where the jump started, not out of the page.
+      window.history.pushState(
         null,
         "",
         years[0] === year ? "/timeline" : `/timeline?year=${year}`,

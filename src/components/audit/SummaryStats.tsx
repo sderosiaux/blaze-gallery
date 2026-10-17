@@ -26,12 +26,14 @@ interface SummaryStatsProps {
   error: string | null;
   onRetry: () => void;
   range: TimeRange;
+  /** Time actually covered by the log within the range, in ms. */
+  coveredMs: number;
 }
 
 const band = "grid grid-cols-2 gap-x-6 gap-y-8 border-y border-line py-6";
 
-function perHour(total: number, range: TimeRange) {
-  return total / (range.ms / 3_600_000);
+function perHour(total: number, coveredMs: number) {
+  return total / Math.max(coveredMs / 3_600_000, 1);
 }
 
 export function SummaryStats({
@@ -40,6 +42,7 @@ export function SummaryStats({
   error,
   onRetry,
   range,
+  coveredMs,
 }: SummaryStatsProps) {
   if (error) {
     return (
@@ -74,7 +77,8 @@ export function SummaryStats({
   const look = errorRateLook(summary.error_rate, summary.total_requests);
   const cost = summary.estimated_cost_usd;
   const hasCost = cost != null;
-  const hourly = perHour(summary.total_requests, range);
+  // Averaged over the hours the log actually covers, not the whole range.
+  const hourly = perHour(summary.total_requests, coveredMs);
 
   return (
     <div

@@ -16,6 +16,9 @@ export type Priority = 0 | 1;
 // four of them, never all: previews keep moving while originals are read.
 const TOTAL_LIMIT = 6;
 const LANE_LIMITS: Record<Lane, number> = { fast: 6, slow: 4 };
+/** Generations started for tiles not yet in view. */
+const AHEAD_SLOW_LIMIT = 2;
+let runningAhead = 0;
 
 interface Job {
   url: string;
@@ -55,6 +58,14 @@ function pump() {
     let best: Job | undefined;
     for (const job of queue) {
       if (job.started || running[job.lane] >= LANE_LIMITS[job.lane]) continue;
+      // Generations for the next screen never take the slots the visible
+      // tiles need.
+      if (
+        job.lane === "slow" &&
+        job.priority === 1 &&
+        runningAhead >= AHEAD_SLOW_LIMIT
+      )
+        continue;
       if (!best || better(job, best)) best = job;
     }
     if (!best) return;
@@ -71,6 +82,8 @@ function remove(job: Job) {
 async function start(job: Job) {
   job.started = true;
   running[job.lane]++;
+  const ahead = job.lane === "slow" && job.priority === 1;
+  if (ahead) runningAhead++;
   try {
     const response = await fetch(job.url, { signal: job.controller.signal });
     if (!response.ok) {
@@ -86,6 +99,7 @@ async function start(job: Job) {
     });
   } finally {
     running[job.lane]--;
+    if (ahead) runningAhead--;
     remove(job);
     pump();
   }
@@ -123,6 +137,9 @@ export function requestImage(
     },
     cancel() {
       if (job.started) {
+        // A generation already under way is let through: the server stores
+        // the thumbnail and the browser caches it, so the next look is free.
+        if (job.lane === "slow") return;
         job.controller.abort();
       } else {
         remove(job);

@@ -77,6 +77,9 @@ const ADMIN_NAV: NavLinkItem[] = [
   },
 ];
 
+/** Set once the shell has rendered a first page in this tab. */
+let shellHasRendered = false;
+
 const ADMIN_OPEN_KEY = "blaze:admin-nav-open";
 
 function isTypingTarget(target: EventTarget | null) {
@@ -462,6 +465,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname, setMobileNavOpen]);
 
+  // A client-side navigation leaves focus on <body>: move it to the new
+  // content so Tab continues from there, not from the skip link and sidebar.
+  // Each page renders its own AppLayout, so "not the first page" is tracked
+  // at module level; the first load keeps the browser's default focus.
+  useEffect(() => {
+    if (shellHasRendered) {
+      document.getElementById("main")?.focus({ preventScroll: true });
+    }
+    shellHasRendered = true;
+  }, [pathname]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -480,14 +494,50 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, [toggleSidebar]);
 
+  // The drawer is a modal: focus goes in, stays in, and returns to the menu
+  // button when it closes.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!mobileNavOpen) return;
+    const panel = drawerRef.current;
+    const focusables = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    const frame = requestAnimationFrame(() => {
+      panel?.querySelector<HTMLElement>("nav a[href]")?.focus();
+    });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileNavOpen(false);
+      if (e.key === "Escape") {
+        setMobileNavOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
+    const menuButton = menuButtonRef.current;
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKey);
+      // After a navigation the new page already has focus; otherwise
+      // (Escape, close button, scrim) it goes back to the menu button.
+      const active = document.activeElement;
+      if (active === document.body || (active && panel?.contains(active)))
+        menuButton?.focus({ preventScroll: true });
     };
   }, [mobileNavOpen, setMobileNavOpen]);
 
@@ -543,6 +593,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         />
         <div
+          ref={drawerRef}
           role="dialog"
           aria-modal={mobileNavOpen || undefined}
           aria-label="Menu"
@@ -584,6 +635,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         >
           <IconButton
+            ref={menuButtonRef}
             icon={Menu}
             label="Ouvrir le menu"
             className="-ml-1 lg:hidden"

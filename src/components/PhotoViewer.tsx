@@ -102,6 +102,8 @@ export default function PhotoViewer({
   const nav = usePhotoNavigation(photo, photos, onPhotoChange);
   const current = nav.current;
   const currentId = String(current.id);
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
   const shared = isSharedView && shareToken ? shareToken : undefined;
   const session = shared ? sessionToken : undefined;
   const sources = useMemo(
@@ -359,8 +361,25 @@ export default function PhotoViewer({
     return () => {
       document.removeEventListener("focusin", onFocusIn);
       document.body.style.overflow = overflow;
-      if (opener?.isConnected && opener !== document.body)
-        opener.focus({ preventScroll: true });
+      // Back on the photo that was being looked at, not the one that opened
+      // the viewer: it may be screens further down the grid. Deferred two
+      // frames so it lands after the history traversal restored the scroll.
+      const shownId = currentIdRef.current;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const tile = document.querySelector<HTMLElement>(
+            `[data-photo-id="${CSS.escape(shownId)}"]`,
+          );
+          if (tile) {
+            const box = tile.getBoundingClientRect();
+            if (box.bottom < 0 || box.top > window.innerHeight)
+              tile.scrollIntoView({ block: "center" });
+            tile.focus({ preventScroll: true });
+          } else if (opener?.isConnected && opener !== document.body) {
+            opener.focus({ preventScroll: true });
+          }
+        }),
+      );
     };
   }, [mounted]);
 

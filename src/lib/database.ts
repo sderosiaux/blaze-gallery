@@ -344,9 +344,16 @@ async function listFolders(
   }));
 }
 
+// Byte order put "Londres" far from "londres2018" and "Mariage" before
+// "anniv isa"; names are left untouched, only the order follows French.
+const folderNameOrder = new Intl.Collator("fr", {
+  numeric: true,
+  sensitivity: "base",
+});
+
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
   const isRoot = parentPath === undefined || parentPath === "";
-  return isRoot
+  const folders = await (isRoot
     ? listFolders(
         "SELECT f.* FROM folders f WHERE f.parent_id IS NULL",
         "s.name",
@@ -356,7 +363,8 @@ export async function getFolders(parentPath?: string): Promise<Folder[]> {
         "SELECT f.* FROM folders f WHERE f.parent_id = (SELECT id FROM folders WHERE path = $1)",
         "s.name",
         [parentPath],
-      );
+      ));
+  return [...folders].sort((a, b) => folderNameOrder.compare(a.name, b.name));
 }
 
 /**

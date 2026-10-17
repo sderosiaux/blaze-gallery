@@ -116,6 +116,7 @@ function PhotoTile({
           onOpen(photo);
         }}
         aria-label={label}
+        data-photo-id={String(photo.id)}
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
 

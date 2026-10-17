@@ -116,7 +116,10 @@ export default function ProgressiveImage({
     thumbReady || !wantsPreview || previewMissing || previewSoft;
   // Generations download originals: only for tiles actually looked at.
   const thumbLane: Lane = thumbReady ? "fast" : "slow";
-  const mayLoadThumb = thumbLane === "fast" ? near : visible && dwelled;
+  // Visible tiles generate first; the next screen is prepared behind them
+  // (the scheduler keeps it to two generations at a time).
+  const mayLoadThumb =
+    thumbLane === "fast" ? near : (visible && dwelled) || (near && !visible);
 
   useEffect(() => {
     if (

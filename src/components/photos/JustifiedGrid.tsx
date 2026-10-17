@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+// Measures before the first paint in the browser; useLayoutEffect warns on the server.
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 import type { Photo } from "@/types";
 import { aspectRatio } from "@/lib/albums";
 
@@ -99,9 +103,12 @@ export default function JustifiedGrid({
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
+  // The first width is read before paint, so rows exist on the first frame
+  // instead of collapsing to zero height and pushing the page down.
+  useIsomorphicLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    setWidth(Math.floor(el.getBoundingClientRect().width));
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
       const next = Math.floor(entry.contentRect.width);

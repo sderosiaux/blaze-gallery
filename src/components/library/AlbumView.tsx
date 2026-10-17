@@ -16,7 +16,6 @@ import {
 import {
   albumDateLabel,
   formatCount,
-  formatDateRange,
   isVideo,
   parseAlbumName,
 } from "@/lib/albums";
@@ -203,11 +202,8 @@ function AlbumContents({
     date_from: span.from ?? null,
     date_to: span.to ?? null,
   });
-  // Only when the photos say more than the name, e.g. a trip that began two days earlier.
-  const range = formatDateRange(span.from, span.to);
-
+  // One date per folder: the kicker. A second range under it read as noise.
   const meta = [
-    range && range !== kicker && range,
     subfolders.length > 0 && formatCount(subfolders.length, "dossier"),
     photos.length - videos > 0 && formatCount(photos.length - videos, "photo"),
     videos > 0 && formatCount(videos, "vidéo"),
