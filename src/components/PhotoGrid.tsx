@@ -126,6 +126,7 @@ export default function PhotoGrid({
             width={size.width}
             height={size.height}
             eager={index < eagerCount}
+            order={index}
             shareToken={isSharedView ? shareToken : undefined}
             onOpen={open}
             onToggleFavorite={isSharedView ? undefined : toggleFavorite}

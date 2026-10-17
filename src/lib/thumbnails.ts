@@ -18,7 +18,9 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import { updatePhotoThumbnail } from "./database";
+import { setPhotoDimensions, updatePhotoThumbnail } from "./database";
+import { orientJpeg } from "./imageProbe";
+import { extractEmbeddedJpeg, isRawKey } from "./rawPreview";
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { ThumbnailOptions, ThumbnailStats } from "@/types/common";
@@ -257,6 +259,26 @@ export class ThumbnailService {
     return allObjects;
   }
 
+  private async downloadOriginal(
+    bucket: string,
+    s3Key: string,
+    request?: Request,
+  ): Promise<Buffer> {
+    const stream = await getObjectStream(bucket, s3Key, request);
+    if (!stream || typeof stream !== "object" || !("on" in stream)) {
+      throw new Error("Failed to get object stream from S3");
+    }
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      (stream as any).on("data", (chunk: Buffer) =>
+        chunks.push(Buffer.from(chunk)),
+      );
+      (stream as any).on("end", () => resolve());
+      (stream as any).on("error", (error: Error) => reject(error));
+    });
+    return Buffer.concat(chunks);
+  }
+
   async generateThumbnail(params: GenerateThumbnailParams): Promise<string> {
     const {
       bucket,
@@ -286,8 +308,40 @@ export class ThumbnailService {
       // Continue with generation attempt after logging
     }
 
+    // RAW files are read through their embedded JPEG, which costs ~1 MB
+    // whatever the file size, so the size threshold does not apply to them.
+    const raw = isRawKey(s3Key);
+    let rawInput: Buffer | undefined;
+    if (raw) {
+      try {
+        const { getObjectRange } = await import("./s3");
+        const embedded = await extractEmbeddedJpeg((start, end) =>
+          getObjectRange(bucket, s3Key, start, end, request),
+        );
+        if (embedded) {
+          rawInput = await orientJpeg(embedded.jpeg, embedded.orientation);
+          if (embedded.width && embedded.height) {
+            const swap = (embedded.orientation ?? 1) >= 5;
+            await setPhotoDimensions(photoId, {
+              width: swap ? embedded.height : embedded.width,
+              height: swap ? embedded.width : embedded.height,
+            });
+          }
+        }
+      } catch (error) {
+        logger.thumbnailError(
+          "Embedded RAW preview unreadable",
+          error as Error,
+          {
+            photoId,
+            s3Key,
+          },
+        );
+      }
+    }
+
     // Check size threshold unless bypassed
-    if (!bypassSizeCheck) {
+    if (!bypassSizeCheck && !rawInput) {
       const { getPhoto } = await import("./database");
 
       const config = getConfig();
@@ -324,32 +378,12 @@ export class ThumbnailService {
         `[THUMBNAIL] Generating thumbnail for ${filename} (ID: ${photoId})`,
       );
 
-      const stream = await getObjectStream(bucket, s3Key, request);
-      if (!stream) {
-        throw new Error("Failed to get object stream from S3");
-      }
+      const inputBuffer =
+        rawInput ?? (await this.downloadOriginal(bucket, s3Key, request));
 
-      const chunks: Buffer[] = [];
-
-      await new Promise<void>((resolve, reject) => {
-        if (stream && typeof stream === "object" && "on" in stream) {
-          (stream as any).on("data", (chunk: Buffer) => {
-            chunks.push(Buffer.from(chunk));
-          });
-          (stream as any).on("end", () => {
-            resolve();
-          });
-          (stream as any).on("error", (error: Error) => {
-            reject(error);
-          });
-        } else {
-          reject(new Error("Invalid stream type from S3"));
-        }
-      });
-
-      const inputBuffer = Buffer.concat(chunks);
-
+      // rotate() applies EXIF orientation; without it portrait photos came out lying down
       const thumbnailBuffer = await sharp(inputBuffer)
+        .rotate()
         .resize(opts.width, opts.height, {
           fit: "inside",
           withoutEnlargement: true,

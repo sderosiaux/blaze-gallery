@@ -2,28 +2,40 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import {
+  observeVisibility,
+  requestImage,
+  type ImageRequest,
+  type Lane,
+  type Priority,
+} from "./imageScheduler";
 
 interface ProgressiveImageProps {
-  /** Embedded EXIF preview: a few KB, fast, sometimes small. */
+  /** Embedded EXIF preview: a few KB, fast, sometimes small. Omit when the file has none (RAW). */
   previewSrc?: string;
-  /** Generated thumbnail: sharp, but costs a full original download the first time. */
+  /** Generated thumbnail: sharp, but may cost a generation the first time. */
   thumbSrc: string;
   /** The thumbnail already exists, so the preview step is pure overhead. */
   thumbReady?: boolean;
   /** Rendered width in CSS px, used to decide whether the preview is sharp enough. */
   displayWidth: number;
   alt: string;
+  /** Load before the tile is observed in view (first screen). */
   eager?: boolean;
+  /** Reading order on the page: lower loads first among tiles of equal visibility. */
+  order?: number;
   className?: string;
   onFailed?: () => void;
 }
 
-type Stage = "preview" | "thumb" | "failed";
+/** Wait this long in view before paying for a thumbnail generation, so fast scrolling costs nothing. */
+const GENERATION_DWELL_MS = 250;
 
 /**
- * Shows the EXIF preview at once and only pays for the generated thumbnail
- * when the preview would look soft at this size. A soft preview stays slightly
- * blurred until the sharp one has decoded, then the sharp one fades in on top.
+ * Shows the EXIF preview first and only asks for the thumbnail when the
+ * preview would look soft at this size, or when there is no preview. All
+ * requests go through the page-wide scheduler: in-view tiles first, then the
+ * next screen, in reading order; anything that scrolls away is cancelled.
  */
 export default function ProgressiveImage({
   previewSrc,
@@ -32,53 +44,143 @@ export default function ProgressiveImage({
   displayWidth,
   alt,
   eager = false,
+  order = 0,
   className,
   onFailed,
 }: ProgressiveImageProps) {
-  const [stage, setStage] = useState<Stage>(
-    thumbReady || !previewSrc ? "thumb" : "preview",
-  );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(eager);
+  const [visible, setVisible] = useState(eager);
+  const [dwelled, setDwelled] = useState(eager);
+
+  const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
+  const [previewMissing, setPreviewMissing] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewSoft, setPreviewSoft] = useState(false);
+
+  const [thumbObjectUrl, setThumbObjectUrl] = useState<string | null>(null);
+  const [thumbFailed, setThumbFailed] = useState(false);
   const [thumbLoaded, setThumbLoaded] = useState(false);
-  // Generating a thumbnail downloads the whole original. Native lazy loading
-  // starts screens ahead, so that cost is only paid for tiles about to be seen.
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [nearViewport, setNearViewport] = useState(eager);
 
-  useEffect(() => {
-    if (nearViewport || thumbReady) return;
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setNearViewport(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "300px 0px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [nearViewport, thumbReady]);
+  const priority: Priority = visible ? 0 : 1;
+  const priorityRef = useRef(priority);
+  priorityRef.current = priority;
+  const previewJob = useRef<ImageRequest | null>(null);
+  const thumbJob = useRef<ImageRequest | null>(null);
 
-  // Reset only when the photo changes. Running this on mount would undo an
-  // onLoad that a cached image already fired, leaving it invisible.
+  // A new photo in the same tile starts over.
   const sourceKey = `${previewSrc}|${thumbSrc}|${thumbReady}`;
   const lastSourceKey = useRef(sourceKey);
   useEffect(() => {
     if (lastSourceKey.current === sourceKey) return;
     lastSourceKey.current = sourceKey;
-    setStage(thumbReady || !previewSrc ? "thumb" : "preview");
+    setPreviewObjectUrl(null);
+    setPreviewMissing(false);
     setPreviewLoaded(false);
     setPreviewSoft(false);
+    setThumbObjectUrl(null);
+    setThumbFailed(false);
     setThumbLoaded(false);
-  }, [sourceKey, thumbReady, previewSrc]);
+  }, [sourceKey]);
 
   useEffect(() => {
-    if (stage === "failed") onFailed?.();
-  }, [stage, onFailed]);
+    const el = rootRef.current;
+    if (!el) return;
+    return observeVisibility(el, (state) => {
+      setNear(state.near || eager);
+      setVisible(state.visible);
+    });
+  }, [eager]);
+
+  useEffect(() => {
+    if (!visible) {
+      setDwelled(eager);
+      return;
+    }
+    const timer = setTimeout(() => setDwelled(true), GENERATION_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [visible, eager]);
+
+  // Keep queued work ordered as the tile moves in and out of view.
+  useEffect(() => {
+    previewJob.current?.setPriority(priority);
+    thumbJob.current?.setPriority(priority);
+  }, [priority]);
+
+  const wantsPreview = Boolean(previewSrc) && !thumbReady;
+  const needsThumb =
+    thumbReady || !wantsPreview || previewMissing || previewSoft;
+  // Generations download originals: only for tiles actually looked at.
+  const thumbLane: Lane = thumbReady ? "fast" : "slow";
+  const mayLoadThumb = thumbLane === "fast" ? near : visible && dwelled;
+
+  useEffect(() => {
+    if (!near || !wantsPreview || previewObjectUrl || previewMissing) return;
+    const job = requestImage(previewSrc!, "fast", priorityRef.current, order);
+    previewJob.current = job;
+    let active = true;
+    job.promise.then((result) => {
+      if (!active) {
+        if (result.ok) URL.revokeObjectURL(result.objectUrl);
+        return;
+      }
+      if (result.ok) setPreviewObjectUrl(result.objectUrl);
+      else if (result.status !== "aborted") setPreviewMissing(true);
+    });
+    return () => {
+      active = false;
+      job.cancel();
+      previewJob.current = null;
+    };
+  }, [near, wantsPreview, previewSrc, previewObjectUrl, previewMissing, order]);
+
+  useEffect(() => {
+    if (!mayLoadThumb || !needsThumb || thumbObjectUrl || thumbFailed) return;
+    const job = requestImage(thumbSrc, thumbLane, priorityRef.current, order);
+    thumbJob.current = job;
+    let active = true;
+    job.promise.then((result) => {
+      if (!active) {
+        if (result.ok) URL.revokeObjectURL(result.objectUrl);
+        return;
+      }
+      if (result.ok) setThumbObjectUrl(result.objectUrl);
+      else if (result.status !== "aborted") setThumbFailed(true);
+    });
+    return () => {
+      active = false;
+      job.cancel();
+      thumbJob.current = null;
+    };
+  }, [
+    mayLoadThumb,
+    needsThumb,
+    thumbSrc,
+    thumbLane,
+    thumbObjectUrl,
+    thumbFailed,
+    order,
+  ]);
+
+  // Object URLs hold the blobs: release them with the tile.
+  useEffect(
+    () => () => {
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    },
+    [previewObjectUrl],
+  );
+  useEffect(
+    () => () => {
+      if (thumbObjectUrl) URL.revokeObjectURL(thumbObjectUrl);
+    },
+    [thumbObjectUrl],
+  );
+
+  const failed =
+    thumbFailed && (!wantsPreview || previewMissing || !previewObjectUrl);
+  useEffect(() => {
+    if (failed) onFailed?.();
+  }, [failed, onFailed]);
 
   const onPreviewLoad = useCallback(
     (img: HTMLImageElement) => {
@@ -86,30 +188,13 @@ export default function ProgressiveImage({
         typeof window === "undefined"
           ? 1
           : Math.min(window.devicePixelRatio || 1, 2);
+      setPreviewLoaded(true);
       // Letterboxed 4:3 previews of 16:9 shots need no special case: object-cover
       // crops exactly the bars away in a 16:9 tile.
-      setPreviewLoaded(true);
-      if (img.naturalWidth < displayWidth * dpr * 0.7) {
-        setPreviewSoft(true);
-        setStage("thumb");
-      }
+      if (img.naturalWidth < displayWidth * dpr * 0.7) setPreviewSoft(true);
     },
     [displayWidth],
   );
-
-  const showThumb = stage === "thumb" && (thumbReady || nearViewport);
-
-  // An image served from cache can finish before React attaches onLoad.
-  const previewRef = useRef<HTMLImageElement>(null);
-  const thumbRef = useRef<HTMLImageElement>(null);
-  useEffect(() => {
-    const preview = previewRef.current;
-    if (preview?.complete && preview.naturalWidth > 0 && !previewLoaded)
-      onPreviewLoad(preview);
-    const thumb = thumbRef.current;
-    if (thumb?.complete && thumb.naturalWidth > 0 && !thumbLoaded)
-      setThumbLoaded(true);
-  }, [sourceKey, stage, showThumb, previewLoaded, thumbLoaded, onPreviewLoad]);
 
   return (
     <div
@@ -119,17 +204,15 @@ export default function ProgressiveImage({
         className,
       )}
     >
-      {previewSrc && stage !== "failed" && !thumbReady && (
-        // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
+      {previewObjectUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- blob of an image already sized by the API
         <img
-          ref={previewRef}
-          src={previewSrc}
-          alt={showThumb && thumbLoaded ? "" : alt}
-          loading={eager ? "eager" : "lazy"}
+          src={previewObjectUrl}
+          data-src={previewSrc}
+          alt={thumbLoaded ? "" : alt}
           decoding="async"
           draggable={false}
           onLoad={(e) => onPreviewLoad(e.currentTarget)}
-          onError={() => setStage((s) => (s === "preview" ? "thumb" : s))}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-[opacity,filter,transform] duration-500 ease-out-soft",
             previewLoaded ? "opacity-100" : "opacity-0",
@@ -137,17 +220,15 @@ export default function ProgressiveImage({
           )}
         />
       )}
-      {showThumb && (
-        // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
+      {thumbObjectUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- blob of an image already sized by the API
         <img
-          ref={thumbRef}
-          src={thumbSrc}
+          src={thumbObjectUrl}
+          data-src={thumbSrc}
           alt={alt}
-          loading={eager ? "eager" : "lazy"}
           decoding="async"
           draggable={false}
           onLoad={() => setThumbLoaded(true)}
-          onError={() => setStage(previewLoaded ? "preview" : "failed")}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ease-out-soft",
             thumbLoaded ? "opacity-100" : "opacity-0",

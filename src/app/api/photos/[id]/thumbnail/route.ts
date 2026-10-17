@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { THUMBNAIL_VERSION } from "@/lib/photoUrls";
 import { getPhoto } from "@/lib/database";
 import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
@@ -62,7 +63,7 @@ export const GET = requireAuth(async function GET(
 
     // Check conditional requests for cached thumbnails
     const ifNoneMatch = request.headers.get("if-none-match");
-    const etag = `"thumb-${photo.id}-${photo.modified_at}"`;
+    const etag = `"thumb-v${THUMBNAIL_VERSION}-${photo.id}-${photo.modified_at}"`;
 
     if (ifNoneMatch === etag) {
       return new NextResponse(null, {

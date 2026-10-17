@@ -1,6 +1,7 @@
 import { Pool, PoolClient, QueryResult, types } from "pg";
 import { Folder, Photo, Config, PhotoMetadata } from "@/types";
 import * as crypto from "crypto";
+import { thumbnailUrl } from "./photoUrls";
 import {
   CreatePhotoData,
   CreateFolderData,
@@ -57,7 +58,7 @@ function normalizePhoto(dbPhoto: DatabasePhoto): Photo {
   return {
     ...dbPhoto,
     is_favorite: Boolean(dbPhoto.is_favorite),
-    thumbnail_url: `/api/photos/${dbPhoto.id}/thumbnail`,
+    thumbnail_url: thumbnailUrl(dbPhoto.id),
     metadata: dbPhoto.metadata,
   } as Photo;
 }
@@ -636,6 +637,22 @@ export async function fillPhotoMetadataIfMissing(
     [metadata, photoId],
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+/**
+ * RAW files report the 160×120 strip of IFD0 as their size until the sensor
+ * size is read from their larger IFDs; this corrects it (display-oriented).
+ */
+export async function setPhotoDimensions(
+  photoId: number,
+  dimensions: { width: number; height: number },
+): Promise<void> {
+  await query(
+    `UPDATE photos
+     SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{dimensions}', $1::jsonb)
+     WHERE id = $2`,
+    [JSON.stringify(dimensions), photoId],
+  );
 }
 
 export interface TimelineCursor {

@@ -7,6 +7,7 @@ import ProgressiveImage from "./ProgressiveImage";
 import { formatDay, isVideo } from "@/lib/albums";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -23,13 +24,10 @@ const RAW_EXTENSIONS = [
 ];
 
 export function photoSources(photo: Photo, shareToken?: string) {
-  const id = String(photo.id);
-  return shareToken
-    ? {
-        preview: `/api/shares/${shareToken}/preview/${id}`,
-        thumb: `/api/shares/${shareToken}/thumbnail/${id}`,
-      }
-    : { preview: `/api/photos/${id}/preview`, thumb: photo.thumbnail_url };
+  return {
+    preview: previewUrl(photo.id, shareToken),
+    thumb: thumbnailUrl(photo.id, shareToken),
+  };
 }
 
 interface PhotoTileProps {
@@ -37,6 +35,8 @@ interface PhotoTileProps {
   width: number;
   height: number;
   eager?: boolean;
+  /** Position in the grid: tiles load in reading order. */
+  order?: number;
   shareToken?: string;
   onOpen: (photo: Photo) => void;
   onToggleFavorite?: (photo: Photo) => void;
@@ -47,6 +47,7 @@ function PhotoTile({
   width,
   height,
   eager,
+  order,
   shareToken,
   onOpen,
   onToggleFavorite,
@@ -89,12 +90,14 @@ function PhotoTile({
         </div>
       ) : (
         <ProgressiveImage
-          previewSrc={sources.preview}
+          // RAW files carry no EXIF preview: asking for one only costs a round trip
+          previewSrc={isRaw ? undefined : sources.preview}
           thumbSrc={sources.thumb}
           thumbReady={photo.thumbnail_status === "generated"}
           displayWidth={width}
           alt={photo.filename}
           eager={eager}
+          order={order}
           onFailed={() => setFailed(true)}
           className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.025]"
         />

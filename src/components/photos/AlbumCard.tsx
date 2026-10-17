@@ -5,6 +5,7 @@ import type { Folder } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
 import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
 import { cn } from "@/lib/cn";
+import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
 
 export function albumHref(path: string) {
   return `/folder/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -28,6 +29,8 @@ interface AlbumCardProps {
   /** Defaults to the library route; the public share page passes its own. */
   href?: string;
   size?: "md" | "lg";
+  /** Position in the grid: covers load in reading order. */
+  order?: number;
 }
 
 export default function AlbumCard({
@@ -37,15 +40,14 @@ export default function AlbumCard({
   shareToken,
   href,
   size = "md",
+  order,
 }: AlbumCardProps) {
   const { title } = parseAlbumName(folder.name);
   const dateLabel = albumDateLabel(folder);
   const coverId = folder.cover_photo_id;
   // The nearest parents say the most; deep paths keep only the last two.
-  const ancestors = folder.path
-    .split("/")
-    .slice(0, -1)
-    .map((name) => parseAlbumName(name).title);
+  // Parents are shown exactly as in the bucket: they locate the folder.
+  const ancestors = folder.path.split("/").slice(0, -1);
   const parent = (
     ancestors.length > 2 ? ["…", ...ancestors.slice(-2)] : ancestors
   ).join(" / ");
@@ -59,17 +61,10 @@ export default function AlbumCard({
       <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-surface-sunken">
         {coverId ? (
           <ProgressiveImage
-            previewSrc={
-              shareToken
-                ? `/api/shares/${shareToken}/preview/${coverId}`
-                : `/api/photos/${coverId}/preview`
-            }
-            thumbSrc={
-              shareToken
-                ? `/api/shares/${shareToken}/thumbnail/${coverId}`
-                : `/api/photos/${coverId}/thumbnail`
-            }
+            previewSrc={previewUrl(coverId, shareToken)}
+            thumbSrc={thumbnailUrl(coverId, shareToken)}
             displayWidth={size === "lg" ? 480 : 340}
+            order={order}
             alt=""
             eager={eager}
             className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.035]"
@@ -140,6 +135,7 @@ export function AlbumGrid({
             showPath={showPath}
             shareToken={shareToken}
             href={hrefFor?.(folder)}
+            order={i}
           />
         </li>
       ))}
