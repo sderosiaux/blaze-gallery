@@ -24,3 +24,17 @@ export function previewUrl(
     ? `/api/shares/${shareToken}/preview/${id}`
     : `/api/photos/${id}/preview`;
 }
+
+/**
+ * Screen-sized rendition (2048 px, ~400 KB) shown by the viewer instead of the
+ * original; built once on first view and stored next to the thumbnails.
+ */
+export function displayUrl(
+  photoId: number | string,
+  shareToken?: string,
+): string {
+  const id = String(photoId);
+  return shareToken
+    ? `/api/shares/${shareToken}/display/${id}`
+    : `/api/photos/${id}/display`;
+}
