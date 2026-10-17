@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 interface ProgressiveImageProps {
@@ -39,6 +39,27 @@ export default function ProgressiveImage({
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewSoft, setPreviewSoft] = useState(false);
   const [thumbLoaded, setThumbLoaded] = useState(false);
+  // Generating a thumbnail downloads the whole original. Native lazy loading
+  // starts screens ahead, so that cost is only paid for tiles about to be seen.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(eager);
+
+  useEffect(() => {
+    if (nearViewport || thumbReady) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setNearViewport(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "300px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nearViewport, thumbReady]);
 
   useEffect(() => {
     setStage(thumbReady || !previewSrc ? "thumb" : "preview");
@@ -63,10 +84,10 @@ export default function ProgressiveImage({
     }
   };
 
-  const showThumb = stage === "thumb";
+  const showThumb = stage === "thumb" && (thumbReady || nearViewport);
 
   return (
-    <div className={cn("absolute inset-0 overflow-hidden bg-surface-sunken", className)}>
+    <div ref={rootRef} className={cn("absolute inset-0 overflow-hidden bg-surface-sunken", className)}>
       {previewSrc && stage !== "failed" && !thumbReady && (
         <img
           src={previewSrc}

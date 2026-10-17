@@ -92,17 +92,20 @@ export default function JustifiedGrid({ photos, renderTile, gap = 4, className }
     [photos, width, gap],
   );
 
+  // One flat list keyed by photo id: a resize moves tiles between rows without
+  // remounting them (and re-requesting their images). Integer widths sum to the
+  // measured width, so flex-wrap breaks exactly where layoutRows did.
   return (
-    <div ref={ref} className={className} role="list">
-      {rows.map((row, r) => (
-        <div key={r} className="flex" style={{ gap, marginBottom: gap, height: row.height }}>
-          {row.items.map((item) => (
-            <div role="listitem" key={String(item.photo.id)}>
+    <div ref={ref} className={className}>
+      <div role="list" className="flex flex-wrap" style={{ columnGap: gap, rowGap: gap }}>
+        {rows.flatMap((row) =>
+          row.items.map((item) => (
+            <div role="listitem" key={String(item.photo.id)} style={{ width: item.width, height: row.height }}>
               {renderTile(item.photo, { width: item.width, height: row.height }, item.index)}
             </div>
-          ))}
-        </div>
-      ))}
+          )),
+        )}
+      </div>
     </div>
   );
 }
