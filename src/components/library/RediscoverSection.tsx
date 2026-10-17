@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ImageOff, RotateCw, Shuffle } from "lucide-react";
 import type { Photo } from "@/types";
+import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
 import PhotoGrid from "@/components/PhotoGrid";
 import { Button, EmptyState, Section } from "@/components/ui";
 import { LoadError } from "./LoadError";
@@ -54,9 +55,10 @@ export default function RediscoverSection() {
       const response = await fetch(`/api/photos/random?limit=${ASKED}`, {
         signal: controller.signal,
       });
-      const body = await response.json();
-      if (!response.ok || !body.success) throw new Error(body.error);
-      const photos = (body.photos as Photo[])
+      const body = await readJsonObject(response);
+      if (!response.ok || body.success !== true)
+        throw new Error(asString(body.error));
+      const photos = (asArray(body.photos) as Photo[])
         .filter(isPhotograph)
         .slice(0, SHOWN);
       try {
@@ -76,7 +78,7 @@ export default function RediscoverSection() {
   useEffect(() => {
     const kept = remembered();
     if (kept) setState({ status: "ready", photos: kept });
-    else draw();
+    else void draw();
     return () => request.current?.abort();
   }, [draw]);
 
@@ -99,7 +101,7 @@ export default function RediscoverSection() {
           size="sm"
           icon={Shuffle}
           loading={shuffling && state.status === "ready"}
-          onClick={draw}
+          onClick={() => void draw()}
           disabled={state.status === "loading"}
         >
           Mélanger
@@ -110,7 +112,7 @@ export default function RediscoverSection() {
       {state.status === "error" && (
         <LoadError
           title="Les photos n'ont pas pu être chargées"
-          onRetry={draw}
+          onRetry={() => void draw()}
           className="py-10"
         />
       )}
@@ -120,7 +122,11 @@ export default function RediscoverSection() {
             icon={ImageOff}
             title="Aucune photo pour l'instant"
             action={
-              <Button variant="secondary" icon={RotateCw} onClick={draw}>
+              <Button
+                variant="secondary"
+                icon={RotateCw}
+                onClick={() => void draw()}
+              >
                 Réessayer
               </Button>
             }

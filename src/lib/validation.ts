@@ -16,18 +16,21 @@ export interface ValidationRule {
   min?: number;
   max?: number;
   pattern?: RegExp;
-  allowedValues?: any[];
-  customValidator?: (value: any) => string | null;
+  allowedValues?: unknown[];
+  customValidator?: (value: unknown) => string | null;
 }
 
 export function validateInput(
-  data: any,
+  data: unknown,
   rules: ValidationRule[],
 ): ValidationResult {
   const errors: string[] = [];
 
   for (const rule of rules) {
-    const value = data?.[rule.field];
+    const value: unknown =
+      typeof data === "object" && data !== null
+        ? (data as Record<string, unknown>)[rule.field]
+        : undefined;
     const fieldName = rule.field;
 
     // Check required fields
@@ -45,7 +48,7 @@ export function validateInput(
     }
 
     // Type validation
-    if (rule.type && value !== undefined && value !== null) {
+    if (rule.type && value != null) {
       const actualType = Array.isArray(value) ? "array" : typeof value;
       if (actualType !== rule.type) {
         errors.push(`${fieldName} must be of type ${rule.type}`);
@@ -65,7 +68,7 @@ export function validateInput(
           `${fieldName} must be no more than ${rule.maxLength} characters long`,
         );
       }
-      if (rule.pattern && !rule.pattern.test(value)) {
+      if (rule.pattern?.test(value) === false) {
         errors.push(`${fieldName} format is invalid`);
       }
     }
@@ -114,14 +117,14 @@ export const ValidationPatterns = {
 
 // Common validators
 export const CommonValidators = {
-  positiveInteger: (value: any): string | null => {
-    if (!Number.isInteger(value) || value <= 0) {
+  positiveInteger: (value: unknown): string | null => {
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
       return "must be a positive integer";
     }
     return null;
   },
 
-  validUrl: (value: any): string | null => {
+  validUrl: (value: unknown): string | null => {
     if (typeof value !== "string") return "must be a string";
     try {
       new URL(value);
@@ -131,14 +134,14 @@ export const CommonValidators = {
     }
   },
 
-  nonEmptyString: (value: any): string | null => {
+  nonEmptyString: (value: unknown): string | null => {
     if (typeof value !== "string" || value.trim().length === 0) {
       return "must be a non-empty string";
     }
     return null;
   },
 
-  validFilePath: (value: any): string | null => {
+  validFilePath: (value: unknown): string | null => {
     if (typeof value !== "string") return "must be a string";
     if (value.includes("..") || value.includes("//")) {
       return "contains invalid path characters";
@@ -152,12 +155,12 @@ export function sanitizeString(input: string, maxLength = 255): string {
   return input.trim().substring(0, maxLength);
 }
 
-export function sanitizeInteger(input: any, defaultValue = 0): number {
-  const parsed = parseInt(input);
+export function sanitizeInteger(input: unknown, defaultValue = 0): number {
+  const parsed = parseInt(String(input));
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
-export function sanitizeBoolean(input: any, defaultValue = false): boolean {
+export function sanitizeBoolean(input: unknown, defaultValue = false): boolean {
   if (typeof input === "boolean") return input;
   if (typeof input === "string") {
     return input.toLowerCase() === "true" || input === "1";
@@ -169,7 +172,7 @@ export function sanitizeBoolean(input: any, defaultValue = false): boolean {
 export interface RateLimitConfig {
   windowMs: number;
   maxRequests: number;
-  keyGenerator?: (req: any) => string;
+  keyGenerator?: (req: unknown) => string;
 }
 
 export function createRateLimitKey(

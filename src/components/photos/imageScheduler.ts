@@ -58,7 +58,8 @@ function pump() {
       if (!best || better(job, best)) best = job;
     }
     if (!best) return;
-    start(best);
+    // start() settles the job itself and never rejects.
+    void start(best);
   }
 }
 

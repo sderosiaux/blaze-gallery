@@ -5,6 +5,7 @@ import type { Folder } from "@/types";
 import AlbumCard from "@/components/photos/AlbumCard";
 import { Section } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
 
 const SHOWN = 5;
 
@@ -29,9 +30,10 @@ export default function RecentlyVisited() {
     const controller = new AbortController();
     fetch(`/api/library/recent?limit=${SHOWN}`, { signal: controller.signal })
       .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok || !body.success) throw new Error(body.error);
-        setFolders(body.folders as Folder[]);
+        const body = await readJsonObject(response);
+        if (!response.ok || body.success !== true)
+          throw new Error(asString(body.error));
+        setFolders(asArray(body.folders) as Folder[]);
       })
       .catch(() => {
         // Nothing to show: the section stays away.

@@ -87,11 +87,10 @@ export default function AlbumView({ path }: { path: string }) {
   );
 
   useEffect(() => {
-    load(state.status === "ready");
+    // The page keys this view by path: `load` only changes on a new mount.
+    void load(initialState(path).status === "ready");
     return () => request.current?.abort();
-    // Only on mount: the page keys this view by path.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load, path]);
 
   // Also on `?photo=` changes: Next puts the layout's title back when Back pops the viewer entry.
   useEffect(() => {
@@ -113,7 +112,7 @@ export default function AlbumView({ path }: { path: string }) {
     <AlbumDropZone
       ref={dropZone}
       target={state.status === "ready" ? { path, title } : null}
-      onUploaded={() => load(true)}
+      onUploaded={() => void load(true)}
     >
       <AlbumBreadcrumb path={path} />
 
@@ -147,7 +146,7 @@ export default function AlbumView({ path }: { path: string }) {
       {state.status === "error" && (
         <LoadError
           title="Ce dossier n'a pas pu être chargé"
-          onRetry={() => load(false)}
+          onRetry={() => void load(false)}
           className="py-24"
         />
       )}

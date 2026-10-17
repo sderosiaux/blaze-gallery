@@ -38,14 +38,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const stream = await getObjectStreamAuto(photo.s3_key, request);
 
       // Convert the stream to buffer
-      const chunks: Uint8Array[] = [];
-      const readableStream = stream as any;
-
-      for await (const chunk of readableStream) {
-        chunks.push(chunk);
+      if (!stream) {
+        throw new Error("Empty S3 response body");
       }
-
-      const buffer = Buffer.concat(chunks);
+      const buffer = Buffer.from(await stream.transformToByteArray());
       const response = new NextResponse(buffer);
 
       // Set headers for viewing (not downloading)

@@ -87,7 +87,7 @@ export default function AlbumLinks({
                     icon={Copy}
                     label="Copier le lien"
                     size="sm"
-                    onClick={() => copy(shareUrl(link.share_token))}
+                    onClick={() => void copy(shareUrl(link.share_token))}
                   />
                 )}
               </li>

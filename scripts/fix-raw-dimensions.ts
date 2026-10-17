@@ -11,6 +11,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import * as dotenv from "dotenv";
 import { readTiffLayout } from "../src/lib/rawPreview";
+import { out, requireEnv } from "./cli";
 
 dotenv.config();
 
@@ -25,7 +26,7 @@ const concurrency = flag("--concurrency") ?? 16;
 const valueFlags = new Set(["--limit", "--concurrency"]);
 for (const [i, arg] of args.entries()) {
   if (arg === "--dry-run" || valueFlags.has(arg)) continue;
-  if (i > 0 && valueFlags.has(args[i - 1])) continue;
+  if (i > 0 && valueFlags.has(args[i - 1] ?? "")) continue;
   console.error(`Unknown argument: ${arg}`);
   process.exit(2);
 }
@@ -48,8 +49,8 @@ const s3 = new S3Client({
   region: "us-east-1",
   forcePathStyle: true,
   credentials: {
-    accessKeyId: process.env.BACKBLAZE_ACCESS_KEY!,
-    secretAccessKey: process.env.BACKBLAZE_SECRET_KEY!,
+    accessKeyId: requireEnv("BACKBLAZE_ACCESS_KEY"),
+    secretAccessKey: requireEnv("BACKBLAZE_SECRET_KEY"),
   },
 });
 
@@ -58,14 +59,15 @@ async function readRange(
   start: number,
   end: number,
 ): Promise<Buffer> {
-  const out = await s3.send(
+  const response = await s3.send(
     new GetObjectCommand({
       Bucket: process.env.BACKBLAZE_BUCKET,
       Key: key,
       Range: `bytes=${start}-${end}`,
     }),
   );
-  return Buffer.from(await out.Body!.transformToByteArray());
+  if (!response.Body) throw new Error(`No body returned for ${key}`);
+  return Buffer.from(await response.Body.transformToByteArray());
 }
 
 async function main() {
@@ -76,7 +78,7 @@ async function main() {
        AND COALESCE((metadata->'dimensions'->>'height')::int, 0) <= 1000
      ORDER BY id ${limit ? `LIMIT ${limit}` : ""}`,
   );
-  console.log(`${rows.length} RAW files to read${dryRun ? " (dry run)" : ""}`);
+  out(`${rows.length} RAW files to read${dryRun ? " (dry run)" : ""}`);
   if (dryRun) return;
 
   let done = 0;
@@ -122,7 +124,7 @@ async function main() {
       done++;
       if (done % 200 === 0) {
         const rate = done / ((Date.now() - started) / 1000);
-        console.log(
+        out(
           `${done} read | fixed ${fixed} | unreadable ${unreadable} | failed ${failed} | ${rate.toFixed(1)}/s`,
         );
       }
@@ -130,14 +132,20 @@ async function main() {
   };
 
   await Promise.all(Array.from({ length: concurrency }, worker));
-  console.log(
+  out(
     `Done: read ${done}, fixed ${fixed}, unreadable ${unreadable}, failed ${failed}`,
   );
 }
 
-main()
-  .catch((error) => {
+async function run(): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
     console.error(error);
     process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+  } finally {
+    await pool.end();
+  }
+}
+
+void run();

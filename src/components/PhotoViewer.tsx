@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Photo } from "@/types";
 import PhotoViewerControls from "./PhotoViewerControls";
 import { Button, Dialog, IconButton, useToast } from "@/components/ui";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
 import { isVideo } from "@/lib/albums";
@@ -196,14 +197,20 @@ export default function PhotoViewer({
     toast,
   ]);
 
+  const startDownload = useCallback(() => {
+    // Failures are reported by download() itself, through a toast.
+    void download();
+  }, [download]);
+
   const confirmDelete = useCallback(async () => {
     setDeleting(true);
     try {
       const response = await fetch(`/api/photos/${currentId}`, {
         method: "DELETE",
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) throw new Error(data.error);
+      const data = await readJsonObject(response);
+      if (!response.ok || data.success === false)
+        throw new Error(asString(data.error));
       onDelete?.(current);
       toast.show("Photo supprimée", "success");
       setConfirmOpen(false);
@@ -372,12 +379,12 @@ export default function PhotoViewer({
       const items = Array.from(
         root.querySelectorAll<HTMLElement>(FOCUSABLE),
       ).filter((el) => el.offsetParent !== null);
-      if (items.length === 0) {
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
         handled();
         return;
       }
-      const first = items[0];
-      const last = items[items.length - 1];
       const inside = target && root.contains(target) && target !== root;
       if (e.shiftKey && (!inside || target === first)) {
         handled();
@@ -522,7 +529,9 @@ export default function PhotoViewer({
             ? "Aperçu du fichier RAW."
             : "Aperçu, ce format ne s’affiche pas en grand."}
           {allowDownload && (
-            <NoteAction onClick={download}>Télécharger l’original</NoteAction>
+            <NoteAction onClick={startDownload}>
+              Télécharger l’original
+            </NoteAction>
           )}
         </>
       );
@@ -556,7 +565,7 @@ export default function PhotoViewer({
       sources={sources}
       sessionToken={session}
       allowDownload={allowDownload}
-      onDownload={download}
+      onDownload={startDownload}
       onSettled={onVideoSettled}
     />
   ) : (
@@ -625,7 +634,7 @@ export default function PhotoViewer({
                 setInfoOpen((v) => !v);
               },
             }}
-            onDownload={allowDownload ? download : undefined}
+            onDownload={allowDownload ? startDownload : undefined}
             onDelete={
               canDelete
                 ? () => {
@@ -661,6 +670,7 @@ export default function PhotoViewer({
               className="relative min-h-0 flex-1"
               style={{ touchAction: zoomed ? "auto" : "pan-y pinch-zoom" }}
               data-backdrop
+              role="presentation"
               onClick={onStageClick}
               {...swipe.handlers}
             >
@@ -683,7 +693,7 @@ export default function PhotoViewer({
                     <Unviewable
                       photo={current}
                       allowDownload={allowDownload}
-                      onDownload={download}
+                      onDownload={startDownload}
                       onRetry={
                         full.status === "error"
                           ? () => {
@@ -755,7 +765,7 @@ export default function PhotoViewer({
                       {day}
                     </p>
                   )}
-                  {(album || position) && (
+                  {(Boolean(album) || Boolean(position)) && (
                     <p
                       className={cn(
                         "flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted",
@@ -834,7 +844,11 @@ export default function PhotoViewer({
             <Button data-autofocus onClick={closeConfirm} disabled={deleting}>
               Garder
             </Button>
-            <Button variant="danger" onClick={confirmDelete} loading={deleting}>
+            <Button
+              variant="danger"
+              onClick={() => void confirmDelete()}
+              loading={deleting}
+            >
               Supprimer
             </Button>
           </>
@@ -913,9 +927,10 @@ function Unviewable({
   onDownload: () => void;
   onRetry?: () => void;
 }) {
-  const ext = photo.filename.includes(".")
-    ? photo.filename.split(".").pop()!.toUpperCase()
-    : null;
+  const extension = photo.filename.includes(".")
+    ? photo.filename.split(".").pop()
+    : undefined;
+  const ext = extension?.toUpperCase() ?? null;
   const message = onRetry
     ? "La photo n’a pas chargé"
     : isRawFile(photo)

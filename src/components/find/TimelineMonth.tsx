@@ -12,6 +12,11 @@ import { monthLabel, type MonthGroup } from "./timeline";
 
 const FOLDERS_SHOWN = 2;
 
+function lastSegment(path: string): string {
+  const last = path.split("/").pop();
+  return last !== undefined && last !== "" ? last : path;
+}
+
 /**
  * Folders this month's photos come from, the biggest share first. The bucket
  * holds copies of the same folder under different parents: one title, one link.
@@ -23,7 +28,7 @@ function foldersOf(group: MonthGroup) {
   const folders = Array.from(counts, ([path, count]) => ({
     path,
     count,
-    title: parseAlbumName(path.split("/").pop() || path).title,
+    title: parseAlbumName(lastSegment(path)).title,
   })).sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
   const titles = new Set<string>();
   return folders.filter((folder) => {

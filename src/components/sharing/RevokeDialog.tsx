@@ -20,7 +20,9 @@ export default function RevokeDialog({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const title = share
-    ? parseAlbumName(share.folder_name || folderNameOf(share.folder_path)).title
+    ? parseAlbumName(
+        share.folder_name ? share.folder_name : folderNameOf(share.folder_path),
+      ).title
     : "";
 
   // Stable, so Dialog keeps focus where it is while the request runs.
@@ -67,7 +69,11 @@ export default function RevokeDialog({
           >
             Annuler
           </Button>
-          <Button variant="danger" onClick={confirm} loading={busy}>
+          <Button
+            variant="danger"
+            onClick={() => void confirm()}
+            loading={busy}
+          >
             Révoquer
           </Button>
         </>

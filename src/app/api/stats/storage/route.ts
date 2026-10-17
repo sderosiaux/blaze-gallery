@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import type { AlbumStat, StorageStats } from "@/components/stats/types";
+import type {
+  AlbumStat,
+  FileTypeStat,
+  StorageStats,
+} from "@/components/stats/types";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +18,7 @@ const LIMIT = 50;
 export const GET = requireAuth(async function GET() {
   try {
     const [albumsResult, typesResult] = await Promise.all([
-      query(
+      query<AlbumStat & { rank_by: string }>(
         `
         WITH per_folder AS MATERIALIZED (
           SELECT
@@ -37,7 +41,7 @@ export const GET = requireAuth(async function GET() {
         `,
         [LIMIT],
       ),
-      query(`
+      query<FileTypeStat>(`
         SELECT
           CASE WHEN strpos(filename, '.') > 0 THEN LOWER(split_part(filename, '.', -1)) ELSE 'none' END AS extension,
           CASE WHEN mime_type LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind,
@@ -49,7 +53,7 @@ export const GET = requireAuth(async function GET() {
       `),
     ]);
 
-    const rows = albumsResult.rows as (AlbumStat & { rank_by: string })[];
+    const rows = albumsResult.rows;
     const pick = (rankBy: string): AlbumStat[] =>
       rows
         .filter((r) => r.rank_by === rankBy)

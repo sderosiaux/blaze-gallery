@@ -146,12 +146,16 @@ export function parseTiffHead(head: Buffer): TiffLayout {
     const compression = one(0x0103);
     const strips = tags.get(0x0111);
     const stripLengths = tags.get(0x0117);
+    const stripOffset = strips?.[0];
+    const stripLength = stripLengths?.[0];
     if (
       (compression === 6 || compression === 7) &&
       strips?.length === 1 &&
-      stripLengths?.length === 1
+      stripLengths?.length === 1 &&
+      stripOffset !== undefined &&
+      stripLength !== undefined
     ) {
-      candidates.push({ offset: strips[0], length: stripLengths[0] });
+      candidates.push({ offset: stripOffset, length: stripLength });
     }
 
     for (const sub of tags.get(0x014a) ?? []) walk(sub, false, depth + 1);

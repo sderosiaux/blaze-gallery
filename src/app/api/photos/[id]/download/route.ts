@@ -4,7 +4,6 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { getPhoto } from "@/lib/database";
 import { getSignedDownloadUrlAuto } from "@/lib/s3";
 import { logger } from "@/lib/logger";
-import { ValidationPatterns } from "@/lib/validation";
 
 export const GET = requireAuth(async function GET(
   request: NextRequest,

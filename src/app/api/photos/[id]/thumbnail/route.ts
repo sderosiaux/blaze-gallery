@@ -14,10 +14,13 @@ export const GET = requireAuth(async function GET(
 ) {
   try {
     // Rate limiting by IP address
-    const clientIP =
-      request.headers.get("x-forwarded-for") ||
-      request.headers.get("x-real-ip") ||
-      "127.0.0.1";
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const realIp = request.headers.get("x-real-ip");
+    const clientIP = forwardedFor
+      ? forwardedFor
+      : realIp
+        ? realIp
+        : "127.0.0.1";
 
     if (!(await thumbnailRateLimiter.isAllowed(clientIP))) {
       const stats = await thumbnailRateLimiter.getStats(clientIP);
@@ -81,7 +84,7 @@ export const GET = requireAuth(async function GET(
       // Files over 10MB
       const sizeMB = photo.size / (1024 * 1024);
       const config = getConfig();
-      console.log(
+      logger.debug(
         `Thumbnail request for ${photo.filename}: ${sizeMB.toFixed(1)}MB, threshold: ${config.auto_thumbnail_threshold_mb}MB`,
       );
     }
@@ -101,7 +104,7 @@ export const GET = requireAuth(async function GET(
             error: "Unsupported image format",
             message: result.error,
             fileExtension:
-              photo.s3_key.toLowerCase().split(".").pop() || "unknown",
+              (photo.s3_key.toLowerCase().split(".").pop() ?? "") || "unknown",
           }),
           {
             status: 415,
@@ -139,7 +142,7 @@ export const GET = requireAuth(async function GET(
       "Last-Modified": new Date(photo.modified_at).toUTCString(),
     };
 
-    return new NextResponse(result.buffer as any, {
+    return new NextResponse(new Uint8Array(result.buffer), {
       headers: enhancedHeaders,
     });
   } catch (error) {

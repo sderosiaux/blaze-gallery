@@ -158,7 +158,7 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
         }));
         settled.current.pending += items.length;
         setUploads((prev) => [...prev, ...items]);
-        items.forEach((item) => upload(item, destination.path));
+        items.forEach((item) => void upload(item, destination.path));
       },
       [upload],
     );

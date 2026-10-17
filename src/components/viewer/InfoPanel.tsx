@@ -23,7 +23,7 @@ function cameraName(camera?: { make?: string; model?: string }) {
   if (!make) return model;
   if (!model) return make;
   // "Canon" + "Canon EOS 5D" reads as "Canon EOS 5D".
-  return model.toLowerCase().startsWith(make.toLowerCase().split(" ")[0])
+  return model.toLowerCase().startsWith(make.toLowerCase().split(" ")[0] ?? "")
     ? model
     : `${make} ${model}`;
 }

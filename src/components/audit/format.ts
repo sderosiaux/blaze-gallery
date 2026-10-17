@@ -26,6 +26,14 @@ export interface TimeRange {
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 
+const DEFAULT_RANGE: TimeRange = {
+  id: "24h",
+  label: "Dernières 24 h",
+  ms: DAY,
+  bucketSeconds: 900,
+  bucketLabel: "15 minutes",
+};
+
 export const RANGES: TimeRange[] = [
   {
     id: "1h",
@@ -41,13 +49,7 @@ export const RANGES: TimeRange[] = [
     bucketSeconds: 300,
     bucketLabel: "5 minutes",
   },
-  {
-    id: "24h",
-    label: "Dernières 24 h",
-    ms: DAY,
-    bucketSeconds: 900,
-    bucketLabel: "15 minutes",
-  },
+  DEFAULT_RANGE,
   {
     id: "7d",
     label: "7 derniers jours",
@@ -65,7 +67,7 @@ export const RANGES: TimeRange[] = [
 ];
 
 export function rangeById(id: RangeId): TimeRange {
-  return RANGES.find((r) => r.id === id) ?? RANGES[2];
+  return RANGES.find((r) => r.id === id) ?? DEFAULT_RANGE;
 }
 
 const integer = new Intl.NumberFormat(LOCALE);
@@ -108,7 +110,9 @@ const percent = (digits: number) =>
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
-const [pct0, pct1, pct2] = [0, 1, 2].map(percent);
+const pct0 = percent(0);
+const pct1 = percent(1);
+const pct2 = percent(2);
 
 export const formatWholePercent = (share: number) => pct0.format(share);
 
@@ -180,9 +184,12 @@ function tickKey(t: number, range: RangeId): string {
 }
 
 export function axisTicks(times: number[], range: RangeId): number[] {
-  return times.filter(
-    (t, i) => i > 0 && tickKey(t, range) !== tickKey(times[i - 1], range),
-  );
+  return times.filter((t, i) => {
+    const previous = times[i - 1];
+    return (
+      previous !== undefined && tickKey(t, range) !== tickKey(previous, range)
+    );
+  });
 }
 
 export function formatTick(t: number, range: RangeId): string {
@@ -305,7 +312,8 @@ export function niceTicks(
 
 /** Byte axis labels all in the unit of the top tick: "0,5 Go, 1 Go", not "512 Mo, 1 Go". */
 export function byteAxisFormatter(ticks: number[]): (n: number) => string {
-  const top = ticks[ticks.length - 1] || 1;
+  const last = ticks[ticks.length - 1];
+  const top = last !== undefined && last !== 0 ? last : 1;
   const i = Math.min(
     BYTE_UNITS.length - 1,
     Math.max(0, Math.floor(Math.log(top) / Math.log(1024))),

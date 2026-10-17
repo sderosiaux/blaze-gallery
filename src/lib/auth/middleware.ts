@@ -120,7 +120,7 @@ export async function checkAuth(request: NextRequest): Promise<{
 /**
  * Require authentication for an API route
  */
-export function requireAuth<T extends any[]>(
+export function requireAuth<T extends unknown[]>(
   handler: (
     req: AuthenticatedRequest,
     ...args: T
@@ -137,7 +137,7 @@ export function requireAuth<T extends any[]>(
 /**
  * Optional authentication for an API route
  */
-export function optionalAuth<T extends any[]>(
+export function optionalAuth<T extends unknown[]>(
   handler: (
     req: AuthenticatedRequest,
     ...args: T

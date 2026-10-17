@@ -3,8 +3,9 @@
  * Usage: npx tsx scripts/create-sessions-table.ts
  */
 
-import { Pool } from 'pg';
-import * as dotenv from 'dotenv';
+import { Pool } from "pg";
+import * as dotenv from "dotenv";
+import { out } from "./cli";
 
 dotenv.config();
 
@@ -14,7 +15,7 @@ const pool = new Pool({
 });
 
 async function createSessionsTable() {
-  console.log('Creating user_sessions table...');
+  out("Creating user_sessions table...");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -37,26 +38,26 @@ async function createSessionsTable() {
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at)
   `);
 
-  console.log('user_sessions table created successfully!');
+  out("user_sessions table created successfully!");
 
   // Check if table exists
-  const result = await pool.query(`
+  const result = await pool.query<{ column_name: string; data_type: string }>(`
     SELECT column_name, data_type
     FROM information_schema.columns
     WHERE table_name = 'user_sessions'
     ORDER BY ordinal_position
   `);
 
-  console.log('Table schema:');
-  result.rows.forEach(row => {
-    console.log(`  ${row.column_name}: ${row.data_type}`);
+  out("Table schema:");
+  result.rows.forEach((row) => {
+    out(`  ${row.column_name}: ${row.data_type}`);
   });
 
   await pool.end();
 }
 
-createSessionsTable().catch(err => {
-  console.error('Failed to create table:', err);
-  pool.end();
+void createSessionsTable().catch(async (err: unknown) => {
+  console.error("Failed to create table:", err);
+  await pool.end();
   process.exit(1);
 });

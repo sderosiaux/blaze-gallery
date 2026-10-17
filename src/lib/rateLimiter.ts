@@ -1,4 +1,4 @@
-import { query } from "./database";
+import { query, requireRow } from "./database";
 
 /**
  * Database-backed rate limiter for serverless deployments
@@ -58,7 +58,7 @@ export class DatabaseRateLimiter {
 
     try {
       // Try to insert or update the rate limit entry atomically
-      const result = await query(
+      const result = await query<{ count: number; reset_time: string }>(
         `
         INSERT INTO rate_limits (identifier, count, reset_time)
         VALUES ($1, 1, $2)
@@ -77,8 +77,7 @@ export class DatabaseRateLimiter {
         [identifier, resetTime, now],
       );
 
-      const entry = result.rows[0];
-      return entry.count <= maxRequests;
+      return requireRow(result).count <= maxRequests;
     } catch (error) {
       console.error("[RATE_LIMITER] Error checking rate limit:", error);
       // On error, allow the request (fail open)
@@ -96,12 +95,14 @@ export class DatabaseRateLimiter {
     const now = Date.now();
 
     try {
-      const result = await query(
+      // reset_time is a BIGINT: pg returns it as a string
+      const result = await query<{ count: number; reset_time: string }>(
         `SELECT count, reset_time FROM rate_limits WHERE identifier = $1`,
         [identifier],
       );
 
-      if (result.rows.length === 0 || result.rows[0].reset_time < now) {
+      const entry = result.rows[0];
+      if (entry === undefined || Number(entry.reset_time) < now) {
         return {
           count: 0,
           remaining: this.maxRequests,
@@ -109,11 +110,10 @@ export class DatabaseRateLimiter {
         };
       }
 
-      const entry = result.rows[0];
       return {
         count: entry.count,
         remaining: Math.max(0, this.maxRequests - entry.count),
-        resetTime: parseInt(entry.reset_time),
+        resetTime: parseInt(entry.reset_time, 10),
       };
     } catch (error) {
       console.error("[RATE_LIMITER] Error getting stats:", error);
@@ -138,7 +138,7 @@ export class DatabaseRateLimiter {
         `DELETE FROM rate_limits WHERE reset_time < $1`,
         [now],
       );
-      return result.rowCount || 0;
+      return result.rowCount ?? 0;
     } catch (error) {
       console.error("[RATE_LIMITER] Error during cleanup:", error);
       return 0;

@@ -30,7 +30,7 @@ export default function GuestAlbum({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   switch (view.kind) {
@@ -42,7 +42,7 @@ export default function GuestAlbum({ token }: { token: string }) {
           token={token}
           album={view.album}
           sessionToken={view.sessionToken}
-          onReload={load}
+          onReload={() => void load()}
         />
       );
     case "password":
@@ -73,7 +73,11 @@ export default function GuestAlbum({ token }: { token: string }) {
             icon={WifiOff}
             title="Le dossier n'a pas pu s'ouvrir"
             action={
-              <Button variant="primary" icon={RotateCw} onClick={load}>
+              <Button
+                variant="primary"
+                icon={RotateCw}
+                onClick={() => void load()}
+              >
                 Réessayer
               </Button>
             }

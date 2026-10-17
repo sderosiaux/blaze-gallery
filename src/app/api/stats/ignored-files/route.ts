@@ -4,6 +4,13 @@ import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { IgnoredFiles } from "@/components/stats/types";
 
+interface CategoryRow {
+  category: string;
+  count: number;
+  total_size_bytes: number;
+  examples: string[];
+}
+
 export const dynamic = "force-dynamic";
 
 // Files left out of duplicate detection. One pass, and each file lands in one
@@ -17,7 +24,7 @@ const CATEGORIES: Record<string, string> = {
 
 export const GET = requireAuth(async function GET() {
   try {
-    const result = await query(`
+    const result = await query<CategoryRow>(`
       WITH classified AS (
         SELECT
           p.filename,
@@ -42,18 +49,13 @@ export const GET = requireAuth(async function GET() {
       GROUP BY category
     `);
 
-    const rows = result.rows as {
-      category: string;
-      count: number;
-      total_size_bytes: number;
-      examples: string[];
-    }[];
-    const breakdown = Object.keys(CATEGORIES)
-      .map((category) => {
+    const rows = result.rows;
+    const breakdown = Object.entries(CATEGORIES)
+      .map(([category, label]) => {
         const row = rows.find((r) => r.category === category);
         return {
           category,
-          label: CATEGORIES[category],
+          label,
           count: row?.count ?? 0,
           total_size_bytes: row?.total_size_bytes ?? 0,
           examples: row?.examples ?? [],

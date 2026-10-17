@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
 
     // Verify ID token and get user info
     let userInfoFromToken;
-    let userInfoFromApi;
 
     try {
       userInfoFromToken = await verifyIdToken(tokens.id_token);
@@ -94,13 +93,13 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      userInfoFromApi = await getGoogleUserInfo(tokens.access_token);
+      // Result unused: the ID token info is the source of truth
+      await getGoogleUserInfo(tokens.access_token);
     } catch (error) {
       console.warn(
         "Failed to get user info from API, using ID token info:",
         error,
       );
-      userInfoFromApi = null; // We'll use ID token info instead
     }
 
     // Use ID token info as primary source (more secure)
@@ -112,7 +111,7 @@ export async function GET(request: NextRequest) {
       console.warn("User validation failed:", validation.errors);
       return NextResponse.redirect(
         new URL(
-          `/?error=unauthorized&reason=${encodeURIComponent(validation.errors[0])}`,
+          `/?error=unauthorized&reason=${encodeURIComponent(validation.errors[0] ?? "")}`,
           request.url,
         ),
       );

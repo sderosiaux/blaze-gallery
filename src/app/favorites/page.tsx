@@ -16,6 +16,7 @@ import {
 import { LoadError } from "@/components/find/LoadError";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 
 /** Newest first; photos whose date hasn't been read yet come last, by name. */
 function newestFirst(a: Photo, b: Photo) {
@@ -49,8 +50,9 @@ function FavoritesContent() {
     setStatus("loading");
     try {
       const response = await fetch("/api/favorites");
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error);
+      const data = await readJsonObject(response);
+      if (!response.ok || !data.success) throw new Error(asString(data.error));
+      if (!Array.isArray(data.photos)) throw new Error("invalid_photos");
       setPhotos([...(data.photos as Photo[])].sort(newestFirst));
       setStatus("ready");
     } catch {
@@ -59,7 +61,7 @@ function FavoritesContent() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
@@ -112,7 +114,7 @@ function FavoritesContent() {
         setPhotos((all) => all.filter((p) => !sameId(p, updated)));
       }
       toast.show("Retiré des favoris", "info", {
-        action: { label: "Annuler", onClick: () => undo(updated) },
+        action: { label: "Annuler", onClick: () => void undo(updated) },
       });
     },
     [restore, toast, undo],
@@ -126,7 +128,7 @@ function FavoritesContent() {
         {header}
         <LoadError
           title="Les favoris n'ont pas pu être chargés"
-          onRetry={load}
+          onRetry={() => void load()}
         />
       </>
     );

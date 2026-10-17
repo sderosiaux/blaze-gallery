@@ -3,12 +3,9 @@ import path from "path";
 import fs from "fs";
 import type { S3Object } from "./s3";
 import {
-  deleteObject,
-  getObjectMetadata,
   getObjectStream,
-  listObjects,
-  putObject,
   getThumbnailS3Client,
+  toS3Objects,
   getThumbnailBucketName,
 } from "./s3";
 import {
@@ -22,13 +19,39 @@ import { setPhotoDimensions, updatePhotoThumbnail } from "./database";
 import { orientJpeg } from "./imageProbe";
 import { extractEmbeddedJpeg, isRawKey } from "./rawPreview";
 import { getConfig } from "./config";
+import { nonEmpty, prop } from "./narrow";
 import { logger } from "./logger";
 import type { ThumbnailOptions, ThumbnailStats } from "@/types/common";
+import type { Photo } from "@/types";
+
+/** Reads a streaming S3 body to the end; the SDK hands back Node streams here */
+function isEventStream(value: unknown): value is NodeJS.ReadableStream {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "on" in value &&
+    typeof value.on === "function"
+  );
+}
+
+function collectStream(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  return new Promise<Buffer>((resolve, reject) => {
+    stream.on("data", (chunk: Buffer) => {
+      chunks.push(Buffer.from(chunk));
+    });
+    stream.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+    stream.on("error", (error: Error) => {
+      reject(error);
+    });
+  });
+}
 
 export function getThumbnailsPath(customPath?: string): string {
   return (
-    customPath ||
-    process.env.THUMBNAILS_PATH ||
+    nonEmpty(customPath, process.env.THUMBNAILS_PATH) ??
     path.join(process.cwd(), "data", "thumbnails")
   );
 }
@@ -87,8 +110,7 @@ export function getThumbnailStorageInfo(): ThumbnailStorageInfo {
 
 export function getDatabasePath(customPath?: string): string {
   return (
-    customPath ||
-    process.env.DATABASE_PATH ||
+    nonEmpty(customPath, process.env.DATABASE_PATH) ??
     path.join(process.cwd(), "data", "database", "gallery.db")
   );
 }
@@ -113,7 +135,7 @@ export class ThumbnailService {
     this.bucket = getThumbnailBucketName();
     this.s3Prefix = normalizeThumbnailS3Prefix(config.thumbnail_s3_prefix);
     this.s3ListPrefix = this.s3Prefix ? `${this.s3Prefix}/` : "";
-    this.thumbnailsDir = thumbnailsDir || getThumbnailsPath();
+    this.thumbnailsDir = nonEmpty(thumbnailsDir) ?? getThumbnailsPath();
 
     this.ensureThumbnailsDirectory();
   }
@@ -170,13 +192,13 @@ export class ThumbnailService {
       return false;
     }
 
-    const metadata = (error as any).$metadata;
-    if (metadata?.httpStatusCode === 404) {
+    if (prop(prop(error, "$metadata"), "httpStatusCode") === 404) {
       return true;
     }
 
-    const name = (error as any).name;
-    const code = (error as any).Code || (error as any).code;
+    const name = prop(error, "name");
+    const upperCode = prop(error, "Code");
+    const code = upperCode ? upperCode : prop(error, "code");
     return name === "NotFound" || code === "NotFound";
   }
 
@@ -241,12 +263,7 @@ export class ThumbnailService {
 
       const response = await client.send(command);
 
-      const objects: S3Object[] = (response.Contents || []).map((obj) => ({
-        key: obj.Key!,
-        lastModified: obj.LastModified!,
-        size: obj.Size!,
-        etag: obj.ETag!.replace(/"/g, ""),
-      }));
+      const objects = toS3Objects(response.Contents);
 
       allObjects.push(...objects);
       continuationToken = response.NextContinuationToken;
@@ -265,22 +282,10 @@ export class ThumbnailService {
     request?: Request,
   ): Promise<Buffer> {
     const stream = await getObjectStream(bucket, s3Key, request);
-    if (!stream || typeof stream !== "object" || !("on" in stream)) {
+    if (!isEventStream(stream)) {
       throw new Error("Failed to get object stream from S3");
     }
-    const chunks: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-      (stream as any).on("data", (chunk: Buffer) =>
-        chunks.push(Buffer.from(chunk)),
-      );
-      (stream as any).on("end", () => {
-        resolve();
-      });
-      (stream as any).on("error", (error: Error) => {
-        reject(error);
-      });
-    });
-    return Buffer.concat(chunks);
+    return collectStream(stream);
   }
 
   async generateThumbnail(params: GenerateThumbnailParams): Promise<string> {
@@ -377,7 +382,7 @@ export class ThumbnailService {
     }
 
     try {
-      const filename = s3Key.split("/").pop() || s3Key;
+      const filename = nonEmpty(s3Key.split("/").pop()) ?? s3Key;
       logger.debug(
         `[THUMBNAIL] Generating thumbnail for ${filename} (ID: ${photoId})`,
       );
@@ -436,7 +441,8 @@ export class ThumbnailService {
         errorMessage.includes("unsupported image format") ||
         errorMessage.includes("Input buffer contains unsupported image format")
       ) {
-        const fileExt = s3Key.toLowerCase().split(".").pop() || "unknown";
+        const fileExt =
+          nonEmpty(s3Key.toLowerCase().split(".").pop()) ?? "unknown";
 
         logger.thumbnailOperation(
           `Thumbnail generation skipped - unsupported format: ${fileExt}`,
@@ -470,7 +476,7 @@ export class ThumbnailService {
 
   async getThumbnailBuffer(
     thumbnailPath: string,
-    request?: Request,
+    _request?: Request,
   ): Promise<Buffer | null> {
     try {
       if (!this.isS3Storage()) {
@@ -494,24 +500,10 @@ export class ThumbnailService {
         return null;
       }
 
-      const chunks: Buffer[] = [];
-      await new Promise<void>((resolve, reject) => {
-        if (stream && typeof stream === "object" && "on" in stream) {
-          (stream as any).on("data", (chunk: Buffer) => {
-            chunks.push(Buffer.from(chunk));
-          });
-          (stream as any).on("end", () => {
-            resolve();
-          });
-          (stream as any).on("error", (error: Error) => {
-            reject(error);
-          });
-        } else {
-          reject(new Error("Invalid stream type from S3"));
-        }
-      });
-
-      return Buffer.concat(chunks);
+      if (!isEventStream(stream)) {
+        throw new Error("Invalid stream type from S3");
+      }
+      return await collectStream(stream);
     } catch (error) {
       logger.thumbnailError("Error reading thumbnail file", error as Error, {
         thumbnailPath,
@@ -572,7 +564,7 @@ export class ThumbnailService {
     try {
       logger.thumbnailOperation("Checking for photos without thumbnails");
 
-      const result = await query(`
+      const result = await query<{ id: number; s3_key: string }>(`
         SELECT id, s3_key FROM photos
         WHERE thumbnail_path IS NULL OR thumbnail_path = ''
         ORDER BY id
@@ -737,7 +729,9 @@ export class ThumbnailService {
   }
 
   async serveThumbnail(
-    photo: any,
+    photo: Pick<Photo, "id" | "s3_key" | "size"> & {
+      thumbnail_path?: string | null;
+    },
     request?: Request,
     forceGenerate = false,
   ): Promise<
@@ -779,7 +773,7 @@ export class ThumbnailService {
       ) {
         logger.thumbnailOperation(
           `Thumbnail request for unsupported format: ${
-            photo.s3_key.toLowerCase().split(".").pop() || "unknown"
+            nonEmpty(photo.s3_key.toLowerCase().split(".").pop()) ?? "unknown"
           }`,
           {
             photoId: photo.id,

@@ -7,8 +7,29 @@
 
 import { createS3AuditMiddleware } from "./s3Audit";
 import type { S3Operation } from "@/types/audit";
+import { prop } from "./narrow";
 
 const auditMiddleware = createS3AuditMiddleware();
+
+type AuditMethod = "GET" | "POST" | "PUT" | "DELETE" | "HEAD";
+const AUDIT_METHODS: readonly AuditMethod[] = [
+  "GET",
+  "POST",
+  "PUT",
+  "DELETE",
+  "HEAD",
+];
+
+/** Methods the audit table knows; anything else (PATCH, OPTIONS...) is logged as GET */
+function toAuditMethod(method: string): AuditMethod {
+  return AUDIT_METHODS.find((known) => known === method) ?? "GET";
+}
+
+/** Unset and empty both fall back to "unknown" */
+function auditBucketName(): string {
+  const bucket = process.env.B2_BUCKET_NAME;
+  return bucket !== undefined && bucket !== "" ? bucket : "unknown";
+}
 
 /**
  * Example: Integrating audit logging into thumbnail API
@@ -27,7 +48,7 @@ export async function auditThumbnailRequest(
     operation: "GetObject",
     method: "GET",
     endpoint: `/api/photos/${photoId}/thumbnail`,
-    bucket: process.env.B2_BUCKET_NAME || "unknown",
+    bucket: auditBucketName(),
     key: `thumbnails/${photoId}`, // or actual S3 key
     startTime,
     statusCode,
@@ -46,7 +67,7 @@ export async function auditFolderListingRequest(
   folderPath: string,
   startTime: number,
   statusCode: number,
-  responseData?: any, // Pass the actual response data instead of just item count
+  responseData?: unknown, // Pass the actual response data instead of just item count
   error?: string,
 ) {
   // Calculate actual response size if response data is provided
@@ -59,7 +80,7 @@ export async function auditFolderListingRequest(
     operation: "ListObjects",
     method: "GET",
     endpoint: `/api/folders${folderPath ? `/${folderPath}` : ""}`,
-    bucket: process.env.B2_BUCKET_NAME || "unknown",
+    bucket: auditBucketName(),
     key: folderPath || undefined,
     startTime,
     statusCode,
@@ -84,7 +105,7 @@ export async function auditPhotoDownloadRequest(
     operation: "GetObject",
     method: "GET",
     endpoint: `/api/photos/download`,
-    bucket: process.env.B2_BUCKET_NAME || "unknown",
+    bucket: auditBucketName(),
     key: photoKey,
     startTime,
     statusCode,
@@ -108,7 +129,7 @@ export async function auditBucketRequest(
     operation,
     method: "GET",
     endpoint: `/api/bucket`,
-    bucket: process.env.B2_BUCKET_NAME || "unknown",
+    bucket: auditBucketName(),
     startTime,
     statusCode,
     error,
@@ -136,13 +157,13 @@ export async function auditS3Operation<T>(
     const result = await s3Operation();
 
     // Extract bytes transferred if available
-    if (typeof result === "object" && result !== null) {
-      if ("ContentLength" in result) {
-        bytesTransferred = (result as any).ContentLength;
-      }
-      if ("Body" in result && "byteLength" in (result as any).Body) {
-        bytesTransferred = (result as any).Body.byteLength;
-      }
+    const contentLength = prop(result, "ContentLength");
+    if (typeof contentLength === "number") {
+      bytesTransferred = contentLength;
+    }
+    const byteLength = prop(prop(result, "Body"), "byteLength");
+    if (typeof byteLength === "number") {
+      bytesTransferred = byteLength;
     }
 
     return result;
@@ -151,16 +172,13 @@ export async function auditS3Operation<T>(
     error = err instanceof Error ? err.message : "Unknown error";
 
     // Extract status code from AWS error if available
-    if (typeof err === "object" && err !== null) {
-      if ("$metadata" in err && typeof (err as any).$metadata === "object") {
-        const httpStatusCode = (err as any).$metadata?.httpStatusCode;
-        if (httpStatusCode) {
-          statusCode = httpStatusCode;
-        }
-      }
-      if ("statusCode" in err) {
-        statusCode = (err as any).statusCode;
-      }
+    const httpStatusCode = prop(prop(err, "$metadata"), "httpStatusCode");
+    if (typeof httpStatusCode === "number" && httpStatusCode) {
+      statusCode = httpStatusCode;
+    }
+    const errStatusCode = prop(err, "statusCode");
+    if (typeof errStatusCode === "number") {
+      statusCode = errStatusCode;
     }
 
     throw err;
@@ -168,7 +186,7 @@ export async function auditS3Operation<T>(
     if (request) {
       await auditMiddleware.log({
         operation,
-        method: request.method as any,
+        method: toAuditMethod(request.method),
         endpoint: new URL(request.url).pathname,
         bucket,
         key,
@@ -191,7 +209,7 @@ export function estimateS3Cost(
   bytesTransferred?: number,
 ): number {
   // Basic cost estimation (adjust based on your AWS region and pricing)
-  const costs: Record<S3Operation, number> = {
+  const costs: Partial<Record<S3Operation, number>> = {
     GetObject: 0.0004 / 1000, // $0.0004 per 1,000 requests
     ListObjects: 0.005 / 1000, // $0.005 per 1,000 requests
     ListBuckets: 0.0004 / 1000,
@@ -209,7 +227,7 @@ export function estimateS3Cost(
     AbortMultipartUpload: 0.0004 / 1000,
   };
 
-  const requestCost = costs[operation] || 0;
+  const requestCost = costs[operation] ?? 0;
 
   // Add data transfer costs if applicable
   let transferCost = 0;

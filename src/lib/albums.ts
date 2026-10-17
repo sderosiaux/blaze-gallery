@@ -23,21 +23,21 @@ const PATTERNS: {
     re: new RegExp(
       String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`,
     ),
-    pick: (m) => [+m[1], +m[2], +m[3] || undefined],
+    pick: (m) => [Number(m[1]), Number(m[2]), Number(m[3]) || undefined],
   },
   {
     re: new RegExp(
       String.raw`^(\d{2})-(\d{2})-(\d{4})(?=\b|_|\s|$)${SEP}(.*)$`,
     ),
-    pick: (m) => [+m[3], +m[2], +m[1]],
+    pick: (m) => [Number(m[3]), Number(m[2]), Number(m[1])],
   },
   {
     re: new RegExp(String.raw`^(\d{4})(\d{2})(\d{2})(?=_|\s|-|$)${SEP}(.*)$`),
-    pick: (m) => [+m[1], +m[2], +m[3]],
+    pick: (m) => [Number(m[1]), Number(m[2]), Number(m[3])],
   },
   {
     re: new RegExp(String.raw`^(\d{4})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`),
-    pick: (m) => [+m[1], +m[2]],
+    pick: (m) => [Number(m[1]), Number(m[2])],
   },
 ];
 
@@ -90,8 +90,8 @@ export function formatDateRange(
   to?: string | null,
 ): string | undefined {
   if (!from && !to) return undefined;
-  const a = new Date(from ?? to!);
-  const b = new Date(to ?? from!);
+  const a = new Date(from ?? to ?? "");
+  const b = new Date(to ?? from ?? "");
   const sameYear = a.getUTCFullYear() === b.getUTCFullYear();
   const sameMonth = sameYear && a.getUTCMonth() === b.getUTCMonth();
   const sameDay = sameMonth && a.getUTCDate() === b.getUTCDate();

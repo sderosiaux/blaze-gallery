@@ -178,14 +178,16 @@ export function BarList({
                 <Link href={item.href} className={rowClass}>
                   {body}
                 </Link>
-              ) : (
-                <div
-                  tabIndex={item.tooltip ? 0 : undefined}
-                  aria-label={item.tooltip ? item.name : undefined}
-                  className={rowClass}
+              ) : item.tooltip ? (
+                <button
+                  type="button"
+                  aria-label={item.name}
+                  className={cn(rowClass, "w-full text-left")}
                 >
                   {body}
-                </div>
+                </button>
+              ) : (
+                <div className={rowClass}>{body}</div>
               )}
             </li>
           );

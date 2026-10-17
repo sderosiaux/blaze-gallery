@@ -53,18 +53,20 @@ export default function LibraryHome() {
   }, []);
 
   useEffect(() => {
-    load(initialState().status === "ready");
+    void load(initialState().status === "ready");
     return () => request.current?.abort();
   }, [load]);
 
   useEffect(() => {
     const controller = new AbortController();
+    // A failed read keeps the name remembered from earlier in the session.
     loadBucketName(controller.signal).then(
-      // A failed read keeps the name remembered from earlier in the session.
       (name) => {
         setBucket((shown) => name ?? shown ?? null);
       },
-      () => {},
+      () => {
+        // Aborted or unreadable: keep what is shown.
+      },
     );
     return () => {
       controller.abort();
@@ -91,7 +93,7 @@ export default function LibraryHome() {
         {root.status === "error" && (
           <LoadError
             title="Les dossiers n'ont pas pu être chargés"
-            onRetry={() => load(false)}
+            onRetry={() => void load(false)}
             className="py-12"
           />
         )}
@@ -106,7 +108,7 @@ export default function LibraryHome() {
                 <Button
                   variant="secondary"
                   icon={RotateCw}
-                  onClick={() => load(false)}
+                  onClick={() => void load(false)}
                 >
                   Réessayer
                 </Button>

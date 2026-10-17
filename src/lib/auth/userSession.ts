@@ -1,7 +1,9 @@
 import crypto from "crypto";
 import type { UserSession } from "./types";
 import { authConfig } from "./config";
-import { query } from "../database";
+import { query, requireRow } from "../database";
+import { logger } from "../logger";
+import { nonEmptyOr } from "../textUtils";
 
 /**
  * Database-backed session storage for serverless environments
@@ -39,7 +41,7 @@ export async function createUserSession(user: {
       sessionId,
       user.email.toLowerCase(),
       user.name,
-      user.picture || null,
+      nonEmptyOr(user.picture, null),
       user.googleId,
       now,
       expiresAt,
@@ -50,7 +52,7 @@ export async function createUserSession(user: {
   // Clean up expired sessions periodically (async, don't wait)
   cleanupExpiredUserSessions().catch(console.error);
 
-  console.log("Created user session:", {
+  logger.info("Created user session", {
     sessionId: `${sessionId.substring(0, 8)}...`,
     email: user.email,
     expiresAt: expiresAt.toISOString(),
@@ -65,11 +67,12 @@ export async function createUserSession(user: {
 export async function validateUserSession(
   sessionId: string,
 ): Promise<UserSession | null> {
-  const result = await query(`SELECT * FROM user_sessions WHERE id = $1`, [
-    sessionId,
-  ]);
+  const result = await query<DbSession>(
+    `SELECT * FROM user_sessions WHERE id = $1`,
+    [sessionId],
+  );
 
-  const dbSession = result.rows[0] as DbSession | undefined;
+  const dbSession = result.rows[0];
 
   if (!dbSession) {
     return null;
@@ -81,7 +84,7 @@ export async function validateUserSession(
   // Check if session is expired
   if (now > expiresAt) {
     await query(`DELETE FROM user_sessions WHERE id = $1`, [sessionId]);
-    console.log("User session expired and removed:", {
+    logger.info("User session expired and removed", {
       sessionId: `${sessionId.substring(0, 8)}...`,
       email: dbSession.email,
     });
@@ -105,7 +108,7 @@ export async function validateUserSession(
     id: dbSession.id,
     email: dbSession.email,
     name: dbSession.name,
-    picture: dbSession.picture || undefined,
+    picture: nonEmptyOr(dbSession.picture, undefined),
     createdAt: new Date(dbSession.created_at).getTime(),
     expiresAt: expiresAt.getTime(),
     lastActivity: lastActivity.getTime(),
@@ -116,15 +119,16 @@ export async function validateUserSession(
  * Revoke a user session
  */
 export async function revokeUserSession(sessionId: string): Promise<void> {
-  const result = await query(
+  const result = await query<{ email: string }>(
     `DELETE FROM user_sessions WHERE id = $1 RETURNING email`,
     [sessionId],
   );
 
-  if (result.rows[0]) {
-    console.log("User session revoked:", {
+  const revoked = result.rows[0];
+  if (revoked) {
+    logger.info("User session revoked", {
       sessionId: `${sessionId.substring(0, 8)}...`,
-      email: result.rows[0].email,
+      email: revoked.email,
     });
   }
 }
@@ -134,16 +138,16 @@ export async function revokeUserSession(sessionId: string): Promise<void> {
  */
 export async function getUserSessions(email: string): Promise<UserSession[]> {
   const normalizedEmail = email.toLowerCase();
-  const result = await query(
+  const result = await query<DbSession>(
     `SELECT * FROM user_sessions WHERE email = $1 AND expires_at > NOW()`,
     [normalizedEmail],
   );
 
-  return result.rows.map((row: DbSession) => ({
+  return result.rows.map((row) => ({
     id: row.id,
     email: row.email,
     name: row.name,
-    picture: row.picture || undefined,
+    picture: nonEmptyOr(row.picture, undefined),
     createdAt: new Date(row.created_at).getTime(),
     expiresAt: new Date(row.expires_at).getTime(),
     lastActivity: new Date(row.last_activity).getTime(),
@@ -159,7 +163,7 @@ export async function revokeUserSessions(email: string): Promise<void> {
     normalizedEmail,
   ]);
 
-  console.log("User sessions revoked (bulk):", {
+  logger.info("User sessions revoked (bulk)", {
     email: normalizedEmail,
     count: result.rowCount,
   });
@@ -174,7 +178,13 @@ export async function getSessionStats(): Promise<{
   oldestSession: Date | null;
   newestSession: Date | null;
 }> {
-  const statsResult = await query(`
+  // COUNT(*) is a bigint: pg returns it as a string
+  const statsResult = await query<{
+    total_sessions: string;
+    active_users: string;
+    oldest_session: Date | null;
+    newest_session: Date | null;
+  }>(`
     SELECT
       COUNT(*) as total_sessions,
       COUNT(DISTINCT email) as active_users,
@@ -184,11 +194,11 @@ export async function getSessionStats(): Promise<{
     WHERE expires_at > NOW()
   `);
 
-  const stats = statsResult.rows[0];
+  const stats = requireRow(statsResult);
 
   return {
-    totalSessions: parseInt(stats.total_sessions) || 0,
-    activeUsers: parseInt(stats.active_users) || 0,
+    totalSessions: parseInt(stats.total_sessions, 10) || 0,
+    activeUsers: parseInt(stats.active_users, 10) || 0,
     oldestSession: stats.oldest_session ? new Date(stats.oldest_session) : null,
     newestSession: stats.newest_session ? new Date(stats.newest_session) : null,
   };
@@ -203,6 +213,6 @@ async function cleanupExpiredUserSessions(): Promise<void> {
   `);
 
   if (result.rowCount && result.rowCount > 0) {
-    console.log(`Cleaned up ${result.rowCount} expired user sessions`);
+    logger.info(`Cleaned up ${result.rowCount} expired user sessions`);
   }
 }

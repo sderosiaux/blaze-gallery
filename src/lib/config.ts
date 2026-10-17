@@ -3,6 +3,20 @@ import { logger } from "./logger";
 
 let cachedConfig: Config | null = null;
 
+/** Env var value; unset and empty both count as missing. */
+function envValue(name: string): string | undefined {
+  const value = process.env[name];
+  return value !== undefined && value !== "" ? value : undefined;
+}
+
+function envOrDefault(name: string, fallback: string): string {
+  return envValue(name) ?? fallback;
+}
+
+function isSet(value: string | undefined): boolean {
+  return value !== undefined && value !== "";
+}
+
 export function getConfig(): Config {
   if (cachedConfig) {
     return cachedConfig;
@@ -10,33 +24,35 @@ export function getConfig(): Config {
 
   logger.configInfo("Loading configuration from environment variables");
 
-  const storageMode = (process.env.THUMBNAIL_STORAGE || "local").toLowerCase();
+  const storageMode = envOrDefault("THUMBNAIL_STORAGE", "local").toLowerCase();
   const normalizedStorageMode: "local" | "s3" =
     storageMode === "s3" ? "s3" : "local";
-  const thumbnailPrefix = process.env.THUMBNAIL_S3_PREFIX || "thumbnails";
+  const thumbnailPrefix = envOrDefault("THUMBNAIL_S3_PREFIX", "thumbnails");
 
   const defaultConfig: Config = {
-    backblaze_endpoint: process.env.BACKBLAZE_ENDPOINT || "",
-    backblaze_bucket: process.env.BACKBLAZE_BUCKET || "",
-    backblaze_access_key: process.env.BACKBLAZE_ACCESS_KEY || "",
-    backblaze_secret_key: process.env.BACKBLAZE_SECRET_KEY || "",
+    backblaze_endpoint: envOrDefault("BACKBLAZE_ENDPOINT", ""),
+    backblaze_bucket: envOrDefault("BACKBLAZE_BUCKET", ""),
+    backblaze_access_key: envOrDefault("BACKBLAZE_ACCESS_KEY", ""),
+    backblaze_secret_key: envOrDefault("BACKBLAZE_SECRET_KEY", ""),
     thumbnail_storage: normalizedStorageMode,
-    thumbnail_s3_endpoint: process.env.THUMBNAIL_S3_ENDPOINT || undefined,
-    thumbnail_s3_bucket: process.env.THUMBNAIL_S3_BUCKET || undefined,
-    thumbnail_s3_access_key: process.env.THUMBNAIL_S3_ACCESS_KEY || undefined,
-    thumbnail_s3_secret_key: process.env.THUMBNAIL_S3_SECRET_KEY || undefined,
+    thumbnail_s3_endpoint: envValue("THUMBNAIL_S3_ENDPOINT"),
+    thumbnail_s3_bucket: envValue("THUMBNAIL_S3_BUCKET"),
+    thumbnail_s3_access_key: envValue("THUMBNAIL_S3_ACCESS_KEY"),
+    thumbnail_s3_secret_key: envValue("THUMBNAIL_S3_SECRET_KEY"),
     thumbnail_s3_prefix: thumbnailPrefix,
     thumbnail_max_age_days: parseInt(
-      process.env.THUMBNAIL_MAX_AGE_DAYS || "30",
+      envOrDefault("THUMBNAIL_MAX_AGE_DAYS", "30"),
     ),
-    sync_interval_hours: parseInt(process.env.SYNC_INTERVAL_HOURS || "24"),
+    sync_interval_hours: parseInt(envOrDefault("SYNC_INTERVAL_HOURS", "24")),
     auto_metadata_threshold_mb: parseInt(
-      process.env.AUTO_METADATA_THRESHOLD_MB || "5",
+      envOrDefault("AUTO_METADATA_THRESHOLD_MB", "5"),
     ),
     auto_thumbnail_threshold_mb: parseInt(
-      process.env.AUTO_THUMBNAIL_THRESHOLD_MB || "30",
+      envOrDefault("AUTO_THUMBNAIL_THRESHOLD_MB", "30"),
     ),
-    sync_throttle_seconds: parseInt(process.env.SYNC_THROTTLE_SECONDS || "30"),
+    sync_throttle_seconds: parseInt(
+      envOrDefault("SYNC_THROTTLE_SECONDS", "30"),
+    ),
   };
 
   // Log which environment variables are set (without exposing values)
@@ -141,10 +157,10 @@ export function validateConfig(config: Config): string[] {
     }
     // Validate separate thumbnail S3 config if provided (for R2 or other S3-compatible storage)
     if (
-      config.thumbnail_s3_endpoint ||
-      config.thumbnail_s3_bucket ||
-      config.thumbnail_s3_access_key ||
-      config.thumbnail_s3_secret_key
+      isSet(config.thumbnail_s3_endpoint) ||
+      isSet(config.thumbnail_s3_bucket) ||
+      isSet(config.thumbnail_s3_access_key) ||
+      isSet(config.thumbnail_s3_secret_key)
     ) {
       // If any thumbnail S3 config is set, all must be set
       if (!config.thumbnail_s3_endpoint) {

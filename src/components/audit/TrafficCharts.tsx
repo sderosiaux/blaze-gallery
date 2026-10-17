@@ -171,7 +171,10 @@ function TimeChart({
   // Non-breaking spaces: Recharts wraps tick text at spaces when it runs out of room.
   const yLabel = (n: number) =>
     n === 0 ? "0" : axisFormat(n).replace(/ /g, "\u00A0");
-  const pointCount = rows.filter((r) => r[series[0].key] != null).length;
+  const firstKey = series[0]?.key;
+  const pointCount = rows.filter(
+    (r) => firstKey !== undefined && r[firstKey] != null,
+  ).length;
   const axisTick = { fill: paint("ink-muted"), fontSize: 11 };
 
   return (
@@ -225,7 +228,7 @@ function TimeChart({
             <YAxis
               width="auto"
               ticks={yTicks}
-              domain={[0, yTicks[yTicks.length - 1]]}
+              domain={[0, yTicks[yTicks.length - 1] ?? "auto"]}
               interval={0}
               tickFormatter={yLabel}
               tick={axisTick}

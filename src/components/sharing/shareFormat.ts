@@ -28,8 +28,7 @@ export function relativeTime(iso: string, now = Date.now()): string {
   const abs = Math.abs(seconds);
   if (abs < 60) return "à l'instant";
   const rtf = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
-  const [unit, size] =
-    UNITS.find(([, s]) => abs >= s) ?? UNITS[UNITS.length - 1];
+  const [unit, size] = UNITS.find(([, s]) => abs >= s) ?? ["minute", 60];
   return rtf.format(Math.round(seconds / size), unit);
 }
 

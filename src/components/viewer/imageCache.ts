@@ -48,7 +48,8 @@ function notify(entry: Entry) {
 
 function settle(entry: Entry, img: HTMLImageElement) {
   // decode() can reject for very large images that still display fine.
-  img
+  // Fire-and-forget: the entry settles through the callback below.
+  void img
     .decode()
     .catch(() => undefined)
     .then(() => {

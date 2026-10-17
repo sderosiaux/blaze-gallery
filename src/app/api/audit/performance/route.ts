@@ -4,6 +4,15 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import type { AuditBucket, AuditSeries } from "@/components/audit/types";
 
+interface BucketRow {
+  time_period: string | number | Date;
+  request_count: number;
+  error_count: number;
+  bytes_transferred: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+}
+
 export const dynamic = "force-dynamic";
 
 const MIN_BUCKET_SECONDS = 60;
@@ -50,7 +59,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       Math.ceil((end - start) / 1000 / MAX_BUCKETS),
     );
 
-    const result = await query(
+    const result = await query<BucketRow>(
       `
       SELECT
         to_timestamp(floor(extract(epoch FROM timestamp) / $3) * $3) AS time_period,

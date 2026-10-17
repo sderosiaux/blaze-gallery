@@ -3,6 +3,17 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import type { AuditSummary } from "@/components/audit/types";
+import { firstRow } from "@/app/api/_lib/db";
+import { isInvalidDateParam } from "@/app/api/_lib/request";
+
+interface SummaryRow {
+  total_requests: number;
+  error_count: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  total_bytes: number;
+  estimated_cost_usd: number | null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +25,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const startDate = searchParams.get("start_date");
     const endDate = searchParams.get("end_date");
 
-    if (
-      (startDate && isNaN(Date.parse(startDate))) ||
-      (endDate && isNaN(Date.parse(endDate)))
-    ) {
+    if (isInvalidDateParam(startDate) || isInvalidDateParam(endDate)) {
       return NextResponse.json(
         {
           success: false,
@@ -43,7 +51,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
 
-    const result = await query(
+    const result = await query<SummaryRow>(
       `
       SELECT
         COUNT(*)::int AS total_requests,
@@ -57,7 +65,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       params,
     );
 
-    const row = result.rows[0];
+    const row = firstRow(result, "Audit summary");
     const summary: AuditSummary = {
       total_requests: row.total_requests,
       error_count: row.error_count,

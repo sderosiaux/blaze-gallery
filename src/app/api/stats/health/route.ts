@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { HealthStats } from "@/components/stats/types";
+import { firstRow } from "@/app/api/_lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
 export const GET = requireAuth(async function GET() {
   try {
     const [metadataResult, syncResult] = await Promise.all([
-      query(`
+      query<HealthStats["metadata"]>(`
         SELECT
           COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%')::int AS images,
           COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%' AND metadata ? 'dimensions')::int AS with_dimensions,
@@ -27,7 +28,7 @@ export const GET = requireAuth(async function GET() {
           COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
         FROM photos
       `),
-      query(`
+      query<HealthStats["sync"]>(`
         SELECT
           COUNT(*)::int AS total_folders,
           COUNT(*) FILTER (WHERE last_synced >= NOW() - INTERVAL '1 day')::int AS synced_last_day,
@@ -41,8 +42,8 @@ export const GET = requireAuth(async function GET() {
     ]);
 
     const data: HealthStats = {
-      metadata: metadataResult.rows[0],
-      sync: syncResult.rows[0],
+      metadata: firstRow(metadataResult, "Metadata health"),
+      sync: firstRow(syncResult, "Sync health"),
     };
 
     return NextResponse.json({ success: true, data });

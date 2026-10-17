@@ -32,6 +32,7 @@ export function Tabs<T extends string>({
     const i = tabs.findIndex((t) => t.id === value);
     const next =
       tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    if (!next) return;
     onChange(next.id);
     listRef.current
       ?.querySelector<HTMLButtonElement>(`[data-tab="${next.id}"]`)
@@ -42,6 +43,7 @@ export function Tabs<T extends string>({
     <div
       ref={listRef}
       role="tablist"
+      tabIndex={-1}
       aria-label={label}
       onKeyDown={onKeyDown}
       className={cn(

@@ -1,3 +1,4 @@
+import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import type { Photo } from "@/types";
 import { formatDay } from "@/lib/albums";
 
@@ -5,6 +6,14 @@ import { formatDay } from "@/lib/albums";
 export interface MonthCount {
   month: string;
   count: number;
+}
+
+function isMonthCount(value: unknown): value is MonthCount {
+  return (
+    isRecord(value) &&
+    typeof value.month === "string" &&
+    typeof value.count === "number"
+  );
 }
 
 export interface TimelineSummary {
@@ -22,10 +31,10 @@ export async function fetchTimelineSummary(
   signal?: AbortSignal,
 ): Promise<TimelineSummary> {
   const response = await fetch("/api/timeline/summary", { signal });
-  const data = await response.json();
+  const data = await readJsonObject(response);
   if (!response.ok || !data.success)
-    throw new Error(data.error ?? `HTTP ${response.status}`);
-  return { months: data.months ?? [] };
+    throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
+  return { months: asArray(data.months).filter(isMonthCount) };
 }
 
 /** Years holding at least one dated photo, newest first like the months. */

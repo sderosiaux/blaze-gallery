@@ -1,14 +1,20 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import type { Photo } from "@/types";
+import type { SharedFolder } from "@/lib/database";
 import { getSharedFolder, getPhoto } from "@/lib/database";
 import { validateShareSession } from "@/lib/shareSession";
 import { DatabaseRateLimiter } from "@/lib/rateLimiter";
+import { getClientIP } from "@/lib/requestContext";
 
-export interface ShareValidationResult {
-  share: any;
-  photo: any;
-  error?: NextResponse;
-}
+/** On failure `error` is the response to return; otherwise share and photo are set */
+export type ShareValidationResult =
+  | {
+      error: NextResponse;
+      share: SharedFolder | null;
+      photo: Photo | null;
+    }
+  | { error?: undefined; share: SharedFolder; photo: Photo };
 
 // View rate limiter: 1 view per hour per IP+token combo
 const viewRateLimiter = new DatabaseRateLimiter(60 * 60 * 1000, 1);
@@ -17,7 +23,10 @@ const viewRateLimiter = new DatabaseRateLimiter(60 * 60 * 1000, 1);
  * Check if a view should be counted based on IP and share token rate limiting
  * Returns true if the view should be counted (not seen this IP+token combo in the last hour)
  */
-export function shouldCountView(request: NextRequest, token: string): boolean {
+export function shouldCountView(
+  _request: NextRequest,
+  _token: string,
+): boolean {
   // Sync version always returns true - use shouldCountViewAsync for accurate rate limiting
   return true;
 }
@@ -30,7 +39,7 @@ export async function shouldCountViewAsync(
   request: NextRequest,
   token: string,
 ): Promise<boolean> {
-  const ip = request.ip || request.headers.get("x-forwarded-for") || "unknown";
+  const ip = getClientIP(request);
   const cacheKey = `view:${token}:${ip}`;
 
   // If rate limiter allows (first request in window), it's a countable view

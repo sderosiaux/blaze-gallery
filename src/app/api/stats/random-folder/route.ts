@@ -7,7 +7,12 @@ export const dynamic = "force-dynamic";
 
 export const GET = requireAuth(async function GET() {
   try {
-    const result = await query(
+    const result = await query<{
+      id: number;
+      name: string;
+      path: string;
+      photo_count: number;
+    }>(
       `
         SELECT
           f.id,
@@ -23,14 +28,7 @@ export const GET = requireAuth(async function GET() {
       `,
     );
 
-    const randomFolder = result.rows[0] as
-      | {
-          id: number;
-          name: string;
-          path: string;
-          photo_count: number;
-        }
-      | undefined;
+    const randomFolder = result.rows[0];
 
     if (!randomFolder) {
       return NextResponse.json(

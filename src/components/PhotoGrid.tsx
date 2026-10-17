@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Photo } from "@/types";
 import PhotoViewer from "./PhotoViewer";
 import JustifiedGrid from "./photos/JustifiedGrid";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import PhotoTile from "./photos/PhotoTile";
 import { useToast } from "@/components/ui";
 
@@ -95,7 +96,7 @@ export default function PhotoGrid({
     onPhotoUrlChange?.(null);
   };
 
-  const toggleFavorite = useCallback(
+  const saveFavorite = useCallback(
     async (photo: Photo) => {
       const optimistic = { ...photo, is_favorite: !photo.is_favorite };
       updateOne(optimistic);
@@ -103,16 +104,24 @@ export default function PhotoGrid({
         const response = await fetch(`/api/photos/${photo.id}/favorite`, {
           method: "POST",
         });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error);
-        if (data.is_favorite !== optimistic.is_favorite)
-          updateOne({ ...photo, is_favorite: data.is_favorite });
+        const data = await readJsonObject(response);
+        if (!data.success) throw new Error(asString(data.error));
+        const isFavorite = Boolean(data.is_favorite);
+        if (isFavorite !== optimistic.is_favorite)
+          updateOne({ ...photo, is_favorite: isFavorite });
       } catch {
         updateOne(photo);
         toast.show("Les favoris n'ont pas pu être mis à jour.", "error");
       }
     },
     [toast, updateOne],
+  );
+
+  const toggleFavorite = useCallback(
+    (photo: Photo) => {
+      void saveFavorite(photo);
+    },
+    [saveFavorite],
   );
 
   if (loading) return <PhotoGridSkeleton />;

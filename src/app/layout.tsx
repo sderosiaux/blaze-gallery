@@ -12,9 +12,11 @@ const sans = Hanken_Grotesk({
   display: "swap",
 });
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+
 export const metadata: Metadata = {
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    appUrl !== undefined && appUrl !== "" ? appUrl : "http://localhost:3000",
   ),
   title: "Blaze Gallery",
   description: "Vos photos, depuis votre propre stockage.",

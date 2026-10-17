@@ -6,24 +6,19 @@ import {
   getFolderByPath,
 } from "@/lib/database";
 import type { CreateShareData } from "@/lib/database";
+import { logger } from "@/lib/logger";
+import { optionalString, readJsonObject } from "@/app/api/_lib/request";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonObject(request);
 
-    const {
-      folder_path,
-      password,
-      expires_at,
-      description,
-      allow_download = true,
-    }: {
-      folder_path: string;
-      password?: string;
-      expires_at?: string;
-      description?: string;
-      allow_download?: boolean;
-    } = body;
+    const folder_path = optionalString(body.folder_path);
+    const password = optionalString(body.password);
+    const expires_at = optionalString(body.expires_at);
+    const description = optionalString(body.description);
+    const allow_download =
+      typeof body.allow_download === "boolean" ? body.allow_download : true;
 
     // Validate required fields
     if (!folder_path) {
@@ -36,20 +31,20 @@ export async function POST(request: NextRequest) {
     // Decode URL-encoded path (e.g., %20 -> space)
     const decodedPath = decodeURIComponent(folder_path);
 
-    console.log("[API] Share request - raw path:", folder_path);
-    console.log("[API] Share request - decoded path:", decodedPath);
+    logger.debug(`[API] Share request - raw path: ${folder_path}`);
+    logger.debug(`[API] Share request - decoded path: ${decodedPath}`);
 
     // Validate that the folder exists
     const folder = await getFolderByPath(decodedPath);
     if (!folder) {
-      console.log("[API] Folder not found for path:", decodedPath);
+      logger.debug(`[API] Folder not found for path: ${decodedPath}`);
       return NextResponse.json(
         { error: "Folder not found", path: decodedPath },
         { status: 404 },
       );
     }
 
-    console.log("[API] Found folder:", folder.id, folder.name);
+    logger.debug(`[API] Found folder: ${folder.id} ${folder.name}`);
 
     // Validate expiration date if provided
     if (expires_at) {
@@ -75,12 +70,16 @@ export async function POST(request: NextRequest) {
     const share = await createFolderShare(shareData);
 
     // Return share details without password hash
-    const { password_hash, ...shareResponse } = share;
+    const { password_hash: _passwordHash, ...shareResponse } = share;
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+      ? process.env.NEXT_PUBLIC_APP_URL
+      : "http://localhost:3000";
 
     return NextResponse.json({
       success: true,
       share: shareResponse,
-      share_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/share/${share.share_token}`,
+      share_url: `${appUrl}/share/${share.share_token}`,
     });
   } catch (error) {
     console.error("[API] Error creating folder share:", error);
@@ -93,7 +92,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Get all shared folders for management interface
     const shares = await getAllSharedFolders();

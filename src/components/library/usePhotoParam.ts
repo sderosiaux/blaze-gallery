@@ -33,7 +33,7 @@ export function usePhotoParam(): [
     } else if (!photoId && wasOpen && pushed.current) {
       pushed.current = false;
       window.history.back();
-    } else if (photoId || wasOpen) {
+    } else if ((photoId !== null && photoId !== "") || wasOpen) {
       window.history.replaceState(null, "", href);
     }
   }, []);

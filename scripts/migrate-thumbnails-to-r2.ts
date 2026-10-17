@@ -4,32 +4,34 @@
  * Usage: npx tsx scripts/migrate-thumbnails-to-r2.ts
  */
 
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
-import { Pool } from 'pg';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as dotenv from 'dotenv';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Pool } from "pg";
+import * as fs from "fs";
+import * as path from "path";
+import * as dotenv from "dotenv";
+import { nonEmptyOr } from "../src/lib/textUtils";
+import { out, requireEnv } from "./cli";
 
 // Load environment variables
 dotenv.config();
 
 // R2 Configuration
-const R2_ENDPOINT = process.env.THUMBNAIL_S3_ENDPOINT!;
-const R2_BUCKET = process.env.THUMBNAIL_S3_BUCKET!;
-const R2_ACCESS_KEY = process.env.THUMBNAIL_S3_ACCESS_KEY!;
-const R2_SECRET_KEY = process.env.THUMBNAIL_S3_SECRET_KEY!;
-const R2_PREFIX = process.env.THUMBNAIL_S3_PREFIX || 'thumbnails';
+const R2_ENDPOINT = requireEnv("THUMBNAIL_S3_ENDPOINT");
+const R2_BUCKET = requireEnv("THUMBNAIL_S3_BUCKET");
+const R2_ACCESS_KEY = requireEnv("THUMBNAIL_S3_ACCESS_KEY");
+const R2_SECRET_KEY = requireEnv("THUMBNAIL_S3_SECRET_KEY");
+const R2_PREFIX = nonEmptyOr(process.env.THUMBNAIL_S3_PREFIX, "thumbnails");
 
 // Database
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireEnv("DATABASE_URL");
 
 // Local paths
-const THUMBNAILS_DIR = path.join(process.cwd(), 'data', 'thumbnails');
+const THUMBNAILS_DIR = path.join(process.cwd(), "data", "thumbnails");
 
 // Create S3 client for R2
 const s3Client = new S3Client({
   endpoint: R2_ENDPOINT,
-  region: 'auto',
+  region: "auto",
   credentials: {
     accessKeyId: R2_ACCESS_KEY,
     secretAccessKey: R2_SECRET_KEY,
@@ -42,13 +44,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// id is a bigint (pg returns it as a string); the query keeps only rows with a path
 interface PhotoRow {
-  id: number;
-  thumbnail_path: string | null;
+  id: string;
+  thumbnail_path: string;
   s3_key: string;
 }
 
-function getNewS3Key(photoId: number, s3Key: string): string {
+function getNewS3Key(photoId: string, s3Key: string): string {
   const dir = path.posix.dirname(s3Key);
   const baseName = path.posix.basename(s3Key, path.posix.extname(s3Key));
   const fileName = `${baseName}-${photoId}.jpeg`;
@@ -57,7 +60,7 @@ function getNewS3Key(photoId: number, s3Key: string): string {
   if (R2_PREFIX) {
     segments.push(R2_PREFIX);
   }
-  if (dir && dir !== '.') {
+  if (dir && dir !== ".") {
     segments.push(dir);
   }
   segments.push(fileName);
@@ -65,17 +68,22 @@ function getNewS3Key(photoId: number, s3Key: string): string {
   return path.posix.join(...segments.filter(Boolean));
 }
 
-async function uploadThumbnail(localPath: string, s3Key: string): Promise<boolean> {
+async function uploadThumbnail(
+  localPath: string,
+  s3Key: string,
+): Promise<boolean> {
   try {
     const fileBuffer = fs.readFileSync(localPath);
 
-    await s3Client.send(new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: s3Key,
-      Body: fileBuffer,
-      ContentType: 'image/jpeg',
-      CacheControl: 'public, max-age=31536000, immutable',
-    }));
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: s3Key,
+        Body: fileBuffer,
+        ContentType: "image/jpeg",
+        CacheControl: "public, max-age=31536000, immutable",
+      }),
+    );
 
     return true;
   } catch (error) {
@@ -85,7 +93,15 @@ async function uploadThumbnail(localPath: string, s3Key: string): Promise<boolea
 }
 
 // Process in batches with concurrency
-async function processBatch(photos: PhotoRow[], batchSize: number = 20): Promise<{uploaded: number, failed: number, notFound: number, updated: number}> {
+async function processBatch(
+  photos: PhotoRow[],
+  batchSize = 20,
+): Promise<{
+  uploaded: number;
+  failed: number;
+  notFound: number;
+  updated: number;
+}> {
   let uploaded = 0;
   let failed = 0;
   let notFound = 0;
@@ -94,53 +110,60 @@ async function processBatch(photos: PhotoRow[], batchSize: number = 20): Promise
   for (let i = 0; i < photos.length; i += batchSize) {
     const batch = photos.slice(i, i + batchSize);
 
-    const results = await Promise.all(batch.map(async (photo) => {
-      const localThumbnailPath = photo.thumbnail_path!;
-      const localFilename = path.basename(localThumbnailPath);
-      const localFullPath = path.join(THUMBNAILS_DIR, localFilename);
-      const newS3Key = getNewS3Key(photo.id, photo.s3_key);
+    const results = await Promise.all(
+      batch.map(async (photo) => {
+        const localThumbnailPath = photo.thumbnail_path;
+        const localFilename = path.basename(localThumbnailPath);
+        const localFullPath = path.join(THUMBNAILS_DIR, localFilename);
+        const newS3Key = getNewS3Key(photo.id, photo.s3_key);
 
-      // Check if local file exists
-      if (!fs.existsSync(localFullPath)) {
-        return { status: 'notFound', photoId: photo.id, newS3Key };
-      }
+        // Check if local file exists
+        if (!fs.existsSync(localFullPath)) {
+          return { status: "notFound", photoId: photo.id, newS3Key };
+        }
 
-      // Upload to R2
-      const success = await uploadThumbnail(localFullPath, newS3Key);
+        // Upload to R2
+        const success = await uploadThumbnail(localFullPath, newS3Key);
 
-      if (success) {
-        return { status: 'uploaded', photoId: photo.id, newS3Key };
-      } else {
-        return { status: 'failed', photoId: photo.id, newS3Key };
-      }
-    }));
+        if (success) {
+          return { status: "uploaded", photoId: photo.id, newS3Key };
+        } else {
+          return { status: "failed", photoId: photo.id, newS3Key };
+        }
+      }),
+    );
 
     // Update database for successful uploads
     for (const result of results) {
-      if (result.status === 'uploaded') {
-        await pool.query('UPDATE photos SET thumbnail_path = $1 WHERE id = $2', [result.newS3Key, result.photoId]);
+      if (result.status === "uploaded") {
+        await pool.query(
+          "UPDATE photos SET thumbnail_path = $1 WHERE id = $2",
+          [result.newS3Key, result.photoId],
+        );
         uploaded++;
         updated++;
-      } else if (result.status === 'notFound') {
+      } else if (result.status === "notFound") {
         notFound++;
       } else {
         failed++;
       }
     }
 
-    console.log(`Progress: ${Math.min(i + batchSize, photos.length)}/${photos.length} (uploaded: ${uploaded}, failed: ${failed}, not found: ${notFound})`);
+    out(
+      `Progress: ${Math.min(i + batchSize, photos.length)}/${photos.length} (uploaded: ${uploaded}, failed: ${failed}, not found: ${notFound})`,
+    );
   }
 
   return { uploaded, failed, notFound, updated };
 }
 
 async function migrate() {
-  console.log('Starting thumbnail migration to R2...');
-  console.log(`R2 Endpoint: ${R2_ENDPOINT}`);
-  console.log(`R2 Bucket: ${R2_BUCKET}`);
-  console.log(`R2 Prefix: ${R2_PREFIX}`);
-  console.log(`Thumbnails dir: ${THUMBNAILS_DIR}`);
-  console.log('');
+  out("Starting thumbnail migration to R2...");
+  out(`R2 Endpoint: ${R2_ENDPOINT}`);
+  out(`R2 Bucket: ${R2_BUCKET}`);
+  out(`R2 Prefix: ${R2_PREFIX}`);
+  out(`Thumbnails dir: ${THUMBNAILS_DIR}`);
+  out();
 
   // Get all photos with local thumbnail paths (only those with absolute paths)
   const result = await pool.query<PhotoRow>(`
@@ -153,28 +176,31 @@ async function migrate() {
   `);
 
   const photos = result.rows;
-  console.log(`Found ${photos.length} photos with local thumbnails to migrate`);
+  out(`Found ${photos.length} photos with local thumbnails to migrate`);
 
   if (photos.length === 0) {
-    console.log('No photos to migrate!');
+    out("No photos to migrate!");
     await pool.end();
     return;
   }
 
-  const { uploaded, failed, notFound, updated } = await processBatch(photos, 20);
+  const { uploaded, failed, notFound, updated } = await processBatch(
+    photos,
+    20,
+  );
 
   await pool.end();
 
-  console.log('');
-  console.log('Migration complete!');
-  console.log(`  Uploaded: ${uploaded}`);
-  console.log(`  Database updated: ${updated}`);
-  console.log(`  Failed: ${failed}`);
-  console.log(`  Not found locally: ${notFound}`);
+  out();
+  out("Migration complete!");
+  out(`  Uploaded: ${uploaded}`);
+  out(`  Database updated: ${updated}`);
+  out(`  Failed: ${failed}`);
+  out(`  Not found locally: ${notFound}`);
 }
 
-migrate().catch((err) => {
-  console.error('Migration failed:', err);
-  pool.end();
+void migrate().catch(async (err: unknown) => {
+  console.error("Migration failed:", err);
+  await pool.end();
   process.exit(1);
 });

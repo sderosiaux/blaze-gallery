@@ -72,7 +72,8 @@ export function SummaryStats({
   }
 
   const look = errorRateLook(summary.error_rate, summary.total_requests);
-  const hasCost = summary.estimated_cost_usd != null;
+  const cost = summary.estimated_cost_usd;
+  const hasCost = cost != null;
   const hourly = perHour(summary.total_requests, range);
 
   return (
@@ -134,7 +135,7 @@ export function SummaryStats({
         <Stat
           icon={Wallet}
           label="Coût estimé"
-          value={formatUsd(summary.estimated_cost_usd!)}
+          value={formatUsd(cost)}
           hint="Estimé requête par requête"
         />
       )}

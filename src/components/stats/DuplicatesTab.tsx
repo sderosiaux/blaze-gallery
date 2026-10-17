@@ -8,7 +8,7 @@ import { Badge, EmptyState, Section, Skeleton, Stat } from "@/components/ui";
 import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
 import { ShowMore } from "./charts";
 import { formatNumber, formatSeconds, formatSize } from "./format";
-import { SectionTitleSkeleton, TabError } from "./TabState";
+import { TabError } from "./TabState";
 import type { DuplicateFiles, DuplicateFolders } from "./types";
 import {
   useElapsed,
@@ -198,7 +198,8 @@ function Location({
   note?: string;
 }) {
   const parts = path.split("/");
-  const name = parts.pop() || path;
+  const popped = parts.pop();
+  const name = popped !== undefined && popped !== "" ? popped : path;
   return (
     <li>
       <Link

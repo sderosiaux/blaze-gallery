@@ -119,11 +119,19 @@ export default function ProgressiveImage({
   const mayLoadThumb = thumbLane === "fast" ? near : visible && dwelled;
 
   useEffect(() => {
-    if (!near || !wantsPreview || previewObjectUrl || previewMissing) return;
-    const job = requestImage(previewSrc!, "fast", priorityRef.current, order);
+    if (
+      !near ||
+      !wantsPreview ||
+      previewObjectUrl !== null ||
+      previewMissing ||
+      !previewSrc
+    )
+      return;
+    const job = requestImage(previewSrc, "fast", priorityRef.current, order);
     previewJob.current = job;
     let active = true;
-    job.promise.then((result) => {
+    // The job promise only resolves (failures are results); fire-and-forget.
+    void job.promise.then((result) => {
       if (!active) {
         if (result.ok) URL.revokeObjectURL(result.objectUrl);
         return;
@@ -139,11 +147,13 @@ export default function ProgressiveImage({
   }, [near, wantsPreview, previewSrc, previewObjectUrl, previewMissing, order]);
 
   useEffect(() => {
-    if (!mayLoadThumb || !needsThumb || thumbObjectUrl || thumbFailed) return;
+    if (!mayLoadThumb || !needsThumb || thumbObjectUrl !== null || thumbFailed)
+      return;
     const job = requestImage(thumbSrc, thumbLane, priorityRef.current, order);
     thumbJob.current = job;
     let active = true;
-    job.promise.then((result) => {
+    // The job promise only resolves (failures are results); fire-and-forget.
+    void job.promise.then((result) => {
       if (!active) {
         if (result.ok) URL.revokeObjectURL(result.objectUrl);
         return;

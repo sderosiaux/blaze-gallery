@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
 import { Button, IconButton, Input } from "@/components/ui";
 import { albumDateLabel, parseAlbumName } from "@/lib/albums";
@@ -28,6 +28,10 @@ export default function PasswordGate({
   const dateLabel = albumName
     ? albumDateLabel({ name: albumName, date_from: null, date_to: null })
     : undefined;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +68,11 @@ export default function PasswordGate({
           : "Ce dossier est protégé par un mot de passe."}
       </p>
 
-      <form onSubmit={submit} className="mt-8 space-y-3" noValidate>
+      <form
+        onSubmit={(e) => void submit(e)}
+        className="mt-8 space-y-3"
+        noValidate
+      >
         <div className="relative">
           <Input
             ref={inputRef}
@@ -78,7 +86,6 @@ export default function PasswordGate({
             placeholder="Mot de passe"
             aria-label="Mot de passe"
             autoComplete="current-password"
-            autoFocus
             aria-invalid={wrong || undefined}
             aria-describedby="share-password-message"
             className={cn(

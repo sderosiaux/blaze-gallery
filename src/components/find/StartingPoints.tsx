@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Folder } from "@/types";
 import { AlbumGrid } from "@/components/photos/AlbumCard";
 import { ButtonLink, Section } from "@/components/ui";
+import { asArray, readJsonObject } from "@/hooks/apiJson";
 import { AlbumGridSkeleton } from "./AlbumGridSkeleton";
 import { fetchTimelineSummary, yearsOf } from "./timeline";
 
@@ -26,13 +27,14 @@ export function StartingPoints() {
     const recent = fetch(`/api/library/recent?limit=${RECENT_LIMIT}`, {
       signal: controller.signal,
     })
-      .then((r) => r.json())
-      .then((d) => (d.success ? (d.folders as Folder[]) : null))
+      .then(readJsonObject)
+      .then((d) => (d.success ? (asArray(d.folders) as Folder[]) : null))
       .catch(() => null);
     const years = fetchTimelineSummary(controller.signal)
       .then((s) => yearsOf(s.months))
       .catch(() => null);
-    Promise.all([recent, years]).then(([r, y]) => {
+    // Both promises catch their own failures, so the pair never rejects.
+    void Promise.all([recent, years]).then(([r, y]) => {
       if (!controller.signal.aborted) setData({ recent: r, years: y });
     });
     return () => {

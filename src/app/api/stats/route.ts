@@ -3,6 +3,25 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { StatsSummary } from "@/components/stats/types";
+import { firstRow } from "@/app/api/_lib/db";
+
+interface PhotosRow {
+  photos: number;
+  videos: number;
+  storage_bytes: number;
+  video_bytes: number;
+  albums: number;
+  favorites: number;
+  with_dimensions: number;
+  with_date: number;
+  pending: number;
+}
+
+interface FoldersRow {
+  folders: number;
+  stale_folders: number;
+  last_synced: string | null;
+}
 
 // Force dynamic rendering for routes using auth
 export const dynamic = "force-dynamic";
@@ -13,7 +32,7 @@ export const dynamic = "force-dynamic";
 export const GET = requireAuth(async function GET() {
   try {
     const [photosResult, foldersResult] = await Promise.all([
-      query(`
+      query<PhotosRow>(`
         SELECT
           COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%')::int AS photos,
           COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos,
@@ -28,7 +47,7 @@ export const GET = requireAuth(async function GET() {
           )::int AS pending
         FROM photos
       `),
-      query(`
+      query<FoldersRow>(`
         SELECT
           COUNT(*)::int AS folders,
           COUNT(*) FILTER (WHERE last_synced IS NULL OR last_synced < NOW() - INTERVAL '7 days')::int AS stale_folders,
@@ -37,8 +56,8 @@ export const GET = requireAuth(async function GET() {
       `),
     ]);
 
-    const p = photosResult.rows[0];
-    const f = foldersResult.rows[0];
+    const p = firstRow(photosResult, "Photo stats");
+    const f = firstRow(foldersResult, "Folder stats");
 
     const data: StatsSummary = {
       photos: p.photos,

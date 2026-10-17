@@ -4,7 +4,7 @@ import { authConfig } from "@/lib/auth/config";
 // Force dynamic rendering for auth routes
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export function GET() {
   try {
     return NextResponse.json({
       enabled: authConfig.enabled,

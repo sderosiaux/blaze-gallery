@@ -27,6 +27,7 @@ import TimelineMonth, { MonthSkeleton } from "@/components/find/TimelineMonth";
 import { YearPicker, YearRail } from "@/components/find/YearIndex";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import {
   endOfYearCursor,
   fetchTimelineSummary,
@@ -52,13 +53,15 @@ interface Feed {
 async function fetchPage(before: string | null, signal: AbortSignal) {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (before) params.set("before", before);
-  const response = await fetch(`/api/timeline?${params}`, { signal });
-  const data = await response.json();
+  const response = await fetch(`/api/timeline?${params.toString()}`, {
+    signal,
+  });
+  const data = await readJsonObject(response);
   if (!response.ok || !data.success)
-    throw new Error(data.error ?? `HTTP ${response.status}`);
+    throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
   return {
-    photos: (data.photos ?? []) as TimelinePhoto[],
-    next: (data.next_before ?? null) as string | null,
+    photos: (Array.isArray(data.photos) ? data.photos : []) as TimelinePhoto[],
+    next: typeof data.next_before === "string" ? data.next_before : null,
   };
 }
 
@@ -101,7 +104,9 @@ function TimelineContent() {
         setYears(yearsOf(summary.months));
       })
       // The year index is an extra: the months still show without it.
-      .catch(() => {});
+      .catch(() => {
+        // Deliberately ignored, see above.
+      });
     return () => {
       controller.abort();
     };
@@ -164,7 +169,9 @@ function TimelineContent() {
     const el = sentinel.current;
     if (!el || feed.phase !== "ready" || !feed.cursor) return;
     const observer = new IntersectionObserver(
-      ([entry]) => entry.isIntersecting && loadMore(),
+      ([entry]) => {
+        if (entry?.isIntersecting) loadMore();
+      },
       {
         rootMargin: PREFETCH_MARGIN,
       },
@@ -383,7 +390,7 @@ function TimelineContent() {
                 yearAnchor={yearAnchor}
                 eagerCount={i === 0 ? 12 : 0}
                 onOpen={openPhoto}
-                onToggleFavorite={toggleFavorite}
+                onToggleFavorite={(photo) => void toggleFavorite(photo)}
               />
             );
           })}

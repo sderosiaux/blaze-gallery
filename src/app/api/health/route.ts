@@ -1,13 +1,12 @@
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { existsSync } from "fs";
 import { thumbnailService, getThumbnailStorageInfo } from "@/lib/thumbnails";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { listObjects } from "@/lib/s3";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const fs = require("fs");
     const storageInfo = getThumbnailStorageInfo();
 
     const checks = {
@@ -21,22 +20,33 @@ export async function GET(request: NextRequest) {
       await query("SELECT 1 as test");
       checks.database = true;
     } catch (error) {
-      logger.error("Database connection health check failed", error as Error);
+      logger.error(
+        "Database connection health check failed",
+        undefined,
+        error instanceof Error ? error : undefined,
+      );
     }
 
     try {
       if (storageInfo.mode === "s3") {
+        if (storageInfo.bucket === undefined) {
+          throw new Error("Thumbnail bucket is not configured");
+        }
         await listObjects({
-          bucket: storageInfo.bucket!,
+          bucket: storageInfo.bucket,
           prefix: storageInfo.prefix ? `${storageInfo.prefix}/` : undefined,
           maxKeys: 1,
         });
         checks.thumbnails_directory = true;
       } else {
-        checks.thumbnails_directory = fs.existsSync(storageInfo.location);
+        checks.thumbnails_directory = existsSync(storageInfo.location);
       }
     } catch (error) {
-      logger.error("Thumbnails directory health check failed", error as Error);
+      logger.error(
+        "Thumbnails directory health check failed",
+        undefined,
+        error instanceof Error ? error : undefined,
+      );
     }
 
     const thumbnailStats = await thumbnailService.getThumbnailStats();

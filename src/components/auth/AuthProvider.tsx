@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { createContext, useContext, useReducer, useEffect } from "react";
-import type { AuthState, AuthAction } from "@/lib/auth/types";
+import { asString, isRecord } from "@/hooks/apiJson";
+import type { AuthState, AuthAction, UserSession } from "@/lib/auth/types";
 
 interface AuthContextType extends AuthState {
   login: () => Promise<void>;
@@ -47,6 +48,18 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
   }
 }
 
+/**
+ * The session endpoint returns only some UserSession fields (auth-disabled
+ * mode sends just name and email), so the UI contract is those two strings.
+ */
+function isUserSession(value: unknown): value is UserSession {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.email === "string"
+  );
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
@@ -69,9 +82,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw new Error("Failed to get session");
       }
 
-      const { isAuthenticated, user } = await response.json();
+      const body: unknown = await response.json();
+      const isAuthenticated = isRecord(body) && body.isAuthenticated;
+      const user = isRecord(body) ? body.user : undefined;
 
-      if (isAuthenticated && user) {
+      if (isAuthenticated && isUserSession(user)) {
         dispatch({ type: "AUTH_SUCCESS", user });
       } else {
         dispatch({ type: "AUTH_LOGOUT" });
@@ -93,11 +108,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to initiate login");
+        const error: unknown = await response.json();
+        const message = isRecord(error) ? asString(error.error) : undefined;
+        throw new Error(
+          message !== undefined && message !== ""
+            ? message
+            : "Failed to initiate login",
+        );
       }
 
-      const { authUrl } = await response.json();
+      const body: unknown = await response.json();
+      const authUrl = isRecord(body) ? asString(body.authUrl) : undefined;
+      if (authUrl === undefined) throw new Error("Failed to initiate login");
 
       // Redirect to Google OAuth
       window.location.href = authUrl;
@@ -148,7 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (authSuccess === "success") {
       // Remove URL parameters and refresh session
       window.history.replaceState({}, document.title, window.location.pathname);
-      refreshSession();
+      void refreshSession();
     } else if (authError) {
       // Handle OAuth errors
       const errorMessage = getErrorMessage(authError, reason);
@@ -164,7 +186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }, 100);
     } else {
       // Regular session check
-      refreshSession();
+      void refreshSession();
     }
   }, []);
 
@@ -195,7 +217,9 @@ function getErrorMessage(error: string, reason?: string | null): string {
     case "oauth_invalid_request":
       return "Demande de connexion invalide.";
     case "unauthorized":
-      return reason || "not_authorized";
+      return reason !== null && reason !== undefined && reason !== ""
+        ? reason
+        : "not_authorized";
     case "rate_limit":
       return "Trop de tentatives. Réessayez plus tard.";
     case "invalid_callback":

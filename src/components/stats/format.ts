@@ -12,13 +12,12 @@ export { formatNumber };
 export const BYTE_UNITS = ["o", "Ko", "Mo", "Go", "To", "Po"];
 const NBSP = "\u00A0";
 
-const decimals = [0, 1, 2].map(
-  (digits) =>
-    new Intl.NumberFormat(LOCALE, {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    }),
-);
+const withDigits = (digits: number) =>
+  new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+const decimals = [withDigits(0), withDigits(1), withDigits(2)] as const;
 
 /** Three significant digits ("1,04 To", "954 Go", "26,2 Go"), so a 1.04 TB
  *  library never rounds down to "1 To". */
@@ -30,7 +29,7 @@ export function formatSize(bytes: number): string {
   );
   const v = bytes / 1024 ** i;
   const digits = i === 0 ? 0 : v < 10 ? 2 : v < 100 ? 1 : 0;
-  return `${decimals[digits].format(v)}${NBSP}${BYTE_UNITS[i]}`;
+  return `${decimals[digits].format(v)}${NBSP}${BYTE_UNITS[i] ?? "o"}`;
 }
 
 const percent = new Intl.NumberFormat(LOCALE, {

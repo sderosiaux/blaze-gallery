@@ -3,13 +3,19 @@
  */
 
 import { logger } from "./logger";
+import { nonEmptyOr } from "./textUtils";
+
+/** Normalizes anything thrown into an Error */
+export function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 export interface ErrorContext {
   component?: string;
   operation?: string;
   userId?: string;
   requestId?: string;
-  additionalData?: any;
+  additionalData?: Record<string, unknown>;
 }
 
 export class AppError extends Error {
@@ -91,8 +97,8 @@ export function handleError(error: Error, context?: ErrorContext): AppError {
 
   // Log the original error for debugging
   logger.error("Unhandled error converted to AppError", {
-    component: context?.component || "Unknown",
-    operation: context?.operation || "Unknown",
+    component: nonEmptyOr(context?.component, "Unknown"),
+    operation: nonEmptyOr(context?.operation, "Unknown"),
     originalError: error.message,
     stack: error.stack,
     context: context?.additionalData,
@@ -100,7 +106,7 @@ export function handleError(error: Error, context?: ErrorContext): AppError {
 
   // Convert to AppError
   return new AppError(
-    error.message || "An unexpected error occurred",
+    nonEmptyOr(error.message, "An unexpected error occurred"),
     500,
     false, // Non-operational since we don't know the nature
     context,
@@ -120,16 +126,16 @@ export function createErrorResponse(
   // Log the error
   if (appError.isOperational) {
     logger.warn("Operational error occurred", {
-      component: appError.context?.component || "API",
-      operation: appError.context?.operation || "Unknown",
+      component: nonEmptyOr(appError.context?.component, "API"),
+      operation: nonEmptyOr(appError.context?.operation, "Unknown"),
       error: appError.message,
       statusCode: appError.statusCode,
       context: appError.context,
     });
   } else {
     logger.error("Programming error occurred", {
-      component: appError.context?.component || "API",
-      operation: appError.context?.operation || "Unknown",
+      component: nonEmptyOr(appError.context?.component, "API"),
+      operation: nonEmptyOr(appError.context?.operation, "Unknown"),
       error: appError.message,
       statusCode: appError.statusCode,
       stack: appError.stack,
@@ -137,27 +143,31 @@ export function createErrorResponse(
     });
   }
 
+  // Include validation errors if it's a validation error
+  const validationErrors =
+    appError instanceof ValidationError
+      ? appError.context?.additionalData?.validationErrors
+      : undefined;
+
   return {
     success: false,
     error: appError.message,
     statusCode: appError.statusCode,
-    // Include validation errors if it's a validation error
-    ...(appError instanceof ValidationError &&
-      appError.context?.additionalData?.validationErrors && {
-        validationErrors: appError.context.additionalData.validationErrors,
-      }),
+    ...(validationErrors ? { validationErrors } : {}),
   };
 }
 
 /**
  * Async wrapper to catch and handle errors
  */
-export function asyncHandler(fn: Function) {
-  return async (...args: any[]) => {
+export function asyncHandler<A extends unknown[], R>(
+  fn: (...args: A) => Promise<R> | R,
+) {
+  return async (...args: A): Promise<R> => {
     try {
       return await fn(...args);
     } catch (error) {
-      throw handleError(error as Error);
+      throw handleError(toError(error));
     }
   };
 }
@@ -167,20 +177,24 @@ export function asyncHandler(fn: Function) {
  */
 export function initializeGlobalErrorHandlers(): void {
   // Handle unhandled promise rejections
-  process.on("unhandledRejection", (reason: any, promise: Promise<any>) => {
-    logger.error("Unhandled promise rejection", {
-      component: "GlobalErrorHandler",
-      reason: reason?.message || reason,
-      stack: reason?.stack,
-      promise: promise.toString(),
-    });
+  process.on(
+    "unhandledRejection",
+    (reason: unknown, promise: Promise<unknown>) => {
+      const failure = reason instanceof Error ? reason : undefined;
+      logger.error("Unhandled promise rejection", {
+        component: "GlobalErrorHandler",
+        reason: nonEmptyOr(failure?.message, reason),
+        stack: failure?.stack,
+        promise: Object.prototype.toString.call(promise),
+      });
 
-    // In development, exit the process to make it obvious
-    if (process.env.NODE_ENV === "development") {
-      console.error("Unhandled promise rejection. Exiting process.");
-      process.exit(1);
-    }
-  });
+      // In development, exit the process to make it obvious
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unhandled promise rejection. Exiting process.");
+        process.exit(1);
+      }
+    },
+  );
 
   // Handle uncaught exceptions
   process.on("uncaughtException", (error: Error) => {
@@ -231,13 +245,14 @@ export async function withRetry<T>(
 ): Promise<T> {
   const { maxRetries = 3, delayMs = 1000, backoff = true, context } = options;
 
-  let lastError: Error | null = null;
+  let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       return await operation();
     } catch (error) {
-      lastError = error as Error;
+      const failure = toError(error);
+      lastError = failure;
 
       if (attempt > maxRetries) {
         break;
@@ -246,19 +261,19 @@ export async function withRetry<T>(
       const delay = backoff ? delayMs * Math.pow(2, attempt - 1) : delayMs;
 
       logger.warn("Operation failed, retrying", {
-        component: context?.component || "RetryMechanism",
-        operation: context?.operation || "Unknown",
+        component: nonEmptyOr(context?.component, "RetryMechanism"),
+        operation: nonEmptyOr(context?.operation, "Unknown"),
         attempt,
         maxRetries,
         delayMs: delay,
-        error: lastError.message,
+        error: failure.message,
       });
 
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
-  throw handleError(lastError!, {
+  throw handleError(lastError ?? new Error("Operation failed"), {
     ...context,
     additionalData: {
       ...context?.additionalData,

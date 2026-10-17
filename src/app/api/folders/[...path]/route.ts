@@ -6,12 +6,11 @@ import {
   getPhotosInFolder,
   updateFolderLastVisited,
 } from "@/lib/database";
-import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 
 export const GET = requireAuth(async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { path: string[] } },
 ) {
   try {

@@ -74,7 +74,7 @@ function SharedLinks() {
 
   useEffect(() => {
     document.title = "Liens partagés · Blaze Gallery";
-    load();
+    void load();
   }, [load]);
 
   const onRevoked = (revoked: ShareLink) => {
@@ -98,7 +98,11 @@ function SharedLinks() {
           icon={AlertCircle}
           title="Les liens n'ont pas pu être chargés"
           action={
-            <Button variant="primary" icon={RotateCw} onClick={load}>
+            <Button
+              variant="primary"
+              icon={RotateCw}
+              onClick={() => void load()}
+            >
               Réessayer
             </Button>
           }
@@ -199,7 +203,12 @@ function ShareRow({
   onRevoke: (share: ShareLink) => void;
 }) {
   const copy = useCopyLink();
-  const name = share.folder_name || folderNameOf(share.folder_path);
+  const name =
+    share.folder_name !== undefined &&
+    share.folder_name !== null &&
+    share.folder_name !== ""
+      ? share.folder_name
+      : folderNameOf(share.folder_path);
   const { title } = parseAlbumName(name);
   const dateLabel = albumDateLabel({
     name,
@@ -263,7 +272,7 @@ function ShareRow({
             <IconButton
               icon={Copy}
               label="Copier le lien"
-              onClick={() => copy(url())}
+              onClick={() => void copy(url())}
             />
             <IconButton
               icon={ExternalLink}

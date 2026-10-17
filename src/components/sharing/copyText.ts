@@ -1,8 +1,10 @@
 /** Clipboard API first; the hidden-textarea fallback covers plain-http hosts where it is missing. */
 export async function copyText(text: string): Promise<boolean> {
   try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
+    // Missing on plain-http hosts, whatever the DOM typings say.
+    const clipboard = (navigator as { clipboard?: Clipboard }).clipboard;
+    if (clipboard && window.isSecureContext) {
+      await clipboard.writeText(text);
       return true;
     }
   } catch {

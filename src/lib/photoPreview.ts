@@ -21,7 +21,8 @@ function cacheGet(key: string): Buffer | null | undefined {
 function cacheSet(key: string, value: Buffer | null): void {
   previewCache.set(key, value);
   if (previewCache.size > CACHE_LIMIT) {
-    previewCache.delete(previewCache.keys().next().value!);
+    const oldest = previewCache.keys().next();
+    if (oldest.done !== true) previewCache.delete(oldest.value);
   }
 }
 

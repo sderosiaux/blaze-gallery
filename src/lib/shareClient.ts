@@ -1,4 +1,5 @@
 import type { Photo } from "@/types";
+import { nonEmptyOr } from "./textUtils";
 
 /** A share as listed by GET /api/shares (password hash stripped). */
 export interface ShareLink {
@@ -41,7 +42,10 @@ export function shareState(
 
 /** Same base as the `share_url` the API returns, so copied links always match. */
 export function shareUrl(token: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+  const base = nonEmptyOr(
+    process.env.NEXT_PUBLIC_APP_URL,
+    window.location.origin,
+  );
   return `${base.replace(/\/$/, "")}/share/${token}`;
 }
 
@@ -49,19 +53,37 @@ export function folderNameOf(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-async function readJson(response: Response) {
+/** Body of a share endpoint, every field optional since it comes off the wire */
+interface ErrorBody {
+  error?: string;
+}
+
+/**
+ * The JSON body as the shape the caller reads, or {} when it is absent or not
+ * an object. Fields are not validated beyond that: the endpoints are our own.
+ */
+async function readJson<T extends object>(
+  response: Response,
+): Promise<Partial<T>> {
   try {
-    return await response.json();
+    const body: unknown = await response.json();
+    return typeof body === "object" && body !== null
+      ? (body as Partial<T>)
+      : {};
   } catch {
     return {};
   }
 }
 
+function failure(data: ErrorBody, response: Response): Error {
+  return new Error(nonEmptyOr(data.error, `HTTP ${response.status}`));
+}
+
 export async function listShares(): Promise<ShareLink[]> {
   const response = await fetch("/api/shares", { cache: "no-store" });
-  const data = await readJson(response);
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return (data.shares ?? []).map((s: ShareLink) => ({
+  const data = await readJson<ErrorBody & { shares?: ShareLink[] }>(response);
+  if (!response.ok) throw failure(data, response);
+  return (data.shares ?? []).map((s) => ({
     ...s,
     view_count: Number(s.view_count) || 0,
   }));
@@ -83,8 +105,12 @@ export async function createShare(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await readJson(response);
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  const data = await readJson<
+    ErrorBody & { share?: ShareLink; share_url?: string }
+  >(response);
+  if (!response.ok) throw failure(data, response);
+  if (!data.share || data.share_url === undefined)
+    throw new Error("Malformed response from /api/shares");
   return {
     share: { ...data.share, has_password: Boolean(input.password) },
     share_url: data.share_url,
@@ -94,8 +120,8 @@ export async function createShare(
 export async function revokeShare(token: string): Promise<void> {
   const response = await fetch(`/api/shares/${token}`, { method: "DELETE" });
   if (!response.ok) {
-    const data = await readJson(response);
-    throw new Error(data.error || `HTTP ${response.status}`);
+    const data = await readJson<ErrorBody>(response);
+    throw failure(data, response);
   }
 }
 
@@ -109,16 +135,21 @@ export type GuestResult =
 const SESSION_KEY = (token: string) => `share_session_${token}`;
 const SESSION_TTL = 24 * 60 * 60 * 1000;
 
+interface StoredSession {
+  token: string;
+  expiresAt: number;
+}
+
 export function storedSession(token: string): string | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY(token));
     if (!raw) return null;
-    const { token: session, expiresAt } = JSON.parse(raw);
-    if (Date.now() > expiresAt) {
+    const stored = JSON.parse(raw) as Partial<StoredSession>;
+    if (Date.now() > Number(stored.expiresAt)) {
       localStorage.removeItem(SESSION_KEY(token));
       return null;
     }
-    return session;
+    return typeof stored.token === "string" ? stored.token : null;
   } catch {
     return null;
   }
@@ -140,8 +171,10 @@ function storeSession(token: string, session: string | null) {
 export async function openShare(token: string): Promise<GuestResult> {
   try {
     const response = await fetch(`/api/shares/${token}`, { cache: "no-store" });
-    const data = await readJson(response);
-    if (response.ok) return { kind: "album", album: data };
+    const data = await readJson<
+      Partial<SharedAlbum> & { requires_password?: boolean; error?: string }
+    >(response);
+    if (response.ok) return { kind: "album", album: data as SharedAlbum };
     if (response.status === 404) return { kind: "unavailable" };
     if (response.status === 401 && data.requires_password) {
       const session = storedSession(token);
@@ -154,8 +187,10 @@ export async function openShare(token: string): Promise<GuestResult> {
           },
           body: JSON.stringify({ action: "validate_session" }),
         });
-        const body = await readJson(resumed);
-        if (resumed.ok && body.success)
+        const body = await readJson<{ success?: boolean; data?: SharedAlbum }>(
+          resumed,
+        );
+        if (resumed.ok && body.success && body.data)
           return { kind: "album", album: body.data, sessionToken: session };
         storeSession(token, null);
       }
@@ -179,11 +214,18 @@ export async function unlockShare(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "validate_password", password }),
     });
-    const data = await readJson(response);
-    if (response.ok && data.success) {
+    const data = await readJson<{
+      success?: boolean;
+      data?: SharedAlbum & { session_token: string | null };
+    }>(response);
+    if (response.ok && data.success && data.data) {
       const { session_token, ...album } = data.data;
       storeSession(token, session_token);
-      return { kind: "album", album, sessionToken: session_token };
+      return {
+        kind: "album",
+        album,
+        ...(session_token !== null && { sessionToken: session_token }),
+      };
     }
     if (response.status === 401) return { kind: "wrong-password" };
     if (response.status === 404) return { kind: "unavailable" };
@@ -200,7 +242,7 @@ export async function fetchWithSession(
   options: RequestInit = {},
 ): Promise<Response> {
   const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   if (sessionToken) {

@@ -10,6 +10,78 @@ import {
 } from "@/lib/database";
 import type { Photo, Folder } from "@/types";
 import { QueryBuilder } from "@/lib/queryBuilder";
+import type { JsonObject } from "@/app/api/_lib/request";
+import {
+  isJsonObject,
+  optionalBoolean,
+  optionalNumber,
+  optionalString,
+} from "@/app/api/_lib/request";
+import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
+import { firstRow, withThumbnailUrl } from "@/app/api/_lib/db";
+
+// pg delivers COUNT and SUM (bigint, numeric) as strings; the tools return them as such
+type PgBigint = string;
+
+// The folder columns plus the two aggregates of the search query
+type FolderSearchRow = Omit<Folder, "total_size"> & {
+  total_size: PgBigint;
+  actual_photo_count: PgBigint;
+};
+
+interface GalleryStats {
+  total_photos: PgBigint;
+  total_folders: PgBigint;
+  total_size: PgBigint;
+  favorite_photos: PgBigint;
+  photos_with_metadata: PgBigint;
+}
+
+type AnalyticsGroupBy = "year" | "month" | "year-month" | "folder";
+type AnalyticsOrderBy = "period" | "count" | "size";
+type AnalyticsOrderDirection = "ASC" | "DESC";
+
+interface AnalyticsRow {
+  period: string;
+  photo_count: PgBigint;
+  total_size: PgBigint;
+  favorite_count: PgBigint;
+  folders_involved?: PgBigint;
+}
+
+type TrendTimeRange = "last-30-days" | "last-year" | "all-time";
+type TrendGroupBy = "day" | "week" | "month" | "year";
+type TrendMetric = "count" | "size" | "favorites";
+
+interface TrendRow {
+  period: string;
+  value: PgBigint;
+}
+
+interface GroupConfig {
+  selectFields: string;
+  groupByClause: string;
+}
+
+/** A tool argument error: reported to the client as a JSON-RPC error with its own code and HTTP status. */
+class McpToolError extends Error {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message);
+  }
+}
+
+/** The allowed option that equals `value`, else the fallback. */
+function pickOption<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return allowed.find((option) => option === value) ?? fallback;
+}
 
 interface SearchFilters {
   folder_path?: string;
@@ -51,8 +123,8 @@ class BlazeGalleryMCPHandler {
       .lte("p.modified_at", filters.date_to);
 
     const { limitParam, offsetParam } = qb.pagination(
-      filters.limit || 100,
-      filters.offset || 0,
+      filters.limit ? filters.limit : 100,
+      filters.offset ?? 0,
     );
 
     const queryText = `
@@ -64,17 +136,14 @@ class BlazeGalleryMCPHandler {
       LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
 
-    const result = await query(queryText, qb.getParams());
+    const result = await query<PhotoWithFolderRow>(queryText, qb.getParams());
 
-    return result.rows.map((photo) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata,
-    })) as Photo[];
+    return result.rows.map(withThumbnailUrl);
   }
 
-  async searchFolders(filters: FolderSearchFilters): Promise<Folder[]> {
+  async searchFolders(
+    filters: FolderSearchFilters,
+  ): Promise<FolderSearchRow[]> {
     const qb = new QueryBuilder();
 
     // Handle parent_path filter (special case: empty string means root)
@@ -99,8 +168,8 @@ class BlazeGalleryMCPHandler {
     );
 
     const { limitParam, offsetParam } = qb.pagination(
-      filters.limit || 100,
-      filters.offset || 0,
+      filters.limit ? filters.limit : 100,
+      filters.offset ?? 0,
     );
 
     const queryText = `
@@ -116,8 +185,8 @@ class BlazeGalleryMCPHandler {
       LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
 
-    const result = await query(queryText, qb.getParams());
-    return result.rows as Folder[];
+    const result = await query<FolderSearchRow>(queryText, qb.getParams());
+    return result.rows;
   }
 
   async getFolderTree(rootPath?: string): Promise<Folder[]> {
@@ -129,7 +198,7 @@ class BlazeGalleryMCPHandler {
   }
 
   async getFavoritePhotos(limit = 100): Promise<Photo[]> {
-    const result = await query(
+    const result = await query<PhotoWithFolderRow>(
       `
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
@@ -141,16 +210,11 @@ class BlazeGalleryMCPHandler {
       [limit],
     );
 
-    return result.rows.map((photo) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata,
-    })) as Photo[];
+    return result.rows.map(withThumbnailUrl);
   }
 
   async getRecentPhotos(limit = 50): Promise<Photo[]> {
-    const result = await query(
+    const result = await query<PhotoWithFolderRow>(
       `
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
@@ -161,22 +225,11 @@ class BlazeGalleryMCPHandler {
       [limit],
     );
 
-    return result.rows.map((photo) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata,
-    })) as Photo[];
+    return result.rows.map(withThumbnailUrl);
   }
 
-  async getGalleryStats(): Promise<{
-    total_photos: number;
-    total_folders: number;
-    total_size: number;
-    favorite_photos: number;
-    photos_with_metadata: number;
-  }> {
-    const result = await query(`
+  async getGalleryStats(): Promise<GalleryStats> {
+    const result = await query<GalleryStats>(`
       SELECT
         (SELECT COUNT(*) FROM photos) as total_photos,
         (SELECT COUNT(*) FROM folders) as total_folders,
@@ -185,37 +238,23 @@ class BlazeGalleryMCPHandler {
         (SELECT COUNT(*) FROM photos WHERE metadata IS NOT NULL) as photos_with_metadata
     `);
 
-    return result.rows[0] as {
-      total_photos: number;
-      total_folders: number;
-      total_size: number;
-      favorite_photos: number;
-      photos_with_metadata: number;
-    };
+    return firstRow(result, "Gallery stats");
   }
 
   async getPhotoAnalytics(options: {
-    groupBy: "year" | "month" | "year-month" | "folder";
-    orderBy?: "period" | "count" | "size";
-    orderDirection?: "ASC" | "DESC";
+    groupBy: AnalyticsGroupBy;
+    orderBy?: AnalyticsOrderBy;
+    orderDirection?: AnalyticsOrderDirection;
     limit?: number;
-  }): Promise<
-    {
-      period: string;
-      photo_count: number;
-      total_size: number;
-      favorite_count: number;
-      folders_involved?: number;
-    }[]
-  > {
+  }): Promise<AnalyticsRow[]> {
     const { selectFields, groupByClause } = this.getAnalyticsGroupConfig(
       options.groupBy,
     );
     const orderByClause = this.getAnalyticsOrderColumn(
-      options.orderBy || "period",
+      options.orderBy ?? "period",
     );
-    const orderDirection = options.orderDirection || "DESC";
-    const limit = options.limit || 100;
+    const orderDirection = options.orderDirection ?? "DESC";
+    const limit = options.limit ? options.limit : 100;
 
     const queryText = this.buildAnalyticsQuery(
       options.groupBy,
@@ -225,52 +264,38 @@ class BlazeGalleryMCPHandler {
       orderDirection,
     );
 
-    const result = await query(queryText, [limit]);
-    return result.rows as {
-      period: string;
-      photo_count: number;
-      total_size: number;
-      favorite_count: number;
-      folders_involved?: number;
-    }[];
+    const result = await query<AnalyticsRow>(queryText, [limit]);
+    return result.rows;
   }
 
-  private getAnalyticsGroupConfig(groupBy: string): {
-    selectFields: string;
-    groupByClause: string;
-  } {
+  private getAnalyticsGroupConfig(groupBy: AnalyticsGroupBy): GroupConfig {
     const yearCase = `CASE WHEN f.path ~ '20[0-9][0-9]' THEN substring(f.path from '20[0-9][0-9]') ELSE 'unorganized' END`;
 
-    const configs: Record<
-      string,
-      { selectFields: string; groupByClause: string }
-    > = {
+    const month: GroupConfig = {
+      selectFields: `to_char(modified_at, 'YYYY-MM') as period`,
+      groupByClause: `to_char(modified_at, 'YYYY-MM')`,
+    };
+    const configs: Record<AnalyticsGroupBy, GroupConfig> = {
       year: { selectFields: `${yearCase} as period`, groupByClause: yearCase },
-      month: {
-        selectFields: `to_char(modified_at, 'YYYY-MM') as period`,
-        groupByClause: `to_char(modified_at, 'YYYY-MM')`,
-      },
-      "year-month": {
-        selectFields: `to_char(modified_at, 'YYYY-MM') as period`,
-        groupByClause: `to_char(modified_at, 'YYYY-MM')`,
-      },
+      month,
+      "year-month": month,
       folder: { selectFields: `f.path as period`, groupByClause: `f.path` },
     };
 
-    return configs[groupBy] || configs.month;
+    return configs[groupBy];
   }
 
-  private getAnalyticsOrderColumn(orderBy: string): string {
-    const columns: Record<string, string> = {
+  private getAnalyticsOrderColumn(orderBy: AnalyticsOrderBy): string {
+    const columns: Record<AnalyticsOrderBy, string> = {
       count: "photo_count",
       size: "total_size",
       period: "period",
     };
-    return columns[orderBy] || "period";
+    return columns[orderBy];
   }
 
   private buildAnalyticsQuery(
-    groupBy: string,
+    groupBy: AnalyticsGroupBy,
     selectFields: string,
     groupByClause: string,
     orderByClause: string,
@@ -304,18 +329,13 @@ class BlazeGalleryMCPHandler {
   }
 
   async getPhotoTrends(options: {
-    timeRange?: "last-30-days" | "last-year" | "all-time";
-    groupBy?: "day" | "week" | "month" | "year";
-    metric?: "count" | "size" | "favorites";
-  }): Promise<
-    {
-      period: string;
-      value: number;
-    }[]
-  > {
-    const groupBy = options.groupBy || "month";
-    const metric = options.metric || "count";
-    const timeRange = options.timeRange || "last-year";
+    timeRange?: TrendTimeRange;
+    groupBy?: TrendGroupBy;
+    metric?: TrendMetric;
+  }): Promise<TrendRow[]> {
+    const groupBy = options.groupBy ?? "month";
+    const metric = options.metric ?? "count";
+    const timeRange = options.timeRange ?? "last-year";
 
     let dateFilter = "";
     switch (timeRange) {
@@ -378,144 +398,225 @@ class BlazeGalleryMCPHandler {
       ORDER BY period ASC
     `;
 
-    const result = await query(queryText);
-    return result.rows as {
-      period: string;
-      value: number;
-    }[];
+    const result = await query<TrendRow>(queryText);
+    return result.rows;
   }
 }
 
 const mcpHandler = new BlazeGalleryMCPHandler();
 
-// Tool handler type
-type ToolHandler = (args: any) => Promise<any>;
+type ToolArgs = JsonObject;
+type ToolHandler = (args: ToolArgs) => Promise<unknown>;
+
+function parseSearchFilters(args: ToolArgs): SearchFilters {
+  return {
+    folder_path: optionalString(args.folder_path),
+    filename: optionalString(args.filename),
+    mime_type: optionalString(args.mime_type),
+    is_favorite: optionalBoolean(args.is_favorite),
+    has_metadata: optionalBoolean(args.has_metadata),
+    min_size: optionalNumber(args.min_size),
+    max_size: optionalNumber(args.max_size),
+    date_from: optionalString(args.date_from),
+    date_to: optionalString(args.date_to),
+    limit: optionalNumber(args.limit),
+    offset: optionalNumber(args.offset),
+  };
+}
+
+function parseFolderSearchFilters(args: ToolArgs): FolderSearchFilters {
+  return {
+    parent_path: optionalString(args.parent_path),
+    folder_name: optionalString(args.folder_name),
+    has_photos: optionalBoolean(args.has_photos),
+    min_photo_count: optionalNumber(args.min_photo_count),
+    max_photo_count: optionalNumber(args.max_photo_count),
+    limit: optionalNumber(args.limit),
+    offset: optionalNumber(args.offset),
+  };
+}
+
+function requireFolderPath(args: ToolArgs): string {
+  const folderPath = optionalString(args.folder_path);
+  if (folderPath === undefined) {
+    throw new McpToolError(
+      ErrorCode.InvalidRequest,
+      "folder_path is required and must be a string",
+    );
+  }
+  return folderPath;
+}
 
 // Tool dispatch map - replaces switch statement
-const toolHandlers: Record<string, ToolHandler> = {
-  search_photos: async (args) => {
-    const results = await mcpHandler.searchPhotos(args || {});
-    return { photos: results, count: results.length };
-  },
+const toolHandlers = new Map<string, ToolHandler>([
+  [
+    "search_photos",
+    async (args) => {
+      const results = await mcpHandler.searchPhotos(parseSearchFilters(args));
+      return { photos: results, count: results.length };
+    },
+  ],
 
-  get_photo: async (args) => {
-    if (!args || typeof args.photo_id !== "number") {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: "photo_id is required and must be a number",
+  [
+    "get_photo",
+    async (args) => {
+      const photoId = optionalNumber(args.photo_id);
+      if (photoId === undefined) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          "photo_id is required and must be a number",
+        );
+      }
+      const photo = await getPhoto(photoId);
+      if (!photo) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          `Photo with ID ${photoId} not found`,
+          404,
+        );
+      }
+      return photo;
+    },
+  ],
+
+  [
+    "search_folders",
+    async (args) => {
+      const results = await mcpHandler.searchFolders(
+        parseFolderSearchFilters(args),
+      );
+      return { folders: results, count: results.length };
+    },
+  ],
+
+  [
+    "get_folder",
+    async (args) => {
+      const folderPath = requireFolderPath(args);
+      const folder = await getFolderByPath(folderPath);
+      if (!folder) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          `Folder with path "${folderPath}" not found`,
+          404,
+        );
+      }
+      return folder;
+    },
+  ],
+
+  [
+    "get_folder_photos",
+    async (args) => {
+      const folderPath = requireFolderPath(args);
+      const folder = await getFolderByPath(folderPath);
+      if (!folder) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          `Folder with path "${folderPath}" not found`,
+          404,
+        );
+      }
+      const photos = await getPhotosInFolder(folder.id);
+      return { folder_path: folderPath, photos, count: photos.length };
+    },
+  ],
+
+  [
+    "get_folder_tree",
+    async (args) => {
+      const rootPath = optionalString(args.root_path);
+      const folders = await mcpHandler.getFolderTree(rootPath);
+      return { root_path: rootPath ?? "", folders, count: folders.length };
+    },
+  ],
+
+  [
+    "get_favorite_photos",
+    async (args) => {
+      const photos = await mcpHandler.getFavoritePhotos(
+        optionalNumber(args.limit) ?? 100,
+      );
+      return { favorite_photos: photos, count: photos.length };
+    },
+  ],
+
+  [
+    "get_recent_photos",
+    async (args) => {
+      const photos = await mcpHandler.getRecentPhotos(
+        optionalNumber(args.limit) ?? 50,
+      );
+      return { recent_photos: photos, count: photos.length };
+    },
+  ],
+
+  ["get_gallery_stats", () => mcpHandler.getGalleryStats()],
+
+  [
+    "get_photo_analytics",
+    async (args) => {
+      if (typeof args.groupBy !== "string") {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          "groupBy is required and must be a string",
+        );
+      }
+      // Unknown values fall back to the default, like the SQL builders did
+      const options = {
+        groupBy: pickOption<AnalyticsGroupBy>(
+          args.groupBy,
+          ["year", "month", "year-month", "folder"],
+          "month",
+        ),
+        orderBy: pickOption<AnalyticsOrderBy>(
+          args.orderBy,
+          ["period", "count", "size"],
+          "period",
+        ),
+        orderDirection: pickOption<AnalyticsOrderDirection>(
+          args.orderDirection,
+          ["ASC", "DESC"],
+          "DESC",
+        ),
+        limit: optionalNumber(args.limit) ?? 100,
       };
-    }
-    const photo = await getPhoto(args.photo_id);
-    if (!photo) {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: `Photo with ID ${args.photo_id} not found`,
-        status: 404,
+      const analytics = await mcpHandler.getPhotoAnalytics(options);
+      return { analytics, groupBy: options.groupBy, count: analytics.length };
+    },
+  ],
+
+  [
+    "get_photo_trends",
+    async (args) => {
+      const options = {
+        timeRange: pickOption<TrendTimeRange>(
+          args.timeRange,
+          ["last-30-days", "last-year", "all-time"],
+          "last-year",
+        ),
+        groupBy: pickOption<TrendGroupBy>(
+          args.groupBy,
+          ["day", "week", "month", "year"],
+          "month",
+        ),
+        metric: pickOption<TrendMetric>(
+          args.metric,
+          ["count", "size", "favorites"],
+          "count",
+        ),
       };
-    }
-    return photo;
-  },
-
-  search_folders: async (args) => {
-    const results = await mcpHandler.searchFolders(args || {});
-    return { folders: results, count: results.length };
-  },
-
-  get_folder: async (args) => {
-    if (!args || typeof args.folder_path !== "string") {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: "folder_path is required and must be a string",
+      const trends = await mcpHandler.getPhotoTrends(options);
+      return {
+        trends,
+        timeRange: options.timeRange,
+        groupBy: options.groupBy,
+        metric: options.metric,
+        count: trends.length,
       };
-    }
-    const folder = await getFolderByPath(args.folder_path);
-    if (!folder) {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: `Folder with path "${args.folder_path}" not found`,
-        status: 404,
-      };
-    }
-    return folder;
-  },
-
-  get_folder_photos: async (args) => {
-    if (!args || typeof args.folder_path !== "string") {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: "folder_path is required and must be a string",
-      };
-    }
-    const folder = await getFolderByPath(args.folder_path);
-    if (!folder) {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: `Folder with path "${args.folder_path}" not found`,
-        status: 404,
-      };
-    }
-    const photos = await getPhotosInFolder(folder.id);
-    return { folder_path: args.folder_path, photos, count: photos.length };
-  },
-
-  get_folder_tree: async (args) => {
-    const rootPath =
-      args && typeof args.root_path === "string" ? args.root_path : undefined;
-    const folders = await mcpHandler.getFolderTree(rootPath);
-    return { root_path: rootPath || "", folders, count: folders.length };
-  },
-
-  get_favorite_photos: async (args) => {
-    const limit = args && typeof args.limit === "number" ? args.limit : 100;
-    const photos = await mcpHandler.getFavoritePhotos(limit);
-    return { favorite_photos: photos, count: photos.length };
-  },
-
-  get_recent_photos: async (args) => {
-    const limit = args && typeof args.limit === "number" ? args.limit : 50;
-    const photos = await mcpHandler.getRecentPhotos(limit);
-    return { recent_photos: photos, count: photos.length };
-  },
-
-  get_gallery_stats: async () => {
-    return mcpHandler.getGalleryStats();
-  },
-
-  get_photo_analytics: async (args) => {
-    if (!args || typeof args.groupBy !== "string") {
-      throw {
-        code: ErrorCode.InvalidRequest,
-        message: "groupBy is required and must be a string",
-      };
-    }
-    const options = {
-      groupBy: args.groupBy as "year" | "month" | "year-month" | "folder",
-      orderBy: (args.orderBy as "period" | "count" | "size") || "period",
-      orderDirection: (args.orderDirection as "ASC" | "DESC") || "DESC",
-      limit: typeof args.limit === "number" ? args.limit : 100,
-    };
-    const analytics = await mcpHandler.getPhotoAnalytics(options);
-    return { analytics, groupBy: options.groupBy, count: analytics.length };
-  },
-
-  get_photo_trends: async (args) => {
-    const options = {
-      timeRange:
-        (args?.timeRange as "last-30-days" | "last-year" | "all-time") ||
-        "last-year",
-      groupBy: (args?.groupBy as "day" | "week" | "month") || "month",
-      metric: (args?.metric as "count" | "size" | "favorites") || "count",
-    };
-    const trends = await mcpHandler.getPhotoTrends(options);
-    return {
-      trends,
-      timeRange: options.timeRange,
-      groupBy: options.groupBy,
-      metric: options.metric,
-      count: trends.length,
-    };
-  },
-};
+    },
+  ],
+]);
 
 // Tool schemas
 const toolSchemas = {
@@ -717,11 +818,15 @@ const SERVER_CAPABILITIES = {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { jsonrpc, id, method, params } = body;
+    const body: unknown = await request.json();
+    if (!isJsonObject(body)) {
+      throw new Error("Request body must be a JSON object");
+    }
+    const { jsonrpc, id, method } = body;
+    const params = isJsonObject(body.params) ? body.params : {};
 
     // Helper to format JSON-RPC response
-    const jsonRpcResponse = (result: any) => {
+    const jsonRpcResponse = (result: unknown) => {
       if (jsonrpc === "2.0") {
         return NextResponse.json({ jsonrpc: "2.0", id, result });
       }
@@ -822,13 +927,14 @@ export async function POST(request: NextRequest) {
         });
 
       case "tools/call": {
-        const { name, arguments: args } = params;
-        const handler = toolHandlers[name];
+        const name = optionalString(params.name);
+        const args = isJsonObject(params.arguments) ? params.arguments : {};
+        const handler = name === undefined ? undefined : toolHandlers.get(name);
 
         if (!handler) {
           return jsonRpcError(
             ErrorCode.MethodNotFound,
-            `Unknown tool: ${name}`,
+            `Unknown tool: ${String(name)}`,
             404,
           );
         }
@@ -838,10 +944,10 @@ export async function POST(request: NextRequest) {
           return jsonRpcResponse({
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           });
-        } catch (error: any) {
+        } catch (error) {
           // Handle validation errors thrown from handlers
-          if (error.code && error.message) {
-            return jsonRpcError(error.code, error.message, error.status || 400);
+          if (error instanceof McpToolError) {
+            return jsonRpcError(error.code, error.message, error.status);
           }
           console.error(`Error executing ${name}:`, error);
           return jsonRpcError(
@@ -855,7 +961,7 @@ export async function POST(request: NextRequest) {
       default:
         return jsonRpcError(
           ErrorCode.MethodNotFound,
-          `Unknown method: ${method}`,
+          `Unknown method: ${String(method)}`,
           404,
         );
     }

@@ -14,7 +14,8 @@ const globalForSessions = globalThis as unknown as {
 };
 
 const sessions: Map<string, ShareSession> =
-  globalForSessions.sessions ?? (globalForSessions.sessions = new Map());
+  globalForSessions.sessions ??
+  (globalForSessions.sessions = new Map<string, ShareSession>());
 
 // Session duration: 24 hours
 const SESSION_DURATION = 24 * 60 * 60 * 1000;

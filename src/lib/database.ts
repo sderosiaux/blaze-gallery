@@ -1,8 +1,9 @@
-import type { PoolClient, QueryResult } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { Pool, types } from "pg";
 import type { Folder, Photo, PhotoMetadata } from "@/types";
-import { Config } from "@/types";
 import * as crypto from "crypto";
+import { compare, hash } from "bcrypt";
+import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
 import type {
   CreatePhotoData,
@@ -14,12 +15,11 @@ import type {
   MetadataStatus,
   ThumbnailStatus,
 } from "@/types/common";
-import * as path from "path";
 
 // Columns typed `timestamp without time zone` hold UTC wall-clock values
 // (CURRENT_TIMESTAMP in a UTC session). node-pg would read them in the host's
 // zone, shifting every instant on any server not running in UTC.
-types.setTypeParser(types.builtins.TIMESTAMP, (value) =>
+types.setTypeParser(types.builtins.TIMESTAMP, (value: string | null) =>
   value === null ? null : new Date(value.replace(" ", "T") + "Z"),
 );
 
@@ -46,7 +46,7 @@ interface DatabasePhoto {
   created_at: string;
   modified_at: string;
   thumbnail_path?: string;
-  metadata: any | null; // JSONB in PostgreSQL
+  metadata: PhotoMetadata | null; // JSONB in PostgreSQL, already parsed by pg
   metadata_status: MetadataStatus;
   thumbnail_status: ThumbnailStatus;
   is_favorite: boolean; // PostgreSQL native boolean
@@ -68,7 +68,9 @@ function normalizePhoto(dbPhoto: DatabasePhoto): Photo {
 /**
  * Normalize database share row to SharedFolder type with proper boolean handling
  */
-function normalizeShare(dbShare: any): any {
+function normalizeShare<
+  T extends { allow_download: unknown; is_active: unknown },
+>(dbShare: T): T & { allow_download: boolean; is_active: boolean } {
   return {
     ...dbShare,
     allow_download: Boolean(dbShare.allow_download),
@@ -77,31 +79,23 @@ function normalizeShare(dbShare: any): any {
 }
 
 class DatabaseManager {
-  private static instance: DatabaseManager;
+  private static instance: DatabaseManager | undefined;
   private pool: Pool | null = null;
-  private isInitialized = false;
 
   private constructor() {
     // PostgreSQL connection will be initialized with environment variables or connection string
   }
 
   static getInstance(): DatabaseManager {
-    if (!DatabaseManager.instance) {
-      DatabaseManager.instance = new DatabaseManager();
-    }
+    DatabaseManager.instance ??= new DatabaseManager();
     return DatabaseManager.instance;
   }
 
   getPool(): Pool {
-    if (!this.pool) {
-      this.initialize();
-    }
-    return this.pool!;
+    return this.pool ?? this.initialize();
   }
 
-  private initialize(): void {
-    if (this.isInitialized) return;
-
+  private initialize(): Pool {
     const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
@@ -110,7 +104,7 @@ class DatabaseManager {
       );
     }
 
-    this.pool = new Pool({
+    const pool = new Pool({
       connectionString,
       // Connection pool optimization for bulk operations
       max: 50, // Increased for bulk write operations (was 20)
@@ -137,43 +131,38 @@ class DatabaseManager {
     });
 
     // Enhanced pool error handling and monitoring
-    this.pool.on("error", (err) => {
+    pool.on("error", (err) => {
       console.error("[Database Pool] Unexpected error on idle client:", err);
     });
 
     // Only log connection events, not every acquisition
-    this.pool.on("connect", (client) => {
-      console.log(
-        "[Database Pool] New client connected, total:",
-        this.pool?.totalCount || 0,
+    pool.on("connect", () => {
+      logger.info(
+        `[Database Pool] New client connected, total: ${pool.totalCount}`,
       );
     });
 
-    this.pool.on("remove", (client) => {
-      console.log(
-        "[Database Pool] Client removed, total:",
-        this.pool?.totalCount || 0,
-      );
+    pool.on("remove", () => {
+      logger.info(`[Database Pool] Client removed, total: ${pool.totalCount}`);
     });
 
     // Log pool stats periodically during development
     if (process.env.NODE_ENV === "development") {
       setInterval(() => {
-        if (this.pool) {
-          const stats = {
-            total: this.pool.totalCount,
-            idle: this.pool.idleCount,
-            waiting: this.pool.waitingCount,
-          };
-          // Only log if there's activity or issues
-          if (stats.waiting > 0 || stats.total > 10) {
-            console.log("[Database Pool Stats]", stats);
-          }
+        const stats = {
+          total: pool.totalCount,
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+        };
+        // Only log if there's activity or issues
+        if (stats.waiting > 0 || stats.total > 10) {
+          logger.info(`[Database Pool Stats] ${JSON.stringify(stats)}`);
         }
       }, 30000); // Every 30 seconds
     }
 
-    this.isInitialized = true;
+    this.pool = pool;
+    return pool;
   }
 
   // Transaction wrapper for bulk operations
@@ -198,7 +187,6 @@ class DatabaseManager {
     if (this.pool) {
       await this.pool.end();
       this.pool = null;
-      this.isInitialized = false;
     }
   }
 }
@@ -214,12 +202,24 @@ export async function runTransaction<T>(
 }
 
 // Helper function for single queries
-export async function query(
+export async function query<R extends QueryResultRow = QueryResultRow>(
   text: string,
-  params?: any[],
-): Promise<QueryResult> {
+  params?: unknown[],
+): Promise<QueryResult<R>> {
   const pool = getPool();
-  return pool.query(text, params);
+  return pool.query<R>(text, params);
+}
+
+/** First row of an aggregate query that always yields one */
+export function requireRow<R>(result: QueryResult<R & QueryResultRow>): R {
+  const row = result.rows[0];
+  if (row === undefined) throw new Error("Query returned no row");
+  return row;
+}
+
+/** Empty string means "not provided" for optional text columns */
+function textOrNull(value: string | undefined): string | null {
+  return value !== undefined && value !== "" ? value : null;
 }
 
 // A camera wrote it: rules out scans, screenshots, album art and sprites
@@ -227,6 +227,16 @@ const PHOTO_LIKE = `(p.mime_type IN ('image/jpeg', 'image/heic', 'image/heif')
   AND p.metadata->'camera'->>'make' IS NOT NULL
   AND (p.metadata->>'date_taken') IS NOT NULL)`;
 const COVER_RANK = `${PHOTO_LIKE} DESC, (p.thumbnail_status = 'generated') DESC, p.filename, p.id`;
+
+type FolderListingRow = Omit<
+  Folder,
+  "thumbnails_generated" | "cover_photo_id" | "date_from" | "date_to"
+> & {
+  thumbnails_generated: boolean | null;
+  cover_photo_id: number | null | undefined;
+  date_from: string | null | undefined;
+  date_to: string | null | undefined;
+};
 
 /**
  * Adds listing fields (thumbnail state, size, date span, cover) to the
@@ -323,7 +333,7 @@ async function listFolders(
     ORDER BY ${orderBy}
   `;
 
-  const result = await query(sql, params);
+  const result = await query<FolderListingRow>(sql, params);
 
   return result.rows.map((folder) => ({
     ...folder,
@@ -331,7 +341,7 @@ async function listFolders(
     cover_photo_id: folder.cover_photo_id ?? null,
     date_from: folder.date_from ?? null,
     date_to: folder.date_to ?? null,
-  })) as Folder[];
+  }));
 }
 
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
@@ -392,18 +402,18 @@ export interface LibrarySummary {
 export async function getLibrarySummary(): Promise<LibrarySummary> {
   // min/max read the ends of idx_photos_date_taken; the counts scan photos once
   const [media, folders, span] = await Promise.all([
-    query(`
+    query<{ photos: number; videos: number }>(`
       SELECT
         COUNT(*) FILTER (WHERE mime_type LIKE 'image/%')::int AS photos,
         COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
       FROM photos
     `),
-    query(`
+    query<{ folders: number; albums: number }>(`
       SELECT COUNT(*)::int AS folders,
              COUNT(*) FILTER (WHERE photo_count > 0)::int AS albums
       FROM folders WHERE path <> ''
     `),
-    query(`
+    query<{ first: string | null; last: string | null }>(`
       SELECT
         (SELECT metadata->>'date_taken' FROM photos
          WHERE (metadata->>'date_taken') IS NOT NULL
@@ -414,12 +424,14 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
     `),
   ]);
 
-  const { first, last } = span.rows[0];
+  const { first, last } = requireRow(span);
+  const { photos, videos } = requireRow(media);
+  const counts = requireRow(folders);
   return {
-    photos: media.rows[0].photos,
-    videos: media.rows[0].videos,
-    folders: folders.rows[0].folders,
-    albums: folders.rows[0].albums,
+    photos,
+    videos,
+    folders: counts.folders,
+    albums: counts.albums,
     years:
       first && last
         ? { from: Number(first.slice(0, 4)), to: Number(last.slice(0, 4)) }
@@ -428,14 +440,16 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
 }
 
 export async function getFolderByPath(path: string): Promise<Folder | null> {
-  const result = await query("SELECT * FROM folders WHERE path = $1", [path]);
-  return result.rows[0] || null;
+  const result = await query<Folder>("SELECT * FROM folders WHERE path = $1", [
+    path,
+  ]);
+  return result.rows[0] ?? null;
 }
 
 export async function createOrUpdateFolder(
   folderData: CreateFolderData,
 ): Promise<Folder> {
-  const result = await query(
+  const result = await query<Folder>(
     `
     INSERT INTO folders (path, name, parent_id, updated_at)
     VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -448,11 +462,11 @@ export async function createOrUpdateFolder(
     [folderData.path, folderData.name, folderData.parent_id],
   );
 
-  return result.rows[0] as Folder;
+  return requireRow(result);
 }
 
 export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
-  const result = await query(
+  const result = await query<DatabasePhoto>(
     `
     SELECT * FROM photos
     WHERE folder_id = $1
@@ -461,18 +475,17 @@ export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
     [folderId],
   );
 
-  const photos = result.rows as DatabasePhoto[];
-  return photos.map(normalizePhoto);
+  return result.rows.map(normalizePhoto);
 }
 
 export async function createOrUpdatePhoto(
   photoData: CreatePhotoData,
 ): Promise<Photo> {
   const metadataStatus =
-    photoData.metadata_status || (photoData.metadata ? "extracted" : "none");
-  const thumbnailStatus = photoData.thumbnail_status || "none";
+    photoData.metadata_status ?? (photoData.metadata ? "extracted" : "none");
+  const thumbnailStatus = photoData.thumbnail_status ?? "none";
 
-  const result = await query(
+  const result = await query<DatabasePhoto>(
     `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
@@ -504,8 +517,7 @@ export async function createOrUpdatePhoto(
     ],
   );
 
-  const photo = result.rows[0] as DatabasePhoto;
-  return normalizePhoto(photo);
+  return normalizePhoto(requireRow(result));
 }
 
 // Bulk operations for sync performance
@@ -516,14 +528,14 @@ export async function bulkCreateOrUpdatePhotos(
 
   return runTransaction(async (client) => {
     // Prepare data for bulk insert
-    const values: any[] = [];
+    const values: unknown[] = [];
     const placeholders: string[] = [];
 
     photosData.forEach((photoData, index) => {
       const metadataStatus =
-        photoData.metadata_status ||
+        photoData.metadata_status ??
         (photoData.metadata ? "extracted" : "none");
-      const thumbnailStatus = photoData.thumbnail_status || "none";
+      const thumbnailStatus = photoData.thumbnail_status ?? "none";
 
       const baseIndex = index * 9;
       placeholders.push(
@@ -544,7 +556,7 @@ export async function bulkCreateOrUpdatePhotos(
     });
 
     // Execute single bulk INSERT with ON CONFLICT
-    const result = await client.query(
+    const result = await client.query<DatabasePhoto>(
       `
       INSERT INTO photos (
         folder_id, filename, s3_key, size, mime_type, modified_at,
@@ -567,7 +579,7 @@ export async function bulkCreateOrUpdatePhotos(
     );
 
     // Convert results to Photo objects
-    return result.rows.map((photo: DatabasePhoto) => normalizePhoto(photo));
+    return result.rows.map(normalizePhoto);
   });
 }
 
@@ -578,7 +590,7 @@ export async function bulkCreateOrUpdateFolders(
 
   return runTransaction(async (client) => {
     // Prepare data for bulk insert
-    const values: any[] = [];
+    const values: unknown[] = [];
     const placeholders: string[] = [];
 
     foldersData.forEach((folderData, index) => {
@@ -591,7 +603,7 @@ export async function bulkCreateOrUpdateFolders(
     });
 
     // Execute single bulk INSERT with ON CONFLICT
-    const result = await client.query(
+    const result = await client.query<Folder>(
       `
       INSERT INTO folders (path, name, parent_id, updated_at)
       VALUES ${placeholders.join(", ")}
@@ -604,7 +616,7 @@ export async function bulkCreateOrUpdateFolders(
       values,
     );
 
-    return result.rows as Folder[];
+    return result.rows;
   });
 }
 
@@ -680,7 +692,7 @@ export async function getTimelinePhotos(
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
 
-  const result = await query(
+  const result = await query<DatabasePhoto & { folder_path: string }>(
     `
     SELECT p.*, f.path AS folder_path
     FROM photos p
@@ -694,7 +706,7 @@ export async function getTimelinePhotos(
   );
 
   return result.rows.map((row) => ({
-    ...normalizePhoto(row as DatabasePhoto),
+    ...normalizePhoto(row),
     folder_path: row.folder_path,
   }));
 }
@@ -707,16 +719,16 @@ export interface TimelineSummary {
 
 export async function getTimelineSummary(): Promise<TimelineSummary> {
   const [months, total] = await Promise.all([
-    query(`
+    query<{ month: string; count: number }>(`
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
       GROUP BY 1
       ORDER BY 1 DESC
     `),
-    query(`SELECT COUNT(*)::int AS total FROM photos`),
+    query<{ total: number }>(`SELECT COUNT(*)::int AS total FROM photos`),
   ]);
-  return { months: months.rows, total_photos: total.rows[0].total };
+  return { months: months.rows, total_photos: requireRow(total).total };
 }
 
 export async function updatePhotoStatus(
@@ -724,7 +736,7 @@ export async function updatePhotoStatus(
   status: UpdatePhotoStatus,
 ): Promise<void> {
   const updates: string[] = [];
-  const values: any[] = [];
+  const values: unknown[] = [];
   let paramCount = 1;
 
   if (status.metadata_status) {
@@ -749,8 +761,11 @@ export async function updatePhotoStatus(
 }
 
 export async function getPhoto(photoId: number): Promise<Photo | null> {
-  const result = await query("SELECT * FROM photos WHERE id = $1", [photoId]);
-  const photo = result.rows[0] as DatabasePhoto | undefined;
+  const result = await query<DatabasePhoto>(
+    "SELECT * FROM photos WHERE id = $1",
+    [photoId],
+  );
+  const photo = result.rows[0];
 
   if (!photo) return null;
 
@@ -767,7 +782,7 @@ export async function deletePhoto(photoId: number): Promise<boolean> {
 export async function createSyncJob(
   jobData: CreateSyncJobData,
 ): Promise<SyncJob> {
-  const result = await query(
+  const result = await query<SyncJob>(
     `
     INSERT INTO sync_jobs (type, folder_path, status, processed_items, total_items)
     VALUES ($1, $2, 'pending', 0, 0)
@@ -776,7 +791,7 @@ export async function createSyncJob(
     [jobData.type, jobData.folder_path],
   );
 
-  return result.rows[0] as SyncJob;
+  return requireRow(result);
 }
 
 export async function updateSyncJob(
@@ -795,32 +810,35 @@ export async function updateSyncJob(
 }
 
 export async function getSyncJob(jobId: number): Promise<SyncJob | null> {
-  const result = await query("SELECT * FROM sync_jobs WHERE id = $1", [jobId]);
-  return result.rows[0] || null;
+  const result = await query<SyncJob>("SELECT * FROM sync_jobs WHERE id = $1", [
+    jobId,
+  ]);
+  return result.rows[0] ?? null;
 }
 
 export async function getActiveSyncJobs(): Promise<SyncJob[]> {
-  const result = await query(`
+  const result = await query<SyncJob>(`
     SELECT * FROM sync_jobs
     WHERE status IN ('pending', 'running')
     ORDER BY id ASC
   `);
 
-  return result.rows as SyncJob[];
+  return result.rows;
 }
 
 export async function updateFolderCounts(folderId: number): Promise<void> {
-  const photoCountResult = await query(
+  // COUNT(*) is a bigint: pg returns it as a string, passed back as a parameter below
+  const photoCountResult = await query<{ count: string }>(
     "SELECT COUNT(*) as count FROM photos WHERE folder_id = $1",
     [folderId],
   );
-  const subfolderCountResult = await query(
+  const subfolderCountResult = await query<{ count: string }>(
     "SELECT COUNT(*) as count FROM folders WHERE parent_id = $1",
     [folderId],
   );
 
-  const photoCount = photoCountResult.rows[0].count;
-  const subfolderCount = subfolderCountResult.rows[0].count;
+  const photoCount = requireRow(photoCountResult).count;
+  const subfolderCount = requireRow(subfolderCountResult).count;
 
   await query(
     `
@@ -941,7 +959,7 @@ export async function bulkUpdateFolderCounts(
 export async function deleteOldThumbnails(
   maxAgeDays: number,
 ): Promise<string[]> {
-  const selectResult = await query(
+  const selectResult = await query<{ thumbnail_path: string }>(
     `
     SELECT thumbnail_path FROM photos
     WHERE thumbnail_path IS NOT NULL
@@ -1015,20 +1033,19 @@ export async function createFolderShare(
   const shareToken = crypto.randomUUID();
 
   // Hash password if provided
-  let passwordHash = null;
+  let passwordHash: string | null = null;
   if (shareData.password) {
-    const bcrypt = require("bcrypt");
-    passwordHash = await bcrypt.hash(shareData.password, 12);
+    passwordHash = await hash(shareData.password, 12);
   }
 
   // Get folder ID if not provided
   let folderId = shareData.folder_id;
   if (!folderId && shareData.folder_path) {
     const folder = await getFolderByPath(shareData.folder_path);
-    folderId = folder?.id || undefined;
+    folderId = folder?.id ?? undefined;
   }
 
-  const result = await query(
+  const result = await query<SharedFolder>(
     `
     INSERT INTO shared_folders (
       share_token, folder_path, folder_id, password_hash,
@@ -1042,20 +1059,19 @@ export async function createFolderShare(
       shareData.folder_path,
       folderId,
       passwordHash,
-      shareData.expires_at || null,
-      shareData.description || null,
+      textOrNull(shareData.expires_at),
+      textOrNull(shareData.description),
       shareData.allow_download !== false,
     ],
   );
 
-  const share = result.rows[0] as SharedFolder;
-  return normalizeShare(share);
+  return normalizeShare(requireRow(result));
 }
 
 export async function getSharedFolder(
   shareToken: string,
 ): Promise<SharedFolder | null> {
-  const result = await query(
+  const result = await query<SharedFolder>(
     `
     SELECT * FROM shared_folders
     WHERE share_token = $1 AND is_active = true
@@ -1063,7 +1079,7 @@ export async function getSharedFolder(
     [shareToken],
   );
 
-  const share = result.rows[0] as SharedFolder | undefined;
+  const share = result.rows[0];
 
   if (!share) return null;
 
@@ -1079,7 +1095,7 @@ export async function validateSharePassword(
   shareToken: string,
   password: string,
 ): Promise<boolean> {
-  const result = await query(
+  const result = await query<{ password_hash: string | null }>(
     `
     SELECT password_hash FROM shared_folders
     WHERE share_token = $1 AND is_active = true
@@ -1087,16 +1103,13 @@ export async function validateSharePassword(
     [shareToken],
   );
 
-  const shareData = result.rows[0] as
-    | { password_hash: string | null }
-    | undefined;
+  const shareData = result.rows[0];
 
   if (!shareData?.password_hash) {
     return true; // No password required
   }
 
-  const bcrypt = require("bcrypt");
-  return await bcrypt.compare(password, shareData.password_hash);
+  return await compare(password, shareData.password_hash);
 }
 
 export async function incrementShareViewCount(
@@ -1130,8 +1143,8 @@ export async function logShareAccess(
   `,
     [
       shareId,
-      accessData.ip_address || null,
-      accessData.user_agent || null,
+      textOrNull(accessData.ip_address),
+      textOrNull(accessData.user_agent),
       accessData.access_type,
       accessData.success !== false,
     ],
@@ -1140,7 +1153,7 @@ export async function logShareAccess(
 
 export async function getAllSharedFolders(): Promise<SharedFolder[]> {
   // A share exposes the folder's own photos, so the cover comes from those only.
-  const result = await query(`
+  const result = await query<SharedFolder & { folder_name: string }>(`
     SELECT
       sf.*,
       f.name AS folder_name,
@@ -1165,8 +1178,7 @@ export async function getAllSharedFolders(): Promise<SharedFolder[]> {
     ORDER BY sf.created_at DESC
   `);
 
-  const shares = result.rows as (SharedFolder & { folder_name: string })[];
-  return shares.map(normalizeShare);
+  return result.rows.map(normalizeShare);
 }
 
 export async function deactivateShare(shareToken: string): Promise<void> {
@@ -1187,14 +1199,14 @@ export async function deleteExpiredShares(): Promise<number> {
     AND expires_at < CURRENT_TIMESTAMP
   `);
 
-  return result.rowCount || 0;
+  return result.rowCount ?? 0;
 }
 
 export async function getShareAccessLogs(
   shareId: number,
   limit = 100,
 ): Promise<ShareAccessLog[]> {
-  const result = await query(
+  const result = await query<ShareAccessLog>(
     `
     SELECT * FROM share_access_logs
     WHERE share_id = $1
@@ -1204,9 +1216,7 @@ export async function getShareAccessLogs(
     [shareId, limit],
   );
 
-  const logs = result.rows as ShareAccessLog[];
-
-  return logs.map((log) => ({
+  return result.rows.map((log) => ({
     ...log,
     success: Boolean(log.success),
   }));

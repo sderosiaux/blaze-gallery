@@ -91,6 +91,7 @@ export default function ShareDialog({
     url: string;
   } | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   const [links, setLinks] = useState<ShareLink[] | null>(null);
   const [linksError, setLinksError] = useState(false);
@@ -107,7 +108,7 @@ export default function ShareDialog({
 
   useEffect(() => {
     if (isOpen) {
-      loadLinks();
+      void loadLinks();
       return;
     }
     setExpiry("never");
@@ -122,6 +123,10 @@ export default function ShareDialog({
     setCreated(null);
     setLinks(null);
   }, [isOpen, loadLinks]);
+
+  useEffect(() => {
+    if (protect) passwordRef.current?.focus();
+  }, [protect]);
 
   useEffect(() => {
     if (created) copyButtonRef.current?.focus();
@@ -146,7 +151,7 @@ export default function ShareDialog({
         description: note.trim() || undefined,
       });
       setCreated({ share: result.share, url: result.share_url });
-      loadLinks();
+      void loadLinks();
     } catch {
       setCreateFailed(true);
     } finally {
@@ -198,7 +203,7 @@ export default function ShareDialog({
             ref={copyButtonRef}
             variant="primary"
             icon={Copy}
-            onClick={() => copy(created.url)}
+            onClick={() => void copy(created.url)}
           >
             Copier le lien
           </Button>
@@ -206,7 +211,7 @@ export default function ShareDialog({
       ) : (
         <form
           id="share-form"
-          onSubmit={submit}
+          onSubmit={(e) => void submit(e)}
           className="space-y-5"
           noValidate
         >
@@ -261,6 +266,7 @@ export default function ShareDialog({
             {protect && (
               <div className="relative animate-fade-in">
                 <Input
+                  ref={passwordRef}
                   id="share-password"
                   aria-label="Mot de passe"
                   type={reveal ? "text" : "password"}
@@ -269,7 +275,6 @@ export default function ShareDialog({
                     setPassword(e.target.value);
                   }}
                   autoComplete="new-password"
-                  autoFocus
                   className="pr-12"
                 />
                 <IconButton
@@ -322,7 +327,7 @@ export default function ShareDialog({
       <AlbumLinks
         links={links}
         error={linksError}
-        onRetry={loadLinks}
+        onRetry={() => void loadLinks()}
         highlightToken={created?.share.share_token}
       />
     </Dialog>

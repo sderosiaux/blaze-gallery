@@ -60,11 +60,14 @@ export function layoutRows(
         leftover > 0 && widths.length;
         i = (i + 1) % widths.length, leftover--
       )
-        widths[i] += 1;
+        widths[i] = (widths[i] ?? 0) + 1;
     }
     return {
       height: Math.round(row.height),
-      items: row.items.map((it, i) => ({ ...it, width: widths[i] })),
+      items: row.items.map((it, i) => ({
+        ...it,
+        width: widths[i] ?? Math.floor(it.width),
+      })),
     };
   });
 }
@@ -100,6 +103,7 @@ export default function JustifiedGrid({
     const el = ref.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
       const next = Math.floor(entry.contentRect.width);
       setWidth((prev) => (Math.abs(prev - next) >= 1 ? next : prev));
     });

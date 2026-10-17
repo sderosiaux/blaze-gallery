@@ -5,7 +5,7 @@ import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
 export const POST = requireAuth(async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
@@ -18,13 +18,11 @@ export const POST = requireAuth(async function POST(
     }
 
     // Toggle favorite status
-    const currentResult = await query(
+    const currentResult = await query<{ is_favorite: boolean }>(
       "SELECT is_favorite FROM photos WHERE id = $1",
       [photoId],
     );
-    const currentPhoto = currentResult.rows[0] as
-      | { is_favorite: boolean }
-      | undefined;
+    const currentPhoto = currentResult.rows[0];
 
     if (!currentPhoto) {
       return NextResponse.json(

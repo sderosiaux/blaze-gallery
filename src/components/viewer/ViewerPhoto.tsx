@@ -145,6 +145,8 @@ export default function ViewerPhoto({
   const zoomHeight = Math.round(zoomWidth / ratio);
   const zoomOrigin = useRef<{ x: number; y: number } | null>(null);
   const isZoomed = zoomed && fullReady;
+  const zoomSize = useRef({ width: zoomWidth, height: zoomHeight });
+  zoomSize.current = { width: zoomWidth, height: zoomHeight };
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -154,10 +156,9 @@ export default function ViewerPhoto({
     // Bring the double-clicked point to the centre; from the keyboard, start centred.
     const fx = origin ? origin.x : 0.5;
     const fy = origin ? origin.y : 0.5;
-    el.scrollLeft = fx * zoomWidth - el.clientWidth / 2;
-    el.scrollTop = fy * zoomHeight - el.clientHeight / 2;
+    el.scrollLeft = fx * zoomSize.current.width - el.clientWidth / 2;
+    el.scrollTop = fy * zoomSize.current.height - el.clientHeight / 2;
     // Only on entering zoom: panning is the user's afterwards.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZoomed]);
 
   const toggleZoomAt = (
@@ -239,6 +240,7 @@ export default function ViewerPhoto({
       {isZoomed && full.element ? (
         <div
           ref={scrollRef}
+          role="presentation"
           className="scrollbar-none absolute inset-0 cursor-grab overflow-auto overscroll-contain active:cursor-grabbing"
           onDoubleClick={(e) => {
             toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
@@ -246,7 +248,9 @@ export default function ViewerPhoto({
           onPointerDown={onPanStart}
           onPointerMove={onPanMove}
           onPointerUp={onPanEnd}
-          onPointerCancel={() => (drag.current = null)}
+          onPointerCancel={() => {
+            drag.current = null;
+          }}
         >
           <div className="flex h-max min-h-full w-max min-w-full items-center justify-center">
             <CachedImage
@@ -273,6 +277,7 @@ export default function ViewerPhoto({
                 !settled && "bg-surface-sunken",
                 !hasPlaceholder && !fullReady && "skeleton",
               )}
+              role="presentation"
               style={{ width: box.width, height: box.height, cursor: zoomHint }}
               onDoubleClick={(e) => {
                 toggleZoomAt(e.clientX, e.clientY, e.currentTarget);

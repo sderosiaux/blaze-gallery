@@ -20,6 +20,7 @@ import { AlbumGridSkeleton } from "@/components/find/AlbumGridSkeleton";
 import { LoadError } from "@/components/find/LoadError";
 import { StartingPoints } from "@/components/find/StartingPoints";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import { formatCount, formatNumber } from "@/lib/albums";
 import { normalizeTextForSearch } from "@/lib/textUtils";
 
@@ -73,15 +74,21 @@ function SearchContent() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.success) throw new Error(data.error);
-        const photos: Photo[] = data.photos ?? [];
+        const data = await readJsonObject(response);
+        if (!response.ok || !data.success)
+          throw new Error(asString(data.error));
+        const photos = (
+          Array.isArray(data.photos) ? data.photos : []
+        ) as Photo[];
         setState({
           status: "ready",
           q,
           results: {
             photos,
-            folders: rankFolders(data.folders ?? [], q),
+            folders: rankFolders(
+              (Array.isArray(data.folders) ? data.folders : []) as Folder[],
+              q,
+            ),
             photoTotal:
               typeof data.photo_total === "number"
                 ? data.photo_total

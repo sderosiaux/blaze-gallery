@@ -1,5 +1,6 @@
 import type { Folder, Photo } from "@/types";
 import { photoDateRange } from "@/lib/albums";
+import { readJsonObject } from "@/hooks/apiJson";
 
 export interface AlbumData {
   folder: Folder;
@@ -25,7 +26,10 @@ export function cached<T>(key: string): T | undefined {
 function remember(key: string, value: unknown) {
   cache.delete(key);
   cache.set(key, value);
-  if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+  if (cache.size > CACHE_LIMIT) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
 }
 
 export function forget(key: string) {
@@ -44,7 +48,7 @@ async function getJson<T>(
       return { status: "missing" };
     }
     if (!response.ok) return { status: "error" };
-    const body = await response.json();
+    const body = await readJsonObject(response);
     if (!body.success) return { status: "error" };
     remember(key, body);
     return { status: "ready", data: body as T };
@@ -88,7 +92,8 @@ export function pathFromSegments(segments: string[] | undefined): string {
 
 /** The last segment of a path: a folder's name exactly as it is in the bucket. */
 export function folderName(path: string) {
-  return path.split("/").pop() || path;
+  const last = path.split("/").pop();
+  return last !== undefined && last !== "" ? last : path;
 }
 
 // Cameras with an unset clock write 1970 or a far-future year; one such file would stretch a range to decades.
@@ -121,7 +126,7 @@ export function cachedBucketName(): string | null | undefined {
 export async function loadBucketName(signal?: AbortSignal) {
   try {
     const response = await fetch("/api/bucket", { signal });
-    const body = await response.json();
+    const body = await readJsonObject(response);
     bucket = response.ok && body.success ? String(body.bucket) : null;
   } catch (error) {
     if (signal?.aborted) throw error;

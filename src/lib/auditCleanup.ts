@@ -2,8 +2,14 @@ import { s3AuditLogger } from "./s3Audit";
 import { logger } from "./logger";
 import * as cron from "node-cron";
 
+/** Env var value, with unset and empty both meaning "use the fallback". */
+function envOrDefault(name: string, fallback: string): string {
+  const value = process.env[name];
+  return value !== undefined && value !== "" ? value : fallback;
+}
+
 export class AuditCleanupManager {
-  private static instance: AuditCleanupManager;
+  private static instance: AuditCleanupManager | undefined;
   private retentionDays: number;
   private enabled: boolean;
   private schedule: string;
@@ -11,9 +17,9 @@ export class AuditCleanupManager {
 
   private constructor() {
     // Configuration from environment variables
-    this.retentionDays = parseInt(process.env.AUDIT_RETENTION_DAYS || "30");
+    this.retentionDays = parseInt(envOrDefault("AUDIT_RETENTION_DAYS", "30"));
     this.enabled = process.env.AUDIT_CLEANUP_ENABLED !== "false";
-    this.schedule = process.env.AUDIT_CLEANUP_SCHEDULE || "0 2 * * *"; // Daily at 2 AM
+    this.schedule = envOrDefault("AUDIT_CLEANUP_SCHEDULE", "0 2 * * *"); // Daily at 2 AM
   }
 
   static getInstance(): AuditCleanupManager {
@@ -46,6 +52,7 @@ export class AuditCleanupManager {
     } catch (error) {
       logger.error(
         "Failed to perform automatic S3 audit cleanup",
+        undefined,
         error as Error,
       );
     }
@@ -76,6 +83,7 @@ export class AuditCleanupManager {
     } catch (error) {
       logger.error(
         "Failed to start automatic S3 audit cleanup",
+        undefined,
         error as Error,
       );
     }
@@ -86,8 +94,17 @@ export class AuditCleanupManager {
    */
   stopScheduledCleanup(): void {
     if (this.scheduledTask) {
-      this.scheduledTask.stop();
-      this.scheduledTask.destroy();
+      // stop()/destroy() may return promises; the method stays synchronous,
+      // so failures are logged instead of awaited.
+      const logStopFailure = (error: unknown) => {
+        logger.error(
+          "Failed to stop S3 audit cleanup task",
+          undefined,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      };
+      void Promise.resolve(this.scheduledTask.stop()).catch(logStopFailure);
+      void Promise.resolve(this.scheduledTask.destroy()).catch(logStopFailure);
       this.scheduledTask = undefined;
 
       logger.info("S3 audit automatic cleanup stopped");

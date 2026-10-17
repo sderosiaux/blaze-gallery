@@ -36,3 +36,16 @@ export function textContains(text: string, searchQuery: string): boolean {
   const normalizedQuery = normalizeTextForSearch(searchQuery);
   return normalizedText.includes(normalizedQuery);
 }
+
+/**
+ * `value`, unless it is missing or an empty string: unlike `??`, an empty
+ * string falls back too (headers, env vars and form fields arrive as "")
+ */
+export function nonEmptyOr<F>(
+  value: string | null | undefined,
+  fallback: F,
+): string | F {
+  return value !== null && value !== undefined && value !== ""
+    ? value
+    : fallback;
+}

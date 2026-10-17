@@ -2,7 +2,18 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import type { DuplicateFiles } from "@/components/stats/types";
+import type {
+  DuplicateFileGroup,
+  DuplicateFiles,
+} from "@/components/stats/types";
+import { firstRow } from "@/app/api/_lib/db";
+
+interface DuplicatesRow {
+  total_groups: number;
+  total_photos: number;
+  reclaimable_bytes: number;
+  groups: DuplicateFileGroup[];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +27,7 @@ const LOCATIONS_PER_GROUP = 6;
 // locations each.
 export const GET = requireAuth(async function GET() {
   try {
-    const result = await query(
+    const result = await query<DuplicatesRow>(
       `
       WITH candidates AS MATERIALIZED (
         SELECT p.id, p.filename, p.size, f.path, f.name
@@ -66,7 +77,7 @@ export const GET = requireAuth(async function GET() {
       [GROUP_LIMIT, LOCATIONS_PER_GROUP],
     );
 
-    const row = result.rows[0];
+    const row = firstRow(result, "Duplicate files");
     const data: DuplicateFiles = {
       summary: {
         total_duplicate_filenames: row.total_groups,

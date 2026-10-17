@@ -75,7 +75,9 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node))
         setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -154,7 +156,7 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                logout();
+                void logout();
               }}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-sunken hover:text-ink"
             >
@@ -171,7 +173,7 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
     return (
       <button
         type="button"
-        onClick={handleLogin}
+        onClick={() => void handleLogin()}
         disabled={isLoggingIn}
         aria-label="Se connecter avec Google"
         title="Se connecter avec Google"
@@ -184,7 +186,7 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
 
   return (
     <Button
-      onClick={handleLogin}
+      onClick={() => void handleLogin()}
       loading={isLoggingIn}
       variant="secondary"
       className="w-full"

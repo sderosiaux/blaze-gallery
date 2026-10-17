@@ -13,6 +13,12 @@ import { shouldCountViewAsync } from "@/lib/shareHelpers";
 // Force dynamic rendering
 export const dynamic = "force-dynamic";
 import { createShareSession, validateShareSession } from "@/lib/shareSession";
+import {
+  clientIp,
+  clientUserAgent,
+  optionalString,
+  readJsonObject,
+} from "@/app/api/_lib/request";
 
 interface RouteParams {
   params: { token: string };
@@ -53,9 +59,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       if (!isValidPassword) {
         // Log failed password attempt
         await logShareAccess(share.id, {
-          ip_address:
-            request.ip || request.headers.get("x-forwarded-for") || "unknown",
-          user_agent: request.headers.get("user-agent") || "unknown",
+          ip_address: clientIp(request),
+          user_agent: clientUserAgent(request),
           access_type: "password_attempt",
           success: false,
         });
@@ -83,9 +88,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       await incrementShareViewCount(token);
     }
     await logShareAccess(share.id, {
-      ip_address:
-        request.ip || request.headers.get("x-forwarded-for") || "unknown",
-      user_agent: request.headers.get("user-agent") || "unknown",
+      ip_address: clientIp(request),
+      user_agent: clientUserAgent(request),
       access_type: "view",
       success: true,
     });
@@ -120,8 +124,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { token } = params;
-    const body = await request.json();
-    const { action, password } = body;
+    const body = await readJsonObject(request);
+    const action = optionalString(body.action);
+    const password = optionalString(body.password) ?? "";
 
     if (action === "validate_password") {
       const share = await getSharedFolder(token);
@@ -144,9 +149,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       // Log password attempt
       await logShareAccess(share.id, {
-        ip_address:
-          request.ip || request.headers.get("x-forwarded-for") || "unknown",
-        user_agent: request.headers.get("user-agent") || "unknown",
+        ip_address: clientIp(request),
+        user_agent: clientUserAgent(request),
         access_type: "password_attempt",
         success: isValid,
       });
@@ -262,7 +266,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const { token } = params;
 

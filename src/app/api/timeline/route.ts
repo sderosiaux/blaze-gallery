@@ -62,6 +62,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
 function parseCursor(value: string): TimelineCursor | null {
   const [datePart, idPart] = value.split("|");
+  if (datePart === undefined) return null;
   const date = new Date(datePart);
   if (Number.isNaN(date.getTime())) return null;
   const dateTaken = date.toISOString();

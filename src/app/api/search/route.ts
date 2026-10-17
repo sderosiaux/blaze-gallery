@@ -4,6 +4,8 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { query, searchFolders } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { normalizeTextForSearch } from "@/lib/textUtils";
+import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
+import { withThumbnailUrl } from "@/app/api/_lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -34,29 +36,26 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
          OR f.path ILIKE $1`;
 
     const [photoResult, photoCount, folders] = await Promise.all([
-      query(
+      query<PhotoWithFolderRow>(
         `SELECT p.*, f.name as folder_name, f.path as folder_path
          ${photoWhere}
          ORDER BY p.filename
          LIMIT 50`,
         [searchTerm],
       ),
-      query(`SELECT COUNT(*)::int AS total ${photoWhere}`, [searchTerm]),
+      query<{ total: number }>(`SELECT COUNT(*)::int AS total ${photoWhere}`, [
+        searchTerm,
+      ]),
       searchFolders(searchTerm),
     ]);
 
     // Process photos with thumbnails and proper types
-    const photosWithThumbnails = photoResult.rows.map((photo: any) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-    }));
+    const photosWithThumbnails = photoResult.rows.map(withThumbnailUrl);
 
     return NextResponse.json({
       success: true,
       photos: photosWithThumbnails,
-      photo_total: photoCount.rows[0].total,
+      photo_total: photoCount.rows[0]?.total,
       folders,
       query: searchQuery,
     });

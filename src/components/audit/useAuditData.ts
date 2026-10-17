@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 
 interface State<T> {
   data: T | null;
@@ -45,11 +46,13 @@ export function useAuditData<T>(
     setState((s) => ({ ...s, loading: true, error: null }));
     fetch(url, { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body?.success) {
+        const body = await readJsonObject(res);
+        if (!res.ok || !body.success) {
+          const details = asString(body.details);
+          const error = asString(body.error);
           throw new Error(
-            body?.details ||
-              body?.error ||
+            (details !== undefined && details !== "" ? details : undefined) ??
+              (error !== undefined && error !== "" ? error : undefined) ??
               `Le serveur a répondu ${res.status}.`,
           );
         }

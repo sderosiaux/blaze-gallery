@@ -30,9 +30,10 @@ interface ViewerVideoProps {
 }
 
 function extensionOf(filename: string) {
-  return filename.includes(".")
-    ? filename.split(".").pop()!.toUpperCase()
-    : null;
+  const extension = filename.includes(".")
+    ? filename.split(".").pop()
+    : undefined;
+  return extension?.toUpperCase() ?? null;
 }
 
 export default function ViewerVideo({
@@ -120,7 +121,7 @@ export default function ViewerVideo({
             onError={() => {
               setFailed(true);
             }}
-          />
+          ></video>
         )}
       </div>
     </div>

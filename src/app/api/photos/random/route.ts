@@ -3,18 +3,20 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
+import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
+import { withThumbnailUrl } from "@/app/api/_lib/db";
 
 export const dynamic = "force-dynamic";
 
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const limitParam = Number.parseInt(searchParams.get("limit") || "", 10);
+    const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
     const limit =
       Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 32;
     const maxLimit = Math.min(limit, 100);
 
-    const result = await query(
+    const result = await query<PhotoWithFolderRow>(
       `
         SELECT
           p.*,
@@ -28,14 +30,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       [maxLimit],
     );
 
-    const randomPhotos = result.rows;
-
-    const photosWithThumbnails = randomPhotos.map((photo: any) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata,
-    }));
+    const photosWithThumbnails = result.rows.map(withThumbnailUrl);
 
     return NextResponse.json({
       success: true,

@@ -17,6 +17,8 @@
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import * as dotenv from "dotenv";
+import { format } from "util";
+import { out, requireEnv } from "./cli";
 
 dotenv.config();
 
@@ -47,8 +49,8 @@ const r2 = storageIsS3
       region: "auto",
       forcePathStyle: true,
       credentials: {
-        accessKeyId: process.env.THUMBNAIL_S3_ACCESS_KEY!,
-        secretAccessKey: process.env.THUMBNAIL_S3_SECRET_KEY!,
+        accessKeyId: requireEnv("THUMBNAIL_S3_ACCESS_KEY"),
+        secretAccessKey: requireEnv("THUMBNAIL_S3_SECRET_KEY"),
       },
     })
   : null;
@@ -72,10 +74,12 @@ async function main() {
     acc[r.reason] = (acc[r.reason] ?? 0) + 1;
     return acc;
   }, {});
-  console.log(
-    `${rows.length} thumbnails to reset`,
-    byReason,
-    dryRun ? "(report only, pass --apply to write)" : "",
+  out(
+    format(
+      `${rows.length} thumbnails to reset`,
+      byReason,
+      dryRun ? "(report only, pass --apply to write)" : "",
+    ),
   );
   if (dryRun) return;
 
@@ -104,14 +108,20 @@ async function main() {
       );
     }
   }
-  console.log(
+  out(
     `reset ${rows.length - failed}, objects deleted ${deleted}, failed ${failed}`,
   );
 }
 
-main()
-  .catch((error) => {
+async function run(): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
     console.error(error);
     process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+  } finally {
+    await pool.end();
+  }
+}
+
+void run();

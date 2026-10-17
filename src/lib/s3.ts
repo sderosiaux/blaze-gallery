@@ -1,3 +1,4 @@
+import type { _Object } from "@aws-sdk/client-s3";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -9,6 +10,8 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "./logger";
 import { createS3AuditMiddleware } from "./s3Audit";
+import { getConfig } from "./config";
+import { nonEmpty, prop } from "./narrow";
 import crypto from "crypto";
 
 // Initialize audit middleware
@@ -25,13 +28,9 @@ function extractS3ErrorInfo(error: unknown): {
   const message = error instanceof Error ? error.message : "Unknown error";
   let statusCode = 500;
 
-  if (typeof error === "object" && error !== null) {
-    if ("$metadata" in error && typeof (error as any).$metadata === "object") {
-      const httpStatusCode = (error as any).$metadata?.httpStatusCode;
-      if (httpStatusCode) {
-        statusCode = httpStatusCode;
-      }
-    }
+  const httpStatusCode = prop(prop(error, "$metadata"), "httpStatusCode");
+  if (typeof httpStatusCode === "number" && httpStatusCode) {
+    statusCode = httpStatusCode;
   }
 
   return { statusCode, message };
@@ -110,14 +109,11 @@ export interface S3Config {
 }
 
 class S3Manager {
-  private static instance: S3Manager;
+  private static instance: S3Manager | undefined;
   private static thumbnailInstance: S3Manager | null = null;
   private s3Client: S3Client | null = null;
   private currentConfigHash: string | null = null;
   private isInitialized = false;
-  private bucketName = "";
-
-  constructor() {}
 
   static getInstance(): S3Manager {
     if (!S3Manager.instance) {
@@ -131,7 +127,6 @@ class S3Manager {
    * Uses separate credentials if configured, otherwise falls back to main credentials.
    */
   static getThumbnailInstance(): S3Manager {
-    const { getConfig } = require("./config");
     const config = getConfig();
 
     // If no separate thumbnail S3 config, use main instance
@@ -157,7 +152,6 @@ class S3Manager {
       secretAccessKey: config.thumbnail_s3_secret_key,
       region: "auto", // R2 uses "auto" region
     });
-    S3Manager.thumbnailInstance.bucketName = config.thumbnail_s3_bucket;
 
     return S3Manager.thumbnailInstance;
   }
@@ -166,7 +160,6 @@ class S3Manager {
    * Get the thumbnail bucket name (separate bucket if configured, otherwise main bucket)
    */
   static getThumbnailBucketName(): string {
-    const { getConfig } = require("./config");
     const config = getConfig();
 
     if (config.thumbnail_s3_bucket) {
@@ -181,7 +174,7 @@ class S3Manager {
       bucket: config.bucket,
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
-      region: config.region || "us-east-1",
+      region: nonEmpty(config.region) ?? "us-east-1",
     });
     return crypto.createHash("sha256").update(configString).digest("hex");
   }
@@ -197,7 +190,7 @@ class S3Manager {
    */
   getS3Client(): S3Client {
     this.ensureInitialized();
-    return this.s3Client!;
+    return this.getClient();
   }
 
   /**
@@ -207,7 +200,6 @@ class S3Manager {
   getBucketName(): string {
     this.ensureInitialized();
 
-    const { getConfig } = require("./config");
     const config = getConfig();
     return config.backblaze_bucket;
   }
@@ -221,7 +213,6 @@ class S3Manager {
       return; // Already initialized
     }
 
-    const { getConfig } = require("./config");
     const config = getConfig();
 
     this.initializeClient({
@@ -235,11 +226,11 @@ class S3Manager {
   initializeClient(config: S3Config): S3Client {
     try {
       // Check if we need to reinitialize
-      if (!this.needsReinitialization(config)) {
+      if (!this.needsReinitialization(config) && this.s3Client) {
         logger.debug(
           `Using cached S3 client for ${config.bucket}@${config.endpoint}`,
         );
-        return this.s3Client!;
+        return this.s3Client;
       }
 
       logger.s3Connection(
@@ -254,7 +245,7 @@ class S3Manager {
       // Create new client with optimized settings
       this.s3Client = new S3Client({
         endpoint: config.endpoint,
-        region: config.region || "us-east-1",
+        region: nonEmpty(config.region) ?? "us-east-1",
         credentials: {
           accessKeyId: config.accessKeyId,
           secretAccessKey: config.secretAccessKey,
@@ -349,6 +340,26 @@ export interface S3Object {
   etag: string;
 }
 
+/** Maps a ListObjectsV2 page; entries without the fields every S3 listing carries are an error */
+export function toS3Objects(contents: _Object[] | undefined): S3Object[] {
+  return (contents ?? []).map((obj) => {
+    if (
+      obj.Key === undefined ||
+      obj.LastModified === undefined ||
+      obj.Size === undefined ||
+      obj.ETag === undefined
+    ) {
+      throw new Error("Incomplete object entry in S3 listing");
+    }
+    return {
+      key: obj.Key,
+      lastModified: obj.LastModified,
+      size: obj.Size,
+      etag: obj.ETag.replace(/"/g, ""),
+    };
+  });
+}
+
 /**
  * Options for listing S3 objects
  */
@@ -398,12 +409,7 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
     const response = await client.send(command);
     const duration = Date.now() - startTime;
 
-    const objects: S3Object[] = (response.Contents || []).map((obj) => ({
-      key: obj.Key!,
-      lastModified: obj.LastModified!,
-      size: obj.Size!,
-      etag: obj.ETag!.replace(/"/g, ""),
-    }));
+    const objects = toS3Objects(response.Contents);
 
     // Calculate actual HTTP response size
     const responseSize =
@@ -433,16 +439,6 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
       bytesTransferred: responseSize,
       request,
     });
-
-    const logContext = {
-      bucket,
-      prefix: prefix || "(root)",
-      objectCount: objects.length,
-      isTruncated: response.IsTruncated || false,
-      hasNextToken: !!response.NextContinuationToken,
-      duration,
-      operation: "listObjects",
-    };
 
     // In DEBUG mode, include sample objects for troubleshooting
     if (process.env.LOG_LEVEL === "DEBUG") {
@@ -487,7 +483,7 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
     return {
       objects,
       nextContinuationToken: response.NextContinuationToken,
-      isTruncated: response.IsTruncated || false,
+      isTruncated: response.IsTruncated ?? false,
     };
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -1044,7 +1040,7 @@ export function isMediaFile(filename: string): boolean {
 
 export function getMimeType(filename: string): string {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
-  return MEDIA_FORMATS[ext] || "application/octet-stream";
+  return MEDIA_FORMATS[ext] ?? "application/octet-stream";
 }
 
 export function getFolderFromKey(key: string): string {
@@ -1116,7 +1112,7 @@ export async function getSignedDownloadUrlAuto(
  */
 export async function testS3ConnectionWith(
   config: S3Config,
-  request?: Request,
+  _request?: Request,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Create a temporary S3Manager instance for testing

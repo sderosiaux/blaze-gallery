@@ -25,6 +25,7 @@ import AuthButton from "@/components/auth/AuthButton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useLayout } from "@/contexts/LayoutContext";
 import { IconButton, useToast } from "@/components/ui";
+import { isRecord, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
 
 interface NavLinkItem {
@@ -147,7 +148,9 @@ function SidebarContent({
   onToggleCollapse?: () => void;
   onClose?: () => void;
 }) {
-  const pathname = usePathname() ?? "/";
+  // Null outside the app router (e.g. a pages-router fallback render).
+  const currentPath = usePathname() as string | null;
+  const pathname = currentPath ?? "/";
   const router = useRouter();
   const toast = useToast();
   const [surpriseLoading, setSurpriseLoading] = useState(false);
@@ -169,10 +172,13 @@ function SidebarContent({
     setSurpriseLoading(true);
     try {
       const response = await fetch("/api/stats/random-folder");
-      const data = await response.json();
+      const data = await readJsonObject(response);
       if (data.success) {
+        const folder = data.data;
+        if (!isRecord(folder) || typeof folder.path !== "string")
+          throw new Error("invalid_folder");
         onNavigate?.();
-        router.push(data.data.path === "" ? "/" : `/folder/${data.data.path}`);
+        router.push(folder.path === "" ? "/" : `/folder/${folder.path}`);
       } else {
         toast.show("Aucun dossier ne contient de photos.", "error");
       }
@@ -231,7 +237,7 @@ function SidebarContent({
             <li>
               <button
                 type="button"
-                onClick={surprise}
+                onClick={() => void surprise()}
                 disabled={surpriseLoading}
                 aria-label={
                   collapsed ? "Au hasard : ouvrir un dossier" : undefined
@@ -476,8 +482,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!mobileNavOpen) return;
-    const onKey = (e: KeyboardEvent) =>
-      e.key === "Escape" && setMobileNavOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
@@ -523,7 +530,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
         aria-hidden={!mobileNavOpen}
       >
-        <div
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Fermer le menu"
           onClick={() => {
             setMobileNavOpen(false);
           }}

@@ -8,7 +8,7 @@ import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 
 export const GET = requireAuth(async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {

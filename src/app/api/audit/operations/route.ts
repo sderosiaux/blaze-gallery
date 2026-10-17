@@ -4,6 +4,16 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import type { AuditOperation } from "@/components/audit/types";
 
+interface OperationRow {
+  operation: string;
+  count: number;
+  error_count: number;
+  avg_duration_ms: number;
+  p95_duration_ms: number;
+  max_duration_ms: number;
+  total_bytes: number;
+}
+
 export const dynamic = "force-dynamic";
 
 // One grouped query with the percentile computed per group (the shared
@@ -37,7 +47,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       );
     }
 
-    const result = await query(
+    const result = await query<OperationRow>(
       `
       SELECT
         operation,

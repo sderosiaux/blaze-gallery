@@ -18,7 +18,7 @@ import type {
 export interface LogContext extends BaseLogContext {
   userId?: string;
   requestId?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 class Logger {
@@ -100,10 +100,11 @@ class Logger {
 
     switch (level) {
       case LogLevel.DEBUG:
-        console.debug(formattedMessage);
+        // stdout, same bytes as console.debug (no-console only allows warn/error)
+        process.stdout.write(`${formattedMessage}\n`);
         break;
       case LogLevel.INFO:
-        console.info(formattedMessage);
+        process.stdout.write(`${formattedMessage}\n`);
         break;
       case LogLevel.WARN:
         console.warn(formattedMessage);
@@ -134,11 +135,11 @@ class Logger {
 
   // Specialized logging methods for common scenarios
 
-  s3Connection(message: string, context?: S3LogContext) {
+  s3Connection(message: string, _context?: S3LogContext) {
     this.info(`[S3] ${message}`);
   }
 
-  s3Error(message: string, error: Error, context?: S3LogContext) {
+  s3Error(message: string, error: Error, _context?: S3LogContext) {
     this.logWithLevel(
       LogLevel.ERROR,
       "ERROR",
@@ -155,7 +156,7 @@ class Logger {
     );
   }
 
-  syncError(message: string, error: Error, context?: SyncLogContext) {
+  syncError(message: string, error: Error, _context?: SyncLogContext) {
     this.logWithLevel(
       LogLevel.ERROR,
       "ERROR",
