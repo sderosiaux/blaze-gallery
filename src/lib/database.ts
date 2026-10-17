@@ -213,54 +213,78 @@ export async function query(
 }
 
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
-  let sql: string;
-  let params: any[];
+  const isRoot = parentPath === undefined || parentPath === "";
+  const parentFilter = isRoot
+    ? "f.parent_id IS NULL"
+    : "f.parent_id = (SELECT id FROM folders WHERE path = $1)";
 
-  if (parentPath === undefined || parentPath === "") {
-    sql = `
+  // Cover: an image of the folder itself (generated thumbnail first, so it
+  // shows instantly), else one from the first descendant folder (by path)
+  // that holds images. The path range lets the btree on folders.path serve
+  // the prefix lookup (C.UTF-8 orders by code point, and '/' + 1 = '0');
+  // starts_with keeps it exact when names contain LIKE wildcards.
+  const sql = `
+    WITH sub AS (SELECT f.* FROM folders f WHERE ${parentFilter})
+    SELECT
+      s.*,
+      agg.thumbnails_generated,
+      agg.total_size,
+      agg.folder_created_at,
+      agg.date_from,
+      agg.date_to,
+      COALESCE(own_cover.id, descendant_cover.id)::int AS cover_photo_id
+    FROM sub s
+    LEFT JOIN LATERAL (
       SELECT
-        f.*,
         CASE
-          WHEN f.photo_count = 0 THEN false
-          WHEN COUNT(CASE WHEN p.thumbnail_status = 'generated' THEN 1 END) = f.photo_count THEN true
+          WHEN s.photo_count = 0 THEN false
+          WHEN COUNT(*) FILTER (WHERE p.thumbnail_status = 'generated') = s.photo_count THEN true
           ELSE false
-        END as thumbnails_generated,
-        COALESCE(SUM(p.size), 0) as total_size,
-        MIN(p.modified_at) as folder_created_at
-      FROM folders f
-      LEFT JOIN photos p ON p.folder_id = f.id
-      WHERE f.parent_id IS NULL
-      GROUP BY f.id
-      ORDER BY f.name
-    `;
-    params = [];
-  } else {
-    sql = `
-      SELECT
-        f.*,
-        CASE
-          WHEN f.photo_count = 0 THEN false
-          WHEN COUNT(CASE WHEN p.thumbnail_status = 'generated' THEN 1 END) = f.photo_count THEN true
-          ELSE false
-        END as thumbnails_generated,
-        COALESCE(SUM(p.size), 0) as total_size,
-        MIN(p.modified_at) as folder_created_at
-      FROM folders f
-      INNER JOIN folders parent ON f.parent_id = parent.id
-      LEFT JOIN photos p ON p.folder_id = f.id
-      WHERE parent.path = $1
-      GROUP BY f.id
-      ORDER BY f.name
-    `;
-    params = [parentPath];
-  }
+        END AS thumbnails_generated,
+        COALESCE(SUM(p.size), 0) AS total_size,
+        MIN(p.modified_at) AS folder_created_at,
+        MIN(p.metadata->>'date_taken') AS date_from,
+        MAX(p.metadata->>'date_taken') AS date_to
+      FROM photos p
+      WHERE p.folder_id = s.id
+    ) agg ON true
+    LEFT JOIN LATERAL (
+      SELECT p.id FROM photos p
+      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%'
+      ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+      LIMIT 1
+    ) own_cover ON true
+    LEFT JOIN LATERAL (
+      SELECT (
+        SELECT p.id FROM photos p
+        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+        LIMIT 1
+      ) AS id
+      FROM folders d
+      WHERE own_cover.id IS NULL
+        AND d.path >= s.path || '/'
+        AND d.path < s.path || '0'
+        AND starts_with(d.path, s.path || '/')
+        AND d.photo_count > 0
+        AND EXISTS (
+          SELECT 1 FROM photos p
+          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        )
+      ORDER BY d.path
+      LIMIT 1
+    ) descendant_cover ON true
+    ORDER BY s.name
+  `;
 
-  const result = await query(sql, params);
-  const folders = result.rows;
+  const result = await query(sql, isRoot ? [] : [parentPath]);
 
-  return folders.map((folder) => ({
+  return result.rows.map((folder) => ({
     ...folder,
     thumbnails_generated: Boolean(folder.thumbnails_generated),
+    cover_photo_id: folder.cover_photo_id ?? null,
+    date_from: folder.date_from ?? null,
+    date_to: folder.date_to ?? null,
   })) as Folder[];
 }
 
@@ -463,6 +487,74 @@ export async function updatePhotoMetadata(
     "UPDATE photos SET metadata = $1, metadata_status = $2 WHERE id = $3",
     [metadata, "extracted", photoId], // PostgreSQL JSONB handles objects directly
   );
+}
+
+/** Persists probed metadata only when the row has none yet (never overwrites) */
+export async function fillPhotoMetadataIfMissing(
+  photoId: number,
+  metadata: PhotoMetadata,
+): Promise<boolean> {
+  const result = await query(
+    `UPDATE photos SET metadata = $1, metadata_status = 'extracted'
+     WHERE id = $2 AND metadata IS NULL`,
+    [metadata, photoId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export interface TimelineCursor {
+  dateTaken: string;
+  id: number;
+}
+
+export type TimelinePhoto = Photo & { folder_path: string };
+
+/**
+ * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id).
+ * Uses idx_photos_date_taken (scripts/create-timeline-index.ts).
+ */
+export async function getTimelinePhotos(
+  before: TimelineCursor | null,
+  limit: number,
+): Promise<TimelinePhoto[]> {
+  const params: unknown[] = [limit];
+  let cursorFilter = "";
+  if (before) {
+    params.push(before.dateTaken, before.id);
+    // Row comparison so the btree on (date_taken, id) serves the seek
+    cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
+  }
+
+  const result = await query(
+    `
+    SELECT p.*, f.path AS folder_path
+    FROM photos p
+    JOIN folders f ON f.id = p.folder_id
+    WHERE (p.metadata->>'date_taken') IS NOT NULL
+      ${cursorFilter}
+    ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
+    LIMIT $1
+  `,
+    params,
+  );
+
+  return result.rows.map((row) => ({
+    ...normalizePhoto(row as DatabasePhoto),
+    folder_path: row.folder_path,
+  }));
+}
+
+export async function getTimelineSummary(): Promise<
+  { month: string; count: number }[]
+> {
+  const result = await query(`
+    SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
+    FROM photos p
+    WHERE (p.metadata->>'date_taken') IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1 DESC
+  `);
+  return result.rows;
 }
 
 export async function updatePhotoStatus(

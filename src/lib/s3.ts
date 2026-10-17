@@ -745,6 +745,72 @@ export async function getObjectStream(
   }
 }
 
+/**
+ * Read bytes [start, end] (inclusive) of an object from the photo bucket.
+ * Objects shorter than the range come back whole; empty objects give an empty buffer.
+ */
+export async function getObjectRange(
+  bucket: string,
+  key: string,
+  start: number,
+  end: number,
+  request?: Request,
+): Promise<Buffer> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+
+  try {
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Range: `bytes=${start}-${end}`,
+      }),
+    );
+    const body = response.Body
+      ? Buffer.from(await response.Body.transformToByteArray())
+      : Buffer.alloc(0);
+
+    await auditMiddleware.log({
+      operation: "GetObject",
+      method: "GET",
+      bucket,
+      key,
+      startTime,
+      statusCode: response.$metadata.httpStatusCode ?? 206,
+      bytesTransferred: body.length,
+      request,
+    });
+
+    return body;
+  } catch (error) {
+    const errorInfo = extractS3ErrorInfo(error);
+
+    await auditMiddleware.log({
+      operation: "GetObject",
+      method: "GET",
+      bucket,
+      key,
+      startTime,
+      statusCode: errorInfo.statusCode,
+      error: errorInfo.message,
+      request,
+    });
+
+    // 416: the object is empty, there is no byte to read
+    if (errorInfo.statusCode === 416) {
+      return Buffer.alloc(0);
+    }
+
+    logger.s3Error("Failed to get object range", error as Error, {
+      bucket,
+      key,
+      operation: "getObjectRange",
+    });
+    throw error;
+  }
+}
+
 export interface PutObjectOptions {
   contentType?: string;
   cacheControl?: string;
