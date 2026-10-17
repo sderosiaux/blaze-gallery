@@ -13,11 +13,11 @@ interface FolderTooltipProps {
 function formatDate(dateString: string | undefined): string {
   if (!dateString) return "Never";
 
-  // Handle SQLite timestamp format - assume it's UTC if no timezone specified
+  // Timestamps are stored without a zone, in UTC: treat a bare one as UTC.
   const date =
     dateString.includes("T") || dateString.includes("Z")
       ? new Date(dateString)
-      : new Date(dateString + "Z"); // Append 'Z' to treat as UTC
+      : new Date(dateString + "Z");
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -31,14 +31,18 @@ function formatDate(dateString: string | undefined): string {
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
 
-  return date.toLocaleDateString();
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-export default function FolderTooltip({
-  folder,
-  children,
-}: FolderTooltipProps) {
+export default function FolderTooltip({ folder, children }: FolderTooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
+
+  const rows = [
+    { icon: Eye, label: "Visited", value: formatDate(folder.last_visited) },
+    { icon: Clock, label: "Synced", value: formatDate(folder.last_synced) },
+    { icon: HardDrive, label: "Size", value: formatBytes(folder.total_size) },
+    { icon: Calendar, label: "Created", value: formatDate(folder.folder_created_at || folder.created_at) },
+  ];
 
   return (
     <div
@@ -49,47 +53,21 @@ export default function FolderTooltip({
       {children}
 
       {isVisible && (
-        <div className="absolute z-50 bottom-full mb-2 left-1/2 transform -translate-x-1/2">
-          <div className="bg-gray-900 text-white text-sm rounded-lg px-4 py-3 shadow-lg max-w-sm min-w-64">
-            <div className="font-medium text-white mb-2 truncate">
-              {folder.name}
-            </div>
-
-            <div className="space-y-1 text-gray-300">
-              <div className="flex items-center">
-                <Eye className="w-3 h-3 mr-2 flex-shrink-0" />
-                <span className="text-xs">
-                  Visited: {formatDate(folder.last_visited)}
-                </span>
-              </div>
-
-              <div className="flex items-center">
-                <Clock className="w-3 h-3 mr-2 flex-shrink-0" />
-                <span className="text-xs">
-                  Synced: {formatDate(folder.last_synced)}
-                </span>
-              </div>
-
-              <div className="flex items-center">
-                <HardDrive className="w-3 h-3 mr-2 flex-shrink-0" />
-                <span className="text-xs">
-                  Size: {formatBytes(folder.total_size)}
-                </span>
-              </div>
-
-              <div className="flex items-center">
-                <Calendar className="w-3 h-3 mr-2 flex-shrink-0" />
-                <span className="text-xs">
-                  Created:{" "}
-                  {formatDate(folder.folder_created_at || folder.created_at)}
-                </span>
-              </div>
-            </div>
-
-            {/* Tooltip arrow */}
-            <div className="absolute top-full left-1/2 transform -translate-x-1/2">
-              <div className="border-4 border-transparent border-t-gray-900"></div>
-            </div>
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-1/2 z-overlay mb-2 w-64 max-w-[80vw] -translate-x-1/2 animate-fade-in"
+        >
+          <div className="rounded-md border border-line bg-surface px-4 py-3 text-sm shadow-pop">
+            <div className="mb-2 truncate font-medium text-ink">{folder.name}</div>
+            <dl className="space-y-1 text-xs">
+              {rows.map(({ icon: Icon, label, value }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <Icon className="h-3 w-3 shrink-0 text-ink-faint" aria-hidden />
+                  <dt className="text-ink-muted">{label}</dt>
+                  <dd className="tabular ml-auto text-ink-soft">{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       )}
