@@ -1,13 +1,18 @@
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 interface LayoutContextType {
-  isFullWidth: boolean;
-  setIsFullWidth: (value: boolean) => void;
+  sidebarCollapsed: boolean;
+  /** False until the user toggles, so the first paint never animates the layout. */
+  sidebarAnimated: boolean;
+  toggleSidebar: () => void;
+  mobileNavOpen: boolean;
+  setMobileNavOpen: (open: boolean) => void;
 }
 
 const LayoutContext = createContext<LayoutContextType | undefined>(undefined);
+const STORAGE_KEY = "blaze:sidebar-collapsed";
 
 export function useLayout() {
   const context = useContext(LayoutContext);
@@ -17,15 +22,25 @@ export function useLayout() {
   return context;
 }
 
-interface LayoutProviderProps {
-  children: ReactNode;
-}
+export function LayoutProvider({ children }: { children: ReactNode }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarAnimated, setSidebarAnimated] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-export function LayoutProvider({ children }: LayoutProviderProps) {
-  const [isFullWidth, setIsFullWidth] = useState(false);
+  useEffect(() => {
+    setSidebarCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarAnimated(true);
+    setSidebarCollapsed((collapsed) => {
+      localStorage.setItem(STORAGE_KEY, collapsed ? "0" : "1");
+      return !collapsed;
+    });
+  }, []);
 
   return (
-    <LayoutContext.Provider value={{ isFullWidth, setIsFullWidth }}>
+    <LayoutContext.Provider value={{ sidebarCollapsed, sidebarAnimated, toggleSidebar, mobileNavOpen, setMobileNavOpen }}>
       {children}
     </LayoutContext.Provider>
   );
