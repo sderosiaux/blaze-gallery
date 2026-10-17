@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 interface ProgressiveImageProps {
@@ -35,7 +35,9 @@ export default function ProgressiveImage({
   className,
   onFailed,
 }: ProgressiveImageProps) {
-  const [stage, setStage] = useState<Stage>(thumbReady || !previewSrc ? "thumb" : "preview");
+  const [stage, setStage] = useState<Stage>(
+    thumbReady || !previewSrc ? "thumb" : "preview",
+  );
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewSoft, setPreviewSoft] = useState(false);
   const [thumbLoaded, setThumbLoaded] = useState(false);
@@ -61,42 +63,72 @@ export default function ProgressiveImage({
     return () => observer.disconnect();
   }, [nearViewport, thumbReady]);
 
+  // Reset only when the photo changes. Running this on mount would undo an
+  // onLoad that a cached image already fired, leaving it invisible.
+  const sourceKey = `${previewSrc}|${thumbSrc}|${thumbReady}`;
+  const lastSourceKey = useRef(sourceKey);
   useEffect(() => {
+    if (lastSourceKey.current === sourceKey) return;
+    lastSourceKey.current = sourceKey;
     setStage(thumbReady || !previewSrc ? "thumb" : "preview");
     setPreviewLoaded(false);
     setPreviewSoft(false);
     setThumbLoaded(false);
-  }, [previewSrc, thumbSrc, thumbReady]);
+  }, [sourceKey, thumbReady, previewSrc]);
 
   useEffect(() => {
     if (stage === "failed") onFailed?.();
   }, [stage, onFailed]);
 
-  const onPreviewLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const dpr = typeof window === "undefined" ? 1 : Math.min(window.devicePixelRatio || 1, 2);
-    // Letterboxed 4:3 previews of 16:9 shots need no special case: object-cover
-    // crops exactly the bars away in a 16:9 tile.
-    setPreviewLoaded(true);
-    if (img.naturalWidth < displayWidth * dpr * 0.7) {
-      setPreviewSoft(true);
-      setStage("thumb");
-    }
-  };
+  const onPreviewLoad = useCallback(
+    (img: HTMLImageElement) => {
+      const dpr =
+        typeof window === "undefined"
+          ? 1
+          : Math.min(window.devicePixelRatio || 1, 2);
+      // Letterboxed 4:3 previews of 16:9 shots need no special case: object-cover
+      // crops exactly the bars away in a 16:9 tile.
+      setPreviewLoaded(true);
+      if (img.naturalWidth < displayWidth * dpr * 0.7) {
+        setPreviewSoft(true);
+        setStage("thumb");
+      }
+    },
+    [displayWidth],
+  );
 
   const showThumb = stage === "thumb" && (thumbReady || nearViewport);
 
+  // An image served from cache can finish before React attaches onLoad.
+  const previewRef = useRef<HTMLImageElement>(null);
+  const thumbRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (preview?.complete && preview.naturalWidth > 0 && !previewLoaded)
+      onPreviewLoad(preview);
+    const thumb = thumbRef.current;
+    if (thumb?.complete && thumb.naturalWidth > 0 && !thumbLoaded)
+      setThumbLoaded(true);
+  }, [sourceKey, stage, showThumb, previewLoaded, thumbLoaded, onPreviewLoad]);
+
   return (
-    <div ref={rootRef} className={cn("absolute inset-0 overflow-hidden bg-surface-sunken", className)}>
+    <div
+      ref={rootRef}
+      className={cn(
+        "absolute inset-0 overflow-hidden bg-surface-sunken",
+        className,
+      )}
+    >
       {previewSrc && stage !== "failed" && !thumbReady && (
         // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
         <img
+          ref={previewRef}
           src={previewSrc}
           alt={showThumb && thumbLoaded ? "" : alt}
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           draggable={false}
-          onLoad={onPreviewLoad}
+          onLoad={(e) => onPreviewLoad(e.currentTarget)}
           onError={() => setStage((s) => (s === "preview" ? "thumb" : s))}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-[opacity,filter,transform] duration-500 ease-out-soft",
@@ -108,6 +140,7 @@ export default function ProgressiveImage({
       {showThumb && (
         // eslint-disable-next-line @next/next/no-img-element -- already sized by the API; next/image would re-encode it
         <img
+          ref={thumbRef}
           src={thumbSrc}
           alt={alt}
           loading={eager ? "eager" : "lazy"}
