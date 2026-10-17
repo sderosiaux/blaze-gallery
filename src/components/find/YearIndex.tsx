@@ -11,7 +11,8 @@ interface YearIndexProps {
   onJump: (year: number) => void;
 }
 
-const countLabel = (count: number) => `${count.toLocaleString("en-GB")} ${count === 1 ? "photo" : "photos"}`;
+const countLabel = (count: number) =>
+  `${count.toLocaleString("en-GB")} ${count === 1 ? "photo" : "photos"}`;
 
 /** Slim column of years beside the months, from md up. */
 export function YearRail({ years, active, onJump }: YearIndexProps) {
@@ -51,7 +52,10 @@ export function YearPicker({ years, active, onJump }: YearIndexProps) {
       <label htmlFor="timeline-year" className="sr-only">
         Jump to a year
       </label>
-      <CalendarDays className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden />
+      <CalendarDays
+        className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-muted"
+        aria-hidden
+      />
       <Select
         id="timeline-year"
         value={active ?? ""}

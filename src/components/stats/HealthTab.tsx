@@ -3,8 +3,19 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Badge, Section, Skeleton, Stat } from "@/components/ui";
 import { Meter } from "./charts";
-import { formatDate, formatNumber, formatPercent, formatSize, timeAgo } from "./format";
-import { BarsSkeleton, SectionTitleSkeleton, StatsRowSkeleton, TabError } from "./TabState";
+import {
+  formatDate,
+  formatNumber,
+  formatPercent,
+  formatSize,
+  timeAgo,
+} from "./format";
+import {
+  BarsSkeleton,
+  SectionTitleSkeleton,
+  StatsRowSkeleton,
+  TabError,
+} from "./TabState";
 import type { HealthStats, IgnoredFiles } from "./types";
 import { useStatsResource } from "./useStatsResource";
 
@@ -12,14 +23,26 @@ const cell = "border-t border-line pt-4";
 
 export default function HealthTab({ active }: { active: boolean }) {
   const health = useStatsResource<HealthStats>("/api/stats/health", active);
-  const ignored = useStatsResource<IgnoredFiles>("/api/stats/ignored-files", active);
+  const ignored = useStatsResource<IgnoredFiles>(
+    "/api/stats/ignored-files",
+    active,
+  );
 
   return (
     <div>
       {health.state.status === "error" ? (
-        <TabError title="Health figures didn't load" error={health.state.error} onRetry={health.retry} className="py-6" />
+        <TabError
+          title="Health figures didn't load"
+          error={health.state.error}
+          onRetry={health.retry}
+          className="py-6"
+        />
       ) : health.state.status !== "ready" ? (
-        <div role="status" aria-label="Loading health" className="grid gap-x-12 lg:grid-cols-2">
+        <div
+          role="status"
+          aria-label="Loading health"
+          className="grid gap-x-12 lg:grid-cols-2"
+        >
           {[0, 1].map((i) => (
             <div key={i} className="py-8 sm:py-10">
               <SectionTitleSkeleton />
@@ -39,9 +62,17 @@ export default function HealthTab({ active }: { active: boolean }) {
         description="Left out of duplicate detection: system files, thumbnails other apps made, and files too small to be photos."
       >
         {ignored.state.status === "error" ? (
-          <TabError title="The ignored files didn't load" error={ignored.state.error} onRetry={ignored.retry} />
+          <TabError
+            title="The ignored files didn't load"
+            error={ignored.state.error}
+            onRetry={ignored.retry}
+          />
         ) : ignored.state.status !== "ready" ? (
-          <div role="status" aria-label="Loading ignored files" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            role="status"
+            aria-label="Loading ignored files"
+            className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"
+          >
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className={cell}>
                 <Skeleton className="h-4 w-32" />
@@ -77,17 +108,38 @@ function MetadataSection({ data }: { data: HealthStats["metadata"] }) {
               <span className="text-ink">{r.label}</span>
               <span className="tabular text-ink-soft">
                 {formatPercent(r.value, data.images)}
-                <span className="text-ink-muted"> · {formatNumber(r.value)}</span>
+                <span className="text-ink-muted">
+                  {" "}
+                  · {formatNumber(r.value)}
+                </span>
               </span>
             </div>
-            <Meter value={r.value} total={data.images} label={`${r.label}: ${formatNumber(r.value)} of ${formatNumber(data.images)} photos`} />
+            <Meter
+              value={r.value}
+              total={data.images}
+              label={`${r.label}: ${formatNumber(r.value)} of ${formatNumber(data.images)} photos`}
+            />
           </li>
         ))}
       </ul>
       <div className="mt-8 grid grid-cols-3 gap-x-6">
-        <Stat className={cell} label="Still to read" value={formatNumber(data.pending)} />
-        <Stat className={cell} label="Unreadable" value={formatNumber(data.failed)} hint="No usable header" />
-        <Stat className={cell} label="Videos" value={formatNumber(data.videos)} hint="Not read for now" />
+        <Stat
+          className={cell}
+          label="Still to read"
+          value={formatNumber(data.pending)}
+        />
+        <Stat
+          className={cell}
+          label="Unreadable"
+          value={formatNumber(data.failed)}
+          hint="No usable header"
+        />
+        <Stat
+          className={cell}
+          label="Videos"
+          value={formatNumber(data.videos)}
+          hint="Not read for now"
+        />
       </div>
     </Section>
   );
@@ -118,7 +170,11 @@ function SyncSection({ data }: { data: HealthStats["sync"] }) {
           hint={data.last_synced ? formatDate(data.last_synced) : undefined}
         />
         <Stat label="Folders" value={formatNumber(data.total_folders)} />
-        <Stat label="Checked this week" value={formatNumber(data.synced_last_week)} hint={`${formatNumber(data.synced_last_day)} today`} />
+        <Stat
+          label="Checked this week"
+          value={formatNumber(data.synced_last_week)}
+          hint={`${formatNumber(data.synced_last_day)} today`}
+        />
         <Stat
           label="Out of date"
           value={formatNumber(data.stale + data.never_synced)}
@@ -154,18 +210,27 @@ function IgnoredList({ data }: { data: IgnoredFiles }) {
   return (
     <div className="animate-fade-in">
       <p className="tabular mb-5 text-sm text-ink-soft">
-        {formatNumber(data.summary.total_ignored_files)} files, {formatSize(data.summary.total_ignored_size_bytes)} in all.
+        {formatNumber(data.summary.total_ignored_files)} files,{" "}
+        {formatSize(data.summary.total_ignored_size_bytes)} in all.
       </p>
       <ul className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         {data.breakdown.map((c) => (
           <li key={c.category} className={`${cell} min-w-0`}>
             <div className="text-sm text-ink">{c.label}</div>
-            <div className="tabular mt-1 font-display text-2xl font-light text-ink">{formatNumber(c.count)}</div>
-            <div className="tabular text-xs text-ink-muted">{formatSize(c.total_size_bytes)}</div>
+            <div className="tabular mt-1 font-display text-2xl font-light text-ink">
+              {formatNumber(c.count)}
+            </div>
+            <div className="tabular text-xs text-ink-muted">
+              {formatSize(c.total_size_bytes)}
+            </div>
             {c.examples.length > 0 && (
               <ul className="mt-3 space-y-0.5">
                 {c.examples.map((e) => (
-                  <li key={e} className="truncate font-mono text-xs text-ink-muted" title={e}>
+                  <li
+                    key={e}
+                    className="truncate font-mono text-xs text-ink-muted"
+                    title={e}
+                  >
                     {e}
                   </li>
                 ))}

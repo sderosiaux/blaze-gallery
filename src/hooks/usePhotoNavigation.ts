@@ -34,7 +34,11 @@ export function usePhotoNavigation(
   const found = list.findIndex((p) => String(p.id) === currentId);
   if (found !== -1) lastIndex.current = found;
   const current =
-    found !== -1 ? list[found] : String(photo.id) === currentId ? photo : (list[lastIndex.current] ?? photo);
+    found !== -1
+      ? list[found]
+      : String(photo.id) === currentId
+        ? photo
+        : (list[lastIndex.current] ?? photo);
   const index = found;
   // When the current photo vanished, its old slot is where "next" now lives.
   const base = found !== -1 ? found : lastIndex.current - 0.5;
@@ -52,11 +56,17 @@ export function usePhotoNavigation(
 
   const previousIndex = Math.ceil(base) - 1;
   const nextIndex = Math.floor(base) + 1;
-  const goToPrevious = useCallback(() => goTo(previousIndex), [goTo, previousIndex]);
+  const goToPrevious = useCallback(
+    () => goTo(previousIndex),
+    [goTo, previousIndex],
+  );
   const goToNext = useCallback(() => goTo(nextIndex), [goTo, nextIndex]);
 
   const neighbours = useMemo(
-    () => [nextIndex, previousIndex, nextIndex + 1].map((i) => list[i]).filter((p): p is Photo => Boolean(p)),
+    () =>
+      [nextIndex, previousIndex, nextIndex + 1]
+        .map((i) => list[i])
+        .filter((p): p is Photo => Boolean(p)),
     [list, nextIndex, previousIndex],
   );
 

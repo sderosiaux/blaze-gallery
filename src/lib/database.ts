@@ -334,7 +334,11 @@ async function listFolders(
 export async function getFolders(parentPath?: string): Promise<Folder[]> {
   const isRoot = parentPath === undefined || parentPath === "";
   return isRoot
-    ? listFolders("SELECT f.* FROM folders f WHERE f.parent_id IS NULL", "s.name", [])
+    ? listFolders(
+        "SELECT f.* FROM folders f WHERE f.parent_id IS NULL",
+        "s.name",
+        [],
+      )
     : listFolders(
         "SELECT f.* FROM folders f WHERE f.parent_id = (SELECT id FROM folders WHERE path = $1)",
         "s.name",
@@ -735,10 +739,9 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
 }
 
 export async function deletePhoto(photoId: number): Promise<boolean> {
-  const result = await query(
-    "DELETE FROM photos WHERE id = $1 RETURNING id",
-    [photoId],
-  );
+  const result = await query("DELETE FROM photos WHERE id = $1 RETURNING id", [
+    photoId,
+  ]);
   return result.rowCount !== null && result.rowCount > 0;
 }
 

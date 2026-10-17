@@ -5,7 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { FolderSearch } from "lucide-react";
 import type { Folder } from "@/types";
 import { AlbumGrid } from "@/components/photos/AlbumCard";
-import { EmptyState, MetaDot, PageHeader, Section, Skeleton } from "@/components/ui";
+import {
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  Section,
+  Skeleton,
+} from "@/components/ui";
 import AlbumDropZone from "./AlbumDropZone";
 import { LoadError } from "./LoadError";
 import RecentlyVisited from "./RecentlyVisited";
@@ -21,7 +27,9 @@ type RootState =
 
 function initialState(): RootState {
   const hit = cached<{ folders: Folder[] }>(ROOT_KEY);
-  return hit ? { status: "ready", folders: hit.folders } : { status: "loading" };
+  return hit
+    ? { status: "ready", folders: hit.folders }
+    : { status: "loading" };
 }
 
 /** The cover of the library: what it holds, its albums, and a few photos to fall back into. */
@@ -37,7 +45,8 @@ export default function LibraryHome() {
     if (!quiet) setRoot({ status: "loading" });
     try {
       const result = await loadRootAlbums(controller.signal);
-      if (result.status === "ready") setRoot({ status: "ready", folders: result.data.folders });
+      if (result.status === "ready")
+        setRoot({ status: "ready", folders: result.data.folders });
       else if (!quiet) setRoot({ status: "error" });
     } catch {
       // Aborted by a newer request.
@@ -79,7 +88,13 @@ export default function LibraryHome() {
 
       <Section title="Albums" className="pt-0 sm:pt-0">
         {root.status === "loading" && <AlbumGridSkeleton count={6} />}
-        {root.status === "error" && <LoadError title="The albums didn't load" onRetry={() => load(false)} className="py-12" />}
+        {root.status === "error" && (
+          <LoadError
+            title="The albums didn't load"
+            onRetry={() => load(false)}
+            className="py-12"
+          />
+        )}
         {root.status === "ready" &&
           (root.folders.length > 0 ? (
             <AlbumGrid folders={root.folders} />

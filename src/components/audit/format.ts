@@ -1,4 +1,10 @@
-import { CircleCheck, CircleX, Info, TriangleAlert, type LucideIcon } from "lucide-react";
+import {
+  CircleCheck,
+  CircleX,
+  Info,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import type { Tone } from "@/components/ui";
 
 // Audit timestamps are real instants (not EXIF wall-clock), so they are shown
@@ -20,11 +26,41 @@ const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 
 export const RANGES: TimeRange[] = [
-  { id: "1h", label: "Last hour", ms: HOUR, bucketSeconds: 60, bucketLabel: "minute" },
-  { id: "6h", label: "Last 6 hours", ms: 6 * HOUR, bucketSeconds: 300, bucketLabel: "5 minutes" },
-  { id: "24h", label: "Last 24 hours", ms: DAY, bucketSeconds: 900, bucketLabel: "15 minutes" },
-  { id: "7d", label: "Last 7 days", ms: 7 * DAY, bucketSeconds: 7200, bucketLabel: "2 hours" },
-  { id: "30d", label: "Last 30 days", ms: 30 * DAY, bucketSeconds: 43200, bucketLabel: "12 hours" },
+  {
+    id: "1h",
+    label: "Last hour",
+    ms: HOUR,
+    bucketSeconds: 60,
+    bucketLabel: "minute",
+  },
+  {
+    id: "6h",
+    label: "Last 6 hours",
+    ms: 6 * HOUR,
+    bucketSeconds: 300,
+    bucketLabel: "5 minutes",
+  },
+  {
+    id: "24h",
+    label: "Last 24 hours",
+    ms: DAY,
+    bucketSeconds: 900,
+    bucketLabel: "15 minutes",
+  },
+  {
+    id: "7d",
+    label: "Last 7 days",
+    ms: 7 * DAY,
+    bucketSeconds: 7200,
+    bucketLabel: "2 hours",
+  },
+  {
+    id: "30d",
+    label: "Last 30 days",
+    ms: 30 * DAY,
+    bucketSeconds: 43200,
+    bucketLabel: "12 hours",
+  },
 ];
 
 export function rangeById(id: RangeId): TimeRange {
@@ -32,7 +68,10 @@ export function rangeById(id: RangeId): TimeRange {
 }
 
 const integer = new Intl.NumberFormat(LOCALE);
-const compact = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
+const compact = new Intl.NumberFormat(LOCALE, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export const formatCount = (n: number) => integer.format(n);
 export const formatCompact = (n: number) => compact.format(n);
@@ -55,16 +94,31 @@ export function formatShare(share: number): string {
   return `${pct.toFixed(1)}%`;
 }
 
-const timeFmt = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit" });
-const secondsFmt = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const dayFmt = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" });
-const fullDayFmt = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", year: "numeric" });
+const timeFmt = new Intl.DateTimeFormat(LOCALE, {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const secondsFmt = new Intl.DateTimeFormat(LOCALE, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+const dayFmt = new Intl.DateTimeFormat(LOCALE, {
+  day: "numeric",
+  month: "short",
+});
+const fullDayFmt = new Intl.DateTimeFormat(LOCALE, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
 
 export const formatTime = (t: number | Date) => timeFmt.format(t);
 export const formatTimeWithSeconds = (t: number | Date) => secondsFmt.format(t);
 export const formatDay = (t: number | Date) => dayFmt.format(t);
 export const formatFullDay = (t: number | Date) => fullDayFmt.format(t);
-export const formatMoment = (t: number | Date) => `${dayFmt.format(t)}, ${timeFmt.format(t)}`;
+export const formatMoment = (t: number | Date) =>
+  `${dayFmt.format(t)}, ${timeFmt.format(t)}`;
 
 export function isSameLocalDay(a: number | Date, b: number | Date) {
   return new Date(a).toDateString() === new Date(b).toDateString();
@@ -99,13 +153,17 @@ function tickKey(t: number, range: RangeId): string {
 }
 
 export function axisTicks(times: number[], range: RangeId): number[] {
-  return times.filter((t, i) => i > 0 && tickKey(t, range) !== tickKey(times[i - 1], range));
+  return times.filter(
+    (t, i) => i > 0 && tickKey(t, range) !== tickKey(times[i - 1], range),
+  );
 }
 
 export function formatTick(t: number, range: RangeId): string {
   if (range === "7d" || range === "30d") return formatDay(t);
   const d = new Date(t);
-  return d.getHours() === 0 && d.getMinutes() === 0 ? formatDay(t) : formatTime(t);
+  return d.getHours() === 0 && d.getMinutes() === 0
+    ? formatDay(t)
+    : formatTime(t);
 }
 
 export interface StatusLook {
@@ -134,7 +192,9 @@ const STATUS_WORDS: Record<number, string> = {
 };
 
 export function statusLook(code: number): StatusLook {
-  const word = STATUS_WORDS[code] ?? (code >= 500 ? "Server error" : code >= 400 ? "Failed" : "");
+  const word =
+    STATUS_WORDS[code] ??
+    (code >= 500 ? "Server error" : code >= 400 ? "Failed" : "");
   const label = word ? `${code} ${word}` : String(code);
   if (code >= 400) return { tone: "danger", icon: CircleX, label };
   if (code >= 300) return { tone: "info", icon: Info, label };
@@ -145,8 +205,13 @@ export function statusLook(code: number): StatusLook {
 export function errorRateLook(rate: number, total: number): StatusLook {
   if (total === 0) return { tone: "neutral", icon: Info, label: "No requests" };
   if (rate > 0.05) return { tone: "danger", icon: CircleX, label: "Above 5%" };
-  if (rate > 0.01) return { tone: "warning", icon: TriangleAlert, label: "Above 1%" };
-  return { tone: "success", icon: CircleCheck, label: rate === 0 ? "No errors" : "Under 1%" };
+  if (rate > 0.01)
+    return { tone: "warning", icon: TriangleAlert, label: "Above 1%" };
+  return {
+    tone: "success",
+    icon: CircleCheck,
+    label: rate === 0 ? "No errors" : "Under 1%",
+  };
 }
 
 export function successLook(rate: number): StatusLook {
@@ -174,20 +239,27 @@ const OPERATION_LABELS: Record<string, string> = {
   AbortMultipartUpload: "Multipart aborts",
 };
 
-export const operationLabel = (operation: string) => OPERATION_LABELS[operation] ?? operation;
+export const operationLabel = (operation: string) =>
+  OPERATION_LABELS[operation] ?? operation;
 
 /**
  * Round axis ticks from 0 to just above `max`, about `steps` intervals of
  * 1, 2, 2.5 or 5 x 10^n. Bytes step within their own 1024 unit so the labels
  * read "500 MB", not "476.8 MB".
  */
-export function niceTicks(max: number, { binary = false, integer = false, steps = 3 } = {}): number[] {
+export function niceTicks(
+  max: number,
+  { binary = false, integer = false, steps = 3 } = {},
+): number[] {
   const top = max > 0 ? max : 1;
-  const unit = binary ? Math.pow(1024, Math.max(0, Math.floor(Math.log(top) / Math.log(1024)))) : 1;
+  const unit = binary
+    ? Math.pow(1024, Math.max(0, Math.floor(Math.log(top) / Math.log(1024))))
+    : 1;
   const raw = top / unit / steps;
   const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
   const norm = raw / magnitude;
-  const factor = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  const factor =
+    norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
   let step = factor * magnitude * unit;
   if (integer) step = Math.max(1, Math.ceil(step));
   const count = Math.max(1, Math.ceil(top / step - 1e-9));
@@ -199,6 +271,10 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 /** Byte axis labels all in the unit of the top tick: "0.5 GB, 1 GB", not "512 MB, 1 GB". */
 export function byteAxisFormatter(ticks: number[]): (n: number) => string {
   const top = ticks[ticks.length - 1] || 1;
-  const i = Math.min(BYTE_UNITS.length - 1, Math.max(0, Math.floor(Math.log(top) / Math.log(1024))));
-  return (n) => `${parseFloat((n / Math.pow(1024, i)).toFixed(2))} ${BYTE_UNITS[i]}`;
+  const i = Math.min(
+    BYTE_UNITS.length - 1,
+    Math.max(0, Math.floor(Math.log(top) / Math.log(1024))),
+  );
+  return (n) =>
+    `${parseFloat((n / Math.pow(1024, i)).toFixed(2))} ${BYTE_UNITS[i]}`;
 }

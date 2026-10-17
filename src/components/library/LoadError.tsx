@@ -8,7 +8,12 @@ interface LoadErrorProps {
   children?: React.ReactNode;
 }
 
-export function LoadError({ title, onRetry, className, children }: LoadErrorProps) {
+export function LoadError({
+  title,
+  onRetry,
+  className,
+  children,
+}: LoadErrorProps) {
   return (
     <EmptyState
       icon={CloudOff}

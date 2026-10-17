@@ -17,7 +17,13 @@ interface CachedImageProps {
  * paints at once. The host is `display: contents`, so the image is laid out
  * as a child of the host's parent.
  */
-export default function CachedImage({ element, alt, className, width, height }: CachedImageProps) {
+export default function CachedImage({
+  element,
+  alt,
+  className,
+  width,
+  height,
+}: CachedImageProps) {
   const host = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {

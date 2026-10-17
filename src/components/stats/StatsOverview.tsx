@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CheckCircle2, ScanLine } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  ScanLine,
+} from "lucide-react";
 import { Badge, Skeleton, Stat, type Tone } from "@/components/ui";
 import type { LucideIcon } from "lucide-react";
 import { Meter, SplitBar } from "./charts";
@@ -19,7 +24,11 @@ interface StatsOverviewProps {
 
 const cell = "border-t border-line pt-4";
 
-export default function StatsOverview({ summary, onRetry, onOpenTab }: StatsOverviewProps) {
+export default function StatsOverview({
+  summary,
+  onRetry,
+  onOpenTab,
+}: StatsOverviewProps) {
   if (summary.status === "error") {
     return (
       <TabError
@@ -55,8 +64,18 @@ export default function StatsOverview({ summary, onRetry, onOpenTab }: StatsOver
   return (
     <div className="animate-fade-in">
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
-        <Stat className={cell} label="Photos" value={formatNumber(s.photos)} hint={formatSize(photoBytes)} />
-        <Stat className={cell} label="Videos" value={formatNumber(s.videos)} hint={formatSize(s.video_bytes)} />
+        <Stat
+          className={cell}
+          label="Photos"
+          value={formatNumber(s.photos)}
+          hint={formatSize(photoBytes)}
+        />
+        <Stat
+          className={cell}
+          label="Videos"
+          value={formatNumber(s.videos)}
+          hint={formatSize(s.video_bytes)}
+        />
         <Stat
           className={cell}
           label="Storage used"
@@ -75,14 +94,22 @@ export default function StatsOverview({ summary, onRetry, onOpenTab }: StatsOver
             </>
           }
         />
-        <Stat className={cell} label="Albums" value={formatNumber(s.albums)} hint={`in ${formatNumber(s.folders)} folders`} />
+        <Stat
+          className={cell}
+          label="Albums"
+          value={formatNumber(s.albums)}
+          hint={`in ${formatNumber(s.folders)} folders`}
+        />
         <Stat
           className={cell}
           label="Favorites"
           value={formatNumber(s.favorites)}
           hint={
             s.favorites > 0 ? (
-              <Link href="/favorites" className="underline decoration-line-strong underline-offset-2 hover:text-ink">
+              <Link
+                href="/favorites"
+                className="underline decoration-line-strong underline-offset-2 hover:text-ink"
+              >
                 Open favorites
               </Link>
             ) : (
@@ -110,7 +137,12 @@ export default function StatsOverview({ summary, onRetry, onOpenTab }: StatsOver
         />
       </div>
 
-      <Attention summary={s} withDate={with_date} pending={pending} onOpenTab={onOpenTab} />
+      <Attention
+        summary={s}
+        withDate={with_date}
+        pending={pending}
+        onOpenTab={onOpenTab}
+      />
     </div>
   );
 }
@@ -180,13 +212,20 @@ function Attention({
                 onClick={() => onOpenTab(item.tab)}
                 className="touch-target group flex w-full items-start gap-2.5 rounded-md py-1.5 text-left text-sm text-ink-soft transition-colors duration-150 hover:text-ink sm:items-center"
               >
-                <Badge tone={item.tone} icon={item.icon} className="mt-px shrink-0 sm:mt-0">
+                <Badge
+                  tone={item.tone}
+                  icon={item.icon}
+                  className="mt-px shrink-0 sm:mt-0"
+                >
                   {item.badge}
                 </Badge>
                 <span className="min-w-0 flex-1 text-pretty">{item.text}</span>
                 <span className="hidden shrink-0 items-center gap-1 text-ink-muted transition-colors group-hover:text-accent-strong sm:inline-flex">
                   Health
-                  <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden />
+                  <ArrowRight
+                    className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5"
+                    aria-hidden
+                  />
                 </span>
               </button>
             </li>

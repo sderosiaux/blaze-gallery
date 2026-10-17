@@ -12,8 +12,10 @@ export function albumHref(path: string) {
 
 function countsLine(folder: Folder) {
   const parts: string[] = [];
-  if (folder.photo_count > 0) parts.push(formatCount(Number(folder.photo_count), "photo"));
-  if (folder.subfolder_count > 0) parts.push(formatCount(Number(folder.subfolder_count), "album"));
+  if (folder.photo_count > 0)
+    parts.push(formatCount(Number(folder.photo_count), "photo"));
+  if (folder.subfolder_count > 0)
+    parts.push(formatCount(Number(folder.subfolder_count), "album"));
   return parts.join(" · ") || "Empty";
 }
 
@@ -28,13 +30,25 @@ interface AlbumCardProps {
   size?: "md" | "lg";
 }
 
-export default function AlbumCard({ folder, eager, showPath, shareToken, href, size = "md" }: AlbumCardProps) {
+export default function AlbumCard({
+  folder,
+  eager,
+  showPath,
+  shareToken,
+  href,
+  size = "md",
+}: AlbumCardProps) {
   const { title } = parseAlbumName(folder.name);
   const dateLabel = albumDateLabel(folder);
   const coverId = folder.cover_photo_id;
   // The nearest parents say the most; deep paths keep only the last two.
-  const ancestors = folder.path.split("/").slice(0, -1).map((name) => parseAlbumName(name).title);
-  const parent = (ancestors.length > 2 ? ["…", ...ancestors.slice(-2)] : ancestors).join(" / ");
+  const ancestors = folder.path
+    .split("/")
+    .slice(0, -1)
+    .map((name) => parseAlbumName(name).title);
+  const parent = (
+    ancestors.length > 2 ? ["…", ...ancestors.slice(-2)] : ancestors
+  ).join(" / ");
 
   return (
     <Link
@@ -45,21 +59,35 @@ export default function AlbumCard({ folder, eager, showPath, shareToken, href, s
       <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-surface-sunken">
         {coverId ? (
           <ProgressiveImage
-            previewSrc={shareToken ? `/api/shares/${shareToken}/preview/${coverId}` : `/api/photos/${coverId}/preview`}
-            thumbSrc={shareToken ? `/api/shares/${shareToken}/thumbnail/${coverId}` : `/api/photos/${coverId}/thumbnail`}
+            previewSrc={
+              shareToken
+                ? `/api/shares/${shareToken}/preview/${coverId}`
+                : `/api/photos/${coverId}/preview`
+            }
+            thumbSrc={
+              shareToken
+                ? `/api/shares/${shareToken}/thumbnail/${coverId}`
+                : `/api/photos/${coverId}/thumbnail`
+            }
             displayWidth={size === "lg" ? 480 : 340}
             alt=""
             eager={eager}
             className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.035]"
           />
         ) : (
-          <div aria-hidden className="absolute inset-0 flex items-center justify-center">
+          <div
+            aria-hidden
+            className="absolute inset-0 flex items-center justify-center"
+          >
             <span className="select-none font-display text-[5rem] font-light italic leading-none text-ink-faint/70 transition-transform duration-700 ease-out-soft group-hover:scale-105">
               {title.charAt(0)}
             </span>
           </div>
         )}
-        <div aria-hidden className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5"
+        />
       </div>
       <div className="pt-3">
         {dateLabel && <div className="kicker mb-1 truncate">{dateLabel}</div>}
@@ -73,7 +101,9 @@ export default function AlbumCard({ folder, eager, showPath, shareToken, href, s
           {title}
         </h3>
         <p className="tabular mt-0.5 truncate text-sm text-ink-muted">
-          {showPath && parent ? <span className="text-ink-soft">{parent} · </span> : null}
+          {showPath && parent ? (
+            <span className="text-ink-soft">{parent} · </span>
+          ) : null}
           {countsLine(folder)}
         </p>
       </div>
@@ -89,12 +119,28 @@ interface AlbumGridProps {
   hrefFor?: (folder: Folder) => string;
 }
 
-export function AlbumGrid({ folders, eagerCount = 8, showPath, shareToken, hrefFor }: AlbumGridProps) {
+export function AlbumGrid({
+  folders,
+  eagerCount = 8,
+  showPath,
+  shareToken,
+  hrefFor,
+}: AlbumGridProps) {
   return (
     <ul className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 2xl:grid-cols-5">
       {folders.map((folder, i) => (
-        <li key={folder.path} className="min-w-0 animate-rise-in" style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}>
-          <AlbumCard folder={folder} eager={i < eagerCount} showPath={showPath} shareToken={shareToken} href={hrefFor?.(folder)} />
+        <li
+          key={folder.path}
+          className="min-w-0 animate-rise-in"
+          style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
+        >
+          <AlbumCard
+            folder={folder}
+            eager={i < eagerCount}
+            showPath={showPath}
+            shareToken={shareToken}
+            href={hrefFor?.(folder)}
+          />
         </li>
       ))}
     </ul>

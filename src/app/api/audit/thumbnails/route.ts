@@ -30,7 +30,10 @@ interface ScanCache {
 
 // On globalThis so the cached listing survives dev-server module reloads.
 const globalForScan = globalThis as unknown as { thumbnailScan?: ScanCache };
-const scanCache = (globalForScan.thumbnailScan ??= { last: null, inflight: null });
+const scanCache = (globalForScan.thumbnailScan ??= {
+  last: null,
+  inflight: null,
+});
 
 interface FileStats {
   files: { key: string; modified: Date }[];
@@ -46,8 +49,16 @@ function track(stats: FileStats, key: string, size: number, modified: Date) {
   if (!stats.newest || modified > stats.newest) stats.newest = modified;
 }
 
-async function listS3Files(bucket: string, prefix?: string): Promise<FileStats> {
-  const stats: FileStats = { files: [], total_bytes: 0, oldest: null, newest: null };
+async function listS3Files(
+  bucket: string,
+  prefix?: string,
+): Promise<FileStats> {
+  const stats: FileStats = {
+    files: [],
+    total_bytes: 0,
+    oldest: null,
+    newest: null,
+  };
   let continuationToken: string | undefined;
   let pageNumber = 1;
 
@@ -60,7 +71,8 @@ async function listS3Files(bucket: string, prefix?: string): Promise<FileStats> 
       pageNumber,
       useThumbnailClient: true,
     });
-    for (const obj of objects) track(stats, obj.key, obj.size, obj.lastModified);
+    for (const obj of objects)
+      track(stats, obj.key, obj.size, obj.lastModified);
     continuationToken = isTruncated ? nextContinuationToken : undefined;
     pageNumber += 1;
   } while (continuationToken);
@@ -69,7 +81,12 @@ async function listS3Files(bucket: string, prefix?: string): Promise<FileStats> 
 }
 
 function listLocalFiles(dir: string): FileStats {
-  const stats: FileStats = { files: [], total_bytes: 0, oldest: null, newest: null };
+  const stats: FileStats = {
+    files: [],
+    total_bytes: 0,
+    oldest: null,
+    newest: null,
+  };
   for (const file of fs.readdirSync(dir)) {
     try {
       const fileStat = fs.statSync(path.join(dir, file));
@@ -101,7 +118,10 @@ async function scanStorage(): Promise<ThumbnailStorageScan> {
 
   const directoryExists = isS3 || fs.existsSync(storage.location);
   const stats: FileStats = isS3
-    ? await listS3Files(storage.bucket!, storage.prefix ? `${storage.prefix}/` : undefined)
+    ? await listS3Files(
+        storage.bucket!,
+        storage.prefix ? `${storage.prefix}/` : undefined,
+      )
     : directoryExists
       ? listLocalFiles(storage.location)
       : { files: [], total_bytes: 0, oldest: null, newest: null };
@@ -124,13 +144,20 @@ async function scanStorage(): Promise<ThumbnailStorageScan> {
     oldest: stats.oldest?.toISOString() ?? null,
     newest: stats.newest?.toISOString() ?? null,
     missing: { count: missing.length, sample: missing.slice(0, SAMPLE_SIZE) },
-    orphaned: { count: orphaned.length, sample: orphaned.slice(0, SAMPLE_SIZE) },
+    orphaned: {
+      count: orphaned.length,
+      sample: orphaned.slice(0, SAMPLE_SIZE),
+    },
   };
 }
 
 function storageScan(refresh: boolean): Promise<ThumbnailStorageScan> {
   const { last } = scanCache;
-  if (last && !refresh && Date.now() - Date.parse(last.scanned_at) < SCAN_TTL_MS) {
+  if (
+    last &&
+    !refresh &&
+    Date.now() - Date.parse(last.scanned_at) < SCAN_TTL_MS
+  ) {
     return Promise.resolve(last);
   }
   if (!scanCache.inflight) {

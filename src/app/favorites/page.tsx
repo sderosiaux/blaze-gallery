@@ -1,12 +1,27 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CalendarDays, Heart, Library } from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
-import { ButtonLink, EmptyState, MetaDot, PageHeader, PageSkeleton, Skeleton, useToast } from "@/components/ui";
+import {
+  ButtonLink,
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  PageSkeleton,
+  Skeleton,
+  useToast,
+} from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
@@ -24,12 +39,15 @@ function newestFirst(a: Photo, b: Photo) {
   return a.filename.localeCompare(b.filename);
 }
 
-const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) => String(a.id) === String(b.id);
+const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
+  String(a.id) === String(b.id);
 
 function FavoritesContent() {
   const toast = useToast();
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [photos, setPhotos] = useState<FavoritePhoto[]>([]);
 
   // Un-hearted while the viewer is open: they stay put until it closes, so
@@ -60,7 +78,9 @@ function FavoritesContent() {
     if (viewerOpen || pending.current.size === 0) return;
     const gone = pending.current;
     pending.current = new Set();
-    setPhotos((all) => all.filter((p) => p.is_favorite || !gone.has(String(p.id))));
+    setPhotos((all) =>
+      all.filter((p) => p.is_favorite || !gone.has(String(p.id))),
+    );
   }, [viewerOpen]);
 
   const restore = useCallback((photo: FavoritePhoto) => {
@@ -93,17 +113,26 @@ function FavoritesContent() {
       }
       if (viewerOpenRef.current) {
         pending.current.add(String(updated.id));
-        setPhotos((all) => all.map((p) => (sameId(p, updated) ? { ...p, is_favorite: false } : p)));
+        setPhotos((all) =>
+          all.map((p) =>
+            sameId(p, updated) ? { ...p, is_favorite: false } : p,
+          ),
+        );
       } else {
         setPhotos((all) => all.filter((p) => !sameId(p, updated)));
       }
-      toast.show("Removed from favorites.", "info", { action: { label: "Undo", onClick: () => undo(updated) } });
+      toast.show("Removed from favorites.", "info", {
+        action: { label: "Undo", onClick: () => undo(updated) },
+      });
     },
     [restore, toast, undo],
   );
 
   const kept = useMemo(() => photos.filter((p) => p.is_favorite), [photos]);
-  const albumCount = useMemo(() => new Set(kept.map((p) => p.folder_path ?? "")).size, [kept]);
+  const albumCount = useMemo(
+    () => new Set(kept.map((p) => p.folder_path ?? "")).size,
+    [kept],
+  );
   const span = useMemo(() => {
     const { from, to } = photoDateRange(kept);
     return formatDateRange(from, to);
@@ -121,7 +150,10 @@ function FavoritesContent() {
   if (status === "loading") {
     return (
       <>
-        <PageHeader title="Favorites" meta={<Skeleton className="h-4 w-48" />} />
+        <PageHeader
+          title="Favorites"
+          meta={<Skeleton className="h-4 w-48" />}
+        />
         <PhotoGridSkeleton />
       </>
     );
@@ -140,7 +172,11 @@ function FavoritesContent() {
               <ButtonLink href="/" variant="primary" icon={Library}>
                 Open the library
               </ButtonLink>
-              <ButtonLink href="/timeline" variant="secondary" icon={CalendarDays}>
+              <ButtonLink
+                href="/timeline"
+                variant="secondary"
+                icon={CalendarDays}
+              >
                 Browse by date
               </ButtonLink>
             </>
@@ -158,13 +194,18 @@ function FavoritesContent() {
         meta={
           <>
             <span className="tabular inline-flex items-center gap-1.5">
-              <Heart className="h-3.5 w-3.5 fill-current text-favorite" aria-hidden />
+              <Heart
+                className="h-3.5 w-3.5 fill-current text-favorite"
+                aria-hidden
+              />
               {formatCount(kept.length, "photo")}
             </span>
             {albumCount > 0 && (
               <>
                 <MetaDot />
-                <span className="tabular">from {formatCount(albumCount, "album")}</span>
+                <span className="tabular">
+                  from {formatCount(albumCount, "album")}
+                </span>
               </>
             )}
             {span && (

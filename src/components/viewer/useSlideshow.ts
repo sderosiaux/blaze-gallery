@@ -18,7 +18,15 @@ interface Options {
 }
 
 /** Returns whether the clock is running for the current photo. */
-export function useSlideshow({ playing, photoKey, ready, waitForEnd, hasNext, onNext, onEnd }: Options): boolean {
+export function useSlideshow({
+  playing,
+  photoKey,
+  ready,
+  waitForEnd,
+  hasNext,
+  onNext,
+  onEnd,
+}: Options): boolean {
   const [stalled, setStalled] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,7 +39,10 @@ export function useSlideshow({ playing, photoKey, ready, waitForEnd, hasNext, on
 
   useEffect(() => {
     if (!running) return;
-    const timer = setTimeout(() => (hasNext ? onNext() : onEnd()), SLIDESHOW_INTERVAL_MS);
+    const timer = setTimeout(
+      () => (hasNext ? onNext() : onEnd()),
+      SLIDESHOW_INTERVAL_MS,
+    );
     return () => clearTimeout(timer);
   }, [running, photoKey, hasNext, onNext, onEnd]);
 

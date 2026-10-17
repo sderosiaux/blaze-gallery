@@ -20,7 +20,9 @@ const STORAGE_KEY = "blaze:library-summary";
  * `null` when it could not be read.
  */
 export function useLibraryTotals(): LibraryTotals | null | undefined {
-  const [totals, setTotals] = useState<LibraryTotals | null | undefined>(undefined);
+  const [totals, setTotals] = useState<LibraryTotals | null | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     try {
@@ -60,13 +62,20 @@ export function useLibraryTotals(): LibraryTotals | null | undefined {
 }
 
 /** ["210,595 photos", "4,792 videos", "4,154 albums", "2002 – 2024"]; undefined while loading. */
-export function totalsLine(totals: LibraryTotals | null | undefined): string[] | undefined {
+export function totalsLine(
+  totals: LibraryTotals | null | undefined,
+): string[] | undefined {
   if (totals === undefined) return undefined;
   if (totals === null) return ["Every album, with its photos and videos"];
   const parts = [formatCount(totals.photos, "photo")];
   if (totals.videos > 0) parts.push(formatCount(totals.videos, "video"));
   parts.push(formatCount(totals.albums, "album"));
   const { years } = totals;
-  if (years) parts.push(years.from === years.to ? String(years.from) : `${years.from} – ${years.to}`);
+  if (years)
+    parts.push(
+      years.from === years.to
+        ? String(years.from)
+        : `${years.from} – ${years.to}`,
+    );
   return parts;
 }

@@ -56,8 +56,21 @@ export interface VideoStats {
     albums_with_videos: number;
   };
   formats: { format: string; count: number; total_size_bytes: number }[];
-  largest: { id: number; filename: string; size: number; format: string; folder_path: string; folder_name: string }[];
-  albums: { id: number; name: string; path: string; video_count: number; total_size_bytes: number }[];
+  largest: {
+    id: number;
+    filename: string;
+    size: number;
+    format: string;
+    folder_path: string;
+    folder_name: string;
+  }[];
+  albums: {
+    id: number;
+    name: string;
+    path: string;
+    video_count: number;
+    total_size_bytes: number;
+  }[];
 }
 
 export interface DuplicateFileGroup {
@@ -83,7 +96,13 @@ export interface DuplicateFolderGroup {
   count: number;
   file_count: number;
   total_size_bytes: number;
-  folders: { id: number; path: string; name: string; photo_count: number; total_size_bytes: number }[];
+  folders: {
+    id: number;
+    path: string;
+    name: string;
+    photo_count: number;
+    total_size_bytes: number;
+  }[];
 }
 
 export interface DuplicateFolders {

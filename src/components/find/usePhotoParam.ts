@@ -12,7 +12,10 @@ import { useSearchParams } from "next/navigation";
  * of router.push: the URL changes at once, without a server round trip that
  * could land after the viewer has already moved on to another photo.
  */
-export function usePhotoParam(): [string | null, (photoId: string | null) => void] {
+export function usePhotoParam(): [
+  string | null,
+  (photoId: string | null) => void,
+] {
   const selected = useSearchParams()?.get("photo") ?? null;
   const pushed = useRef(false);
 

@@ -29,9 +29,13 @@ export interface SharedAlbum {
 
 export type ShareState = "active" | "expired" | "revoked";
 
-export function shareState(share: Pick<ShareLink, "is_active" | "expires_at">, now = Date.now()): ShareState {
+export function shareState(
+  share: Pick<ShareLink, "is_active" | "expires_at">,
+  now = Date.now(),
+): ShareState {
   if (!share.is_active) return "revoked";
-  if (share.expires_at && new Date(share.expires_at).getTime() <= now) return "expired";
+  if (share.expires_at && new Date(share.expires_at).getTime() <= now)
+    return "expired";
   return "active";
 }
 
@@ -57,7 +61,10 @@ export async function listShares(): Promise<ShareLink[]> {
   const response = await fetch("/api/shares", { cache: "no-store" });
   const data = await readJson(response);
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return (data.shares ?? []).map((s: ShareLink) => ({ ...s, view_count: Number(s.view_count) || 0 }));
+  return (data.shares ?? []).map((s: ShareLink) => ({
+    ...s,
+    view_count: Number(s.view_count) || 0,
+  }));
 }
 
 export interface CreateShareInput {
@@ -68,7 +75,9 @@ export interface CreateShareInput {
   allow_download: boolean;
 }
 
-export async function createShare(input: CreateShareInput): Promise<{ share: ShareLink; share_url: string }> {
+export async function createShare(
+  input: CreateShareInput,
+): Promise<{ share: ShareLink; share_url: string }> {
   const response = await fetch("/api/shares", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -76,7 +85,10 @@ export async function createShare(input: CreateShareInput): Promise<{ share: Sha
   });
   const data = await readJson(response);
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return { share: { ...data.share, has_password: Boolean(input.password) }, share_url: data.share_url };
+  return {
+    share: { ...data.share, has_password: Boolean(input.password) },
+    share_url: data.share_url,
+  };
 }
 
 export async function revokeShare(token: string): Promise<void> {
@@ -114,7 +126,11 @@ export function storedSession(token: string): string | null {
 
 function storeSession(token: string, session: string | null) {
   try {
-    if (session) localStorage.setItem(SESSION_KEY(token), JSON.stringify({ token: session, expiresAt: Date.now() + SESSION_TTL }));
+    if (session)
+      localStorage.setItem(
+        SESSION_KEY(token),
+        JSON.stringify({ token: session, expiresAt: Date.now() + SESSION_TTL }),
+      );
     else localStorage.removeItem(SESSION_KEY(token));
   } catch {
     // Private mode: the guest just types the password again next time.
@@ -132,24 +148,34 @@ export async function openShare(token: string): Promise<GuestResult> {
       if (session) {
         const resumed = await fetch(`/api/shares/${token}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-share-session": session },
+          headers: {
+            "Content-Type": "application/json",
+            "x-share-session": session,
+          },
           body: JSON.stringify({ action: "validate_session" }),
         });
         const body = await readJson(resumed);
-        if (resumed.ok && body.success) return { kind: "album", album: body.data, sessionToken: session };
+        if (resumed.ok && body.success)
+          return { kind: "album", album: body.data, sessionToken: session };
         storeSession(token, null);
       }
       return { kind: "password", albumName: data.folder?.name };
     }
     return { kind: "error", message: data.error || `HTTP ${response.status}` };
   } catch (err) {
-    return { kind: "error", message: err instanceof Error ? err.message : "Network error" };
+    return {
+      kind: "error",
+      message: err instanceof Error ? err.message : "Network error",
+    };
   }
 }
 
 export type UnlockResult = GuestResult | { kind: "wrong-password" };
 
-export async function unlockShare(token: string, password: string): Promise<UnlockResult> {
+export async function unlockShare(
+  token: string,
+  password: string,
+): Promise<UnlockResult> {
   try {
     const response = await fetch(`/api/shares/${token}`, {
       method: "POST",
@@ -166,7 +192,10 @@ export async function unlockShare(token: string, password: string): Promise<Unlo
     if (response.status === 404) return { kind: "unavailable" };
     return { kind: "error", message: data.error || `HTTP ${response.status}` };
   } catch (err) {
-    return { kind: "error", message: err instanceof Error ? err.message : "Network error" };
+    return {
+      kind: "error",
+      message: err instanceof Error ? err.message : "Network error",
+    };
   }
 }
 

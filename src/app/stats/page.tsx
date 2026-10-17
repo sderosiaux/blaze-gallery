@@ -29,7 +29,9 @@ function StatsContent() {
 
   // A tab loads its data the first time it is shown, then stays mounted
   // (hidden) so coming back to it is instant and never refetches.
-  const [visited, setVisited] = useState<ReadonlySet<StatsTab>>(() => new Set([tab]));
+  const [visited, setVisited] = useState<ReadonlySet<StatsTab>>(
+    () => new Set([tab]),
+  );
   useEffect(() => {
     setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab)));
   }, [tab]);
@@ -50,14 +52,18 @@ function StatsContent() {
     const id = window.setTimeout(() => setGrace(true), TAB_GRACE_MS);
     return () => window.clearTimeout(id);
   }, []);
-  const tabsMayLoad = grace || summary.state.status === "ready" || summary.state.status === "error";
+  const tabsMayLoad =
+    grace ||
+    summary.state.status === "ready" ||
+    summary.state.status === "error";
 
   const openTab = useCallback(
     (next: StatsTab, opts?: { reveal?: boolean }) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", next);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-      if (opts?.reveal) tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (opts?.reveal)
+        tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
     [pathname, router, searchParams],
   );
@@ -98,9 +104,16 @@ function StatsContent() {
       {STATS_TABS.map(({ id, label }) =>
         visited.has(id) ? (
           <div key={id} role="tabpanel" aria-label={label} hidden={tab !== id}>
-            {id === "storage" && <StorageTab active={tabsMayLoad} totalBytes={s?.storage_bytes} />}
+            {id === "storage" && (
+              <StorageTab active={tabsMayLoad} totalBytes={s?.storage_bytes} />
+            )}
             {id === "videos" && <VideosTab active={tabsMayLoad} />}
-            {id === "duplicates" && <DuplicatesTab active={tabsMayLoad} files={s ? s.photos + s.videos : undefined} />}
+            {id === "duplicates" && (
+              <DuplicatesTab
+                active={tabsMayLoad}
+                files={s ? s.photos + s.videos : undefined}
+              />
+            )}
             {id === "health" && <HealthTab active={tabsMayLoad} />}
           </div>
         ) : null,

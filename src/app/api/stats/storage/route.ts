@@ -64,7 +64,9 @@ export const GET = requireAuth(async function GET() {
 
     const bySize = pick("size").sort((a, b) => b.total_size - a.total_size);
     const byCount = pick("count").sort(
-      (a, b) => b.photo_count + b.video_count - (a.photo_count + a.video_count) || b.total_size - a.total_size,
+      (a, b) =>
+        b.photo_count + b.video_count - (a.photo_count + a.video_count) ||
+        b.total_size - a.total_size,
     );
 
     const data: StorageStats = {

@@ -15,9 +15,14 @@ interface PasswordGateProps {
 }
 
 const HINT = "Not sure what it is? Ask the person who sent you the link.";
-const WRONG = "That password doesn't match. Check it with the person who sent you the link.";
+const WRONG =
+  "That password doesn't match. Check it with the person who sent you the link.";
 
-export default function PasswordGate({ token, albumName, onResult }: PasswordGateProps) {
+export default function PasswordGate({
+  token,
+  albumName,
+  onResult,
+}: PasswordGateProps) {
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,7 +60,10 @@ export default function PasswordGate({ token, albumName, onResult }: PasswordGat
       </p>
 
       <form onSubmit={submit} className="mt-8 text-left" noValidate>
-        <label htmlFor="share-password" className="block text-sm font-medium text-ink">
+        <label
+          htmlFor="share-password"
+          className="block text-sm font-medium text-ink"
+        >
           Password
         </label>
         <div className="relative mt-1.5">
@@ -72,7 +80,10 @@ export default function PasswordGate({ token, albumName, onResult }: PasswordGat
             autoFocus
             aria-invalid={wrong || undefined}
             aria-describedby="share-password-message"
-            className={cn("h-12 pr-12 text-base", wrong && "border-danger focus:border-danger focus:ring-danger/20")}
+            className={cn(
+              "h-12 pr-12 text-base",
+              wrong && "border-danger focus:border-danger focus:ring-danger/20",
+            )}
           />
           <IconButton
             icon={reveal ? EyeOff : Eye}
@@ -86,11 +97,21 @@ export default function PasswordGate({ token, albumName, onResult }: PasswordGat
         <p
           id="share-password-message"
           role={wrong ? "alert" : undefined}
-          className={cn("mt-2 min-h-[2.5rem] text-xs leading-5", wrong ? "text-danger" : "text-ink-muted")}
+          className={cn(
+            "mt-2 min-h-[2.5rem] text-xs leading-5",
+            wrong ? "text-danger" : "text-ink-muted",
+          )}
         >
           {wrong ? WRONG : HINT}
         </p>
-        <Button type="submit" variant="primary" size="lg" className="mt-3 w-full" loading={busy} disabled={!password.trim()}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          className="mt-3 w-full"
+          loading={busy}
+          disabled={!password.trim()}
+        >
           Open album
         </Button>
       </form>

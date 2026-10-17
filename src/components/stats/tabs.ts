@@ -10,7 +10,9 @@ export type StatsTab = (typeof STATS_TABS)[number]["id"];
 export const DEFAULT_TAB: StatsTab = "storage";
 
 export function parseTab(value: string | null): StatsTab {
-  return STATS_TABS.some((t) => t.id === value) ? (value as StatsTab) : DEFAULT_TAB;
+  return STATS_TABS.some((t) => t.id === value)
+    ? (value as StatsTab)
+    : DEFAULT_TAB;
 }
 
 export function tabLabel(tab: StatsTab): string {

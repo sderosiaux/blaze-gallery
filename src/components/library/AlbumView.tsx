@@ -5,8 +5,20 @@ import { FolderOpen, FolderX, ImagePlus, Library, Share2 } from "lucide-react";
 import ShareDialog from "@/components/ShareDialog";
 import PhotoGrid from "@/components/PhotoGrid";
 import { AlbumGrid, albumHref } from "@/components/photos/AlbumCard";
-import { Button, ButtonLink, EmptyState, MetaDot, PageHeader, Section } from "@/components/ui";
-import { albumDateLabel, formatCount, isVideo, parseAlbumName } from "@/lib/albums";
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  Section,
+} from "@/components/ui";
+import {
+  albumDateLabel,
+  formatCount,
+  isVideo,
+  parseAlbumName,
+} from "@/lib/albums";
 import AlbumBreadcrumb from "./AlbumBreadcrumb";
 import AlbumDropZone, { type AlbumDropZoneHandle } from "./AlbumDropZone";
 import { LoadError } from "./LoadError";
@@ -51,7 +63,10 @@ export default function AlbumView({ path }: { path: string }) {
   const dropZone = useRef<AlbumDropZoneHandle>(null);
   const request = useRef<AbortController | null>(null);
 
-  const name = state.status === "ready" ? state.data.folder.name : (path.split("/").pop() ?? path);
+  const name =
+    state.status === "ready"
+      ? state.data.folder.name
+      : (path.split("/").pop() ?? path);
   const title = parseAlbumName(name).title || name;
   const parentPath = path.split("/").slice(0, -1).join("/");
 
@@ -90,7 +105,8 @@ export default function AlbumView({ path }: { path: string }) {
   // A `?photo=` that isn't in this album would sit in the address bar with nothing open.
   useEffect(() => {
     if (!photos || !selectedPhotoId) return;
-    if (!photos.some((p) => String(p.id) === selectedPhotoId)) setPhotoParam(null);
+    if (!photos.some((p) => String(p.id) === selectedPhotoId))
+      setPhotoParam(null);
   }, [photos, selectedPhotoId, setPhotoParam]);
 
   const openPicker = () => dropZone.current?.openPicker();
@@ -103,7 +119,9 @@ export default function AlbumView({ path }: { path: string }) {
     >
       <AlbumBreadcrumb path={path} />
 
-      {state.status === "loading" && <AlbumSkeleton shape={path.includes("/") ? "photos" : "albums"} />}
+      {state.status === "loading" && (
+        <AlbumSkeleton shape={path.includes("/") ? "photos" : "albums"} />
+      )}
 
       {state.status === "missing" && (
         <EmptyState
@@ -127,7 +145,11 @@ export default function AlbumView({ path }: { path: string }) {
       )}
 
       {state.status === "error" && (
-        <LoadError title="This album didn't open" onRetry={() => load(false)} className="py-24">
+        <LoadError
+          title="This album didn't open"
+          onRetry={() => load(false)}
+          className="py-24"
+        >
           <ButtonLink href="/" variant="ghost">
             Back to the library
           </ButtonLink>
@@ -152,7 +174,9 @@ export default function AlbumView({ path }: { path: string }) {
         onClose={() => setShareOpen(false)}
         folderPath={path}
         folderName={name}
-        photoCount={state.status === "ready" ? state.data.photos.length : undefined}
+        photoCount={
+          state.status === "ready" ? state.data.photos.length : undefined
+        }
       />
     </AlbumDropZone>
   );
@@ -167,11 +191,22 @@ interface AlbumContentsProps {
   onAddPhotos: () => void;
 }
 
-function AlbumContents({ data, title, selectedPhotoId, onPhotoUrlChange, onShare, onAddPhotos }: AlbumContentsProps) {
+function AlbumContents({
+  data,
+  title,
+  selectedPhotoId,
+  onPhotoUrlChange,
+  onShare,
+  onAddPhotos,
+}: AlbumContentsProps) {
   const { folder, subfolders, photos } = data;
   const videos = photos.filter(isVideo).length;
   const span = albumSpan(photos, subfolders);
-  const kicker = albumDateLabel({ name: folder.name, date_from: span.from ?? null, date_to: span.to ?? null });
+  const kicker = albumDateLabel({
+    name: folder.name,
+    date_from: span.from ?? null,
+    date_to: span.to ?? null,
+  });
   const range = spanLabel(span);
 
   const meta = [
@@ -208,7 +243,11 @@ function AlbumContents({ data, title, selectedPhotoId, onPhotoUrlChange, onShare
             title="Nothing in this album yet"
             body="Drag photos and videos anywhere onto this page, or pick them from your computer."
             action={
-              <Button variant="secondary" icon={ImagePlus} onClick={onAddPhotos}>
+              <Button
+                variant="secondary"
+                icon={ImagePlus}
+                onClick={onAddPhotos}
+              >
                 Add photos
               </Button>
             }
@@ -226,11 +265,19 @@ function AlbumContents({ data, title, selectedPhotoId, onPhotoUrlChange, onShare
       {photos.length > 0 &&
         (subfolders.length > 0 ? (
           <Section title="Photos">
-            <PhotoGrid photos={photos} selectedPhotoId={selectedPhotoId} onPhotoUrlChange={onPhotoUrlChange} />
+            <PhotoGrid
+              photos={photos}
+              selectedPhotoId={selectedPhotoId}
+              onPhotoUrlChange={onPhotoUrlChange}
+            />
           </Section>
         ) : (
           <div className="border-t border-line pt-6">
-            <PhotoGrid photos={photos} selectedPhotoId={selectedPhotoId} onPhotoUrlChange={onPhotoUrlChange} />
+            <PhotoGrid
+              photos={photos}
+              selectedPhotoId={selectedPhotoId}
+              onPhotoUrlChange={onPhotoUrlChange}
+            />
           </div>
         ))}
     </>

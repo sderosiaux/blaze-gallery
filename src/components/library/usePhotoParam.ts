@@ -13,7 +13,10 @@ import { useSearchParams } from "next/navigation";
  * router.push would refetch the page payload on every photo change and
  * compete with the thumbnails for connections.
  */
-export function usePhotoParam(): [string | null, (photoId: string | null) => void] {
+export function usePhotoParam(): [
+  string | null,
+  (photoId: string | null) => void,
+] {
   const selected = useSearchParams()?.get("photo") ?? null;
   const pushed = useRef(false);
 

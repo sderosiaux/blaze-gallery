@@ -23,12 +23,20 @@ export function TabError({
         title={title}
         body={
           <>
-            The rest of the page still works, and nothing in the library changed. Try again in a moment.
-            <span className="mt-2 block font-mono text-xs text-ink-faint">{error}</span>
+            The rest of the page still works, and nothing in the library
+            changed. Try again in a moment.
+            <span className="mt-2 block font-mono text-xs text-ink-faint">
+              {error}
+            </span>
           </>
         }
         action={
-          <Button variant="secondary" size="sm" icon={RotateCw} onClick={onRetry}>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={RotateCw}
+            onClick={onRetry}
+          >
             Try again
           </Button>
         }
@@ -39,7 +47,13 @@ export function TabError({
 }
 
 /** Section placeholder shaped like a heading plus ranked bars. */
-export function BarsSkeleton({ rows = 6, className }: { rows?: number; className?: string }) {
+export function BarsSkeleton({
+  rows = 6,
+  className,
+}: {
+  rows?: number;
+  className?: string;
+}) {
   return (
     <div aria-hidden className={cn("space-y-4", className)}>
       {Array.from({ length: rows }).map((_, i) => (
@@ -57,7 +71,10 @@ export function BarsSkeleton({ rows = 6, className }: { rows?: number; className
 
 export function StatsRowSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div aria-hidden className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-4">
+    <div
+      aria-hidden
+      className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-4"
+    >
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="border-t border-line pt-4">
           <Skeleton className="h-3 w-20" />

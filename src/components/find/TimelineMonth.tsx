@@ -18,7 +18,8 @@ const ALBUMS_SHOWN = 2;
  */
 function albumsOf(group: MonthGroup) {
   const counts = new Map<string, number>();
-  for (const p of group.photos) counts.set(p.folder_path, (counts.get(p.folder_path) ?? 0) + 1);
+  for (const p of group.photos)
+    counts.set(p.folder_path, (counts.get(p.folder_path) ?? 0) + 1);
   const albums = Array.from(counts, ([path, count]) => ({
     path,
     count,
@@ -44,13 +45,21 @@ interface TimelineMonthProps {
   onToggleFavorite: (photo: Photo) => void;
 }
 
-function TimelineMonth({ group, total, yearAnchor, eagerCount = 0, onOpen, onToggleFavorite }: TimelineMonthProps) {
+function TimelineMonth({
+  group,
+  total,
+  yearAnchor,
+  eagerCount = 0,
+  onOpen,
+  onToggleFavorite,
+}: TimelineMonthProps) {
   const albums = useMemo(() => albumsOf(group), [group]);
   const shown = albums.slice(0, ALBUMS_SHOWN);
   const more = albums.length - shown.length;
   const label = monthLabel(group.key);
   // The summary is read once; the backfill may have dated more photos since.
-  const count = total === undefined ? undefined : Math.max(total, group.photos.length);
+  const count =
+    total === undefined ? undefined : Math.max(total, group.photos.length);
   const headingId = `month-${group.key}`;
 
   return (
@@ -61,18 +70,28 @@ function TimelineMonth({ group, total, yearAnchor, eagerCount = 0, onOpen, onTog
       className="scroll-mt-[calc(var(--topbar-height)+1rem)] pt-10 first:pt-2"
     >
       <header className="mb-4 flex flex-col gap-1 border-b border-line pb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-        <h2 id={headingId} className="shrink-0 font-display text-display-sm font-normal text-ink">
+        <h2
+          id={headingId}
+          className="shrink-0 font-display text-display-sm font-normal text-ink"
+        >
           {label}
         </h2>
         <p className="min-w-0 text-sm text-ink-muted sm:text-right">
-          {count !== undefined && <span className="tabular">{formatCount(count, "photo")}</span>}
+          {count !== undefined && (
+            <span className="tabular">{formatCount(count, "photo")}</span>
+          )}
           {shown.length > 0 && (
             <>
-              {count !== undefined && <span aria-hidden className="px-1.5 text-ink-faint">·</span>}
+              {count !== undefined && (
+                <span aria-hidden className="px-1.5 text-ink-faint">
+                  ·
+                </span>
+              )}
               from{" "}
               {shown.map((album, i) => (
                 <span key={album.path}>
-                  {i > 0 && (i === shown.length - 1 && more === 0 ? " and " : ", ")}
+                  {i > 0 &&
+                    (i === shown.length - 1 && more === 0 ? " and " : ", ")}
                   <Link
                     href={albumHref(album.path)}
                     title={album.path}

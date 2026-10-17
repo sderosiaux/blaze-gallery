@@ -31,7 +31,16 @@ import { SectionError } from "./SectionError";
 
 // Recharts paints SVG attributes, which cannot take Tailwind classes, so the
 // colours are read from the same CSS variables the classes use.
-const TOKENS = ["chart-1", "chart-5", "danger", "line", "line-strong", "ink", "ink-muted", "paper"] as const;
+const TOKENS = [
+  "chart-1",
+  "chart-5",
+  "danger",
+  "line",
+  "line-strong",
+  "ink",
+  "ink-muted",
+  "paper",
+] as const;
 type Token = (typeof TOKENS)[number];
 type Paint = (token: Token, alpha?: number) => string;
 
@@ -40,16 +49,26 @@ function useTokenPaint(): Paint | null {
   useEffect(() => {
     const style = getComputedStyle(document.documentElement);
     setChannels(
-      Object.fromEntries(TOKENS.map((t) => [t, style.getPropertyValue(`--${t}`).trim()])) as Record<Token, string>,
+      Object.fromEntries(
+        TOKENS.map((t) => [t, style.getPropertyValue(`--${t}`).trim()]),
+      ) as Record<Token, string>,
     );
   }, []);
   return useMemo(
-    () => (channels ? (token: Token, alpha = 1) => `rgb(${channels[token]} / ${alpha})` : null),
+    () =>
+      channels
+        ? (token: Token, alpha = 1) => `rgb(${channels[token]} / ${alpha})`
+        : null,
     [channels],
   );
 }
 
-type MetricKey = "request_count" | "error_count" | "bytes_transferred" | "avg_duration_ms" | "p95_duration_ms";
+type MetricKey =
+  | "request_count"
+  | "error_count"
+  | "bytes_transferred"
+  | "avg_duration_ms"
+  | "p95_duration_ms";
 
 interface SeriesSpec {
   key: MetricKey;
@@ -100,13 +119,18 @@ function ChartTooltip({
   if (!active || !row) return null;
   return (
     <div className="min-w-[10rem] rounded-md border border-line bg-surface px-3 py-2 text-xs shadow-pop">
-      <div className="mb-1.5 text-ink-muted">{formatBucket(Number(label ?? row.t), bucketSeconds)}</div>
+      <div className="mb-1.5 text-ink-muted">
+        {formatBucket(Number(label ?? row.t), bucketSeconds)}
+      </div>
       <ul className="space-y-1">
         {series.map((s) => {
           const value = row[s.key];
           return (
             <li key={s.key} className="flex items-center gap-2">
-              <span aria-hidden className={cn("h-0.5 w-3 shrink-0 rounded-full", s.swatch)} />
+              <span
+                aria-hidden
+                className={cn("h-0.5 w-3 shrink-0 rounded-full", s.swatch)}
+              />
               <span className="tabular font-semibold text-ink">
                 {value == null ? "No requests" : formatValue(value)}
               </span>
@@ -135,11 +159,18 @@ function TimeChart({
   paint,
 }: ChartProps) {
   const isEmpty = rows.every((r) => series.every((s) => !r[s.key]));
-  const max = Math.max(0, ...rows.flatMap((r) => series.map((s) => r[s.key] ?? 0)));
-  const yTicks = niceTicks(max, { binary: scale === "bytes", integer: scale === "count" });
+  const max = Math.max(
+    0,
+    ...rows.flatMap((r) => series.map((s) => r[s.key] ?? 0)),
+  );
+  const yTicks = niceTicks(max, {
+    binary: scale === "bytes",
+    integer: scale === "count",
+  });
   const axisFormat = scale === "bytes" ? byteAxisFormatter(yTicks) : formatAxis;
   // Non-breaking spaces: Recharts wraps tick text at spaces when it runs out of room.
-  const yLabel = (n: number) => (n === 0 ? "0" : axisFormat(n).replace(/ /g, "\u00A0"));
+  const yLabel = (n: number) =>
+    n === 0 ? "0" : axisFormat(n).replace(/ /g, "\u00A0");
   const pointCount = rows.filter((r) => r[series[0].key] != null).length;
   const axisTick = { fill: paint("ink-muted"), fontSize: 11 };
 
@@ -153,7 +184,10 @@ function TimeChart({
             <span className="flex flex-wrap gap-x-3 text-xs text-ink-muted">
               {series.map((s) => (
                 <span key={s.key} className="flex items-center gap-1.5">
-                  <span aria-hidden className={cn("h-0.5 w-4 rounded-full", s.swatch)} />
+                  <span
+                    aria-hidden
+                    className={cn("h-0.5 w-4 rounded-full", s.swatch)}
+                  />
                   {s.label}
                 </span>
               ))}
@@ -164,9 +198,16 @@ function TimeChart({
       </figcaption>
       {/* Clip x: on the first hover frame Recharts places the tooltip before it
           has measured it, which can poke past the page edge for a frame. */}
-      <div className="tabular relative overflow-x-clip" style={{ height: PLOT_HEIGHT }}>
+      <div
+        className="tabular relative overflow-x-clip"
+        style={{ height: PLOT_HEIGHT }}
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 6, right: 6, bottom: 0, left: 0 }} barCategoryGap={1}>
+          <ComposedChart
+            data={rows}
+            margin={{ top: 6, right: 6, bottom: 0, left: 0 }}
+            barCategoryGap={1}
+          >
             <CartesianGrid vertical={false} stroke={paint("line")} />
             <XAxis
               dataKey="t"
@@ -191,11 +232,19 @@ function TimeChart({
             />
             <Tooltip
               isAnimationActive={false}
-              cursor={kind === "bar" ? { fill: paint("ink", 0.05) } : { stroke: paint("line-strong"), strokeWidth: 1 }}
+              cursor={
+                kind === "bar"
+                  ? { fill: paint("ink", 0.05) }
+                  : { stroke: paint("line-strong"), strokeWidth: 1 }
+              }
               content={(props) => (
                 <ChartTooltip
                   active={props.active}
-                  payload={props.payload as ReadonlyArray<{ payload?: Row }> | undefined}
+                  payload={
+                    props.payload as
+                      | ReadonlyArray<{ payload?: Row }>
+                      | undefined
+                  }
                   label={props.label}
                   series={series}
                   formatValue={formatValue}
@@ -225,8 +274,22 @@ function TimeChart({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   connectNulls
-                  dot={pointCount <= 24 ? { r: 3, fill: paint(s.token), stroke: paint("paper"), strokeWidth: 2 } : false}
-                  activeDot={{ r: 4, fill: paint(s.token), stroke: paint("paper"), strokeWidth: 2 }}
+                  dot={
+                    pointCount <= 24
+                      ? {
+                          r: 3,
+                          fill: paint(s.token),
+                          stroke: paint("paper"),
+                          strokeWidth: 2,
+                        }
+                      : false
+                  }
+                  activeDot={{
+                    r: 4,
+                    fill: paint(s.token),
+                    stroke: paint("paper"),
+                    strokeWidth: 2,
+                  }}
                   isAnimationActive={false}
                 />
               ),
@@ -245,7 +308,11 @@ function TimeChart({
 
 function ChartsSkeleton() {
   return (
-    <div role="status" aria-label="Loading charts" className="grid gap-x-12 gap-y-10 lg:grid-cols-2">
+    <div
+      role="status"
+      aria-label="Loading charts"
+      className="grid gap-x-12 gap-y-10 lg:grid-cols-2"
+    >
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i}>
           <div className="mb-3 flex justify-between">
@@ -267,32 +334,71 @@ interface TrafficChartsProps {
   range: TimeRange;
 }
 
-export function TrafficCharts({ series, loading, error, onRetry, range }: TrafficChartsProps) {
+export function TrafficCharts({
+  series,
+  loading,
+  error,
+  onRetry,
+  range,
+}: TrafficChartsProps) {
   const paint = useTokenPaint();
 
   const rows = useMemo<Row[]>(
-    () => (series?.metrics ?? []).map((m) => ({ ...m, t: Date.parse(m.time_period) })),
+    () =>
+      (series?.metrics ?? []).map((m) => ({
+        ...m,
+        t: Date.parse(m.time_period),
+      })),
     [series],
   );
-  const ticks = useMemo(() => axisTicks(rows.map((r) => r.t), range.id), [rows, range.id]);
+  const ticks = useMemo(
+    () =>
+      axisTicks(
+        rows.map((r) => r.t),
+        range.id,
+      ),
+    [rows, range.id],
+  );
 
   const totals = useMemo(() => {
     const sum = (key: "request_count" | "error_count" | "bytes_transferred") =>
       rows.reduce((acc, r) => acc + r[key], 0);
-    const busiest = rows.reduce<Row | null>((best, r) => (!best || r.request_count > best.request_count ? r : best), null);
-    const slowest = rows.reduce<Row | null>(
-      (worst, r) => (r.p95_duration_ms != null && (!worst || r.p95_duration_ms > (worst.p95_duration_ms ?? 0)) ? r : worst),
+    const busiest = rows.reduce<Row | null>(
+      (best, r) => (!best || r.request_count > best.request_count ? r : best),
       null,
     );
-    return { requests: sum("request_count"), errors: sum("error_count"), bytes: sum("bytes_transferred"), busiest, slowest };
+    const slowest = rows.reduce<Row | null>(
+      (worst, r) =>
+        r.p95_duration_ms != null &&
+        (!worst || r.p95_duration_ms > (worst.p95_duration_ms ?? 0))
+          ? r
+          : worst,
+      null,
+    );
+    return {
+      requests: sum("request_count"),
+      errors: sum("error_count"),
+      bytes: sum("bytes_transferred"),
+      busiest,
+      slowest,
+    };
   }, [rows]);
 
   const bucketSeconds = series?.bucket_seconds ?? range.bucketSeconds;
-  const bucketLabel = bucketSeconds === range.bucketSeconds ? range.bucketLabel : `${Math.round(bucketSeconds / 60)} minutes`;
+  const bucketLabel =
+    bucketSeconds === range.bucketSeconds
+      ? range.bucketLabel
+      : `${Math.round(bucketSeconds / 60)} minutes`;
 
   let body: React.ReactNode;
   if (error) {
-    body = <SectionError title="The traffic charts did not load" error={error} onRetry={onRetry} />;
+    body = (
+      <SectionError
+        title="The traffic charts did not load"
+        error={error}
+        onRetry={onRetry}
+      />
+    );
   } else if (!series || !paint) {
     body = <ChartsSkeleton />;
   } else if (totals.requests === 0) {
@@ -309,7 +415,10 @@ export function TrafficCharts({ series, loading, error, onRetry, range }: Traffi
     body = (
       <div
         aria-busy={loading || undefined}
-        className={cn("grid gap-x-12 gap-y-10 transition-opacity duration-200 lg:grid-cols-2", loading && "opacity-60")}
+        className={cn(
+          "grid gap-x-12 gap-y-10 transition-opacity duration-200 lg:grid-cols-2",
+          loading && "opacity-60",
+        )}
       >
         <TimeChart
           {...common}
@@ -320,7 +429,14 @@ export function TrafficCharts({ series, loading, error, onRetry, range }: Traffi
               : formatCount(totals.requests)
           }
           kind="bar"
-          series={[{ key: "request_count", label: "requests", token: "chart-5", swatch: "bg-chart-5" }]}
+          series={[
+            {
+              key: "request_count",
+              label: "requests",
+              token: "chart-5",
+              swatch: "bg-chart-5",
+            },
+          ]}
           formatAxis={formatCompact}
           formatValue={formatCount}
           scale="count"
@@ -328,11 +444,25 @@ export function TrafficCharts({ series, loading, error, onRetry, range }: Traffi
         <TimeChart
           {...common}
           title="Latency"
-          headline={totals.slowest ? `worst p95 ${formatDuration(totals.slowest.p95_duration_ms)}` : "–"}
+          headline={
+            totals.slowest
+              ? `worst p95 ${formatDuration(totals.slowest.p95_duration_ms)}`
+              : "–"
+          }
           kind="line"
           series={[
-            { key: "avg_duration_ms", label: "Average", token: "chart-5", swatch: "bg-chart-5" },
-            { key: "p95_duration_ms", label: "p95", token: "chart-1", swatch: "bg-chart-1" },
+            {
+              key: "avg_duration_ms",
+              label: "Average",
+              token: "chart-5",
+              swatch: "bg-chart-5",
+            },
+            {
+              key: "p95_duration_ms",
+              label: "p95",
+              token: "chart-1",
+              swatch: "bg-chart-1",
+            },
           ]}
           formatAxis={(n) => formatDuration(n)}
           formatValue={(n) => formatDuration(n)}
@@ -343,7 +473,14 @@ export function TrafficCharts({ series, loading, error, onRetry, range }: Traffi
           title="Data transferred"
           headline={`${formatBytes(totals.bytes)} total`}
           kind="bar"
-          series={[{ key: "bytes_transferred", label: "transferred", token: "chart-5", swatch: "bg-chart-5" }]}
+          series={[
+            {
+              key: "bytes_transferred",
+              label: "transferred",
+              token: "chart-5",
+              swatch: "bg-chart-5",
+            },
+          ]}
           formatAxis={formatBytes}
           formatValue={formatBytes}
           scale="bytes"
@@ -353,7 +490,14 @@ export function TrafficCharts({ series, loading, error, onRetry, range }: Traffi
           title="Failed requests"
           headline={`${formatCount(totals.errors)} failed`}
           kind="bar"
-          series={[{ key: "error_count", label: "failed", token: "danger", swatch: "bg-danger" }]}
+          series={[
+            {
+              key: "error_count",
+              label: "failed",
+              token: "danger",
+              swatch: "bg-danger",
+            },
+          ]}
           formatAxis={formatCompact}
           formatValue={formatCount}
           scale="count"

@@ -21,7 +21,15 @@ const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl" };
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open, onClose, title, description, footer, size = "md", children }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  footer,
+  size = "md",
+  children,
+}: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descId = useId();
@@ -30,7 +38,10 @@ export function Dialog({ open, onClose, title, description, footer, size = "md",
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    (panel?.querySelector<HTMLElement>("[data-autofocus]") ?? panel?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
+    (
+      panel?.querySelector<HTMLElement>("[data-autofocus]") ??
+      panel?.querySelector<HTMLElement>(FOCUSABLE)
+    )?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -66,7 +77,11 @@ export function Dialog({ open, onClose, title, description, footer, size = "md",
 
   return createPortal(
     <div className="fixed inset-0 z-dialog flex items-end justify-center p-0 sm:items-center sm:p-6">
-      <div aria-hidden className="absolute inset-0 animate-fade-in bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div
+        aria-hidden
+        className="absolute inset-0 animate-fade-in bg-scrim/40 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
       <div
         ref={panelRef}
         role="dialog"
@@ -80,7 +95,10 @@ export function Dialog({ open, onClose, title, description, footer, size = "md",
       >
         <div className="flex items-start justify-between gap-4 px-6 pb-2 pt-6">
           <div className="min-w-0">
-            <h2 id={titleId} className="font-display text-display-sm font-normal text-ink">
+            <h2
+              id={titleId}
+              className="font-display text-display-sm font-normal text-ink"
+            >
               {title}
             </h2>
             {description && (
@@ -89,11 +107,19 @@ export function Dialog({ open, onClose, title, description, footer, size = "md",
               </p>
             )}
           </div>
-          <IconButton icon={X} label="Close" size="sm" onClick={onClose} className="-mr-2 -mt-1" />
+          <IconButton
+            icon={X}
+            label="Close"
+            size="sm"
+            onClick={onClose}
+            className="-mr-2 -mt-1"
+          />
         </div>
         <div className="overflow-y-auto px-6 py-4">{children}</div>
         {footer && (
-          <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-paper/60 px-6 py-4">{footer}</div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-paper/60 px-6 py-4">
+            {footer}
+          </div>
         )}
       </div>
     </div>,

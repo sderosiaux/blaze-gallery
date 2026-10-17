@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
@@ -11,12 +18,20 @@ import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
 import { isVideo } from "@/lib/albums";
 import { cn } from "@/lib/cn";
-import ViewerPhoto, { type FullStatus, type PlaceholderState } from "./viewer/ViewerPhoto";
+import ViewerPhoto, {
+  type FullStatus,
+  type PlaceholderState,
+} from "./viewer/ViewerPhoto";
 import ViewerVideo from "./viewer/ViewerVideo";
 import InfoPanel from "./viewer/InfoPanel";
 import ShortcutsHelp from "./viewer/ShortcutsHelp";
 import { loadImage, retainImages } from "./viewer/imageCache";
-import { albumOf, isRawFile, placeholderSources, viewerSources } from "./viewer/sources";
+import {
+  albumOf,
+  isRawFile,
+  placeholderSources,
+  viewerSources,
+} from "./viewer/sources";
 import { formatTaken } from "./viewer/format";
 import { useAutoHide } from "./viewer/useAutoHide";
 import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
@@ -86,7 +101,10 @@ export default function PhotoViewer({
   const currentId = String(current.id);
   const shared = isSharedView && shareToken ? shareToken : undefined;
   const session = shared ? sessionToken : undefined;
-  const sources = useMemo(() => viewerSources(current, shared), [current, shared]);
+  const sources = useMemo(
+    () => viewerSources(current, shared),
+    [current, shared],
+  );
   const video = isVideo(current);
   const canFavorite = !isSharedView;
   const canDelete = !isSharedView && Boolean(onDelete);
@@ -99,15 +117,23 @@ export default function PhotoViewer({
   const [announcement, setAnnouncement] = useState("");
   // Per-photo state is keyed by id so a new photo starts clean without a reset pass.
   const [zoomedId, setZoomedId] = useState<string | null>(null);
-  const [fullState, setFullState] = useState<Keyed<{ status: FullStatus; placeholder: PlaceholderState }> | null>(null);
-  const [videoState, setVideoState] = useState<Keyed<"playing" | "ended" | "failed"> | null>(null);
+  const [fullState, setFullState] = useState<Keyed<{
+    status: FullStatus;
+    placeholder: PlaceholderState;
+  }> | null>(null);
+  const [videoState, setVideoState] = useState<Keyed<
+    "playing" | "ended" | "failed"
+  > | null>(null);
   const [retry, setRetry] = useState<Keyed<number> | null>(null);
 
   const zoomed = zoomedId === currentId;
   const full =
     fullState?.id === currentId
       ? fullState.value
-      : { status: "loading" as FullStatus, placeholder: "pending" as PlaceholderState };
+      : {
+          status: "loading" as FullStatus,
+          placeholder: "pending" as PlaceholderState,
+        };
   const videoOutcome = videoState?.id === currentId ? videoState.value : null;
   const retryKey = retry?.id === currentId ? retry.value : 0;
 
@@ -123,7 +149,9 @@ export default function PhotoViewer({
 
   const toggleFavorite = useCallback(() => {
     if (!canFavorite) return;
-    setAnnouncement(favorite.isFavorite ? "Removed from favorites" : "Added to favorites");
+    setAnnouncement(
+      favorite.isFavorite ? "Removed from favorites" : "Added to favorites",
+    );
     favorite.toggle();
   }, [canFavorite, favorite]);
 
@@ -141,7 +169,9 @@ export default function PhotoViewer({
       return;
     }
     try {
-      const response = await fetch(sources.download, { headers: { "x-share-session": session } });
+      const response = await fetch(sources.download, {
+        headers: { "x-share-session": session },
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const url = URL.createObjectURL(await response.blob());
       triggerDownload(url, current.filename);
@@ -149,12 +179,21 @@ export default function PhotoViewer({
     } catch {
       toast.show("The download didn't start. Try again.", "error");
     }
-  }, [allowDownload, shared, session, sources.download, current.filename, toast]);
+  }, [
+    allowDownload,
+    shared,
+    session,
+    sources.download,
+    current.filename,
+    toast,
+  ]);
 
   const confirmDelete = useCallback(async () => {
     setDeleting(true);
     try {
-      const response = await fetch(`/api/photos/${currentId}`, { method: "DELETE" });
+      const response = await fetch(`/api/photos/${currentId}`, {
+        method: "DELETE",
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success === false) throw new Error(data.error);
       onDelete?.(current);
@@ -182,18 +221,24 @@ export default function PhotoViewer({
     setZoomedId((id) => (id === currentId ? null : currentId));
   }, [video, full.status, currentId]);
 
-  const onZoomedChange = useCallback((z: boolean) => setZoomedId(z ? currentId : null), [currentId]);
+  const onZoomedChange = useCallback(
+    (z: boolean) => setZoomedId(z ? currentId : null),
+    [currentId],
+  );
   const onStatus = useCallback(
     (status: FullStatus, placeholder: PlaceholderState) =>
       setFullState({ id: currentId, value: { status, placeholder } }),
     [currentId],
   );
   const onVideoSettled = useCallback(
-    (outcome: "playing" | "ended" | "failed") => setVideoState({ id: currentId, value: outcome }),
+    (outcome: "playing" | "ended" | "failed") =>
+      setVideoState({ id: currentId, value: outcome }),
     [currentId],
   );
 
-  const photoReady = video ? videoOutcome === "ended" || videoOutcome === "failed" : full.status !== "loading";
+  const photoReady = video
+    ? videoOutcome === "ended" || videoOutcome === "failed"
+    : full.status !== "loading";
   const clockRunning = useSlideshow({
     playing,
     photoKey: currentId,
@@ -241,13 +286,20 @@ export default function PhotoViewer({
 
   // ---- caption ----------------------------------------------------------
 
-  const taken = current.metadata?.date_taken ? formatTaken(current.metadata.date_taken) : null;
+  const taken = current.metadata?.date_taken
+    ? formatTaken(current.metadata.date_taken)
+    : null;
   const album = isSharedView ? null : albumOf(current);
-  const position = nav.index >= 0 && nav.total > 1 ? `${nav.index + 1} / ${nav.total}` : null;
+  const position =
+    nav.index >= 0 && nav.total > 1 ? `${nav.index + 1} / ${nav.total}` : null;
   const captionTitle = taken?.day ?? current.filename;
 
   useEffect(() => {
-    setAnnouncement([position && `Photo ${position.replace(" / ", " of ")}`, captionTitle].filter(Boolean).join(", "));
+    setAnnouncement(
+      [position && `Photo ${position.replace(" / ", " of ")}`, captionTitle]
+        .filter(Boolean)
+        .join(", "),
+    );
   }, [currentId, position, captionTitle]);
 
   // ---- focus, keyboard, scroll lock -------------------------------------
@@ -272,13 +324,15 @@ export default function PhotoViewer({
     const onFocusIn = (e: FocusEvent) => {
       const root = rootRef.current;
       if (!root || confirmOpenRef.current) return;
-      if (e.target instanceof Node && !root.contains(e.target)) root.focus({ preventScroll: true });
+      if (e.target instanceof Node && !root.contains(e.target))
+        root.focus({ preventScroll: true });
     };
     document.addEventListener("focusin", onFocusIn);
     return () => {
       document.removeEventListener("focusin", onFocusIn);
       document.body.style.overflow = overflow;
-      if (opener?.isConnected && opener !== document.body) opener.focus({ preventScroll: true });
+      if (opener?.isConnected && opener !== document.body)
+        opener.focus({ preventScroll: true });
     };
   }, [mounted]);
 
@@ -294,7 +348,9 @@ export default function PhotoViewer({
     };
 
     if (e.key === "Tab") {
-      const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      const items = Array.from(
+        root.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null);
       if (items.length === 0) return handled();
       const first = items[0];
       const last = items[items.length - 1];
@@ -322,11 +378,21 @@ export default function PhotoViewer({
       if (e.key.toLowerCase() === "k") handled();
       return;
     }
-    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]'))
+      return;
     // A focused video keeps its own keys.
     if (
       target?.tagName === "VIDEO" &&
-      [" ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "k", "m", "f"].includes(e.key)
+      [
+        " ",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "k",
+        "m",
+        "f",
+      ].includes(e.key)
     )
       return;
 
@@ -394,7 +460,11 @@ export default function PhotoViewer({
     return () => document.removeEventListener("keydown", listener, true);
   }, []);
 
-  const chromeVisible = useAutoHide(rootRef, infoOpen || helpOpen || confirmOpen, mounted);
+  const chromeVisible = useAutoHide(
+    rootRef,
+    infoOpen || helpOpen || confirmOpen,
+    mounted,
+  );
   const chromeClass = cn(
     "transition-opacity duration-300 ease-out-soft",
     !chromeVisible && "pointer-events-none opacity-0",
@@ -404,7 +474,11 @@ export default function PhotoViewer({
   const pointerType = useRef("mouse");
   const onStageClick = (e: React.MouseEvent) => {
     if (pointerType.current !== "mouse") return;
-    if (e.target instanceof HTMLElement && e.target.hasAttribute("data-backdrop")) onClose();
+    if (
+      e.target instanceof HTMLElement &&
+      e.target.hasAttribute("data-backdrop")
+    )
+      onClose();
   };
 
   if (!mounted) return null;
@@ -417,7 +491,8 @@ export default function PhotoViewer({
         : "Files of this type";
       return full.placeholder === "shown" ? (
         <>
-          This is a preview. {kind} can&rsquo;t be shown at full size in a browser.
+          This is a preview. {kind} can&rsquo;t be shown at full size in a
+          browser.
           {allowDownload && (
             <button
               type="button"
@@ -447,7 +522,9 @@ export default function PhotoViewer({
     if (full.status === "loading") {
       return (
         <span className="animate-fade-in [animation-delay:1200ms]">
-          {full.placeholder === "shown" ? "Loading full size…" : "Loading the photo…"}
+          {full.placeholder === "shown"
+            ? "Loading full size…"
+            : "Loading the photo…"}
         </span>
       );
     }
@@ -455,7 +532,9 @@ export default function PhotoViewer({
   })();
 
   const nothingToShow =
-    !video && (full.status === "unavailable" || full.status === "error") && full.placeholder === "none";
+    !video &&
+    (full.status === "unavailable" || full.status === "error") &&
+    full.placeholder === "none";
 
   const stageChildren = video ? (
     <ViewerVideo
@@ -497,25 +576,61 @@ export default function PhotoViewer({
       >
         <header
           data-chrome
-          className={cn("flex h-14 shrink-0 items-center justify-between gap-2 px-2 sm:px-4", chromeClass)}
+          className={cn(
+            "flex h-14 shrink-0 items-center justify-between gap-2 px-2 sm:px-4",
+            chromeClass,
+          )}
         >
-          <IconButton icon={X} label="Close (Esc)" aria-keyshortcuts="Escape" onClick={onClose} />
+          <IconButton
+            icon={X}
+            label="Close (Esc)"
+            aria-keyshortcuts="Escape"
+            onClick={onClose}
+          />
           <PhotoViewerControls
-            slideshow={nav.total > 1 ? { playing, onToggle: toggleSlideshow } : undefined}
-            zoom={video ? undefined : { active: zoomed, available: full.status === "ready", onToggle: toggleZoom }}
-            favorite={canFavorite ? { active: favorite.isFavorite, onToggle: toggleFavorite } : undefined}
-            info={{ open: infoOpen, panelId: infoId, onToggle: () => setInfoOpen((v) => !v) }}
+            slideshow={
+              nav.total > 1 ? { playing, onToggle: toggleSlideshow } : undefined
+            }
+            zoom={
+              video
+                ? undefined
+                : {
+                    active: zoomed,
+                    available: full.status === "ready",
+                    onToggle: toggleZoom,
+                  }
+            }
+            favorite={
+              canFavorite
+                ? { active: favorite.isFavorite, onToggle: toggleFavorite }
+                : undefined
+            }
+            info={{
+              open: infoOpen,
+              panelId: infoId,
+              onToggle: () => setInfoOpen((v) => !v),
+            }}
             onDownload={allowDownload ? download : undefined}
             onDelete={canDelete ? () => setConfirmOpen(true) : undefined}
-            help={{ open: helpOpen, panelId: helpId, onToggle: () => setHelpOpen((v) => !v) }}
+            help={{
+              open: helpOpen,
+              panelId: helpId,
+              onToggle: () => setHelpOpen((v) => !v),
+            }}
           />
         </header>
 
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             {playing && (
-              <div aria-hidden className="absolute inset-x-0 top-0 z-10 h-0.5 bg-line">
-                <SlideshowProgress key={`${currentId}-${clockRunning}`} running={clockRunning} />
+              <div
+                aria-hidden
+                className="absolute inset-x-0 top-0 z-10 h-0.5 bg-line"
+              >
+                <SlideshowProgress
+                  key={`${currentId}-${clockRunning}`}
+                  running={clockRunning}
+                />
               </div>
             )}
 
@@ -530,9 +645,14 @@ export default function PhotoViewer({
                 data-backdrop
                 className={cn(
                   "absolute inset-0 px-0 py-2 sm:px-6 sm:py-3 md:px-20 lg:px-24",
-                  !swipe.dragging && "transition-transform duration-200 ease-out-soft",
+                  !swipe.dragging &&
+                    "transition-transform duration-200 ease-out-soft",
                 )}
-                style={{ transform: swipe.offset ? `translate3d(${swipe.offset}px, 0, 0)` : undefined }}
+                style={{
+                  transform: swipe.offset
+                    ? `translate3d(${swipe.offset}px, 0, 0)`
+                    : undefined,
+                }}
               >
                 <div data-backdrop className="relative h-full w-full">
                   {stageChildren}
@@ -542,7 +662,10 @@ export default function PhotoViewer({
                       allowDownload={allowDownload}
                       onDownload={download}
                       onRetry={
-                        full.status === "error" ? () => setRetry({ id: currentId, value: retryKey + 1 }) : undefined
+                        full.status === "error"
+                          ? () =>
+                              setRetry({ id: currentId, value: retryKey + 1 })
+                          : undefined
                       }
                     />
                   )}
@@ -553,7 +676,10 @@ export default function PhotoViewer({
                 <>
                   <div
                     data-chrome
-                    className={cn("absolute left-3 top-1/2 hidden -translate-y-1/2 md:block lg:left-5", chromeClass)}
+                    className={cn(
+                      "absolute left-3 top-1/2 hidden -translate-y-1/2 md:block lg:left-5",
+                      chromeClass,
+                    )}
                   >
                     <IconButton
                       icon={ChevronLeft}
@@ -568,7 +694,10 @@ export default function PhotoViewer({
                   </div>
                   <div
                     data-chrome
-                    className={cn("absolute right-3 top-1/2 hidden -translate-y-1/2 md:block lg:right-5", chromeClass)}
+                    className={cn(
+                      "absolute right-3 top-1/2 hidden -translate-y-1/2 md:block lg:right-5",
+                      chromeClass,
+                    )}
                   >
                     <IconButton
                       icon={ChevronRight}
@@ -604,7 +733,9 @@ export default function PhotoViewer({
                     {captionTitle}
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted">
-                    {taken?.time && <span className="tabular">{taken.time}</span>}
+                    {taken?.time && (
+                      <span className="tabular">{taken.time}</span>
+                    )}
                     {taken?.time && (album || position) && <Dot />}
                     {album && (
                       <Link
@@ -615,9 +746,13 @@ export default function PhotoViewer({
                       </Link>
                     )}
                     {album && position && <Dot />}
-                    {position && <span className="tabular shrink-0">{position}</span>}
+                    {position && (
+                      <span className="tabular shrink-0">{position}</span>
+                    )}
                   </p>
-                  <p className="mt-1 h-4 truncate text-xs text-ink-faint">{note}</p>
+                  <p className="mt-1 h-4 truncate text-xs text-ink-faint">
+                    {note}
+                  </p>
                 </figcaption>
               </figure>
               {nav.total > 1 && (
@@ -633,7 +768,12 @@ export default function PhotoViewer({
           </div>
 
           {infoOpen && (
-            <InfoPanel id={infoId} photo={current} showAlbum={!isSharedView} onClose={() => setInfoOpen(false)} />
+            <InfoPanel
+              id={infoId}
+              photo={current}
+              showAlbum={!isSharedView}
+              onClose={() => setInfoOpen(false)}
+            />
           )}
         </div>
 
@@ -674,7 +814,12 @@ export default function PhotoViewer({
 }
 
 function Dot() {
-  return <span aria-hidden className="h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint" />;
+  return (
+    <span
+      aria-hidden
+      className="h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint"
+    />
+  );
 }
 
 /** Fills over one slideshow interval. Reduced motion gets a still bar. */
@@ -684,17 +829,23 @@ function SlideshowProgress({ running }: { running: boolean }) {
     const el = ref.current;
     if (!el || !running) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const animation = el.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], {
-      duration: SLIDESHOW_INTERVAL_MS,
-      easing: "linear",
-      fill: "forwards",
-    });
+    const animation = el.animate(
+      [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+      {
+        duration: SLIDESHOW_INTERVAL_MS,
+        easing: "linear",
+        fill: "forwards",
+      },
+    );
     return () => animation.cancel();
   }, [running]);
   return (
     <div
       ref={ref}
-      className={cn("h-full origin-left bg-accent", running ? "scale-x-100 motion-safe:scale-x-0" : "scale-x-0")}
+      className={cn(
+        "h-full origin-left bg-accent",
+        running ? "scale-x-100 motion-safe:scale-x-0" : "scale-x-0",
+      )}
     />
   );
 }
@@ -712,10 +863,15 @@ function Unviewable({
 }) {
   const raw = isRawFile(photo);
   return (
-    <div data-backdrop className="absolute inset-0 flex items-center justify-center p-4">
+    <div
+      data-backdrop
+      className="absolute inset-0 flex items-center justify-center p-4"
+    >
       <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
         <h2 className="font-display text-display-sm font-normal text-ink">
-          {onRetry ? "This photo didn't load" : "This photo can't be shown here"}
+          {onRetry
+            ? "This photo didn't load"
+            : "This photo can't be shown here"}
         </h2>
         <p className="mt-2 text-pretty text-sm text-ink-muted">
           {onRetry
@@ -730,7 +886,9 @@ function Unviewable({
               Try again
             </Button>
           )}
-          {allowDownload && <Button onClick={onDownload}>Download original</Button>}
+          {allowDownload && (
+            <Button onClick={onDownload}>Download original</Button>
+          )}
         </div>
       </div>
     </div>

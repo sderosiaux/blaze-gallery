@@ -1,7 +1,13 @@
 import { cn } from "@/lib/cn";
 
 /** Serif wordmark; collapses to a monogram in the sidebar rail. */
-export default function BrandMark({ compact = false, className }: { compact?: boolean; className?: string }) {
+export default function BrandMark({
+  compact = false,
+  className,
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
   if (compact) {
     return (
       <span

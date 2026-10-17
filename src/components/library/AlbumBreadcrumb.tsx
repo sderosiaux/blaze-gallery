@@ -21,7 +21,9 @@ function ancestorsOf(path: string): Crumb[] {
 }
 
 function Separator() {
-  return <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" />;
+  return (
+    <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+  );
 }
 
 const linkClass =
@@ -42,7 +44,12 @@ export default function AlbumBreadcrumb({ path }: { path: string }) {
 
   return (
     <nav aria-label="Breadcrumb" className="animate-fade-in pt-6 sm:pt-8">
-      <ol className={cn("flex min-w-0 items-center gap-1.5 text-sm text-ink-muted", expanded && "flex-wrap")}>
+      <ol
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-sm text-ink-muted",
+          expanded && "flex-wrap",
+        )}
+      >
         {crumbs.map((crumb, i) => {
           if (fold && i >= 2 && i < crumbs.length - 2) {
             if (i !== 2) return null;
@@ -64,13 +71,22 @@ export default function AlbumBreadcrumb({ path }: { path: string }) {
           // Phones keep Library and the parent; the rest collapses into "…".
           const phoneHidden = i > 0 && i < parentIndex;
           return (
-            <li key={crumb.href} className={cn("min-w-0 items-center gap-1.5", phoneHidden ? "hidden sm:flex" : "flex")}>
+            <li
+              key={crumb.href}
+              className={cn(
+                "min-w-0 items-center gap-1.5",
+                phoneHidden ? "hidden sm:flex" : "flex",
+              )}
+            >
               <Link href={crumb.href} className={linkClass} title={crumb.label}>
                 {crumb.label}
               </Link>
               {i < parentIndex && <Separator />}
               {i === 0 && parentIndex > 1 && (
-                <span aria-hidden className="flex items-center gap-1.5 sm:hidden">
+                <span
+                  aria-hidden
+                  className="flex items-center gap-1.5 sm:hidden"
+                >
                   …
                   <Separator />
                 </span>

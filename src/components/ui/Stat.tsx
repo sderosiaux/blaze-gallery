@@ -16,7 +16,9 @@ export function Stat({ label, value, hint, icon: Icon, className }: StatProps) {
         {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}
         {label}
       </div>
-      <div className="tabular mt-1.5 truncate font-display text-display-md font-light text-ink">{value}</div>
+      <div className="tabular mt-1.5 truncate font-display text-display-md font-light text-ink">
+        {value}
+      </div>
       {hint && <div className="mt-1 text-xs text-ink-muted">{hint}</div>}
     </div>
   );

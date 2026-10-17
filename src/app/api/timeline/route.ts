@@ -29,7 +29,10 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   const before = beforeParam ? parseCursor(beforeParam) : null;
   if (beforeParam && !before) {
     return NextResponse.json(
-      { success: false, error: "before must be an ISO date or a next_before cursor" },
+      {
+        success: false,
+        error: "before must be an ISO date or a next_before cursor",
+      },
       { status: 400 },
     );
   }

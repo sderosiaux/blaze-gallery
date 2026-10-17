@@ -35,7 +35,10 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       Math.max(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 1),
       MAX_LIMIT,
     );
-    const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+    const offset = Math.max(
+      parseInt(searchParams.get("offset") ?? "0", 10) || 0,
+      0,
+    );
 
     const conditions: string[] = [];
     const params: string[] = [];

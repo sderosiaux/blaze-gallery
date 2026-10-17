@@ -19,7 +19,10 @@ const NONE: Photo[] = [];
 
 const isPhotograph = (p: Photo) => p.mime_type === "image/jpeg";
 
-type State = { status: "loading" } | { status: "error" } | { status: "ready"; photos: Photo[] };
+type State =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; photos: Photo[] };
 
 function remembered(): Photo[] | null {
   try {
@@ -48,10 +51,14 @@ export default function RediscoverSection() {
     request.current = controller;
     setShuffling(true);
     try {
-      const response = await fetch(`/api/photos/random?limit=${ASKED}`, { signal: controller.signal });
+      const response = await fetch(`/api/photos/random?limit=${ASKED}`, {
+        signal: controller.signal,
+      });
       const body = await response.json();
       if (!response.ok || !body.success) throw new Error(body.error);
-      const photos = (body.photos as Photo[]).filter(isPhotograph).slice(0, SHOWN);
+      const photos = (body.photos as Photo[])
+        .filter(isPhotograph)
+        .slice(0, SHOWN);
       try {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(photos));
       } catch {
@@ -79,7 +86,8 @@ export default function RediscoverSection() {
   // otherwise sit in the address bar with nothing open.
   useEffect(() => {
     if (state.status !== "ready" || !selectedPhotoId) return;
-    if (!photos.some((p) => String(p.id) === selectedPhotoId)) setPhotoParam(null);
+    if (!photos.some((p) => String(p.id) === selectedPhotoId))
+      setPhotoParam(null);
   }, [state.status, photos, selectedPhotoId, setPhotoParam]);
 
   return (
@@ -100,7 +108,13 @@ export default function RediscoverSection() {
       }
     >
       {state.status === "loading" && <JustifiedSkeleton count={12} />}
-      {state.status === "error" && <LoadError title="The photos didn't come through" onRetry={draw} className="py-10" />}
+      {state.status === "error" && (
+        <LoadError
+          title="The photos didn't come through"
+          onRetry={draw}
+          className="py-10"
+        />
+      )}
       {state.status === "ready" &&
         (photos.length === 0 ? (
           <EmptyState

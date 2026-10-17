@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { MarkTooltip, ShowMore, TipRow } from "@/components/stats/charts";
-import { albumKicker, formatNumber, formatPercent, formatSize, ownDate } from "@/components/stats/format";
+import {
+  albumKicker,
+  formatNumber,
+  formatPercent,
+  formatSize,
+  ownDate,
+} from "@/components/stats/format";
 import type { AlbumStat } from "@/components/stats/types";
 import { parseAlbumName } from "@/lib/albums";
 import { cn } from "@/lib/cn";
@@ -13,7 +19,13 @@ import { cn } from "@/lib/cn";
 // to dark. Five steps stay distinguishable; text flips to on-photo only on the
 // darkest step, where ink would lose contrast (ink ≥ 5.6:1 on steps 1–4,
 // on-photo ≥ 5.2:1 on step 5).
-const STEPS = ["bg-chart-5/10", "bg-chart-5/25", "bg-chart-5/45", "bg-chart-5/65", "bg-chart-5/90"];
+const STEPS = [
+  "bg-chart-5/10",
+  "bg-chart-5/25",
+  "bg-chart-5/45",
+  "bg-chart-5/65",
+  "bg-chart-5/90",
+];
 const DARK_STEP = STEPS.length - 1;
 
 interface FolderHeatmapProps {
@@ -31,7 +43,13 @@ const valueOf = (a: AlbumStat, metric: "size" | "count") =>
 const formatValue = (v: number, metric: "size" | "count") =>
   metric === "size" ? formatSize(v) : `${formatNumber(v)} files`;
 
-export default function FolderHeatmap({ albums, metric, totalBytes, initial = 12, step = 12 }: FolderHeatmapProps) {
+export default function FolderHeatmap({
+  albums,
+  metric,
+  totalBytes,
+  initial = 12,
+  step = 12,
+}: FolderHeatmapProps) {
   const [visible, setVisible] = useState(initial);
   if (albums.length === 0) return null;
 
@@ -46,19 +64,36 @@ export default function FolderHeatmap({ albums, metric, totalBytes, initial = 12
   const stepOf = (v: number) =>
     span === 0
       ? DARK_STEP
-      : Math.min(DARK_STEP, Math.floor(((Math.log(Math.max(1, v)) - Math.log(min)) / span) * STEPS.length));
+      : Math.min(
+          DARK_STEP,
+          Math.floor(
+            ((Math.log(Math.max(1, v)) - Math.log(min)) / span) * STEPS.length,
+          ),
+        );
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <p className="text-xs text-ink-muted">
-          {metric === "size" ? "Darker tiles take more space." : "Darker tiles hold more files."} Open one to browse it.
+          {metric === "size"
+            ? "Darker tiles take more space."
+            : "Darker tiles hold more files."}{" "}
+          Open one to browse it.
         </p>
-        <div className="flex items-center gap-2 text-xs text-ink-muted" aria-hidden>
+        <div
+          className="flex items-center gap-2 text-xs text-ink-muted"
+          aria-hidden
+        >
           <span className="tabular">{formatValue(min, metric)}</span>
           <span className="flex gap-0.5">
             {STEPS.map((s) => (
-              <span key={s} className={cn("h-2.5 w-5 first:rounded-l-sm last:rounded-r-sm", s)} />
+              <span
+                key={s}
+                className={cn(
+                  "h-2.5 w-5 first:rounded-l-sm last:rounded-r-sm",
+                  s,
+                )}
+              />
             ))}
           </span>
           <span className="tabular">{formatValue(max, metric)}</span>
@@ -90,15 +125,34 @@ export default function FolderHeatmap({ albums, metric, totalBytes, initial = 12
                     <span className="truncate">{kicker ?? "Library"}</span>
                     <span aria-hidden>{i + 1}</span>
                   </span>
-                  <span className="line-clamp-2 font-display text-base leading-snug">{title}</span>
+                  <span className="line-clamp-2 font-display text-base leading-snug">
+                    {title}
+                  </span>
                 </span>
-                <span className="tabular mt-2 text-sm font-medium">{formatValue(value, metric)}</span>
+                <span className="tabular mt-2 text-sm font-medium">
+                  {formatValue(value, metric)}
+                </span>
                 <MarkTooltip>
-                  <span className="mb-1.5 block truncate font-medium text-ink">{album.path}</span>
+                  <span className="mb-1.5 block truncate font-medium text-ink">
+                    {album.path}
+                  </span>
                   <TipRow label="Size" value={formatSize(album.total_size)} />
-                  {totalBytes ? <TipRow label="Share of library" value={formatPercent(album.total_size, totalBytes)} /> : null}
-                  <TipRow label="Photos" value={formatNumber(album.photo_count)} />
-                  {album.video_count > 0 && <TipRow label="Videos" value={formatNumber(album.video_count)} />}
+                  {totalBytes ? (
+                    <TipRow
+                      label="Share of library"
+                      value={formatPercent(album.total_size, totalBytes)}
+                    />
+                  ) : null}
+                  <TipRow
+                    label="Photos"
+                    value={formatNumber(album.photo_count)}
+                  />
+                  {album.video_count > 0 && (
+                    <TipRow
+                      label="Videos"
+                      value={formatNumber(album.video_count)}
+                    />
+                  )}
                 </MarkTooltip>
               </Link>
             </li>
@@ -106,7 +160,14 @@ export default function FolderHeatmap({ albums, metric, totalBytes, initial = 12
         })}
       </ol>
 
-      <ShowMore total={albums.length} visible={visible} initial={initial} step={step} noun="more albums" onChange={setVisible} />
+      <ShowMore
+        total={albums.length}
+        visible={visible}
+        initial={initial}
+        step={step}
+        noun="more albums"
+        onChange={setVisible}
+      />
     </div>
   );
 }

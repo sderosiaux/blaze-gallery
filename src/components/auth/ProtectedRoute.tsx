@@ -11,7 +11,10 @@ interface ProtectedRouteProps {
   fallback?: ReactNode;
 }
 
-export default function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
+export default function ProtectedRoute({
+  children,
+  fallback,
+}: ProtectedRouteProps) {
   const { isAuthenticated, loading, error } = useAuth();
 
   if (loading) {
@@ -19,11 +22,16 @@ export default function ProtectedRoute({ children, fallback }: ProtectedRoutePro
   }
 
   if (error) {
-    const notAllowed = error.includes("not authorized") || error.includes("not whitelisted");
+    const notAllowed =
+      error.includes("not authorized") || error.includes("not whitelisted");
     return (
       <EmptyState
         icon={ShieldAlert}
-        title={notAllowed ? "This account isn't on the guest list" : "Sign-in didn't go through"}
+        title={
+          notAllowed
+            ? "This account isn't on the guest list"
+            : "Sign-in didn't go through"
+        }
         body={
           notAllowed
             ? "Only a few email addresses can open this gallery. Ask the owner to add yours, or sign in with another Google account."

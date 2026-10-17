@@ -1,7 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
+export type Tone =
+  | "neutral"
+  | "accent"
+  | "success"
+  | "warning"
+  | "danger"
+  | "info";
 
 const tones: Record<Tone, string> = {
   neutral: "bg-surface-sunken text-ink-soft",
@@ -20,7 +26,12 @@ interface BadgeProps {
   children: React.ReactNode;
 }
 
-export function Badge({ tone = "neutral", icon: Icon, className, children }: BadgeProps) {
+export function Badge({
+  tone = "neutral",
+  icon: Icon,
+  className,
+  children,
+}: BadgeProps) {
   return (
     <span
       className={cn(

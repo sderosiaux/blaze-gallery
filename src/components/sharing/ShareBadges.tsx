@@ -2,7 +2,10 @@ import { Ban, CheckCircle2, Clock, EyeOff, Lock } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { shareState, type ShareLink, type ShareState } from "@/lib/shareClient";
 
-const STATE: Record<ShareState, { label: string; tone: "success" | "warning" | "neutral"; icon: typeof Ban }> = {
+const STATE: Record<
+  ShareState,
+  { label: string; tone: "success" | "warning" | "neutral"; icon: typeof Ban }
+> = {
   active: { label: "Active", tone: "success", icon: CheckCircle2 },
   expired: { label: "Expired", tone: "warning", icon: Clock },
   revoked: { label: "Revoked", tone: "neutral", icon: Ban },
@@ -22,7 +25,10 @@ export function ShareBadges({
   share,
   showViewOnly = true,
 }: {
-  share: Pick<ShareLink, "is_active" | "expires_at" | "has_password" | "allow_download">;
+  share: Pick<
+    ShareLink,
+    "is_active" | "expires_at" | "has_password" | "allow_download"
+  >;
   showViewOnly?: boolean;
 }) {
   const state = shareState(share);

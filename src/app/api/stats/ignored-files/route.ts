@@ -42,7 +42,12 @@ export const GET = requireAuth(async function GET() {
       GROUP BY category
     `);
 
-    const rows = result.rows as Array<{ category: string; count: number; total_size_bytes: number; examples: string[] }>;
+    const rows = result.rows as Array<{
+      category: string;
+      count: number;
+      total_size_bytes: number;
+      examples: string[];
+    }>;
     const breakdown = Object.keys(CATEGORIES)
       .map((category) => {
         const row = rows.find((r) => r.category === category);
@@ -59,7 +64,10 @@ export const GET = requireAuth(async function GET() {
     const data: IgnoredFiles = {
       summary: {
         total_ignored_files: breakdown.reduce((sum, c) => sum + c.count, 0),
-        total_ignored_size_bytes: breakdown.reduce((sum, c) => sum + c.total_size_bytes, 0),
+        total_ignored_size_bytes: breakdown.reduce(
+          (sum, c) => sum + c.total_size_bytes,
+          0,
+        ),
       },
       breakdown,
     };

@@ -25,10 +25,13 @@ export interface MonthGroup {
   photos: TimelinePhoto[];
 }
 
-export async function fetchTimelineSummary(signal?: AbortSignal): Promise<TimelineSummary> {
+export async function fetchTimelineSummary(
+  signal?: AbortSignal,
+): Promise<TimelineSummary> {
   const response = await fetch("/api/timeline/summary", { signal });
   const data = await response.json();
-  if (!response.ok || !data.success) throw new Error(data.error ?? `HTTP ${response.status}`);
+  if (!response.ok || !data.success)
+    throw new Error(data.error ?? `HTTP ${response.status}`);
   return { months: data.months ?? [], total_photos: data.total_photos };
 }
 
@@ -39,7 +42,9 @@ export function yearsOf(months: MonthCount[]): YearCount[] {
     const year = Number(month.slice(0, 4));
     byYear.set(year, (byYear.get(year) ?? 0) + count);
   }
-  return Array.from(byYear, ([year, count]) => ({ year, count })).sort((a, b) => b.year - a.year);
+  return Array.from(byYear, ([year, count]) => ({ year, count })).sort(
+    (a, b) => b.year - a.year,
+  );
 }
 
 export function monthKey(photo: Photo): string | null {
@@ -59,7 +64,10 @@ export function endOfYearCursor(year: number): string {
  * Consecutive photos of the same month, in API order (newest first). Groups
  * whose photos did not change keep their array, so their grids skip layout.
  */
-export function groupByMonth(photos: TimelinePhoto[], previous: MonthGroup[]): MonthGroup[] {
+export function groupByMonth(
+  photos: TimelinePhoto[],
+  previous: MonthGroup[],
+): MonthGroup[] {
   const groups: MonthGroup[] = [];
   for (const photo of photos) {
     const key = monthKey(photo) ?? "undated";

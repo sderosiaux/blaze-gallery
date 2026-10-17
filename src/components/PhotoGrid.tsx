@@ -27,9 +27,18 @@ export function PhotoGridSkeleton({ count = 12 }: { count?: number }) {
   // Percentages, so a phone shows three or four tiles a row like the real grid.
   const widths = [22, 16, 19, 26, 17, 21, 15, 24, 19, 20, 16, 23];
   return (
-    <div role="status" aria-label="Loading photos" className="flex flex-wrap gap-1">
+    <div
+      role="status"
+      aria-label="Loading photos"
+      className="flex flex-wrap gap-1"
+    >
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} aria-hidden className="skeleton h-[110px] flex-grow rounded-sm sm:h-[170px] lg:h-[220px]" style={{ flexBasis: `${widths[i % widths.length]}%` }} />
+        <div
+          key={i}
+          aria-hidden
+          className="skeleton h-[110px] flex-grow rounded-sm sm:h-[170px] lg:h-[220px]"
+          style={{ flexBasis: `${widths[i % widths.length]}%` }}
+        />
       ))}
     </div>
   );
@@ -89,10 +98,13 @@ export default function PhotoGrid({
       const optimistic = { ...photo, is_favorite: !photo.is_favorite };
       updateOne(optimistic);
       try {
-        const response = await fetch(`/api/photos/${photo.id}/favorite`, { method: "POST" });
+        const response = await fetch(`/api/photos/${photo.id}/favorite`, {
+          method: "POST",
+        });
         const data = await response.json();
         if (!data.success) throw new Error(data.error);
-        if (data.is_favorite !== optimistic.is_favorite) updateOne({ ...photo, is_favorite: data.is_favorite });
+        if (data.is_favorite !== optimistic.is_favorite)
+          updateOne({ ...photo, is_favorite: data.is_favorite });
       } catch {
         updateOne(photo);
         toast.show("Couldn't update favorites. Try again.", "error");

@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, Copy, ExternalLink, RotateCw, Search, Share2, X } from "lucide-react";
+import {
+  AlertCircle,
+  Copy,
+  ExternalLink,
+  RotateCw,
+  Search,
+  Share2,
+  X,
+} from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import {
@@ -22,10 +30,23 @@ import ProgressiveImage from "@/components/photos/ProgressiveImage";
 import { albumHref } from "@/components/photos/AlbumCard";
 import RevokeDialog from "@/components/sharing/RevokeDialog";
 import { ShareBadges } from "@/components/sharing/ShareBadges";
-import { expiryLabel, formatInstant, lastOpenedLabel, relativeTime, shortDay } from "@/components/sharing/shareFormat";
+import {
+  expiryLabel,
+  formatInstant,
+  lastOpenedLabel,
+  relativeTime,
+  shortDay,
+} from "@/components/sharing/shareFormat";
 import { useCopyLink } from "@/components/sharing/useCopyLink";
 import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
-import { folderNameOf, listShares, shareState, shareUrl, type ShareLink, type ShareState } from "@/lib/shareClient";
+import {
+  folderNameOf,
+  listShares,
+  shareState,
+  shareUrl,
+  type ShareLink,
+  type ShareState,
+} from "@/lib/shareClient";
 
 type Filter = "all" | ShareState;
 
@@ -61,7 +82,10 @@ function SharedLinks() {
     load();
   }, [load]);
 
-  const states = useMemo(() => new Map((shares ?? []).map((s) => [s.share_token, shareState(s)])), [shares]);
+  const states = useMemo(
+    () => new Map((shares ?? []).map((s) => [s.share_token, shareState(s)])),
+    [shares],
+  );
 
   const counts = useMemo(() => {
     const c = { all: 0, active: 0, expired: 0, revoked: 0 };
@@ -75,14 +99,24 @@ function SharedLinks() {
   const visible = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
     return (shares ?? []).filter((s) => {
-      if (filter !== "all" && states.get(s.share_token) !== filter) return false;
+      if (filter !== "all" && states.get(s.share_token) !== filter)
+        return false;
       if (!q) return true;
-      return [s.folder_name, s.folder_path, s.description].some((v) => v?.toLocaleLowerCase().includes(q));
+      return [s.folder_name, s.folder_path, s.description].some((v) =>
+        v?.toLocaleLowerCase().includes(q),
+      );
     });
   }, [shares, states, filter, query]);
 
   const onRevoked = (revoked: ShareLink) => {
-    setShares((all) => all?.map((s) => (s.share_token === revoked.share_token ? { ...s, is_active: false } : s)) ?? all);
+    setShares(
+      (all) =>
+        all?.map((s) =>
+          s.share_token === revoked.share_token
+            ? { ...s, is_active: false }
+            : s,
+        ) ?? all,
+    );
     setRevoking(null);
     toast.show("Link revoked", "success");
   };
@@ -127,9 +161,14 @@ function SharedLinks() {
   }
 
   const totalViews = shares.reduce((sum, s) => sum + s.view_count, 0);
-  const protectedActive = shares.filter((s) => s.has_password && states.get(s.share_token) === "active").length;
+  const protectedActive = shares.filter(
+    (s) => s.has_password && states.get(s.share_token) === "active",
+  ).length;
   const lastOpened = shares.reduce<string | null>(
-    (latest, s) => (s.last_accessed && (!latest || s.last_accessed > latest) ? s.last_accessed : latest),
+    (latest, s) =>
+      s.last_accessed && (!latest || s.last_accessed > latest)
+        ? s.last_accessed
+        : latest,
     null,
   );
 
@@ -145,20 +184,45 @@ function SharedLinks() {
       <Header />
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-line py-6 lg:grid-cols-4">
-        <Stat label="Active links" value={counts.active} hint={`of ${formatCount(counts.all, "link")}`} />
-        <Stat label="Protected" value={protectedActive} hint="active links with a password" />
-        <Stat label="Views" value={totalViews.toLocaleString("en-GB")} hint="across every link" />
+        <Stat
+          label="Active links"
+          value={counts.active}
+          hint={`of ${formatCount(counts.all, "link")}`}
+        />
+        <Stat
+          label="Protected"
+          value={protectedActive}
+          hint="active links with a password"
+        />
+        <Stat
+          label="Views"
+          value={totalViews.toLocaleString("en-GB")}
+          hint="across every link"
+        />
         <Stat
           label="Last opened"
           value={lastOpened ? shortDay(lastOpened) : "Never"}
-          hint={lastOpened ? relativeTime(lastOpened) : "No guest has opened a link yet"}
+          hint={
+            lastOpened
+              ? relativeTime(lastOpened)
+              : "No guest has opened a link yet"
+          }
         />
       </div>
 
       <div className="mt-10 flex flex-col-reverse gap-4 md:flex-row md:items-end md:justify-between">
-        <Tabs tabs={tabs} value={filter} onChange={setFilter} label="Filter links" className="md:flex-1" />
+        <Tabs
+          tabs={tabs}
+          value={filter}
+          onChange={setFilter}
+          label="Filter links"
+          className="md:flex-1"
+        />
         <div className="relative w-full md:mb-2 md:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden />
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
+            aria-hidden
+          />
           <Input
             type="text"
             enterKeyHint="search"
@@ -175,8 +239,14 @@ function SharedLinks() {
       {visible.length === 0 ? (
         <EmptyState
           icon={Search}
-          title={query ? `No links match “${query.trim()}”` : `No ${filter} links`}
-          body={query ? "Try another album name or a word from the note." : EMPTY_FILTER[filter]}
+          title={
+            query ? `No links match “${query.trim()}”` : `No ${filter} links`
+          }
+          body={
+            query
+              ? "Try another album name or a word from the note."
+              : EMPTY_FILTER[filter]
+          }
           action={
             <Button
               variant="secondary"
@@ -194,14 +264,19 @@ function SharedLinks() {
         <ShareList shares={visible} states={states} onRevoke={setRevoking} />
       )}
 
-      <RevokeDialog share={revoking} onClose={() => setRevoking(null)} onRevoked={onRevoked} />
+      <RevokeDialog
+        share={revoking}
+        onClose={() => setRevoking(null)}
+        onRevoked={onRevoked}
+      />
     </>
   );
 }
 
 const EMPTY_FILTER: Record<Filter, string> = {
   all: "Share an album to create your first link.",
-  active: "Every link has expired or been revoked. Share an album again to send a fresh one.",
+  active:
+    "Every link has expired or been revoked. Share an album again to send a fresh one.",
   expired: "Links with an end date move here once that day has passed.",
   revoked: "Links you revoke stay listed here, so you can see they are off.",
 };
@@ -211,12 +286,18 @@ function Header() {
     <PageHeader
       kicker="Sharing"
       title="Shared links"
-      meta={<span>Albums you have sent to family and friends. You can revoke a link at any time.</span>}
+      meta={
+        <span>
+          Albums you have sent to family and friends. You can revoke a link at
+          any time.
+        </span>
+      }
     />
   );
 }
 
-const COLUMNS = "xl:grid xl:grid-cols-[minmax(0,1fr)_13rem_11rem_8.5rem] xl:items-center xl:gap-6";
+const COLUMNS =
+  "xl:grid xl:grid-cols-[minmax(0,1fr)_13rem_11rem_8.5rem] xl:items-center xl:gap-6";
 
 function ShareList({
   shares,
@@ -229,7 +310,10 @@ function ShareList({
 }) {
   return (
     <div className="mt-2">
-      <div aria-hidden className={`kicker hidden border-b border-line py-3 ${COLUMNS}`}>
+      <div
+        aria-hidden
+        className={`kicker hidden border-b border-line py-3 ${COLUMNS}`}
+      >
         <span>Album</span>
         <span>Status</span>
         <span>Activity</span>
@@ -237,7 +321,13 @@ function ShareList({
       </div>
       <ul className="divide-y divide-line border-b border-line">
         {shares.map((share, i) => (
-          <ShareRow key={share.share_token} share={share} state={states.get(share.share_token) ?? "active"} index={i} onRevoke={onRevoke} />
+          <ShareRow
+            key={share.share_token}
+            share={share}
+            state={states.get(share.share_token) ?? "active"}
+            index={i}
+            onRevoke={onRevoke}
+          />
         ))}
       </ul>
     </div>
@@ -258,11 +348,17 @@ function AlbumThumb({ share, title }: { share: ShareLink; title: string }) {
           onFailed={() => setFailed(true)}
         />
       ) : (
-        <span aria-hidden className="absolute inset-0 flex select-none items-center justify-center font-display text-2xl font-light italic text-ink-faint">
+        <span
+          aria-hidden
+          className="absolute inset-0 flex select-none items-center justify-center font-display text-2xl font-light italic text-ink-faint"
+        >
           {title.charAt(0)}
         </span>
       )}
-      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5" />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5"
+      />
     </div>
   );
 }
@@ -281,7 +377,11 @@ function ShareRow({
   const copy = useCopyLink();
   const name = share.folder_name || folderNameOf(share.folder_path);
   const { title } = parseAlbumName(name);
-  const dateLabel = albumDateLabel({ name, date_from: share.date_from ?? null, date_to: share.date_to ?? null });
+  const dateLabel = albumDateLabel({
+    name,
+    date_from: share.date_from ?? null,
+    date_to: share.date_to ?? null,
+  });
   const parent = share.folder_path.split("/").slice(0, -1).join(" / ");
   const active = state === "active";
   const url = () => shareUrl(share.share_token);
@@ -295,15 +395,26 @@ function ShareRow({
       <div className="flex min-w-0 items-center gap-4">
         <AlbumThumb share={share} title={title} />
         <div className={`min-w-0 ${active ? "" : "opacity-75"}`}>
-          {dateLabel && <div className="kicker mb-0.5 truncate">{dateLabel}</div>}
+          {dateLabel && (
+            <div className="kicker mb-0.5 truncate">{dateLabel}</div>
+          )}
           <h3 className="truncate font-display text-xl font-normal leading-snug text-ink">
-            <Link href={albumHref(share.folder_path)} className="transition-colors hover:text-accent-strong" title={share.folder_path}>
+            <Link
+              href={albumHref(share.folder_path)}
+              className="transition-colors hover:text-accent-strong"
+              title={share.folder_path}
+            >
               {title}
             </Link>
           </h3>
-          {parent && <p className="truncate text-xs text-ink-muted">{parent}</p>}
+          {parent && (
+            <p className="truncate text-xs text-ink-muted">{parent}</p>
+          )}
           {share.description && (
-            <p className="mt-1 line-clamp-1 text-sm italic text-ink-soft" title={share.description}>
+            <p
+              className="mt-1 line-clamp-1 text-sm italic text-ink-soft"
+              title={share.description}
+            >
               “{share.description}”
             </p>
           )}
@@ -312,30 +423,46 @@ function ShareRow({
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pl-[4.5rem] sm:pl-20 xl:block xl:space-y-1.5 xl:pl-0">
         <ShareBadges share={share} />
-        <p className="text-xs text-ink-muted">{state === "revoked" ? `Created ${formatInstant(share.created_at)}` : expiryLabel(share)}</p>
+        <p className="text-xs text-ink-muted">
+          {state === "revoked"
+            ? `Created ${formatInstant(share.created_at)}`
+            : expiryLabel(share)}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-baseline gap-x-3 pl-[4.5rem] sm:pl-20 xl:block xl:pl-0">
-        <p className="tabular text-sm text-ink">{formatCount(share.view_count, "view")}</p>
+        <p className="tabular text-sm text-ink">
+          {formatCount(share.view_count, "view")}
+        </p>
         <p className="text-xs text-ink-muted">{lastOpenedLabel(share)}</p>
       </div>
 
       {/* A dead link has no actions; below xl its badge already says so. */}
-      <div className={`items-center gap-1 pl-[3.75rem] sm:pl-[4.25rem] xl:flex xl:justify-end xl:pl-0 ${active ? "flex" : "hidden"}`}>
+      <div
+        className={`items-center gap-1 pl-[3.75rem] sm:pl-[4.25rem] xl:flex xl:justify-end xl:pl-0 ${active ? "flex" : "hidden"}`}
+      >
         {active ? (
           <>
-            <IconButton icon={Copy} label={`Copy link to ${title}`} onClick={() => copy(url())} />
+            <IconButton
+              icon={Copy}
+              label={`Copy link to ${title}`}
+              onClick={() => copy(url())}
+            />
             <IconButton
               icon={ExternalLink}
               label={`Open ${title} as a guest`}
-              onClick={() => window.open(url(), "_blank", "noopener,noreferrer")}
+              onClick={() =>
+                window.open(url(), "_blank", "noopener,noreferrer")
+              }
             />
             <Button variant="ghost" size="sm" onClick={() => onRevoke(share)}>
               Revoke
             </Button>
           </>
         ) : (
-          <span className="px-3 text-xs text-ink-faint">{state === "expired" ? "Link has expired" : "Link is off"}</span>
+          <span className="px-3 text-xs text-ink-faint">
+            {state === "expired" ? "Link has expired" : "Link is off"}
+          </span>
         )}
       </div>
     </li>
@@ -347,27 +474,27 @@ function SharedLinksSkeleton() {
     <>
       <Header />
       <div role="status" aria-label="Loading shared links">
-      <div className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i}>
-            <Skeleton className="mb-3 h-3 w-24" />
-            <Skeleton className="h-9 w-16" />
-          </div>
-        ))}
-      </div>
-      <Skeleton className="mt-10 h-8 w-80 max-w-full" />
-      <ul className="mt-4 divide-y divide-line">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <li key={i} className="flex items-center gap-4 py-5">
-            <Skeleton className="h-16 w-16 rounded-md" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-5 w-56 max-w-full" />
+        <div className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i}>
+              <Skeleton className="mb-3 h-3 w-24" />
+              <Skeleton className="h-9 w-16" />
             </div>
-            <Skeleton className="hidden h-5 w-24 sm:block" />
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+        <Skeleton className="mt-10 h-8 w-80 max-w-full" />
+        <ul className="mt-4 divide-y divide-line">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <li key={i} className="flex items-center gap-4 py-5">
+              <Skeleton className="h-16 w-16 rounded-md" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-5 w-56 max-w-full" />
+              </div>
+              <Skeleton className="hidden h-5 w-24 sm:block" />
+            </li>
+          ))}
+        </ul>
       </div>
     </>
   );

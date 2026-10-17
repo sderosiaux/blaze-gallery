@@ -81,10 +81,14 @@ export const GET = requireAuth(async function GET() {
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    logger.apiError("Error in GET /api/stats/duplicate-folders", error as Error, {
-      method: "GET",
-      path: "/api/stats/duplicate-folders",
-    });
+    logger.apiError(
+      "Error in GET /api/stats/duplicate-folders",
+      error as Error,
+      {
+        method: "GET",
+        path: "/api/stats/duplicate-folders",
+      },
+    );
     return NextResponse.json(
       {
         success: false,

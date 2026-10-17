@@ -13,12 +13,31 @@ export interface AlbumName {
 }
 
 const SEP = String.raw`[\s_\-.@]*`;
-const PATTERNS: Array<{ re: RegExp; pick: (m: RegExpMatchArray) => [number, number?, number?] }> = [
+const PATTERNS: Array<{
+  re: RegExp;
+  pick: (m: RegExpMatchArray) => [number, number?, number?];
+}> = [
   // A "00" day means the month is known but not the day.
-  { re: new RegExp(String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2], +m[3] || undefined] },
-  { re: new RegExp(String.raw`^(\d{2})-(\d{2})-(\d{4})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[3], +m[2], +m[1]] },
-  { re: new RegExp(String.raw`^(\d{4})(\d{2})(\d{2})(?=_|\s|-|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2], +m[3]] },
-  { re: new RegExp(String.raw`^(\d{4})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`), pick: (m) => [+m[1], +m[2]] },
+  {
+    re: new RegExp(
+      String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`,
+    ),
+    pick: (m) => [+m[1], +m[2], +m[3] || undefined],
+  },
+  {
+    re: new RegExp(
+      String.raw`^(\d{2})-(\d{2})-(\d{4})(?=\b|_|\s|$)${SEP}(.*)$`,
+    ),
+    pick: (m) => [+m[3], +m[2], +m[1]],
+  },
+  {
+    re: new RegExp(String.raw`^(\d{4})(\d{2})(\d{2})(?=_|\s|-|$)${SEP}(.*)$`),
+    pick: (m) => [+m[1], +m[2], +m[3]],
+  },
+  {
+    re: new RegExp(String.raw`^(\d{4})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`),
+    pick: (m) => [+m[1], +m[2]],
+  },
 ];
 
 function validDate(y: number, mo?: number, d?: number) {
@@ -29,7 +48,11 @@ function validDate(y: number, mo?: number, d?: number) {
 }
 
 function tidy(title: string) {
-  let t = title.replace(/_/g, " ").replace(/\s{2,}/g, " ").replace(/^[\s\-–—@.:]+/, "").trim();
+  let t = title
+    .replace(/_/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s\-–—@.:]+/, "")
+    .trim();
   // Slug-style names ("journée-plopsaland") read as words.
   if (!/\s/.test(t) && /\p{L}-\p{L}/u.test(t)) t = t.replace(/-/g, " ");
   return t ? t.charAt(0).toLocaleUpperCase("fr-FR") + t.slice(1) : t;
@@ -43,7 +66,8 @@ export function parseAlbumName(name: string): AlbumName {
     if (!validDate(y, mo, d)) continue;
     const rest = m[m.length - 1] ?? "";
     const iso = new Date(Date.UTC(y, (mo ?? 1) - 1, d ?? 1)).toISOString();
-    const precision = d !== undefined ? "day" : mo !== undefined ? "month" : "year";
+    const precision =
+      d !== undefined ? "day" : mo !== undefined ? "month" : "year";
     const title = tidy(rest);
     return { title: title || formatDay(iso, precision), date: iso, precision };
   }
@@ -52,7 +76,10 @@ export function parseAlbumName(name: string): AlbumName {
 
 const LOCALE = "en-GB";
 
-export function formatDay(iso: string, precision: "day" | "month" | "year" = "day"): string {
+export function formatDay(
+  iso: string,
+  precision: "day" | "month" | "year" = "day",
+): string {
   const opts: Intl.DateTimeFormatOptions =
     precision === "day"
       ? { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }
@@ -63,7 +90,10 @@ export function formatDay(iso: string, precision: "day" | "month" | "year" = "da
 }
 
 /** "7 December 2008", "December 2008", "Jan – Mar 2018", "2016 – 2019". */
-export function formatDateRange(from?: string | null, to?: string | null): string | undefined {
+export function formatDateRange(
+  from?: string | null,
+  to?: string | null,
+): string | undefined {
   if (!from && !to) return undefined;
   const a = new Date(from ?? to!);
   const b = new Date(to ?? from!);
@@ -78,20 +108,27 @@ export function formatDateRange(from?: string | null, to?: string | null): strin
       : formatDay(a.toISOString(), "month");
   }
   if (sameYear) {
-    const m = (d: Date) => d.toLocaleDateString(LOCALE, { month: "short", timeZone: "UTC" });
+    const m = (d: Date) =>
+      d.toLocaleDateString(LOCALE, { month: "short", timeZone: "UTC" });
     return `${m(a)} – ${m(b)} ${b.getUTCFullYear()}`;
   }
   return `${a.getUTCFullYear()} – ${b.getUTCFullYear()}`;
 }
 
 /** The date line shown under an album: the folder name wins, then EXIF dates. */
-export function albumDateLabel(folder: Pick<Folder, "name" | "date_from" | "date_to">): string | undefined {
+export function albumDateLabel(
+  folder: Pick<Folder, "name" | "date_from" | "date_to">,
+): string | undefined {
   const parsed = parseAlbumName(folder.name);
-  if (parsed.date && parsed.precision) return formatDay(parsed.date, parsed.precision);
+  if (parsed.date && parsed.precision)
+    return formatDay(parsed.date, parsed.precision);
   return formatDateRange(folder.date_from, folder.date_to);
 }
 
-export function photoDateRange(photos: Photo[]): { from?: string; to?: string } {
+export function photoDateRange(photos: Photo[]): {
+  from?: string;
+  to?: string;
+} {
   let from: string | undefined;
   let to: string | undefined;
   for (const p of photos) {

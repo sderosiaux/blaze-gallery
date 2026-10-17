@@ -15,7 +15,10 @@ interface Options {
  * than setting it, so requests for one photo go one at a time until the
  * server agrees with the last press.
  */
-export function useFavoriteToggle(photo: Photo, { enabled, onChange, onError }: Options) {
+export function useFavoriteToggle(
+  photo: Photo,
+  { enabled, onChange, onError }: Options,
+) {
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const desired = useRef(new Map<string, boolean>());
   // What the server last said, for parents that don't pass the update back down.
@@ -35,9 +38,12 @@ export function useFavoriteToggle(photo: Photo, { enabled, onChange, onError }: 
       try {
         for (let round = 0; desired.current.get(key) !== server; round++) {
           if (round === 4) throw new Error("favorite_out_of_sync");
-          const response = await fetch(`/api/photos/${key}/favorite`, { method: "POST" });
+          const response = await fetch(`/api/photos/${key}/favorite`, {
+            method: "POST",
+          });
           const data = await response.json();
-          if (!response.ok || !data.success) throw new Error(data.error ?? `HTTP ${response.status}`);
+          if (!response.ok || !data.success)
+            throw new Error(data.error ?? `HTTP ${response.status}`);
           server = Boolean(data.is_favorite);
         }
       } catch {

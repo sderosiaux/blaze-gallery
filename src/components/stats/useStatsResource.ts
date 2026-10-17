@@ -25,16 +25,26 @@ export function useStatsResource<T>(url: string, enabled: boolean) {
       const startedAt = performance.now();
       if (!silent) setState({ status: "loading", startedAt });
       try {
-        const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+        const res = await fetch(url, {
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.success) {
           throw new Error(body?.error || `The server answered ${res.status}`);
         }
-        setState({ status: "ready", data: body.data as T, tookMs: performance.now() - startedAt });
+        setState({
+          status: "ready",
+          data: body.data as T,
+          tookMs: performance.now() - startedAt,
+        });
       } catch (error) {
         // A silent refresh that fails keeps the numbers already on screen.
         if (ctrl.signal.aborted || silent) return;
-        setState({ status: "error", error: error instanceof Error ? error.message : "Unknown error" });
+        setState({
+          status: "error",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
       }
     },
     [url],
@@ -66,5 +76,7 @@ export function useElapsed(startedAt: number | undefined) {
     const id = window.setInterval(() => setNow(performance.now()), 500);
     return () => window.clearInterval(id);
   }, [startedAt]);
-  return startedAt === undefined ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000));
+  return startedAt === undefined
+    ? 0
+    : Math.max(0, Math.floor((now - startedAt) / 1000));
 }

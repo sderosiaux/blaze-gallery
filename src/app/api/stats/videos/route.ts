@@ -10,8 +10,9 @@ const LIMIT = 25;
 
 export const GET = requireAuth(async function GET() {
   try {
-    const [summaryResult, formatsResult, largestResult, albumsResult] = await Promise.all([
-      query(`
+    const [summaryResult, formatsResult, largestResult, albumsResult] =
+      await Promise.all([
+        query(`
         SELECT
           COUNT(*)::int AS total_videos,
           COALESCE(SUM(size), 0)::float8 AS total_size_bytes,
@@ -21,7 +22,7 @@ export const GET = requireAuth(async function GET() {
         FROM photos
         WHERE mime_type LIKE 'video/%'
       `),
-      query(`
+        query(`
         SELECT
           CASE WHEN strpos(filename, '.') > 0 THEN LOWER(split_part(filename, '.', -1)) ELSE 'none' END AS format,
           COUNT(*)::int AS count,
@@ -31,8 +32,8 @@ export const GET = requireAuth(async function GET() {
         GROUP BY 1
         ORDER BY count DESC
       `),
-      query(
-        `
+        query(
+          `
         SELECT
           p.id::int AS id,
           p.filename,
@@ -46,10 +47,10 @@ export const GET = requireAuth(async function GET() {
         ORDER BY p.size DESC
         LIMIT $1
         `,
-        [LIMIT],
-      ),
-      query(
-        `
+          [LIMIT],
+        ),
+        query(
+          `
         SELECT
           f.id::int AS id,
           f.name,
@@ -67,9 +68,9 @@ export const GET = requireAuth(async function GET() {
         JOIN folders f ON f.id = v.folder_id
         ORDER BY v.video_count DESC, v.total_size_bytes DESC
         `,
-        [LIMIT],
-      ),
-    ]);
+          [LIMIT],
+        ),
+      ]);
 
     const data: VideoStats = {
       summary: summaryResult.rows[0],

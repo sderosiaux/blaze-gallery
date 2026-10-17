@@ -79,7 +79,18 @@ type ButtonProps = StyleProps & ComponentPropsWithoutRef<"button">;
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   function Button(
-    { variant, size, icon, iconRight, loading, className, children, disabled, type = "button", ...rest },
+    {
+      variant,
+      size,
+      icon,
+      iconRight,
+      loading,
+      className,
+      children,
+      disabled,
+      type = "button",
+      ...rest
+    },
     ref,
   ) {
     return (
@@ -91,7 +102,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={buttonClasses({ variant, size, className })}
         {...rest}
       >
-        <Content icon={icon} iconRight={iconRight} loading={loading} size={size}>
+        <Content
+          icon={icon}
+          iconRight={iconRight}
+          loading={loading}
+          size={size}
+        >
           {children}
         </Content>
       </button>

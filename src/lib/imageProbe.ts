@@ -167,7 +167,10 @@ function readDimensions(
   // PixelX/YDimension can be stale after an edit, so it is only a fallback.
   const candidates: [unknown, unknown][] = [
     [tags.file?.["Image Width"]?.value, tags.file?.["Image Height"]?.value],
-    [tags.pngFile?.["Image Width"]?.value, tags.pngFile?.["Image Height"]?.value],
+    [
+      tags.pngFile?.["Image Width"]?.value,
+      tags.pngFile?.["Image Height"]?.value,
+    ],
     [tags.exif?.PixelXDimension?.value, tags.exif?.PixelYDimension?.value],
     [tags.exif?.ImageWidth?.value, tags.exif?.ImageLength?.value],
   ];

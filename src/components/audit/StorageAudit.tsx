@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { IconButton, MetaDot, PageHeader, Select } from "@/components/ui";
-import type { AuditLogPage, AuditOperation, AuditSeries, AuditSummary } from "./types";
+import type {
+  AuditLogPage,
+  AuditOperation,
+  AuditSeries,
+  AuditSummary,
+} from "./types";
 import { RANGES, formatMoment, rangeById, type RangeId } from "./format";
 import { useAuditData } from "./useAuditData";
 import { SummaryStats } from "./SummaryStats";
@@ -19,7 +24,10 @@ interface Period {
 
 function periodFor(id: RangeId): Period {
   const end = Date.now();
-  return { start: new Date(end - rangeById(id).ms).toISOString(), end: new Date(end).toISOString() };
+  return {
+    start: new Date(end - rangeById(id).ms).toISOString(),
+    end: new Date(end).toISOString(),
+  };
 }
 
 function periodQuery({ start, end }: Period) {
@@ -39,11 +47,18 @@ export function StorageAudit() {
   const q = period && periodQuery(period);
 
   const summary = useAuditData<AuditSummary>(q && `/api/audit/stats?${q}`);
-  const series = useAuditData<AuditSeries>(q && `/api/audit/performance?${q}&bucket_seconds=${range.bucketSeconds}`);
-  const operations = useAuditData<{ operations: AuditOperation[] }>(q && `/api/audit/operations?${q}`);
-  const logs = useAuditData<AuditLogPage>(q && `/api/audit/logs?${q}&limit=${pageSize}`);
+  const series = useAuditData<AuditSeries>(
+    q && `/api/audit/performance?${q}&bucket_seconds=${range.bucketSeconds}`,
+  );
+  const operations = useAuditData<{ operations: AuditOperation[] }>(
+    q && `/api/audit/operations?${q}`,
+  );
+  const logs = useAuditData<AuditLogPage>(
+    q && `/api/audit/logs?${q}&limit=${pageSize}`,
+  );
 
-  const anyLoading = summary.loading || series.loading || operations.loading || logs.loading;
+  const anyLoading =
+    summary.loading || series.loading || operations.loading || logs.loading;
 
   const changeRange = (id: RangeId) => {
     setRangeId(id);
@@ -66,7 +81,8 @@ export function StorageAudit() {
               <>
                 <MetaDot />
                 <span className="tabular">
-                  {formatMoment(Date.parse(period.start))} to {formatMoment(Date.parse(period.end))}
+                  {formatMoment(Date.parse(period.start))} to{" "}
+                  {formatMoment(Date.parse(period.end))}
                 </span>
               </>
             )}
@@ -100,9 +116,21 @@ export function StorageAudit() {
         }
       />
 
-      <SummaryStats summary={summary.data} loading={summary.loading} error={summary.error} onRetry={summary.retry} range={range} />
+      <SummaryStats
+        summary={summary.data}
+        loading={summary.loading}
+        error={summary.error}
+        onRetry={summary.retry}
+        range={range}
+      />
 
-      <TrafficCharts series={series.data} loading={series.loading} error={series.error} onRetry={series.retry} range={range} />
+      <TrafficCharts
+        series={series.data}
+        loading={series.loading}
+        error={series.error}
+        onRetry={series.retry}
+        range={range}
+      />
 
       <OperationsTable
         operations={operations.data?.operations ?? null}

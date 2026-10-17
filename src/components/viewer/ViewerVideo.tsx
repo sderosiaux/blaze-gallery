@@ -10,7 +10,14 @@ import { photoRatio, type ViewerSources } from "./sources";
 
 // Containers no browser plays. Others (MOV, 3GP) are worth a try: Chrome plays
 // many of them despite an empty canPlayType().
-const UNPLAYABLE = ["video/x-msvideo", "video/avi", "video/msvideo", "video/mp2t", "video/x-ms-wmv", "video/x-flv"];
+const UNPLAYABLE = [
+  "video/x-msvideo",
+  "video/avi",
+  "video/msvideo",
+  "video/mp2t",
+  "video/x-ms-wmv",
+  "video/x-flv",
+];
 
 interface ViewerVideoProps {
   photo: Photo;
@@ -23,7 +30,9 @@ interface ViewerVideoProps {
 }
 
 function extensionOf(filename: string) {
-  return filename.includes(".") ? filename.split(".").pop()!.toUpperCase() : "these";
+  return filename.includes(".")
+    ? filename.split(".").pop()!.toUpperCase()
+    : "these";
 }
 
 export default function ViewerVideo({
@@ -36,7 +45,9 @@ export default function ViewerVideo({
 }: ViewerVideoProps) {
   const areaRef = useRef<HTMLDivElement>(null);
   const area = useElementSize(areaRef);
-  const [failed, setFailed] = useState(() => UNPLAYABLE.includes(photo.mime_type.toLowerCase()));
+  const [failed, setFailed] = useState(() =>
+    UNPLAYABLE.includes(photo.mime_type.toLowerCase()),
+  );
   const [natural, setNatural] = useState<number | undefined>(undefined);
   const media = useSessionImage(failed ? null : sources.full, sessionToken);
 
@@ -49,12 +60,18 @@ export default function ViewerVideo({
 
   if (failed || media.status === "error") {
     return (
-      <div ref={areaRef} data-backdrop className="absolute inset-0 flex items-center justify-center p-4">
+      <div
+        ref={areaRef}
+        data-backdrop
+        className="absolute inset-0 flex items-center justify-center p-4"
+      >
         <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
           <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-sunken text-ink-soft">
             <Film className="h-5 w-5" aria-hidden />
           </span>
-          <h2 className="font-display text-display-sm font-normal text-ink">This video can&rsquo;t play here</h2>
+          <h2 className="font-display text-display-sm font-normal text-ink">
+            This video can&rsquo;t play here
+          </h2>
           <p className="mt-2 text-pretty text-sm text-ink-muted">
             {`Browsers don’t play ${extensionOf(photo.filename)} files. `}
             {allowDownload
@@ -72,7 +89,11 @@ export default function ViewerVideo({
   }
 
   return (
-    <div ref={areaRef} data-backdrop className="absolute inset-0 flex items-center justify-center">
+    <div
+      ref={areaRef}
+      data-backdrop
+      className="absolute inset-0 flex items-center justify-center"
+    >
       <div
         className={
           media.status === "ready"
@@ -92,7 +113,8 @@ export default function ViewerVideo({
             className="absolute inset-0 h-full w-full bg-surface-sunken object-contain"
             onLoadedMetadata={(e) => {
               const v = e.currentTarget;
-              if (v.videoWidth && v.videoHeight) setNatural(v.videoWidth / v.videoHeight);
+              if (v.videoWidth && v.videoHeight)
+                setNatural(v.videoWidth / v.videoHeight);
             }}
             onPlaying={() => onSettled("playing")}
             onEnded={() => onSettled("ended")}

@@ -1,6 +1,9 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 
-export function useElementSize(ref: RefObject<HTMLElement>): { width: number; height: number } {
+export function useElementSize(ref: RefObject<HTMLElement>): {
+  width: number;
+  height: number;
+} {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
@@ -9,7 +12,11 @@ export function useElementSize(ref: RefObject<HTMLElement>): { width: number; he
     const measure = () => {
       const width = el.clientWidth;
       const height = el.clientHeight;
-      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+      setSize((prev) =>
+        prev.width === width && prev.height === height
+          ? prev
+          : { width, height },
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);

@@ -7,18 +7,40 @@ import { albumHref } from "@/components/photos/AlbumCard";
 import { EmptyState, Section, Stat } from "@/components/ui";
 import { parseAlbumName } from "@/lib/albums";
 import { BarList, ShowMore, type BarItem } from "./charts";
-import { albumKicker, formatExtension, formatNumber, formatPercent, formatSize, ownDate } from "./format";
-import { BarsSkeleton, SectionTitleSkeleton, StatsRowSkeleton, TabError } from "./TabState";
+import {
+  albumKicker,
+  formatExtension,
+  formatNumber,
+  formatPercent,
+  formatSize,
+  ownDate,
+} from "./format";
+import {
+  BarsSkeleton,
+  SectionTitleSkeleton,
+  StatsRowSkeleton,
+  TabError,
+} from "./TabState";
 import type { VideoStats } from "./types";
 import { useStatsResource } from "./useStatsResource";
 
 const cell = "border-t border-line pt-4";
 
 export default function VideosTab({ active }: { active: boolean }) {
-  const { state, retry } = useStatsResource<VideoStats>("/api/stats/videos", active);
+  const { state, retry } = useStatsResource<VideoStats>(
+    "/api/stats/videos",
+    active,
+  );
 
   if (state.status === "error") {
-    return <TabError title="Video figures didn't load" error={state.error} onRetry={retry} className="py-6" />;
+    return (
+      <TabError
+        title="Video figures didn't load"
+        error={state.error}
+        onRetry={retry}
+        className="py-6"
+      />
+    );
   }
 
   if (state.status !== "ready") {
@@ -78,22 +100,54 @@ export default function VideosTab({ active }: { active: boolean }) {
   return (
     <div className="animate-fade-in">
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 pt-8 sm:pt-10 lg:grid-cols-4">
-        <Stat className={cell} label="Videos" value={formatNumber(summary.total_videos)} hint={`in ${formatNumber(summary.albums_with_videos)} albums`} />
-        <Stat className={cell} label="Space used" value={formatSize(summary.total_size_bytes)} />
-        <Stat className={cell} label="Average size" value={formatSize(summary.avg_size_bytes)} />
-        <Stat className={cell} label="Largest" value={formatSize(summary.max_size_bytes)} hint={largest[0]?.filename} />
+        <Stat
+          className={cell}
+          label="Videos"
+          value={formatNumber(summary.total_videos)}
+          hint={`in ${formatNumber(summary.albums_with_videos)} albums`}
+        />
+        <Stat
+          className={cell}
+          label="Space used"
+          value={formatSize(summary.total_size_bytes)}
+        />
+        <Stat
+          className={cell}
+          label="Average size"
+          value={formatSize(summary.avg_size_bytes)}
+        />
+        <Stat
+          className={cell}
+          label="Largest"
+          value={formatSize(summary.max_size_bytes)}
+          hint={largest[0]?.filename}
+        />
       </div>
 
       <div className="grid gap-x-12 lg:grid-cols-2">
-        <Section title="Formats" description="How many videos of each kind, and the space they take.">
-          <BarList items={formatItems} initial={6} step={10} noun="more formats" />
+        <Section
+          title="Formats"
+          description="How many videos of each kind, and the space they take."
+        >
+          <BarList
+            items={formatItems}
+            initial={6}
+            step={10}
+            noun="more formats"
+          />
         </Section>
-        <Section title="Albums with the most videos" description="Where the videos live, and the space they take there.">
+        <Section
+          title="Albums with the most videos"
+          description="Where the videos live, and the space they take there."
+        >
           <BarList items={albumItems} initial={6} step={8} noun="more albums" />
         </Section>
       </div>
 
-      <Section title="Largest videos" description="The files that weigh the most. Open one to watch it in its album.">
+      <Section
+        title="Largest videos"
+        description="The files that weigh the most. Open one to watch it in its album."
+      >
         <LargestVideos videos={largest} />
       </Section>
     </div>
@@ -109,10 +163,27 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
         <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-[0.08em] text-ink-muted">
-              <th scope="col" className="px-4 py-2.5 font-medium">Video</th>
-              <th scope="col" className="hidden px-4 py-2.5 font-medium md:table-cell">Album</th>
-              <th scope="col" className="hidden w-20 px-4 py-2.5 font-medium sm:table-cell">Format</th>
-              <th scope="col" className="w-24 px-4 py-2.5 text-right font-medium">Size</th>
+              <th scope="col" className="px-4 py-2.5 font-medium">
+                Video
+              </th>
+              <th
+                scope="col"
+                className="hidden px-4 py-2.5 font-medium md:table-cell"
+              >
+                Album
+              </th>
+              <th
+                scope="col"
+                className="hidden w-20 px-4 py-2.5 font-medium sm:table-cell"
+              >
+                Format
+              </th>
+              <th
+                scope="col"
+                className="w-24 px-4 py-2.5 text-right font-medium"
+              >
+                Size
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -144,15 +215,26 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
                       {album}
                     </Link>
                   </td>
-                  <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">{formatExtension(v.format)}</td>
-                  <td className="tabular px-4 py-3 text-right text-ink-soft">{formatSize(v.size)}</td>
+                  <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
+                    {formatExtension(v.format)}
+                  </td>
+                  <td className="tabular px-4 py-3 text-right text-ink-soft">
+                    {formatSize(v.size)}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <ShowMore total={videos.length} visible={visible} initial={initial} step={8} noun="more videos" onChange={setVisible} />
+      <ShowMore
+        total={videos.length}
+        visible={visible}
+        initial={initial}
+        step={8}
+        noun="more videos"
+        onChange={setVisible}
+      />
     </>
   );
 }

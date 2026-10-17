@@ -31,7 +31,9 @@ interface ViewerPhotoProps {
 const DOUBLE_TAP_MS = 300;
 
 function ratioOf(layer: Layer): number | undefined {
-  return layer && layer !== "failed" && layer.height > 0 ? layer.width / layer.height : undefined;
+  return layer && layer !== "failed" && layer.height > 0
+    ? layer.width / layer.height
+    : undefined;
 }
 
 /** Blur that hides the blockiness of a small image blown up to the stage. */
@@ -68,7 +70,9 @@ export default function ViewerPhoto({
 
   const full = useImageLoading(sources.full, { sessionToken });
   const [readyAtOpen] = useState(() => full.status === "ready");
-  const fullReady = Boolean(sources.full && full.status === "ready" && full.element);
+  const fullReady = Boolean(
+    sources.full && full.status === "ready" && full.element,
+  );
 
   // Once the original has faded in, the soft layers go: a transparent PNG
   // must not show a blurred copy of itself underneath.
@@ -80,21 +84,36 @@ export default function ViewerPhoto({
   }, [fullReady]);
 
   const thumbSrc = layers.thumb ?? (thumbFallback ? sources.thumb : undefined);
-  const previewShown = Boolean(layers.preview) && preview !== null && preview !== "failed";
+  const previewShown =
+    Boolean(layers.preview) && preview !== null && preview !== "failed";
   const thumbShown = Boolean(thumbSrc) && thumb !== null && thumb !== "failed";
   const hasPlaceholder = previewShown || thumbShown;
 
   // Nothing cheap on hand (no EXIF preview): the generated thumbnail is the
   // next best thing, even if the server has to make it.
   useEffect(() => {
-    if (!layers.thumb && (!layers.preview || preview === "failed") && !fullReady) setThumbFallback(true);
+    if (
+      !layers.thumb &&
+      (!layers.preview || preview === "failed") &&
+      !fullReady
+    )
+      setThumbFallback(true);
   }, [layers, preview, fullReady]);
 
   const status: FullStatus = !sources.full ? "unavailable" : full.status;
   const previewGone = !layers.preview || preview === "failed";
-  const thumbGone = thumbSrc ? thumb === "failed" : !layers.thumb && thumbFallback;
-  const placeholder: PlaceholderState = hasPlaceholder ? "shown" : previewGone && thumbGone ? "none" : "pending";
-  useEffect(() => onStatus(status, placeholder), [status, placeholder, onStatus]);
+  const thumbGone = thumbSrc
+    ? thumb === "failed"
+    : !layers.thumb && thumbFallback;
+  const placeholder: PlaceholderState = hasPlaceholder
+    ? "shown"
+    : previewGone && thumbGone
+      ? "none"
+      : "pending";
+  useEffect(
+    () => onStatus(status, placeholder),
+    [status, placeholder, onStatus],
+  );
 
   const { retry } = full;
   useEffect(() => {
@@ -114,7 +133,12 @@ export default function ViewerPhoto({
 
   // Zoom: the original at its own pixels, at least twice the fitted size.
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  const zoomWidth = Math.round(Math.min(Math.max((full.width ?? box.width) / dpr, box.width * 2), box.width * 4));
+  const zoomWidth = Math.round(
+    Math.min(
+      Math.max((full.width ?? box.width) / dpr, box.width * 2),
+      box.width * 4,
+    ),
+  );
   const zoomHeight = Math.round(zoomWidth / ratio);
   const zoomOrigin = useRef<{ x: number; y: number } | null>(null);
   const isZoomed = zoomed && fullReady;
@@ -133,7 +157,11 @@ export default function ViewerPhoto({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZoomed]);
 
-  const toggleZoomAt = (clientX: number, clientY: number, target: HTMLElement) => {
+  const toggleZoomAt = (
+    clientX: number,
+    clientY: number,
+    target: HTMLElement,
+  ) => {
     if (!fullReady) return;
     if (!zoomed) {
       const rect = target.getBoundingClientRect();
@@ -149,7 +177,8 @@ export default function ViewerPhoto({
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
   const tapStart = useRef<{ x: number; y: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    if (e.pointerType === "touch") tapStart.current = { x: e.clientX, y: e.clientY };
+    if (e.pointerType === "touch")
+      tapStart.current = { x: e.clientX, y: e.clientY };
   };
   const onPointerUp = (e: React.PointerEvent<HTMLElement>) => {
     const start = tapStart.current;
@@ -158,7 +187,11 @@ export default function ViewerPhoto({
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) return;
     const now = Date.now();
     const prev = lastTap.current;
-    if (prev && now - prev.t < DOUBLE_TAP_MS && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30) {
+    if (
+      prev &&
+      now - prev.t < DOUBLE_TAP_MS &&
+      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30
+    ) {
       lastTap.current = null;
       toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
     } else {
@@ -167,12 +200,22 @@ export default function ViewerPhoto({
   };
 
   // Mouse drag pans the zoomed photo; touch and trackpads scroll natively.
-  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
   const onPanStart = (e: React.PointerEvent<HTMLDivElement>) => {
     onPointerDown(e);
     if (e.pointerType !== "mouse" || e.button !== 0) return;
     const el = e.currentTarget;
-    drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
+    drag.current = {
+      x: e.clientX,
+      y: e.clientY,
+      left: el.scrollLeft,
+      top: el.scrollTop,
+    };
     el.setPointerCapture(e.pointerId);
   };
   const onPanMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -194,7 +237,9 @@ export default function ViewerPhoto({
         <div
           ref={scrollRef}
           className="scrollbar-none absolute inset-0 cursor-grab overflow-auto overscroll-contain active:cursor-grabbing"
-          onDoubleClick={(e) => toggleZoomAt(e.clientX, e.clientY, e.currentTarget)}
+          onDoubleClick={(e) =>
+            toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
+          }
           onPointerDown={onPanStart}
           onPointerMove={onPanMove}
           onPointerUp={onPanEnd}
@@ -211,9 +256,14 @@ export default function ViewerPhoto({
           </div>
         </div>
       ) : (
-        <div data-backdrop className="absolute inset-0 flex items-center justify-center">
+        <div
+          data-backdrop
+          className="absolute inset-0 flex items-center justify-center"
+        >
           {/* Nothing displayable is coming: the viewer shows its own explanation instead. */}
-          {placeholder === "none" && status !== "loading" && !fullReady ? null : (
+          {placeholder === "none" &&
+          status !== "loading" &&
+          !fullReady ? null : (
             <div
               className={cn(
                 "relative overflow-hidden shadow-lift sm:rounded-sm",
@@ -221,7 +271,9 @@ export default function ViewerPhoto({
                 !hasPlaceholder && !fullReady && "skeleton",
               )}
               style={{ width: box.width, height: box.height, cursor: zoomHint }}
-              onDoubleClick={(e) => toggleZoomAt(e.clientX, e.clientY, e.currentTarget)}
+              onDoubleClick={(e) =>
+                toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
+              }
               onPointerDown={onPointerDown}
               onPointerUp={onPointerUp}
             >
@@ -232,7 +284,10 @@ export default function ViewerPhoto({
                   draggable={false}
                   decoding="async"
                   onLoad={(e) =>
-                    setPreview({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })
+                    setPreview({
+                      width: e.currentTarget.naturalWidth,
+                      height: e.currentTarget.naturalHeight,
+                    })
                   }
                   onError={() => setPreview("failed")}
                   className={cn(
@@ -249,7 +304,10 @@ export default function ViewerPhoto({
                   draggable={false}
                   decoding="async"
                   onLoad={(e) =>
-                    setThumb({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })
+                    setThumb({
+                      width: e.currentTarget.naturalWidth,
+                      height: e.currentTarget.naturalHeight,
+                    })
                   }
                   onError={() => setThumb("failed")}
                   className={cn(

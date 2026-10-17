@@ -21,7 +21,20 @@ export function AlbumGridSkeleton({ count = 8 }: { count?: number }) {
 }
 
 // Shares of a row, as landscape and portrait photos fall in a justified grid.
-const BASIS = ["34%", "22%", "30%", "40%", "18%", "28%", "36%", "24%", "31%", "20%", "38%", "26%"];
+const BASIS = [
+  "34%",
+  "22%",
+  "30%",
+  "40%",
+  "18%",
+  "28%",
+  "36%",
+  "24%",
+  "31%",
+  "20%",
+  "38%",
+  "26%",
+];
 
 /**
  * Rows of mixed widths at the grid's own row heights (128 / 170 / 220 px),
@@ -29,7 +42,11 @@ const BASIS = ["34%", "22%", "30%", "40%", "18%", "28%", "36%", "24%", "31%", "2
  */
 export function JustifiedSkeleton({ count = 15 }: { count?: number }) {
   return (
-    <div role="status" aria-label="Loading photos" className="flex flex-wrap gap-1">
+    <div
+      role="status"
+      aria-label="Loading photos"
+      className="flex flex-wrap gap-1"
+    >
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
@@ -62,7 +79,11 @@ function SectionHeadSkeleton() {
 }
 
 /** An album before its contents arrive (the breadcrumb is already real): header, then covers or photos. */
-export function AlbumSkeleton({ shape = "photos" }: { shape?: "photos" | "albums" }) {
+export function AlbumSkeleton({
+  shape = "photos",
+}: {
+  shape?: "photos" | "albums";
+}) {
   return (
     <div aria-busy="true">
       <HeaderSkeleton />

@@ -12,10 +12,16 @@ interface RevokeDialogProps {
   onRevoked: (share: ShareLink) => void;
 }
 
-export default function RevokeDialog({ share, onClose, onRevoked }: RevokeDialogProps) {
+export default function RevokeDialog({
+  share,
+  onClose,
+  onRevoked,
+}: RevokeDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const title = share ? parseAlbumName(share.folder_name || folderNameOf(share.folder_path)).title : "";
+  const title = share
+    ? parseAlbumName(share.folder_name || folderNameOf(share.folder_path)).title
+    : "";
 
   // Stable, so Dialog keeps focus where it is while the request runs.
   const busyRef = useRef(false);
@@ -50,10 +56,19 @@ export default function RevokeDialog({ share, onClose, onRevoked }: RevokeDialog
       onClose={close}
       size="sm"
       title="Revoke this link?"
-      description={share ? `${title} · link created ${formatInstant(share.created_at)}` : undefined}
+      description={
+        share
+          ? `${title} · link created ${formatInstant(share.created_at)}`
+          : undefined
+      }
       footer={
         <>
-          <Button variant="ghost" onClick={close} data-autofocus disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={close}
+            data-autofocus
+            disabled={busy}
+          >
             Keep link
           </Button>
           <Button variant="danger" onClick={confirm} loading={busy}>
@@ -64,11 +79,17 @@ export default function RevokeDialog({ share, onClose, onRevoked }: RevokeDialog
     >
       <p className="text-sm leading-relaxed text-ink-soft">
         Anyone who opens it will see that the album is no longer shared.
-        {share && share.view_count > 0 && <> It has been opened {formatCount(share.view_count, "time")}.</>} This
-        can&apos;t be undone, but you can always create a new link from the album.
+        {share && share.view_count > 0 && (
+          <> It has been opened {formatCount(share.view_count, "time")}.</>
+        )}{" "}
+        This can&apos;t be undone, but you can always create a new link from the
+        album.
       </p>
       {error && (
-        <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+        <p
+          role="alert"
+          className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+        >
           The link is still active. {error}
         </p>
       )}

@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 interface LayoutContextType {
   sidebarCollapsed: boolean;
@@ -40,7 +47,15 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <LayoutContext.Provider value={{ sidebarCollapsed, sidebarAnimated, toggleSidebar, mobileNavOpen, setMobileNavOpen }}>
+    <LayoutContext.Provider
+      value={{
+        sidebarCollapsed,
+        sidebarAnimated,
+        toggleSidebar,
+        mobileNavOpen,
+        setMobileNavOpen,
+      }}
+    >
       {children}
     </LayoutContext.Provider>
   );

@@ -1,11 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { CircleCheck, Images, RefreshCw, TriangleAlert, Info, HardDrive, FileStack } from "lucide-react";
+import {
+  CircleCheck,
+  Images,
+  RefreshCw,
+  TriangleAlert,
+  Info,
+  HardDrive,
+  FileStack,
+} from "lucide-react";
 import { Badge, Button, Section, Skeleton, Stat } from "@/components/ui";
 import { formatBytes } from "@/lib/format";
 import type { ThumbnailCoverage, ThumbnailStorageScan } from "./types";
-import { formatCount, formatDuration, formatFullDay, formatShare, formatTime } from "./format";
+import {
+  formatCount,
+  formatDuration,
+  formatFullDay,
+  formatShare,
+  formatTime,
+} from "./format";
 import { SectionError } from "./SectionError";
 import { useAuditData } from "./useAuditData";
 
@@ -24,11 +38,17 @@ function SampleList({ items, total }: { items: string[]; total: number }) {
   return (
     <details className="group mt-2">
       <summary className="inline-flex min-h-[32px] items-center text-sm text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink">
-        {total > items.length ? `Show the first ${items.length}` : `Show ${items.length === 1 ? "it" : `all ${items.length}`}`}
+        {total > items.length
+          ? `Show the first ${items.length}`
+          : `Show ${items.length === 1 ? "it" : `all ${items.length}`}`}
       </summary>
       <ul className="mt-2 space-y-1">
         {items.map((item) => (
-          <li key={item} className="truncate font-mono text-xs text-ink-soft" title={item}>
+          <li
+            key={item}
+            className="truncate font-mono text-xs text-ink-soft"
+            title={item}
+          >
             {/* Some legacy records hold a newline; show it as a visible mark. */}
             {item.replace(/\n/g, "⏎")}
           </li>
@@ -55,8 +75,10 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
             {formatCount(missing.count)} missing
           </Badge>
           <p className="mt-2 text-sm text-ink-soft">
-            {missing.count === 1 ? "A photo record points" : `${formatCount(missing.count)} photo records point`} to a
-            thumbnail that is not in storage.
+            {missing.count === 1
+              ? "A photo record points"
+              : `${formatCount(missing.count)} photo records point`}{" "}
+            to a thumbnail that is not in storage.
           </p>
           <SampleList items={missing.sample} total={missing.count} />
         </div>
@@ -67,8 +89,10 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
             {formatCount(orphaned.count)} unused
           </Badge>
           <p className="mt-2 text-sm text-ink-soft">
-            {orphaned.count === 1 ? "A file in storage is" : `${formatCount(orphaned.count)} files in storage are`} not
-            referenced by any photo.
+            {orphaned.count === 1
+              ? "A file in storage is"
+              : `${formatCount(orphaned.count)} files in storage are`}{" "}
+            not referenced by any photo.
           </p>
           <SampleList items={orphaned.sample} total={orphaned.count} />
         </div>
@@ -78,7 +102,9 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
 }
 
 export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
-  const coverage = useAuditData<ThumbnailCoverage>("/api/audit/thumbnails", { reloadKey });
+  const coverage = useAuditData<ThumbnailCoverage>("/api/audit/thumbnails", {
+    reloadKey,
+  });
   // `recount` asks the server to list storage again instead of using its cache.
   const [recount, setRecount] = useState(0);
   const scan = useAuditData<ThumbnailStorageScan>(
@@ -87,10 +113,13 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
   );
 
   const cov = coverage.data;
-  const share = cov && cov.total_photos > 0 ? cov.with_thumbnail / cov.total_photos : 0;
+  const share =
+    cov && cov.total_photos > 0 ? cov.with_thumbnail / cov.total_photos : 0;
   const s = scan.data;
 
-  const dim = scan.loading ? "opacity-60 transition-opacity duration-200" : "transition-opacity duration-200";
+  const dim = scan.loading
+    ? "opacity-60 transition-opacity duration-200"
+    : "transition-opacity duration-200";
   const scanStats = s ? (
     <>
       <Stat
@@ -98,14 +127,20 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
         icon={HardDrive}
         label="Stored"
         value={formatBytes(s.total_bytes)}
-        hint={s.mode === "s3" ? "In the thumbnail bucket" : "On the server disk"}
+        hint={
+          s.mode === "s3" ? "In the thumbnail bucket" : "On the server disk"
+        }
       />
       <Stat
         className={dim}
         icon={FileStack}
         label="Files"
         value={formatCount(s.file_count)}
-        hint={s.file_count > 0 ? `${formatBytes(s.total_bytes / s.file_count)} each on average` : "No files yet"}
+        hint={
+          s.file_count > 0
+            ? `${formatBytes(s.total_bytes / s.file_count)} each on average`
+            : "No files yet"
+        }
       />
     </>
   ) : scan.error ? null : (
@@ -142,7 +177,11 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
       <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-10 lg:grid-cols-4">
         {coverage.error ? (
           <div className="col-span-2">
-            <SectionError title="Thumbnail coverage did not load" error={coverage.error} onRetry={coverage.retry} />
+            <SectionError
+              title="Thumbnail coverage did not load"
+              error={coverage.error}
+              onRetry={coverage.retry}
+            />
           </div>
         ) : cov ? (
           <>
@@ -160,9 +199,13 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
                     aria-valuenow={Math.round(share * 1000) / 10}
                     className="mb-2 mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-accent-soft"
                   >
-                    <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(share * 100, 0.5)}%` }} />
+                    <span
+                      className="block h-full rounded-full bg-accent"
+                      style={{ width: `${Math.max(share * 100, 0.5)}%` }}
+                    />
                   </span>
-                  {formatCount(cov.with_thumbnail)} of {formatCount(cov.total_photos)} photos
+                  {formatCount(cov.with_thumbnail)} of{" "}
+                  {formatCount(cov.total_photos)} photos
                 </>
               }
             />
@@ -186,16 +229,24 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
 
       <div className="mt-8 border-t border-line pt-6">
         {scan.error ? (
-          <SectionError title="Counting the stored files did not finish" error={scan.error} onRetry={scan.retry} />
+          <SectionError
+            title="Counting the stored files did not finish"
+            error={scan.error}
+            onRetry={scan.retry}
+          />
         ) : s ? (
           <div className={dim}>
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-              <span className="max-w-full truncate font-mono text-xs text-ink-soft" title={s.location}>
+              <span
+                className="max-w-full truncate font-mono text-xs text-ink-soft"
+                title={s.location}
+              >
                 {s.location}
               </span>
               {s.oldest && s.newest && (
                 <span>
-                  Written between {formatFullDay(Date.parse(s.oldest))} and {formatFullDay(Date.parse(s.newest))}
+                  Written between {formatFullDay(Date.parse(s.oldest))} and{" "}
+                  {formatFullDay(Date.parse(s.newest))}
                 </span>
               )}
               <span role="status">
@@ -205,7 +256,9 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
               </span>
             </p>
             {!s.directory_exists ? (
-              <p className="mt-4 text-sm text-danger">The thumbnail folder does not exist on the server.</p>
+              <p className="mt-4 text-sm text-danger">
+                The thumbnail folder does not exist on the server.
+              </p>
             ) : (
               <div className="mt-5">
                 <Integrity scan={s} />
@@ -215,7 +268,10 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
         ) : (
           <p role="status" className="text-sm text-ink-muted">
             Counting the files in storage. This lists every thumbnail
-            {cov ? `, about ${formatCount(cov.with_thumbnail)} of them,` : ""} and takes up to a minute.
+            {cov
+              ? `, about ${formatCount(cov.with_thumbnail)} of them,`
+              : ""}{" "}
+            and takes up to a minute.
           </p>
         )}
       </div>

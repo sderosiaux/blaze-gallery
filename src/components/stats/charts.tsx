@@ -24,12 +24,26 @@ export const seriesLabel: Record<Series, string> = {
   video: "Videos",
 };
 
-export function Legend({ series, className }: { series: Series[]; className?: string }) {
+export function Legend({
+  series,
+  className,
+}: {
+  series: Series[];
+  className?: string;
+}) {
   return (
-    <ul className={cn("flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted", className)}>
+    <ul
+      className={cn(
+        "flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted",
+        className,
+      )}
+    >
       {series.map((s) => (
         <li key={s} className="flex items-center gap-1.5">
-          <span aria-hidden className={cn("h-2.5 w-2.5 rounded-[2px]", seriesFill[s])} />
+          <span
+            aria-hidden
+            className={cn("h-2.5 w-2.5 rounded-[2px]", seriesFill[s])}
+          />
           {seriesLabel[s]}
         </li>
       ))}
@@ -39,7 +53,13 @@ export function Legend({ series, className }: { series: Series[]; className?: st
 
 /** Hover/focus readout for one mark. Same width as its mark, so it can never
  *  push the page sideways on a phone. Every value in it is also on the page. */
-export function MarkTooltip({ children, className }: { children: React.ReactNode; className?: string }) {
+export function MarkTooltip({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <span
       role="tooltip"
@@ -55,7 +75,13 @@ export function MarkTooltip({ children, className }: { children: React.ReactNode
 }
 
 /** Tooltip line: value strong first, label after (the reader already knows the mark). */
-export function TipRow({ value, label }: { value: React.ReactNode; label: React.ReactNode }) {
+export function TipRow({
+  value,
+  label,
+}: {
+  value: React.ReactNode;
+  label: React.ReactNode;
+}) {
   return (
     <span className="flex items-baseline justify-between gap-3">
       <span className="text-ink-muted">{label}</span>
@@ -90,7 +116,14 @@ interface BarListProps {
 
 /** Ranked horizontal bars: label above, a thin bar from a shared baseline,
  *  the value at the tip side. Capped, with "Show more". */
-export function BarList({ items, initial = 8, step = 8, max, noun = "more", className }: BarListProps) {
+export function BarList({
+  items,
+  initial = 8,
+  step = 8,
+  max,
+  noun = "more",
+  className,
+}: BarListProps) {
   const [visible, setVisible] = useState(initial);
   const top = max ?? Math.max(1, ...items.map((i) => i.value));
   const shown = items.slice(0, visible);
@@ -99,22 +132,28 @@ export function BarList({ items, initial = 8, step = 8, max, noun = "more", clas
     <div className={className}>
       <ol className="space-y-1">
         {shown.map((item) => {
-          const width = item.value > 0 ? Math.max(0.6, (item.value / top) * 100) : 0;
+          const width =
+            item.value > 0 ? Math.max(0.6, (item.value / top) * 100) : 0;
           const body = (
             <>
               <span className="flex items-baseline justify-between gap-4">
                 <span className="min-w-0">
-                  {item.kicker && <span className="kicker block truncate">{item.kicker}</span>}
+                  {item.kicker && (
+                    <span className="kicker block truncate">{item.kicker}</span>
+                  )}
                   <span
                     className={cn(
                       "block truncate text-sm text-ink",
-                      item.href && "transition-colors duration-150 group-hover:text-accent-strong",
+                      item.href &&
+                        "transition-colors duration-150 group-hover:text-accent-strong",
                     )}
                   >
                     {item.label}
                   </span>
                 </span>
-                <span className="tabular shrink-0 text-sm text-ink-soft">{item.valueLabel}</span>
+                <span className="tabular shrink-0 text-sm text-ink-soft">
+                  {item.valueLabel}
+                </span>
               </span>
               <span aria-hidden className="mt-1.5 block h-2">
                 <span
@@ -125,11 +164,16 @@ export function BarList({ items, initial = 8, step = 8, max, noun = "more", clas
                   style={{ width: `${width}%` }}
                 />
               </span>
-              {item.detail && <span className="tabular mt-1 block truncate text-xs text-ink-muted">{item.detail}</span>}
+              {item.detail && (
+                <span className="tabular mt-1 block truncate text-xs text-ink-muted">
+                  {item.detail}
+                </span>
+              )}
               {item.tooltip && <MarkTooltip>{item.tooltip}</MarkTooltip>}
             </>
           );
-          const rowClass = "group relative block rounded-md px-2 py-2 -mx-2 transition-colors duration-150 hover:bg-surface-sunken/60";
+          const rowClass =
+            "group relative block rounded-md px-2 py-2 -mx-2 transition-colors duration-150 hover:bg-surface-sunken/60";
           return (
             <li key={item.key}>
               {item.href ? (
@@ -137,7 +181,11 @@ export function BarList({ items, initial = 8, step = 8, max, noun = "more", clas
                   {body}
                 </Link>
               ) : (
-                <div tabIndex={item.tooltip ? 0 : undefined} aria-label={item.tooltip ? item.name : undefined} className={rowClass}>
+                <div
+                  tabIndex={item.tooltip ? 0 : undefined}
+                  aria-label={item.tooltip ? item.name : undefined}
+                  className={rowClass}
+                >
                   {body}
                 </div>
               )}
@@ -145,7 +193,14 @@ export function BarList({ items, initial = 8, step = 8, max, noun = "more", clas
           );
         })}
       </ol>
-      <ShowMore total={items.length} visible={visible} step={step} initial={initial} noun={noun} onChange={setVisible} />
+      <ShowMore
+        total={items.length}
+        visible={visible}
+        step={step}
+        initial={initial}
+        noun={noun}
+        onChange={setVisible}
+      />
     </div>
   );
 }
@@ -159,17 +214,34 @@ interface ShowMoreProps {
   onChange: (visible: number) => void;
 }
 
-export function ShowMore({ total, visible, initial, step, noun = "more", onChange }: ShowMoreProps) {
+export function ShowMore({
+  total,
+  visible,
+  initial,
+  step,
+  noun = "more",
+  onChange,
+}: ShowMoreProps) {
   if (total <= initial) return null;
   const remaining = total - visible;
   return (
     <div className="mt-3">
       {remaining > 0 ? (
-        <Button variant="ghost" size="sm" iconRight={ChevronDown} onClick={() => onChange(Math.min(total, visible + step))}>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconRight={ChevronDown}
+          onClick={() => onChange(Math.min(total, visible + step))}
+        >
           Show {Math.min(step, remaining)} {noun}
         </Button>
       ) : (
-        <Button variant="ghost" size="sm" iconRight={ChevronUp} onClick={() => onChange(initial)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconRight={ChevronUp}
+          onClick={() => onChange(initial)}
+        >
           Show fewer
         </Button>
       )}
@@ -190,7 +262,11 @@ export function SplitBar({
   const total = parts.reduce((s, p) => s + p.value, 0);
   if (total <= 0) return null;
   return (
-    <div role="img" aria-label={label} className={cn("flex h-1.5 w-full gap-0.5", className)}>
+    <div
+      role="img"
+      aria-label={label}
+      className={cn("flex h-1.5 w-full gap-0.5", className)}
+    >
       {parts
         .filter((p) => p.value > 0)
         .map((p, i, arr) => (
@@ -210,7 +286,17 @@ export function SplitBar({
 }
 
 /** A share against a whole. The track is a light step of the same hue. */
-export function Meter({ value, total, label, className }: { value: number; total: number; label: string; className?: string }) {
+export function Meter({
+  value,
+  total,
+  label,
+  className,
+}: {
+  value: number;
+  total: number;
+  label: string;
+  className?: string;
+}) {
   const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0;
   return (
     <div
@@ -219,7 +305,10 @@ export function Meter({ value, total, label, className }: { value: number; total
       aria-valuemin={0}
       aria-valuemax={total}
       aria-valuenow={value}
-      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-chart-5/15", className)}
+      className={cn(
+        "h-1.5 w-full overflow-hidden rounded-full bg-chart-5/15",
+        className,
+      )}
     >
       <div
         className="h-full rounded-full bg-chart-5"

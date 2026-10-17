@@ -9,7 +9,11 @@ export function useCopyLink() {
   return useCallback(
     async (url: string) => {
       if (await copyText(url)) toast.show("Link copied", "success");
-      else toast.show("Couldn't copy the link. Select it and copy it by hand.", "error");
+      else
+        toast.show(
+          "Couldn't copy the link. Select it and copy it by hand.",
+          "error",
+        );
     },
     [toast],
   );

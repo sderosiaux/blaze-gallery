@@ -20,8 +20,15 @@ interface Options {
  * previous data stays, so a section can keep its frame instead of flashing a
  * skeleton; an error clears it, since it would describe another time range.
  */
-export function useAuditData<T>(url: string | null, { reloadKey = 0, timeoutMs }: Options = {}) {
-  const [state, setState] = useState<State<T>>({ data: null, error: null, loading: url !== null });
+export function useAuditData<T>(
+  url: string | null,
+  { reloadKey = 0, timeoutMs }: Options = {},
+) {
+  const [state, setState] = useState<State<T>>({
+    data: null,
+    error: null,
+    loading: url !== null,
+  });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -40,7 +47,11 @@ export function useAuditData<T>(url: string | null, { reloadKey = 0, timeoutMs }
       .then(async (res) => {
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.success) {
-          throw new Error(body?.details || body?.error || `The server answered ${res.status}.`);
+          throw new Error(
+            body?.details ||
+              body?.error ||
+              `The server answered ${res.status}.`,
+          );
         }
         setState({ data: body.data as T, error: null, loading: false });
       })

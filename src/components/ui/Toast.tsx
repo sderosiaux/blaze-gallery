@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CheckCircle2, AlertCircle, Info, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -21,13 +28,21 @@ interface ToastItem {
 }
 
 interface ToastApi {
-  show: (message: React.ReactNode, tone?: ToastTone, options?: ToastOptions) => void;
+  show: (
+    message: React.ReactNode,
+    tone?: ToastTone,
+    options?: ToastOptions,
+  ) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
 
 const icons = { success: CheckCircle2, error: AlertCircle, info: Info };
-const iconTones = { success: "text-success", error: "text-favorite", info: "text-ink-faint" };
+const iconTones = {
+  success: "text-success",
+  error: "text-favorite",
+  info: "text-ink-faint",
+};
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
@@ -38,9 +53,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const show = useCallback(
-    (message: React.ReactNode, tone: ToastTone = "info", options: ToastOptions = {}) => {
+    (
+      message: React.ReactNode,
+      tone: ToastTone = "info",
+      options: ToastOptions = {},
+    ) => {
       const id = nextId.current++;
-      setItems((all) => [...all.slice(-2), { id, tone, message, action: options.action }]);
+      setItems((all) => [
+        ...all.slice(-2),
+        { id, tone, message, action: options.action },
+      ]);
       const fallback = options.action ? 8000 : tone === "error" ? 6000 : 3500;
       setTimeout(() => dismiss(id), options.duration ?? fallback);
     },
@@ -64,7 +86,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               role={t.tone === "error" ? "alert" : "status"}
               className="pointer-events-auto flex max-w-md animate-rise-in items-center gap-3 rounded-full bg-ink py-2.5 pl-4 pr-2 text-sm text-paper shadow-pop"
             >
-              <Icon className={cn("h-4 w-4 shrink-0", iconTones[t.tone])} aria-hidden />
+              <Icon
+                className={cn("h-4 w-4 shrink-0", iconTones[t.tone])}
+                aria-hidden
+              />
               <span className="min-w-0">{t.message}</span>
               {t.action && (
                 <button

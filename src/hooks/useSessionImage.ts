@@ -7,9 +7,14 @@ type State = { status: "loading" | "ready" | "error"; src?: string };
  * header, which an <img> or <video> can't send: fetch the bytes and hand the
  * element a blob URL. Without a session token the URL is used as is.
  */
-export function useSessionImage(url: string | null, sessionToken?: string): State {
+export function useSessionImage(
+  url: string | null,
+  sessionToken?: string,
+): State {
   const [state, setState] = useState<State>(() =>
-    url && !sessionToken ? { status: "ready", src: url } : { status: "loading" },
+    url && !sessionToken
+      ? { status: "ready", src: url }
+      : { status: "loading" },
   );
 
   useEffect(() => {
@@ -26,7 +31,10 @@ export function useSessionImage(url: string | null, sessionToken?: string): Stat
     const abort = new AbortController();
     let objectUrl: string | undefined;
 
-    fetch(url, { headers: { "x-share-session": sessionToken }, signal: abort.signal })
+    fetch(url, {
+      headers: { "x-share-session": sessionToken },
+      signal: abort.signal,
+    })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.blob();
@@ -36,7 +44,8 @@ export function useSessionImage(url: string | null, sessionToken?: string): Stat
         setState({ status: "ready", src: objectUrl });
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (error instanceof DOMException && error.name === "AbortError")
+          return;
         setState({ status: "error" });
       });
 

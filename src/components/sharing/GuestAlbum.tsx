@@ -5,8 +5,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ImageIcon, Link2Off, RotateCw, WifiOff } from "lucide-react";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { Button, EmptyState, MetaDot, Skeleton } from "@/components/ui";
-import { albumDateLabel, formatCount, isVideo, parseAlbumName, photoDateRange } from "@/lib/albums";
-import { openShare, type GuestResult, type SharedAlbum } from "@/lib/shareClient";
+import {
+  albumDateLabel,
+  formatCount,
+  isVideo,
+  parseAlbumName,
+  photoDateRange,
+} from "@/lib/albums";
+import {
+  openShare,
+  type GuestResult,
+  type SharedAlbum,
+} from "@/lib/shareClient";
 import { GuestNotice, GuestShell } from "./GuestShell";
 import PasswordGate from "./PasswordGate";
 import { formatInstant } from "./shareFormat";
@@ -29,11 +39,21 @@ export default function GuestAlbum({ token }: { token: string }) {
     case "loading":
       return <GuestAlbumSkeleton />;
     case "album":
-      return <AlbumView token={token} album={view.album} sessionToken={view.sessionToken} />;
+      return (
+        <AlbumView
+          token={token}
+          album={view.album}
+          sessionToken={view.sessionToken}
+        />
+      );
     case "password":
       return (
         <GuestShell centered>
-          <PasswordGate token={token} albumName={view.albumName} onResult={setView} />
+          <PasswordGate
+            token={token}
+            albumName={view.albumName}
+            onResult={setView}
+          />
         </GuestShell>
       );
     case "unavailable":
@@ -69,7 +89,11 @@ export default function GuestAlbum({ token }: { token: string }) {
 export function GuestAlbumSkeleton() {
   return (
     <GuestShell>
-      <div role="status" aria-label="Loading the album" className="pb-10 pt-8 sm:pb-14 sm:pt-16">
+      <div
+        role="status"
+        aria-label="Loading the album"
+        className="pb-10 pt-8 sm:pb-14 sm:pt-16"
+      >
         <Skeleton className="mb-5 h-3 w-36" />
         <Skeleton className="mb-3 h-14 w-4/5 max-w-2xl sm:h-20" />
         <Skeleton className="h-4 w-48" />
@@ -81,7 +105,15 @@ export function GuestAlbumSkeleton() {
   );
 }
 
-function AlbumView({ token, album, sessionToken }: { token: string; album: SharedAlbum; sessionToken?: string }) {
+function AlbumView({
+  token,
+  album,
+  sessionToken,
+}: {
+  token: string;
+  album: SharedAlbum;
+  sessionToken?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -94,8 +126,17 @@ function AlbumView({ token, album, sessionToken }: { token: string; album: Share
     const videos = photos.filter(isVideo).length;
     const stills = photos.length - videos;
     return {
-      dateLabel: albumDateLabel({ name: folder.name, date_from: range.from ?? null, date_to: range.to ?? null }),
-      counts: [stills > 0 && formatCount(stills, "photo"), videos > 0 && formatCount(videos, "video")].filter(Boolean).join(" · "),
+      dateLabel: albumDateLabel({
+        name: folder.name,
+        date_from: range.from ?? null,
+        date_to: range.to ?? null,
+      }),
+      counts: [
+        stills > 0 && formatCount(stills, "photo"),
+        videos > 0 && formatCount(videos, "video"),
+      ]
+        .filter(Boolean)
+        .join(" · "),
     };
   }, [folder.name, photos]);
 
@@ -119,32 +160,43 @@ function AlbumView({ token, album, sessionToken }: { token: string; album: Share
     <GuestShell>
       <header className="max-w-4xl animate-rise-in pb-10 pt-8 sm:pb-14 sm:pt-16">
         <div className="kicker mb-4">{dateLabel ?? "A shared album"}</div>
-        <h1 className="text-balance break-words font-display text-display-xl font-light text-ink">{title}</h1>
+        <h1 className="text-balance break-words font-display text-display-xl font-light text-ink">
+          {title}
+        </h1>
         {share.description && (
           <figure className="mt-8 max-w-2xl border-l border-line-strong pl-5 sm:pl-6">
             <blockquote className="whitespace-pre-line text-pretty font-display text-xl font-light italic leading-relaxed text-ink-soft sm:text-2xl">
               {share.description}
             </blockquote>
-            <figcaption className="mt-2 text-xs text-ink-muted">A note from the person who shared this album</figcaption>
+            <figcaption className="mt-2 text-xs text-ink-muted">
+              A note from the person who shared this album
+            </figcaption>
           </figure>
         )}
         <div className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
           {counts && <span className="tabular">{counts}</span>}
           {counts && <MetaDot />}
-          <span>{share.allow_download ? "Open a photo to download it" : "View only"}</span>
+          <span>
+            {share.allow_download ? "Open a photo to download it" : "View only"}
+          </span>
           {share.expires_at && (
             <>
               <span className="hidden sm:inline">
                 <MetaDot />
               </span>
               {/* Own line on phones, so no dot is left dangling at the end of a row. */}
-              <span className="w-full sm:w-auto">Link open until {formatInstant(share.expires_at)}</span>
+              <span className="w-full sm:w-auto">
+                Link open until {formatInstant(share.expires_at)}
+              </span>
             </>
           )}
         </div>
       </header>
 
-      <section aria-label="Photos" className="border-t border-line pt-6 sm:pt-8">
+      <section
+        aria-label="Photos"
+        className="border-t border-line pt-6 sm:pt-8"
+      >
         {photos.length > 0 ? (
           <PhotoGrid
             photos={photos}

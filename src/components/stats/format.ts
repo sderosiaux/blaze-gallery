@@ -7,7 +7,10 @@ const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
  *  keeps one decimal, which rounds a 1.04 TB library down to "1 TB". */
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const i = Math.min(UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const i = Math.min(
+    UNITS.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  );
   const v = bytes / 1024 ** i;
   const digits = i === 0 ? 0 : v < 10 ? 2 : v < 100 ? 1 : 0;
   return `${v.toFixed(digits)} ${UNITS[i]}`;
@@ -27,11 +30,19 @@ export function formatPercent(part: number, whole: number): string {
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(LOCALE, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  return new Date(iso).toLocaleDateString(LOCALE, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(LOCALE, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** "just now", "3 hours ago", "10 months ago". */
@@ -64,11 +75,16 @@ export function formatExtension(ext: string): string {
 
 /** Where the album sits ("Quebec · 2019"): generic names like "Reflex" or
  *  "105D7200" only make sense next to their parent album. */
-export function albumKicker(path: string, albumDate?: string): string | undefined {
+export function albumKicker(
+  path: string,
+  albumDate?: string,
+): string | undefined {
   const parent = path.split("/").slice(0, -1).pop();
   if (!parent) return albumDate;
   const p = parseAlbumName(parent);
-  const date = albumDate ?? (p.date ? new Date(p.date).getUTCFullYear().toString() : undefined);
+  const date =
+    albumDate ??
+    (p.date ? new Date(p.date).getUTCFullYear().toString() : undefined);
   return [p.title, date].filter(Boolean).join(" · ");
 }
 

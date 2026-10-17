@@ -84,7 +84,10 @@ function start(entry: Entry, options: LoadOptions) {
   }
   const abort = new AbortController();
   entry.abort = abort;
-  fetch(entry.key, { headers: { "x-share-session": options.sessionToken }, signal: abort.signal })
+  fetch(entry.key, {
+    headers: { "x-share-session": options.sessionToken },
+    signal: abort.signal,
+  })
     .then((response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.blob();
@@ -112,7 +115,10 @@ function drop(entry: Entry) {
 }
 
 /** Starts (or reuses) a load. A failed one is only retried when `retry` is set. */
-export function loadImage(key: string, options: LoadOptions & { retry?: boolean } = {}): CachedImage {
+export function loadImage(
+  key: string,
+  options: LoadOptions & { retry?: boolean } = {},
+): CachedImage {
   let entry = entries.get(key);
   if (entry?.status === "error" && options.retry) {
     drop(entry);
@@ -125,7 +131,8 @@ export function loadImage(key: string, options: LoadOptions & { retry?: boolean 
     notify(entry);
   } else {
     entry.touched = ++clock;
-    if (options.priority === "high" && entry.img) entry.img.fetchPriority = "high";
+    if (options.priority === "high" && entry.img)
+      entry.img.fetchPriority = "high";
   }
   return entry;
 }

@@ -1,5 +1,10 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { loadImage, peekImage, subscribeImage, type CachedImage } from "@/components/viewer/imageCache";
+import {
+  loadImage,
+  peekImage,
+  subscribeImage,
+  type CachedImage,
+} from "@/components/viewer/imageCache";
 
 interface Options {
   sessionToken?: string;

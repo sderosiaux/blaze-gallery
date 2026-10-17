@@ -14,7 +14,12 @@ interface Row {
  * Greedy: add photos until the row at target height overflows, then shrink the
  * row to fit. The last row keeps the target height instead of stretching.
  */
-export function layoutRows(photos: Photo[], containerWidth: number, targetHeight: number, gap: number): Row[] {
+export function layoutRows(
+  photos: Photo[],
+  containerWidth: number,
+  targetHeight: number,
+  gap: number,
+): Row[] {
   const rows: Row[] = [];
   let current: Row["items"] = [];
   let ratioSum = 0;
@@ -47,9 +52,15 @@ export function layoutRows(photos: Photo[], containerWidth: number, targetHeight
     const isLast = r === rows.length - 1;
     const widths = row.items.map((it) => Math.floor(it.width));
     if (!isLast || row.height < targetHeight) {
-      const total = widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
+      const total =
+        widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
       let leftover = Math.round(containerWidth - total);
-      for (let i = 0; leftover > 0 && widths.length; i = (i + 1) % widths.length, leftover--) widths[i] += 1;
+      for (
+        let i = 0;
+        leftover > 0 && widths.length;
+        i = (i + 1) % widths.length, leftover--
+      )
+        widths[i] += 1;
     }
     return {
       height: Math.round(row.height),
@@ -67,12 +78,21 @@ function targetHeightFor(width: number) {
 
 interface JustifiedGridProps {
   photos: Photo[];
-  renderTile: (photo: Photo, size: { width: number; height: number }, index: number) => React.ReactNode;
+  renderTile: (
+    photo: Photo,
+    size: { width: number; height: number },
+    index: number,
+  ) => React.ReactNode;
   gap?: number;
   className?: string;
 }
 
-export default function JustifiedGrid({ photos, renderTile, gap = 4, className }: JustifiedGridProps) {
+export default function JustifiedGrid({
+  photos,
+  renderTile,
+  gap = 4,
+  className,
+}: JustifiedGridProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -88,7 +108,8 @@ export default function JustifiedGrid({ photos, renderTile, gap = 4, className }
   }, []);
 
   const rows = useMemo(
-    () => (width > 0 ? layoutRows(photos, width, targetHeightFor(width), gap) : []),
+    () =>
+      width > 0 ? layoutRows(photos, width, targetHeightFor(width), gap) : [],
     [photos, width, gap],
   );
 
@@ -97,11 +118,23 @@ export default function JustifiedGrid({ photos, renderTile, gap = 4, className }
   // measured width, so flex-wrap breaks exactly where layoutRows did.
   return (
     <div ref={ref} className={className}>
-      <div role="list" className="flex flex-wrap" style={{ columnGap: gap, rowGap: gap }}>
+      <div
+        role="list"
+        className="flex flex-wrap"
+        style={{ columnGap: gap, rowGap: gap }}
+      >
         {rows.flatMap((row) =>
           row.items.map((item) => (
-            <div role="listitem" key={String(item.photo.id)} style={{ width: item.width, height: row.height }}>
-              {renderTile(item.photo, { width: item.width, height: row.height }, item.index)}
+            <div
+              role="listitem"
+              key={String(item.photo.id)}
+              style={{ width: item.width, height: row.height }}
+            >
+              {renderTile(
+                item.photo,
+                { width: item.width, height: row.height },
+                item.index,
+              )}
             </div>
           )),
         )}

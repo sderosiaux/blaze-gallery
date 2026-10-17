@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Copy, Eye, EyeOff, ExternalLink } from "lucide-react";
-import { Button, Dialog, Field, IconButton, Input, Select, Switch, Textarea, buttonClasses } from "@/components/ui";
+import {
+  Button,
+  Dialog,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  Switch,
+  Textarea,
+  buttonClasses,
+} from "@/components/ui";
 import AlbumLinks from "@/components/sharing/AlbumLinks";
 import { ShareBadges } from "@/components/sharing/ShareBadges";
 import { expiryLabel, formatInstant } from "@/components/sharing/shareFormat";
@@ -41,11 +51,20 @@ function localDateInput(d: Date) {
 /** The instant the link stops working, or undefined for never. A chosen day lasts until its end. */
 function expiryInstant(expiry: Expiry, customDate: string): string | undefined {
   if (expiry === "never") return undefined;
-  if (expiry === "custom") return customDate ? new Date(`${customDate}T23:59:59`).toISOString() : undefined;
+  if (expiry === "custom")
+    return customDate
+      ? new Date(`${customDate}T23:59:59`).toISOString()
+      : undefined;
   return new Date(Date.now() + Number(expiry) * DAY).toISOString();
 }
 
-export default function ShareDialog({ isOpen, onClose, folderPath, folderName, photoCount }: ShareDialogProps) {
+export default function ShareDialog({
+  isOpen,
+  onClose,
+  folderPath,
+  folderName,
+  photoCount,
+}: ShareDialogProps) {
   const copy = useCopyLink();
   const path = useMemo(() => {
     try {
@@ -55,7 +74,11 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
     }
   }, [folderPath]);
   const { title } = parseAlbumName(folderName);
-  const dateLabel = albumDateLabel({ name: folderName, date_from: null, date_to: null });
+  const dateLabel = albumDateLabel({
+    name: folderName,
+    date_from: null,
+    date_to: null,
+  });
 
   // Callers pass inline closures; a stable one keeps Dialog from re-running its focus setup on every parent render.
   const onCloseRef = useRef(onClose);
@@ -71,7 +94,10 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
   const [note, setNote] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ share: ShareLink; url: string } | null>(null);
+  const [created, setCreated] = useState<{
+    share: ShareLink;
+    url: string;
+  } | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement>(null);
 
   const [links, setLinks] = useState<ShareLink[] | null>(null);
@@ -149,11 +175,20 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
       open={isOpen}
       onClose={close}
       title={created ? "Your link is ready" : "Share this album"}
-      description={created ? `Anyone with this link can open ${title}. Send it however you like.` : albumLine}
+      description={
+        created
+          ? `Anyone with this link can open ${title}. Send it however you like.`
+          : albumLine
+      }
       footer={
         created ? (
           <>
-            <a href={created.url} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "secondary" })}>
+            <a
+              href={created.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonClasses({ variant: "secondary" })}
+            >
               <ExternalLink className="h-4 w-4" aria-hidden />
               Open as a guest
             </a>
@@ -166,7 +201,13 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
             <Button variant="ghost" onClick={close}>
               Cancel
             </Button>
-            <Button type="submit" form="share-form" variant="primary" loading={creating} disabled={missingPassword || missingDate}>
+            <Button
+              type="submit"
+              form="share-form"
+              variant="primary"
+              loading={creating}
+              disabled={missingPassword || missingDate}
+            >
               Create link
             </Button>
           </>
@@ -187,7 +228,12 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
               onFocus={(e) => e.currentTarget.select()}
               className="min-w-0 bg-paper sm:flex-1"
             />
-            <Button ref={copyButtonRef} variant="primary" icon={Copy} onClick={() => copy(created.url)}>
+            <Button
+              ref={copyButtonRef}
+              variant="primary"
+              icon={Copy}
+              onClick={() => copy(created.url)}
+            >
               Copy link
             </Button>
           </div>
@@ -198,19 +244,35 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
           </div>
         </div>
       ) : (
-        <form id="share-form" onSubmit={submit} className="space-y-5" noValidate>
+        <form
+          id="share-form"
+          onSubmit={submit}
+          className="space-y-5"
+          noValidate
+        >
           <p className="text-sm leading-relaxed text-ink-muted">
-            Guests see this album&apos;s photos on a simple page, without signing in and without the rest of your library.
+            Guests see this album&apos;s photos on a simple page, without
+            signing in and without the rest of your library.
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Link expires"
               htmlFor="share-expiry"
-              hint={expiry === "never" ? "Works until you revoke it" : expiry !== "custom" && expiresAt ? `Open until ${formatInstant(expiresAt)}` : undefined}
+              hint={
+                expiry === "never"
+                  ? "Works until you revoke it"
+                  : expiry !== "custom" && expiresAt
+                    ? `Open until ${formatInstant(expiresAt)}`
+                    : undefined
+              }
               className={expiry === "custom" ? undefined : "sm:col-span-2"}
             >
-              <Select id="share-expiry" value={expiry} onChange={(e) => setExpiry(e.target.value as Expiry)}>
+              <Select
+                id="share-expiry"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value as Expiry)}
+              >
                 {EXPIRY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
@@ -219,8 +281,20 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
               </Select>
             </Field>
             {expiry === "custom" && (
-              <Field label="Last day" htmlFor="share-expiry-date" hint={customDate ? "Works until the end of that day" : "Pick a day"}>
-                <Input id="share-expiry-date" type="date" min={tomorrow} value={customDate} onChange={(e) => setCustomDate(e.target.value)} />
+              <Field
+                label="Last day"
+                htmlFor="share-expiry-date"
+                hint={
+                  customDate ? "Works until the end of that day" : "Pick a day"
+                }
+              >
+                <Input
+                  id="share-expiry-date"
+                  type="date"
+                  min={tomorrow}
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                />
               </Field>
             )}
           </div>
@@ -281,14 +355,22 @@ export default function ShareDialog({ isOpen, onClose, folderPath, folderName, p
           </Field>
 
           {createError && (
-            <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+            <p
+              role="alert"
+              className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+            >
               We couldn&apos;t create the link. {createError}
             </p>
           )}
         </form>
       )}
 
-      <AlbumLinks links={links} error={linksError} onRetry={loadLinks} highlightToken={created?.share.share_token} />
+      <AlbumLinks
+        links={links}
+        error={linksError}
+        onRetry={loadLinks}
+        highlightToken={created?.share.share_token}
+      />
     </Dialog>
   );
 }

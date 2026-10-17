@@ -5,16 +5,39 @@ import { albumHref } from "@/components/photos/AlbumCard";
 import { Section, Skeleton } from "@/components/ui";
 import { parseAlbumName } from "@/lib/albums";
 import { BarList, Legend, TipRow, type BarItem } from "./charts";
-import { albumKicker, formatExtension, formatNumber, formatPercent, formatSize, ownDate } from "./format";
+import {
+  albumKicker,
+  formatExtension,
+  formatNumber,
+  formatPercent,
+  formatSize,
+  ownDate,
+} from "./format";
 import { BarsSkeleton, SectionTitleSkeleton, TabError } from "./TabState";
 import type { StorageStats } from "./types";
 import { useStatsResource } from "./useStatsResource";
 
-export default function StorageTab({ active, totalBytes }: { active: boolean; totalBytes?: number }) {
-  const { state, retry } = useStatsResource<StorageStats>("/api/stats/storage", active);
+export default function StorageTab({
+  active,
+  totalBytes,
+}: {
+  active: boolean;
+  totalBytes?: number;
+}) {
+  const { state, retry } = useStatsResource<StorageStats>(
+    "/api/stats/storage",
+    active,
+  );
 
   if (state.status === "error") {
-    return <TabError title="Storage figures didn't load" error={state.error} onRetry={retry} className="py-6" />;
+    return (
+      <TabError
+        title="Storage figures didn't load"
+        error={state.error}
+        onRetry={retry}
+        className="py-6"
+      />
+    );
   }
 
   if (state.status !== "ready") {
@@ -52,7 +75,10 @@ export default function StorageTab({ active, totalBytes }: { active: boolean; to
       label: (
         <>
           {formatExtension(t.extension)}
-          <span className="text-ink-muted"> · {t.kind === "video" ? "video" : "photo"}</span>
+          <span className="text-ink-muted">
+            {" "}
+            · {t.kind === "video" ? "video" : "photo"}
+          </span>
         </>
       ),
       value: t.total_size_bytes,
@@ -63,7 +89,10 @@ export default function StorageTab({ active, totalBytes }: { active: boolean; to
         <>
           <TipRow label="Space" value={formatSize(t.total_size_bytes)} />
           <TipRow label="Files" value={formatNumber(t.count)} />
-          <TipRow label="Average file" value={formatSize(t.total_size_bytes / Math.max(1, t.count))} />
+          <TipRow
+            label="Average file"
+            value={formatSize(t.total_size_bytes / Math.max(1, t.count))}
+          />
         </>
       ),
     };
@@ -93,7 +122,11 @@ export default function StorageTab({ active, totalBytes }: { active: boolean; to
         title="Largest albums"
         description={`The ${largest_by_size.length} albums that take the most space, out of ${formatSize(library)} in the library.`}
       >
-        <FolderHeatmap albums={largest_by_size} metric="size" totalBytes={library} />
+        <FolderHeatmap
+          albums={largest_by_size}
+          metric="size"
+          totalBytes={library}
+        />
       </Section>
 
       <div className="grid gap-x-12 lg:grid-cols-2">
@@ -105,7 +138,10 @@ export default function StorageTab({ active, totalBytes }: { active: boolean; to
           <BarList items={typeItems} initial={6} step={10} noun="more types" />
         </Section>
 
-        <Section title="Most files" description="Albums holding the most photos and videos.">
+        <Section
+          title="Most files"
+          description="Albums holding the most photos and videos."
+        >
           <BarList items={countItems} initial={8} step={8} noun="more albums" />
         </Section>
       </div>

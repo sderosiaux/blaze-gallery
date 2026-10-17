@@ -2,7 +2,13 @@ import { Badge, Section, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatBytes } from "@/lib/format";
 import type { AuditOperation } from "./types";
-import { formatCount, formatDuration, formatShare, operationLabel, successLook } from "./format";
+import {
+  formatCount,
+  formatDuration,
+  formatShare,
+  operationLabel,
+  successLook,
+} from "./format";
 import { SectionError } from "./SectionError";
 
 interface OperationsTableProps {
@@ -12,7 +18,8 @@ interface OperationsTableProps {
   onRetry: () => void;
 }
 
-const th = "pb-3 text-xs font-medium uppercase tracking-[0.08em] text-ink-muted";
+const th =
+  "pb-3 text-xs font-medium uppercase tracking-[0.08em] text-ink-muted";
 
 function SuccessBadge({ op }: { op: AuditOperation }) {
   const look = successLook(op.success_rate);
@@ -28,16 +35,31 @@ function OperationName({ op }: { op: AuditOperation }) {
   return (
     <span className="min-w-0">
       <span className="block truncate font-medium text-ink">{label}</span>
-      {label !== op.operation && <span className="block truncate text-xs text-ink-muted">{op.operation}</span>}
+      {label !== op.operation && (
+        <span className="block truncate text-xs text-ink-muted">
+          {op.operation}
+        </span>
+      )}
     </span>
   );
 }
 
-export function OperationsTable({ operations, loading, error, onRetry }: OperationsTableProps) {
+export function OperationsTable({
+  operations,
+  loading,
+  error,
+  onRetry,
+}: OperationsTableProps) {
   let body: React.ReactNode;
 
   if (error) {
-    body = <SectionError title="The operations breakdown did not load" error={error} onRetry={onRetry} />;
+    body = (
+      <SectionError
+        title="The operations breakdown did not load"
+        error={error}
+        onRetry={onRetry}
+      />
+    );
   } else if (!operations) {
     body = (
       <div role="status" aria-label="Loading operations" className="space-y-3">
@@ -49,44 +71,76 @@ export function OperationsTable({ operations, loading, error, onRetry }: Operati
   } else if (operations.length === 0) {
     body = (
       <p className="py-6 text-sm text-ink-muted">
-        No operations in this period. Pick a longer time range to see how requests split.
+        No operations in this period. Pick a longer time range to see how
+        requests split.
       </p>
     );
   } else {
     const total = operations.reduce((acc, op) => acc + op.count, 0);
     body = (
-      <div aria-busy={loading || undefined} className={cn("transition-opacity duration-200", loading && "opacity-60")}>
+      <div
+        aria-busy={loading || undefined}
+        className={cn(
+          "transition-opacity duration-200",
+          loading && "opacity-60",
+        )}
+      >
         {/* Table from md up; below, each operation becomes a short card-less block. */}
         <table className="hidden w-full table-fixed text-sm md:table">
           <thead>
             <tr className="border-b border-line text-left">
-              <th scope="col" className={cn(th, "w-[30%]")}>Operation</th>
-              <th scope="col" className={cn(th, "text-right")}>Requests</th>
-              <th scope="col" className={cn(th, "text-right")}>Average</th>
-              <th scope="col" className={cn(th, "text-right")}>p95</th>
-              <th scope="col" className={cn(th, "w-[18%] pl-6")}>Success</th>
-              <th scope="col" className={cn(th, "text-right")}>Data</th>
+              <th scope="col" className={cn(th, "w-[30%]")}>
+                Operation
+              </th>
+              <th scope="col" className={cn(th, "text-right")}>
+                Requests
+              </th>
+              <th scope="col" className={cn(th, "text-right")}>
+                Average
+              </th>
+              <th scope="col" className={cn(th, "text-right")}>
+                p95
+              </th>
+              <th scope="col" className={cn(th, "w-[18%] pl-6")}>
+                Success
+              </th>
+              <th scope="col" className={cn(th, "text-right")}>
+                Data
+              </th>
             </tr>
           </thead>
           <tbody className="tabular">
             {operations.map((op) => (
-              <tr key={op.operation} className="border-b border-line last:border-b-0">
+              <tr
+                key={op.operation}
+                className="border-b border-line last:border-b-0"
+              >
                 <td className="py-3 pr-4">
                   <OperationName op={op} />
                 </td>
                 <td className="py-3 text-right text-ink">
                   {formatCount(op.count)}
-                  <span className="block text-xs text-ink-muted">{formatShare(op.count / total)}</span>
+                  <span className="block text-xs text-ink-muted">
+                    {formatShare(op.count / total)}
+                  </span>
                 </td>
-                <td className="py-3 text-right text-ink">{formatDuration(op.avg_duration_ms)}</td>
-                <td className="py-3 text-right text-ink">{formatDuration(op.p95_duration_ms)}</td>
+                <td className="py-3 text-right text-ink">
+                  {formatDuration(op.avg_duration_ms)}
+                </td>
+                <td className="py-3 text-right text-ink">
+                  {formatDuration(op.p95_duration_ms)}
+                </td>
                 <td className="py-3 pl-6">
                   <SuccessBadge op={op} />
                   {op.error_count > 0 && (
-                    <span className="mt-1 block text-xs text-ink-muted">{formatCount(op.error_count)} failed</span>
+                    <span className="mt-1 block text-xs text-ink-muted">
+                      {formatCount(op.error_count)} failed
+                    </span>
                   )}
                 </td>
-                <td className="py-3 text-right text-ink">{formatBytes(op.total_bytes)}</td>
+                <td className="py-3 text-right text-ink">
+                  {formatBytes(op.total_bytes)}
+                </td>
               </tr>
             ))}
           </tbody>

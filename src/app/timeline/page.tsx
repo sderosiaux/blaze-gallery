@@ -1,13 +1,29 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUp, CalendarDays, Library, RotateCw } from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoViewer from "@/components/PhotoViewer";
-import { Button, ButtonLink, EmptyState, MetaDot, PageHeader, PageSkeleton, Skeleton, useToast } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  PageSkeleton,
+  Skeleton,
+  useToast,
+} from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import TimelineMonth, { MonthSkeleton } from "@/components/find/TimelineMonth";
 import { YearPicker, YearRail } from "@/components/find/YearIndex";
@@ -42,11 +58,16 @@ async function fetchPage(before: string | null, signal: AbortSignal) {
   if (before) params.set("before", before);
   const response = await fetch(`/api/timeline?${params}`, { signal });
   const data = await response.json();
-  if (!response.ok || !data.success) throw new Error(data.error ?? `HTTP ${response.status}`);
-  return { photos: (data.photos ?? []) as TimelinePhoto[], next: (data.next_before ?? null) as string | null };
+  if (!response.ok || !data.success)
+    throw new Error(data.error ?? `HTTP ${response.status}`);
+  return {
+    photos: (data.photos ?? []) as TimelinePhoto[],
+    next: (data.next_before ?? null) as string | null,
+  };
 }
 
-const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) => String(a.id) === String(b.id);
+const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
+  String(a.id) === String(b.id);
 
 /** Pages can overlap if the backfill dates a photo between two requests. */
 function unseen(seen: Set<string>, photos: TimelinePhoto[]) {
@@ -61,12 +82,17 @@ function unseen(seen: Set<string>, photos: TimelinePhoto[]) {
 function TimelineContent() {
   const toast = useToast();
   const yearParam = useSearchParams()?.get("year") ?? null;
-  const startYear = yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
+  const startYear =
+    yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
 
   const [summary, setSummary] = useState<TimelineSummary | null>(null);
   const [summaryFailed, setSummaryFailed] = useState(false);
-  const [feed, setFeed] = useState<Feed>({ items: [], cursor: null, phase: "loading" });
+  const [feed, setFeed] = useState<Feed>({
+    items: [],
+    cursor: null,
+    phase: "loading",
+  });
   const [attempt, setAttempt] = useState(0);
   const feedRef = useRef(feed);
   feedRef.current = feed;
@@ -90,9 +116,16 @@ function TimelineContent() {
     seen.current = new Set();
     setFeed({ items: [], cursor: null, phase: "loading" });
     fetchPage(startYear ? endOfYearCursor(startYear) : null, controller.signal)
-      .then(({ photos, next }) => setFeed({ items: unseen(seen.current, photos), cursor: next, phase: "ready" }))
+      .then(({ photos, next }) =>
+        setFeed({
+          items: unseen(seen.current, photos),
+          cursor: next,
+          phase: "ready",
+        }),
+      )
       .catch(() => {
-        if (!controller.signal.aborted) setFeed((f) => ({ ...f, phase: "error" }));
+        if (!controller.signal.aborted)
+          setFeed((f) => ({ ...f, phase: "error" }));
       })
       .finally(() => {
         if (inFlight.current === controller) inFlight.current = null;
@@ -111,10 +144,15 @@ function TimelineContent() {
     setFeed((f) => ({ ...f, phase: "more" }));
     fetchPage(cursor, controller.signal)
       .then(({ photos, next }) =>
-        setFeed((f) => ({ items: [...f.items, ...unseen(seen.current, photos)], cursor: next, phase: "ready" })),
+        setFeed((f) => ({
+          items: [...f.items, ...unseen(seen.current, photos)],
+          cursor: next,
+          phase: "ready",
+        })),
       )
       .catch(() => {
-        if (!controller.signal.aborted) setFeed((f) => ({ ...f, phase: "more-error" }));
+        if (!controller.signal.aborted)
+          setFeed((f) => ({ ...f, phase: "more-error" }));
       })
       .finally(() => {
         if (inFlight.current === controller) inFlight.current = null;
@@ -125,9 +163,12 @@ function TimelineContent() {
   useEffect(() => {
     const el = sentinel.current;
     if (!el || feed.phase !== "ready" || !feed.cursor) return;
-    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && loadMore(), {
-      rootMargin: PREFETCH_MARGIN,
-    });
+    const observer = new IntersectionObserver(
+      ([entry]) => entry.isIntersecting && loadMore(),
+      {
+        rootMargin: PREFETCH_MARGIN,
+      },
+    );
     observer.observe(el);
     return () => observer.disconnect();
   }, [feed.phase, feed.cursor, loadMore]);
@@ -139,9 +180,18 @@ function TimelineContent() {
     return next;
   }, [feed.items]);
 
-  const monthCounts = useMemo(() => new Map(summary?.months.map((m) => [m.month, m.count])), [summary]);
-  const years = useMemo(() => (summary ? yearsOf(summary.months) : []), [summary]);
-  const dated = useMemo(() => summary?.months.reduce((n, m) => n + m.count, 0) ?? 0, [summary]);
+  const monthCounts = useMemo(
+    () => new Map(summary?.months.map((m) => [m.month, m.count])),
+    [summary],
+  );
+  const years = useMemo(
+    () => (summary ? yearsOf(summary.months) : []),
+    [summary],
+  );
+  const dated = useMemo(
+    () => summary?.months.reduce((n, m) => n + m.count, 0) ?? 0,
+    [summary],
+  );
 
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
   useEffect(() => {
@@ -182,13 +232,20 @@ function TimelineContent() {
       // Not loaded yet: start the list at that year instead of paging down to it.
       window.scrollTo({ top: 0 });
       setActiveMonth(`${year}-12`);
-      window.history.replaceState(null, "", years[0]?.year === year ? "/timeline" : `/timeline?year=${year}`);
+      window.history.replaceState(
+        null,
+        "",
+        years[0]?.year === year ? "/timeline" : `/timeline?year=${year}`,
+      );
     },
     [years],
   );
 
   const patch = useCallback((id: Photo["id"], changes: Partial<Photo>) => {
-    setFeed((f) => ({ ...f, items: f.items.map((p) => (sameId(p, { id }) ? { ...p, ...changes } : p)) }));
+    setFeed((f) => ({
+      ...f,
+      items: f.items.map((p) => (sameId(p, { id }) ? { ...p, ...changes } : p)),
+    }));
   }, []);
 
   const toggleFavorite = useCallback(
@@ -209,7 +266,9 @@ function TimelineContent() {
   // The viewer opens at once; the URL follows so Back closes it.
   const [openId, setOpenId] = useState<string | null>(selectedPhotoId);
   useEffect(() => setOpenId(selectedPhotoId), [selectedPhotoId]);
-  const selected = openId ? feed.items.find((p) => String(p.id) === openId) ?? null : null;
+  const selected = openId
+    ? (feed.items.find((p) => String(p.id) === openId) ?? null)
+    : null;
 
   const openPhoto = useCallback(
     (photo: Photo) => {
@@ -227,7 +286,8 @@ function TimelineContent() {
   // The viewer walks every loaded photo: near the end of them, fetch the next page.
   const selectedIndex = selected ? feed.items.indexOf(selected) : -1;
   useEffect(() => {
-    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6) loadMore();
+    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6)
+      loadMore();
   }, [selectedIndex, feed.items.length, feed.phase, loadMore]);
 
   const closePhoto = () => {
@@ -242,31 +302,37 @@ function TimelineContent() {
       kicker="Timeline"
       title="Month by month"
       meta={
-        summary ? (
-          dated > 0 && (
-            <>
-              <span className="tabular">{dated.toLocaleString("en-GB")} photos with a date</span>
-              {years.length > 0 && (
-                <>
-                  <MetaDot />
-                  <span className="tabular">
-                    {years.length > 1 ? `${years[years.length - 1].year} – ${years[0].year}` : years[0].year}
-                  </span>
-                </>
-              )}
-            </>
-          )
-        ) : (
-          !summaryFailed && <Skeleton className="h-4 w-52" />
-        )
+        summary
+          ? dated > 0 && (
+              <>
+                <span className="tabular">
+                  {dated.toLocaleString("en-GB")} photos with a date
+                </span>
+                {years.length > 0 && (
+                  <>
+                    <MetaDot />
+                    <span className="tabular">
+                      {years.length > 1
+                        ? `${years[years.length - 1].year} – ${years[0].year}`
+                        : years[0].year}
+                    </span>
+                  </>
+                )}
+              </>
+            )
+          : !summaryFailed && <Skeleton className="h-4 w-52" />
       }
     >
-      {summary?.total_photos !== undefined && dated > 0 && dated < summary.total_photos && (
-        <p className="mt-3 max-w-2xl text-pretty text-sm leading-relaxed text-ink-muted">
-          So far {dated.toLocaleString("en-GB")} of {summary.total_photos.toLocaleString("en-GB")} photos have a date.
-          The rest are still being read from their camera data and will join the timeline on their own.
-        </p>
-      )}
+      {summary?.total_photos !== undefined &&
+        dated > 0 &&
+        dated < summary.total_photos && (
+          <p className="mt-3 max-w-2xl text-pretty text-sm leading-relaxed text-ink-muted">
+            So far {dated.toLocaleString("en-GB")} of{" "}
+            {summary.total_photos.toLocaleString("en-GB")} photos have a date.
+            The rest are still being read from their camera data and will join
+            the timeline on their own.
+          </p>
+        )}
     </PageHeader>
   );
 
@@ -297,7 +363,11 @@ function TimelineContent() {
         {header}
         <EmptyState
           icon={CalendarDays}
-          title={startYear ? `Nothing dated in ${startYear} or before` : "No dates read yet"}
+          title={
+            startYear
+              ? `Nothing dated in ${startYear} or before`
+              : "No dates read yet"
+          }
           body="The timeline is built from the date each camera wrote into its photos. As those dates are read from the library, months appear here on their own. Albums are always there in the meantime."
           action={
             <>
@@ -328,9 +398,19 @@ function TimelineContent() {
           {startYear && (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-y border-line py-2 text-sm text-ink-muted">
               <span>
-                Showing <span className="tabular font-medium text-ink">{startYear}</span> and earlier.
+                Showing{" "}
+                <span className="tabular font-medium text-ink">
+                  {startYear}
+                </span>{" "}
+                and earlier.
               </span>
-              <ButtonLink href="/timeline" size="sm" variant="ghost" icon={ArrowUp} className="-mr-3">
+              <ButtonLink
+                href="/timeline"
+                size="sm"
+                variant="ghost"
+                icon={ArrowUp}
+                className="-mr-3"
+              >
                 Back to the newest
               </ButtonLink>
             </div>
@@ -364,7 +444,12 @@ function TimelineContent() {
           {feed.phase === "more-error" && (
             <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-ink-muted">
               <p>The next months didn&apos;t load.</p>
-              <Button variant="secondary" size="sm" icon={RotateCw} onClick={() => loadMore(true)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={RotateCw}
+                onClick={() => loadMore(true)}
+              >
                 Try again
               </Button>
             </div>
@@ -372,15 +457,20 @@ function TimelineContent() {
 
           {feed.phase === "ready" && !feed.cursor && (
             <p className="border-t border-line py-12 text-center text-sm text-ink-muted">
-              That is the oldest dated photo so far. Photos without a date are still in their albums.
+              That is the oldest dated photo so far. Photos without a date are
+              still in their albums.
             </p>
           )}
         </div>
 
-        {years.length > 1 && <YearRail years={years} active={activeYear} onJump={jump} />}
+        {years.length > 1 && (
+          <YearRail years={years} active={activeYear} onJump={jump} />
+        )}
       </div>
 
-      {years.length > 1 && <YearPicker years={years} active={activeYear} onJump={jump} />}
+      {years.length > 1 && (
+        <YearPicker years={years} active={activeYear} onJump={jump} />
+      )}
 
       {selected && (
         <PhotoViewer
@@ -388,9 +478,14 @@ function TimelineContent() {
           photos={feed.items}
           onClose={closePhoto}
           onPhotoChange={changePhoto}
-          onFavoriteToggle={(updated) => patch(updated.id, { is_favorite: updated.is_favorite })}
+          onFavoriteToggle={(updated) =>
+            patch(updated.id, { is_favorite: updated.is_favorite })
+          }
           onDelete={(deleted) =>
-            setFeed((f) => ({ ...f, items: f.items.filter((p) => !sameId(p, deleted)) }))
+            setFeed((f) => ({
+              ...f,
+              items: f.items.filter((p) => !sameId(p, deleted)),
+            }))
           }
         />
       )}

@@ -10,8 +10,7 @@ const variants: Record<Variant, string> = {
   secondary:
     "border border-line-strong bg-surface text-ink-soft hover:border-ink-muted hover:text-ink",
   // Sits on top of photographs.
-  overlay:
-    "bg-scrim/45 text-on-photo backdrop-blur-md hover:bg-scrim/65",
+  overlay: "bg-scrim/45 text-on-photo backdrop-blur-md hover:bg-scrim/65",
   solid: "bg-ink text-paper hover:bg-ink-soft",
 };
 

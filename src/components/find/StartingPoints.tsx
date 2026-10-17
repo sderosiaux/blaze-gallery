@@ -21,7 +21,9 @@ export function StartingPoints({ albumLimit = 8 }: { albumLimit?: number }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const recent = fetch(`/api/library/recent?limit=${albumLimit}`, { signal: controller.signal })
+    const recent = fetch(`/api/library/recent?limit=${albumLimit}`, {
+      signal: controller.signal,
+    })
       .then((r) => r.json())
       .then((d) => (d.success ? (d.folders as Folder[]) : null))
       .catch(() => null);
@@ -45,12 +47,18 @@ export function StartingPoints({ albumLimit = 8 }: { albumLimit?: number }) {
   return (
     <>
       {data.recent && data.recent.length > 0 && (
-        <Section title="Recently opened" description="Albums you looked at lately, newest first.">
+        <Section
+          title="Recently opened"
+          description="Albums you looked at lately, newest first."
+        >
           <AlbumGrid folders={data.recent} showPath eagerCount={4} />
         </Section>
       )}
       {data.years && data.years.length > 0 && (
-        <Section title="Go by year" description="Every year the cameras wrote into the photos. Opens the timeline there.">
+        <Section
+          title="Go by year"
+          description="Every year the cameras wrote into the photos. Opens the timeline there."
+        >
           <ul className="flex flex-wrap gap-2">
             {data.years.map(({ year, count }) => (
               <li key={year}>
@@ -60,7 +68,9 @@ export function StartingPoints({ albumLimit = 8 }: { albumLimit?: number }) {
                   aria-label={`${year}, ${count.toLocaleString("en-GB")} photos`}
                 >
                   <span className="tabular">{year}</span>
-                  <span className="tabular text-xs font-normal text-ink-muted">{count.toLocaleString("en-GB")}</span>
+                  <span className="tabular text-xs font-normal text-ink-muted">
+                    {count.toLocaleString("en-GB")}
+                  </span>
                 </ButtonLink>
               </li>
             ))}

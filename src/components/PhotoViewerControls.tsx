@@ -1,6 +1,16 @@
 "use client";
 
-import { Download, Heart, Info, Keyboard, Pause, Play, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Download,
+  Heart,
+  Info,
+  Keyboard,
+  Pause,
+  Play,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
@@ -31,7 +41,11 @@ export default function PhotoViewerControls({
       {slideshow && (
         <IconButton
           icon={slideshow.playing ? Pause : Play}
-          label={slideshow.playing ? "Pause slideshow (Space)" : "Play slideshow (Space)"}
+          label={
+            slideshow.playing
+              ? "Pause slideshow (Space)"
+              : "Play slideshow (Space)"
+          }
           aria-keyshortcuts="Space"
           active={slideshow.playing}
           onClick={slideshow.onToggle}
@@ -59,7 +73,11 @@ export default function PhotoViewerControls({
       {favorite && (
         <IconButton
           icon={Heart}
-          label={favorite.active ? "Remove from favorites (F)" : "Add to favorites (F)"}
+          label={
+            favorite.active
+              ? "Remove from favorites (F)"
+              : "Add to favorites (F)"
+          }
           aria-keyshortcuts="F"
           active={favorite.active}
           onClick={favorite.onToggle}
@@ -78,7 +96,13 @@ export default function PhotoViewerControls({
         active={info.open}
         onClick={info.onToggle}
       />
-      {onDownload && <IconButton icon={Download} label="Download original" onClick={onDownload} />}
+      {onDownload && (
+        <IconButton
+          icon={Download}
+          label="Download original"
+          onClick={onDownload}
+        />
+      )}
       {onDelete && (
         <IconButton
           icon={Trash2}

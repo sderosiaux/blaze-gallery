@@ -17,16 +17,25 @@ interface TabsProps<T extends string> {
   className?: string;
 }
 
-export function Tabs<T extends string>({ tabs, value, onChange, label, className }: TabsProps<T>) {
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+  className,
+}: TabsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
     const i = tabs.findIndex((t) => t.id === value);
-    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    const next =
+      tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
     onChange(next.id);
-    listRef.current?.querySelector<HTMLButtonElement>(`[data-tab="${next.id}"]`)?.focus();
+    listRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-tab="${next.id}"]`)
+      ?.focus();
   };
 
   return (
@@ -35,7 +44,10 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, className
       role="tablist"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={cn("scrollbar-none -mb-px flex gap-6 overflow-x-auto border-b border-line", className)}
+      className={cn(
+        "scrollbar-none -mb-px flex gap-6 overflow-x-auto border-b border-line",
+        className,
+      )}
     >
       {tabs.map((tab) => {
         const selected = tab.id === value;

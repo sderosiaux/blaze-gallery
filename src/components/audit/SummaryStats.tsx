@@ -1,9 +1,21 @@
-import { Activity, ArrowDownToLine, CircleAlert, Timer, Wallet } from "lucide-react";
+import {
+  Activity,
+  ArrowDownToLine,
+  CircleAlert,
+  Timer,
+  Wallet,
+} from "lucide-react";
 import { Badge, Skeleton, Stat } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatBytes } from "@/lib/format";
 import type { AuditSummary } from "./types";
-import { errorRateLook, formatCount, formatDuration, formatShare, type TimeRange } from "./format";
+import {
+  errorRateLook,
+  formatCount,
+  formatDuration,
+  formatShare,
+  type TimeRange,
+} from "./format";
 import { SectionError } from "./SectionError";
 
 interface SummaryStatsProps {
@@ -20,18 +32,32 @@ function perHour(total: number, range: TimeRange) {
   return total / (range.ms / 3_600_000);
 }
 
-export function SummaryStats({ summary, loading, error, onRetry, range }: SummaryStatsProps) {
+export function SummaryStats({
+  summary,
+  loading,
+  error,
+  onRetry,
+  range,
+}: SummaryStatsProps) {
   if (error) {
     return (
       <div className="border-y border-line">
-        <SectionError title="The headline numbers did not load" error={error} onRetry={onRetry} />
+        <SectionError
+          title="The headline numbers did not load"
+          error={error}
+          onRetry={onRetry}
+        />
       </div>
     );
   }
 
   if (!summary) {
     return (
-      <div role="status" aria-label="Loading summary" className={cn(band, "md:grid-cols-4")}>
+      <div
+        role="status"
+        aria-label="Loading summary"
+        className={cn(band, "md:grid-cols-4")}
+      >
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i}>
             <Skeleton className="h-3 w-24" />
@@ -61,13 +87,21 @@ export function SummaryStats({ summary, loading, error, onRetry, range }: Summar
         icon={Activity}
         label="Requests"
         value={formatCount(summary.total_requests)}
-        hint={range.ms > 3_600_000 ? `About ${formatCount(Math.round(hourly))} an hour` : "In the last hour"}
+        hint={
+          range.ms > 3_600_000
+            ? `About ${formatCount(Math.round(hourly))} an hour`
+            : "In the last hour"
+        }
       />
       <Stat
         icon={Timer}
         label="Average latency"
         value={formatDuration(summary.avg_duration_ms)}
-        hint={summary.p95_duration_ms != null ? `95% under ${formatDuration(summary.p95_duration_ms)}` : "No requests yet"}
+        hint={
+          summary.p95_duration_ms != null
+            ? `95% under ${formatDuration(summary.p95_duration_ms)}`
+            : "No requests yet"
+        }
       />
       <Stat
         icon={ArrowDownToLine}
@@ -88,7 +122,9 @@ export function SummaryStats({ summary, loading, error, onRetry, range }: Summar
             <Badge tone={look.tone} icon={look.icon}>
               {look.label}
             </Badge>
-            {summary.error_count > 0 && <span>{formatCount(summary.error_count)} failed</span>}
+            {summary.error_count > 0 && (
+              <span>{formatCount(summary.error_count)} failed</span>
+            )}
           </span>
         }
       />

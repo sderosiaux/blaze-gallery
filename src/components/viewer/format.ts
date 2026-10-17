@@ -15,9 +15,16 @@ export function formatTaken(iso: string): { day: string; time?: string } {
     year: "numeric",
     timeZone: "UTC",
   });
-  const midnight = date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0;
+  const midnight =
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0;
   const time = midnight
     ? undefined
-    : date.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    : date.toLocaleTimeString(LOCALE, {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "UTC",
+      });
   return { day: day.replace(",", ""), time };
 }

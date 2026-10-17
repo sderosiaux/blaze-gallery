@@ -23,7 +23,9 @@ function cameraName(camera?: { make?: string; model?: string }) {
   if (!make) return model;
   if (!model) return make;
   // "Canon" + "Canon EOS 5D" reads as "Canon EOS 5D".
-  return model.toLowerCase().startsWith(make.toLowerCase().split(" ")[0]) ? model : `${make} ${model}`;
+  return model.toLowerCase().startsWith(make.toLowerCase().split(" ")[0])
+    ? model
+    : `${make} ${model}`;
 }
 
 function fileType(photo: Photo) {
@@ -38,7 +40,13 @@ function coordinate(value: number, positive: string, negative: string) {
   return `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`;
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="border-t border-line py-3 first:border-t-0 first:pt-0">
       <dt className="kicker mb-1">{label}</dt>
@@ -47,7 +55,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export default function InfoPanel({ id, photo, showAlbum, onClose }: InfoPanelProps) {
+export default function InfoPanel({
+  id,
+  photo,
+  showAlbum,
+  onClose,
+}: InfoPanelProps) {
   const meta = photo.metadata;
   const dims = meta?.dimensions;
   const camera = cameraName(meta?.camera);
@@ -55,7 +68,9 @@ export default function InfoPanel({ id, photo, showAlbum, onClose }: InfoPanelPr
   const taken = meta?.date_taken ? formatTaken(meta.date_taken) : null;
   const location = meta?.location;
   const megapixels = dims ? (dims.width * dims.height) / 1_000_000 : 0;
-  const stillReading = !meta && (photo.metadata_status === "none" || photo.metadata_status === "pending");
+  const stillReading =
+    !meta &&
+    (photo.metadata_status === "none" || photo.metadata_status === "pending");
 
   return (
     <aside
@@ -68,28 +83,46 @@ export default function InfoPanel({ id, photo, showAlbum, onClose }: InfoPanelPr
     >
       <div className="flex items-center justify-between gap-2 px-5 pb-2 pt-4">
         <h2 className="kicker">Details</h2>
-        <IconButton icon={X} label="Hide details (I)" size="sm" onClick={onClose} className="-mr-2" />
+        <IconButton
+          icon={X}
+          label="Hide details (I)"
+          size="sm"
+          onClick={onClose}
+          className="-mr-2"
+        />
       </div>
       <div className="overflow-y-auto px-5 pb-6">
-        <p className="mb-4 break-all font-display text-xl font-normal leading-snug text-ink">{photo.filename}</p>
+        <p className="mb-4 break-all font-display text-xl font-normal leading-snug text-ink">
+          {photo.filename}
+        </p>
         <dl>
           <Row label="Taken">
             {taken ? (
               <>
                 {taken.day}
-                {taken.time && <span className="text-ink-muted"> at {taken.time}</span>}
+                {taken.time && (
+                  <span className="text-ink-muted"> at {taken.time}</span>
+                )}
               </>
             ) : (
               <span className="text-ink-muted">
-                {stillReading ? "Not read yet. It fills in on its own." : "Not recorded"}
+                {stillReading
+                  ? "Not read yet. It fills in on its own."
+                  : "Not recorded"}
               </span>
             )}
           </Row>
           {crumbs.length > 0 && (
             <Row label="Album">
-              <nav aria-label="Albums containing this photo" className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+              <nav
+                aria-label="Albums containing this photo"
+                className="flex flex-wrap items-center gap-x-1 gap-y-0.5"
+              >
                 {crumbs.map((crumb, i) => (
-                  <span key={crumb.path} className="inline-flex items-center gap-1">
+                  <span
+                    key={crumb.path}
+                    className="inline-flex items-center gap-1"
+                  >
                     {i > 0 && (
                       <span aria-hidden className="text-ink-faint">
                         /
@@ -112,20 +145,29 @@ export default function InfoPanel({ id, photo, showAlbum, onClose }: InfoPanelPr
           {dims && (
             <Row label="Dimensions">
               <span className="tabular">
-                {dims.width.toLocaleString("en-GB")} × {dims.height.toLocaleString("en-GB")} px
+                {dims.width.toLocaleString("en-GB")} ×{" "}
+                {dims.height.toLocaleString("en-GB")} px
               </span>
-              {megapixels >= 0.1 && <span className="tabular text-ink-muted"> · {megapixels.toFixed(1)} MP</span>}
+              {megapixels >= 0.1 && (
+                <span className="tabular text-ink-muted">
+                  {" "}
+                  · {megapixels.toFixed(1)} MP
+                </span>
+              )}
             </Row>
           )}
           {camera && <Row label="Camera">{camera}</Row>}
           <Row label="File">
-            <span className="tabular">{formatFileSize(Number(photo.size))}</span>
+            <span className="tabular">
+              {formatFileSize(Number(photo.size))}
+            </span>
             <span className="text-ink-muted"> · {fileType(photo)}</span>
           </Row>
           {location && (
             <Row label="Location">
               <span className="tabular">
-                {coordinate(location.latitude, "N", "S")}, {coordinate(location.longitude, "E", "W")}
+                {coordinate(location.latitude, "N", "S")},{" "}
+                {coordinate(location.longitude, "E", "W")}
               </span>
               <a
                 href={`https://www.openstreetmap.org/?mlat=${location.latitude}&mlon=${location.longitude}#map=15/${location.latitude}/${location.longitude}`}
