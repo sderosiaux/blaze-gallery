@@ -1,136 +1,74 @@
-import { useState, useCallback, useEffect } from "react";
-import { Photo } from "@/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Photo } from "@/types";
 
-/**
- * State for photo navigation in a gallery
- */
-export interface PhotoNavigationState {
-  currentPhoto: Photo;
-  currentIndex: number;
-  isSlideshow: boolean;
-  preloadedIds: Set<string>;
+export interface PhotoNavigation {
+  current: Photo;
+  /** -1 when the photo isn't in the list (the parent dropped it while open). */
+  index: number;
+  total: number;
   hasPrevious: boolean;
   hasNext: boolean;
-}
-
-/**
- * Actions to control photo navigation
- */
-export interface PhotoNavigationActions {
   goToPrevious: () => Photo | null;
   goToNext: () => Photo | null;
-  toggleSlideshow: () => void;
-  stopSlideshow: () => void;
-  markPreloaded: (photoId: string) => void;
+  goTo: (index: number) => Photo | null;
+  /** Photos worth preloading, nearest first. */
+  neighbours: Photo[];
 }
 
-const SLIDESHOW_INTERVAL_MS = 3000;
-
 /**
- * Custom hook for managing photo navigation within a gallery
- * Handles previous/next navigation, slideshow mode, and preloading tracking
+ * Where the viewer stands in the album. The parent owns the selection: the
+ * viewer asks for a change through `onPhotoChange` and follows the `photo` prop,
+ * but moves at once so a parent that never answers still navigates.
  */
 export function usePhotoNavigation(
-  initialPhoto: Photo,
+  photo: Photo,
   photos: Photo[] | undefined,
   onPhotoChange?: (photo: Photo) => void,
-): [PhotoNavigationState, PhotoNavigationActions] {
-  const [currentPhoto, setCurrentPhoto] = useState(initialPhoto);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isSlideshow, setIsSlideshow] = useState(false);
-  const [preloadedIds, setPreloadedIds] = useState<Set<string>>(new Set());
+): PhotoNavigation {
+  const list = useMemo(() => photos ?? [photo], [photos, photo]);
+  const [currentId, setCurrentId] = useState(String(photo.id));
+  const lastIndex = useRef(0);
 
-  // Calculate navigation availability
-  const hasPrevious = photos ? currentIndex > 0 : false;
-  const hasNext = photos ? currentIndex < photos.length - 1 : false;
+  useEffect(() => setCurrentId(String(photo.id)), [photo.id]);
 
-  // Initialize current index based on selected photo
-  useEffect(() => {
-    if (photos) {
-      const index = photos.findIndex((p) => p.id === initialPhoto.id);
-      setCurrentIndex(index !== -1 ? index : 0);
-    }
-  }, [initialPhoto.id, photos]);
+  const found = list.findIndex((p) => String(p.id) === currentId);
+  if (found !== -1) lastIndex.current = found;
+  const current =
+    found !== -1 ? list[found] : String(photo.id) === currentId ? photo : (list[lastIndex.current] ?? photo);
+  const index = found;
+  // When the current photo vanished, its old slot is where "next" now lives.
+  const base = found !== -1 ? found : lastIndex.current - 0.5;
 
-  // Sync current photo when initial photo changes
-  useEffect(() => {
-    setCurrentPhoto(initialPhoto);
-  }, [initialPhoto]);
+  const goTo = useCallback(
+    (target: number): Photo | null => {
+      const next = list[target];
+      if (!next || String(next.id) === currentId) return null;
+      setCurrentId(String(next.id));
+      onPhotoChange?.(next);
+      return next;
+    },
+    [list, currentId, onPhotoChange],
+  );
 
-  // Navigate to previous photo
-  const goToPrevious = useCallback((): Photo | null => {
-    if (!photos || currentIndex <= 0) return null;
+  const previousIndex = Math.ceil(base) - 1;
+  const nextIndex = Math.floor(base) + 1;
+  const goToPrevious = useCallback(() => goTo(previousIndex), [goTo, previousIndex]);
+  const goToNext = useCallback(() => goTo(nextIndex), [goTo, nextIndex]);
 
-    const newIndex = currentIndex - 1;
-    const newPhoto = photos[newIndex];
+  const neighbours = useMemo(
+    () => [nextIndex, previousIndex, nextIndex + 1].map((i) => list[i]).filter((p): p is Photo => Boolean(p)),
+    [list, nextIndex, previousIndex],
+  );
 
-    setCurrentIndex(newIndex);
-    setCurrentPhoto(newPhoto);
-    onPhotoChange?.(newPhoto);
-
-    return newPhoto;
-  }, [photos, currentIndex, onPhotoChange]);
-
-  // Navigate to next photo
-  const goToNext = useCallback((): Photo | null => {
-    if (!photos || currentIndex >= photos.length - 1) return null;
-
-    const newIndex = currentIndex + 1;
-    const newPhoto = photos[newIndex];
-
-    setCurrentIndex(newIndex);
-    setCurrentPhoto(newPhoto);
-    onPhotoChange?.(newPhoto);
-
-    return newPhoto;
-  }, [photos, currentIndex, onPhotoChange]);
-
-  // Toggle slideshow mode
-  const toggleSlideshow = useCallback(() => {
-    setIsSlideshow((prev) => !prev);
-  }, []);
-
-  // Stop slideshow
-  const stopSlideshow = useCallback(() => {
-    setIsSlideshow(false);
-  }, []);
-
-  // Mark a photo as preloaded
-  const markPreloaded = useCallback((photoId: string) => {
-    setPreloadedIds((prev) => new Set([...prev, photoId]));
-  }, []);
-
-  // Auto-advance for slideshow
-  useEffect(() => {
-    if (!isSlideshow || !photos) return;
-
-    const interval = setInterval(() => {
-      if (currentIndex < photos.length - 1) {
-        goToNext();
-      } else {
-        setIsSlideshow(false); // Stop at the end
-      }
-    }, SLIDESHOW_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [isSlideshow, currentIndex, photos, goToNext]);
-
-  const state: PhotoNavigationState = {
-    currentPhoto,
-    currentIndex,
-    isSlideshow,
-    preloadedIds,
-    hasPrevious,
-    hasNext,
-  };
-
-  const actions: PhotoNavigationActions = {
+  return {
+    current,
+    index,
+    total: list.length,
+    hasPrevious: previousIndex >= 0,
+    hasNext: nextIndex < list.length,
     goToPrevious,
     goToNext,
-    toggleSlideshow,
-    stopSlideshow,
-    markPreloaded,
+    goTo,
+    neighbours,
   };
-
-  return [state, actions];
 }

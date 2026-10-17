@@ -1,150 +1,48 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
+import { loadImage, peekImage, subscribeImage, type CachedImage } from "@/components/viewer/imageCache";
 
-/**
- * State for progressive image loading with thumbnail fallback
- */
-export interface ImageLoadingState {
-  isLoading: boolean;
-  hasError: boolean;
-  showLoadingUI: boolean;
-  thumbnailReady: boolean;
-  fullImageReady: boolean;
-  blobUrl: string | null;
+interface Options {
+  sessionToken?: string;
+  priority?: "high" | "low";
 }
 
 /**
- * Actions to control image loading state
- */
-export interface ImageLoadingActions {
-  reset: () => void;
-  setThumbnailLoaded: () => void;
-  setFullImageLoaded: () => void;
-  setError: () => void;
-  setBlobUrl: (url: string | null) => void;
-  clearLoadingTimeout: () => void;
-}
-
-const LOADING_DELAY_MS = 150;
-
-/**
- * Custom hook for managing progressive image loading state
- * Handles thumbnail → full image loading with delayed loading indicator
+ * One image through the viewer's cache: starts the load, re-renders when it
+ * settles. A URL that was preloaded comes back "ready" on the first render,
+ * so a neighbour the viewer already fetched never flashes its placeholder.
  */
 export function useImageLoading(
-  photoId: number,
-): [ImageLoadingState, ImageLoadingActions] {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [showLoadingUI, setShowLoadingUI] = useState(false);
-  const [thumbnailReady, setThumbnailReady] = useState(false);
-  const [fullImageReady, setFullImageReady] = useState(false);
-  const [blobUrl, setBlobUrlState] = useState<string | null>(null);
+  src: string | null | undefined,
+  { sessionToken, priority = "high" }: Options = {},
+): CachedImage & { retry: () => void } {
+  const [attempt, setAttempt] = useState(0);
 
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Clear timeout helper
-  const clearLoadingTimeout = useCallback(() => {
-    if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-    }
-    setShowLoadingUI(false);
-  }, []);
-
-  // Start loading with delayed UI indicator
-  const startLoadingWithDelay = useCallback(() => {
-    clearLoadingTimeout();
-    setShowLoadingUI(false);
-    loadingTimeoutRef.current = setTimeout(() => {
-      setShowLoadingUI(true);
-    }, LOADING_DELAY_MS);
-  }, [clearLoadingTimeout]);
-
-  // Reset all state for new image
-  const reset = useCallback(() => {
-    setIsLoading(true);
-    setHasError(false);
-    setThumbnailReady(false);
-    setFullImageReady(false);
-
-    // Clean up previous blob URL
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-      setBlobUrlState(null);
-    }
-
-    startLoadingWithDelay();
-  }, [blobUrl, startLoadingWithDelay]);
-
-  // Mark thumbnail as loaded
-  const setThumbnailLoaded = useCallback(() => {
-    setThumbnailReady(true);
-    clearLoadingTimeout();
-  }, [clearLoadingTimeout]);
-
-  // Mark full image as loaded
-  const setFullImageLoaded = useCallback(() => {
-    setIsLoading(false);
-    setFullImageReady(true);
-    clearLoadingTimeout();
-  }, [clearLoadingTimeout]);
-
-  // Set error state
-  const setError = useCallback(() => {
-    setIsLoading(false);
-    setHasError(true);
-    clearLoadingTimeout();
-  }, [clearLoadingTimeout]);
-
-  // Set blob URL (for session-authenticated images)
-  const setBlobUrl = useCallback(
-    (url: string | null) => {
-      // Clean up previous blob URL
-      if (blobUrl && url !== blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
-      setBlobUrlState(url);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!src) return () => undefined;
+      const unsubscribe = subscribeImage(src, onChange);
+      loadImage(src, { sessionToken, priority, retry: attempt > 0 });
+      onChange();
+      return unsubscribe;
     },
-    [blobUrl],
+    [src, sessionToken, priority, attempt],
   );
 
-  // Reset when photo changes
-  useEffect(() => {
-    reset();
+  const status = useSyncExternalStore(
+    subscribe,
+    () => (src ? (peekImage(src)?.status ?? "loading") : "error"),
+    () => "loading" as const,
+  );
 
-    return () => {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-      }
-    };
-  }, [photoId]); // Only trigger on photo change, not on reset function change
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const entry = src ? peekImage(src) : undefined;
 
-  // Cleanup blob URL on unmount
-  useEffect(() => {
-    return () => {
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
-    };
-  }, [blobUrl]);
-
-  const state: ImageLoadingState = {
-    isLoading,
-    hasError,
-    showLoadingUI,
-    thumbnailReady,
-    fullImageReady,
-    blobUrl,
+  return {
+    status,
+    src: status === "ready" ? entry?.src : undefined,
+    width: entry?.width,
+    height: entry?.height,
+    element: status === "ready" ? entry?.element : undefined,
+    retry,
   };
-
-  const actions: ImageLoadingActions = {
-    reset,
-    setThumbnailLoaded,
-    setFullImageLoaded,
-    setError,
-    setBlobUrl,
-    clearLoadingTimeout,
-  };
-
-  return [state, actions];
 }

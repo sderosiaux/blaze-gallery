@@ -47,11 +47,14 @@ export const GET = requireAuth(async function GET(
       );
     }
 
-    // Get signed download URL - S3 client auto-initializes
+    // ?download=1 signs an attachment disposition so the browser saves the
+    // file; without it the URL displays the original (used by the viewer)
+    const asAttachment = request.nextUrl.searchParams.get("download") === "1";
     const signedUrl = await getSignedDownloadUrlAuto(
       photo.s3_key,
       3600,
       request,
+      asAttachment ? { attachmentFilename: photo.filename } : {},
     );
 
     return NextResponse.redirect(signedUrl);

@@ -81,9 +81,9 @@ module.exports = {
         topbar: '20',
         sidebar: '30',
         overlay: '40',
-        dialog: '50',
+        dialog: '70',
         viewer: '60',
-        toast: '70',
+        toast: '80',
       },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },

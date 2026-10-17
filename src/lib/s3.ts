@@ -582,16 +582,41 @@ export async function getObjectMetadata(
   }
 }
 
+export interface SignedDownloadOptions {
+  /** Signs a Content-Disposition: attachment override so the browser saves the file */
+  attachmentFilename?: string;
+}
+
+/**
+ * RFC 6266 attachment header: an ASCII fallback for old clients plus the
+ * RFC 5987 UTF-8 form that modern browsers prefer.
+ */
+export function attachmentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function getSignedDownloadUrl(
   bucket: string,
   key: string,
   expiresIn: number = 3600,
   request?: Request,
+  options: SignedDownloadOptions = {},
 ): Promise<string> {
   // Initialize cache cleanup on first use
   initializeCacheCleanup();
 
-  const cacheKey = getCacheKey(bucket, key, expiresIn);
+  const disposition = options.attachmentFilename
+    ? attachmentDisposition(options.attachmentFilename)
+    : undefined;
+  // The disposition is part of the signature, so it is part of the cache key
+  const cacheKey = disposition
+    ? `${getCacheKey(bucket, key, expiresIn)}:${disposition}`
+    : getCacheKey(bucket, key, expiresIn);
   const now = Date.now();
 
   // Check if we have a cached URL that's still valid with 10% buffer
@@ -624,6 +649,7 @@ export async function getSignedDownloadUrl(
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
+      ...(disposition ? { ResponseContentDisposition: disposition } : {}),
     });
 
     const signedUrl = await getSignedUrl(client, command, { expiresIn });
@@ -1078,9 +1104,10 @@ export async function getSignedDownloadUrlAuto(
   key: string,
   expiresIn: number = 3600,
   request?: Request,
+  options: SignedDownloadOptions = {},
 ): Promise<string> {
   const bucket = S3Manager.getInstance().getBucketName();
-  return getSignedDownloadUrl(bucket, key, expiresIn, request);
+  return getSignedDownloadUrl(bucket, key, expiresIn, request, options);
 }
 
 /**
