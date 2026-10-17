@@ -1,50 +1,93 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
+import { query } from "@/lib/database";
 import { s3AuditLogger } from "@/lib/s3Audit";
-import { S3AuditQuery } from "@/types/audit";
+import type { AuditLogEntry, AuditLogPage } from "@/components/audit/types";
 
 export const dynamic = "force-dynamic";
 
+const MAX_LIMIT = 1000;
+
+// Newest first, only the columns the audit page shows (no IP or user agent),
+// count and page fetched in parallel. The shared queryLogs also recomputes the
+// summary stats on every call, three more round trips nobody reads here.
 export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
 
-    // Parse query parameters
-    const query: S3AuditQuery = {
-      start_date: searchParams.get("start_date") || undefined,
-      end_date: searchParams.get("end_date") || undefined,
-      operation: (searchParams.get("operation") as any) || undefined,
-      status_code: searchParams.get("status_code")
-        ? parseInt(searchParams.get("status_code")!)
-        : undefined,
-      bucket: searchParams.get("bucket") || undefined,
-      min_duration_ms: searchParams.get("min_duration_ms")
-        ? parseInt(searchParams.get("min_duration_ms")!)
-        : undefined,
-      max_duration_ms: searchParams.get("max_duration_ms")
-        ? parseInt(searchParams.get("max_duration_ms")!)
-        : undefined,
-      limit: searchParams.get("limit")
-        ? parseInt(searchParams.get("limit")!)
-        : 50,
-      offset: searchParams.get("offset")
-        ? parseInt(searchParams.get("offset")!)
-        : 0,
-      sort_by: (searchParams.get("sort_by") as any) || "timestamp",
-      sort_order: (searchParams.get("sort_order") as any) || "desc",
-    };
-
-    // Validate limits
-    if (query.limit && query.limit > 1000) {
-      query.limit = 1000; // Prevent excessive data requests
+    const startDate = searchParams.get("start_date");
+    const endDate = searchParams.get("end_date");
+    if (
+      (startDate && isNaN(Date.parse(startDate))) ||
+      (endDate && isNaN(Date.parse(endDate)))
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Invalid date format. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)",
+        },
+        { status: 400 },
+      );
     }
 
-    const result = await s3AuditLogger.queryLogs(query);
+    const limit = Math.min(
+      Math.max(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 1),
+      MAX_LIMIT,
+    );
+    const offset = Math.max(
+      parseInt(searchParams.get("offset") ?? "0", 10) || 0,
+      0,
+    );
 
-    return NextResponse.json({
-      success: true,
-      data: result,
-    });
+    const conditions: string[] = [];
+    const params: string[] = [];
+    if (startDate) {
+      params.push(startDate);
+      conditions.push(`timestamp >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(endDate);
+      conditions.push(`timestamp <= $${params.length}`);
+    }
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const [countResult, rowsResult] = await Promise.all([
+      query(
+        `SELECT COUNT(*)::int AS count FROM s3_audit_logs ${whereClause}`,
+        params,
+      ),
+      query(
+        `
+        SELECT id, timestamp, operation, method, endpoint, bucket, key,
+               duration_ms, status_code,
+               bytes_transferred::float8 AS bytes_transferred, error_message
+        FROM s3_audit_logs ${whereClause}
+        ORDER BY timestamp DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `,
+        params,
+      ),
+    ]);
+
+    const logs: AuditLogEntry[] = rowsResult.rows.map((row) => ({
+      id: String(row.id),
+      timestamp: new Date(row.timestamp).toISOString(),
+      operation: row.operation,
+      method: row.method,
+      endpoint: row.endpoint,
+      bucket: row.bucket,
+      key: row.key,
+      duration_ms: row.duration_ms,
+      status_code: row.status_code,
+      bytes_transferred: row.bytes_transferred,
+      error_message: row.error_message,
+    }));
+    const page: AuditLogPage = { logs, total_count: countResult.rows[0].count };
+
+    return NextResponse.json({ success: true, data: page });
   } catch (error) {
     console.error("[AUDIT API] Error querying logs:", error);
     return NextResponse.json(

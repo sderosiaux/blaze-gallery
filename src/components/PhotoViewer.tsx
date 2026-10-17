@@ -1,55 +1,82 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
-import { Photo } from "@/types";
 import {
-  Calendar,
-  MapPin,
-  HardDrive,
-  ChevronLeft,
-  ChevronRight,
-  ImageOff,
-  AlertCircle,
-  ChevronRight as ChevronRightIcon,
-} from "lucide-react";
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import type { Photo } from "@/types";
 import PhotoViewerControls from "./PhotoViewerControls";
-import { useImageLoading } from "@/hooks/useImageLoading";
+import { Button, Dialog, IconButton, useToast } from "@/components/ui";
 import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
-import { formatFileSize } from "@/lib/format";
-
-// Helper to check if a file is a video based on mime_type
-function isVideoMimeType(mimeType: string): boolean {
-  return mimeType.startsWith("video/");
-}
-
-/**
- * Trigger a file download via anchor element
- * Handles both blob URLs and regular URLs
- */
-function triggerDownload(url: string, filename: string): void {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
+import { isVideo } from "@/lib/albums";
+import { cn } from "@/lib/cn";
+import ViewerPhoto, {
+  type FullStatus,
+  type PlaceholderState,
+} from "./viewer/ViewerPhoto";
+import ViewerVideo from "./viewer/ViewerVideo";
+import InfoPanel from "./viewer/InfoPanel";
+import ShortcutsHelp from "./viewer/ShortcutsHelp";
+import { loadImage, retainImages } from "./viewer/imageCache";
+import {
+  albumOf,
+  isRawFile,
+  placeholderSources,
+  viewerSources,
+} from "./viewer/sources";
+import { formatTaken } from "./viewer/format";
+import { useAutoHide } from "./viewer/useAutoHide";
+import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
+import { useSwipe } from "./viewer/useSwipe";
 
 interface PhotoViewerProps {
   photo: Photo;
-  photos?: Photo[]; // Array of all photos for navigation
+  /** The album, in order: arrows, swipe and the slideshow walk through it. */
+  photos?: Photo[];
   onClose: () => void;
+  /** Called with the photo as the server now has it after a favourite toggle. */
   onFavoriteToggle?: (photo: Photo) => void;
-  onPhotoChange?: (photo: Photo) => void; // Callback when photo changes
-  onDelete?: (photo: Photo) => void; // Callback when photo is deleted
+  onPhotoChange?: (photo: Photo) => void;
+  /** Called once the photo is deleted from storage. Without it, delete is not offered. */
+  onDelete?: (photo: Photo) => void;
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
+  /** Password-protected shares: the session from the password gate. */
   sessionToken?: string;
 }
 
+type Keyed<T> = { id: string; value: T };
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
+
+function triggerDownload(href: string, filename: string, newTab = false) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = filename;
+  a.rel = "noopener";
+  if (newTab) a.target = "_blank";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
+ * Looking at one photo. A paper stage, the photo as large as the window
+ * allows, a quiet caption; controls fade away while you look and come back
+ * when the mouse moves. Rendered in a portal so no page stacking context can
+ * clip it.
+ */
 export default function PhotoViewer({
   photo,
   photos,
@@ -62,661 +89,808 @@ export default function PhotoViewer({
   allowDownload = true,
   sessionToken,
 }: PhotoViewerProps) {
-  // Use custom hooks for grouped state management
-  const [imageState, imageActions] = useImageLoading(photo.id);
-  const [favoriteState, favoriteActions] = useFavoriteToggle(
-    photo.is_favorite,
-    isSharedView,
+  const toast = useToast();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const infoId = useId();
+  const helpId = useId();
+  const [mounted, setMounted] = useState(false);
+
+  const nav = usePhotoNavigation(photo, photos, onPhotoChange);
+  const current = nav.current;
+  const currentId = String(current.id);
+  const shared = isSharedView && shareToken ? shareToken : undefined;
+  const session = shared ? sessionToken : undefined;
+  const sources = useMemo(
+    () => viewerSources(current, shared),
+    [current, shared],
   );
-  const [navState, navActions] = usePhotoNavigation(
-    photo,
-    photos,
-    onPhotoChange,
-  );
+  const video = isVideo(current);
+  const canFavorite = !isSharedView;
+  const canDelete = !isSharedView && Boolean(onDelete);
 
-  // UI state - single useState for simple toggle
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  // Per-photo state is keyed by id so a new photo starts clean without a reset pass.
+  const [zoomedId, setZoomedId] = useState<string | null>(null);
+  const [fullState, setFullState] = useState<Keyed<{
+    status: FullStatus;
+    placeholder: PlaceholderState;
+  }> | null>(null);
+  const [videoState, setVideoState] = useState<Keyed<
+    "playing" | "ended" | "failed"
+  > | null>(null);
+  const [retry, setRetry] = useState<Keyed<number> | null>(null);
 
-  // Sync favorite state when photo changes
-  useEffect(() => {
-    favoriteActions.setFavorite(photo.is_favorite);
-  }, [photo.is_favorite, favoriteActions]);
+  const zoomed = zoomedId === currentId;
+  const full =
+    fullState?.id === currentId
+      ? fullState.value
+      : {
+          status: "loading" as FullStatus,
+          placeholder: "pending" as PlaceholderState,
+        };
+  const videoOutcome = videoState?.id === currentId ? videoState.value : null;
+  const retryKey = retry?.id === currentId ? retry.value : 0;
 
-  // Helper functions to get correct URLs for shared vs regular views
-  const getThumbnailUrl = (photoId: number) => {
-    if (isSharedView && shareToken) {
-      return `/api/shares/${shareToken}/thumbnail/${photoId}`;
-    } else {
-      return `/api/photos/${photoId}/thumbnail`;
+  useEffect(() => setMounted(true), []);
+
+  // ---- favourites, download, delete -------------------------------------
+
+  const favorite = useFavoriteToggle(current, {
+    enabled: canFavorite,
+    onChange: onFavoriteToggle,
+    onError: () => toast.show("Couldn't update favorites. Try again.", "error"),
+  });
+
+  const toggleFavorite = useCallback(() => {
+    if (!canFavorite) return;
+    setAnnouncement(
+      favorite.isFavorite ? "Removed from favorites" : "Added to favorites",
+    );
+    favorite.toggle();
+  }, [canFavorite, favorite]);
+
+  const download = useCallback(async () => {
+    if (!allowDownload) return;
+    if (!shared) {
+      // The library route redirects to storage, where `download` is ignored
+      // (cross-origin): a new tab keeps the viewer open, and `download=1` asks
+      // the route for an attachment so the browser saves instead of showing.
+      triggerDownload(`${sources.download}?download=1`, current.filename, true);
+      return;
     }
-  };
-
-  const getFullImageUrl = (photoId: number) => {
-    if (isSharedView && shareToken) {
-      // Use view endpoint for displaying images (always allowed)
-      return `/api/shares/${shareToken}/view/${photoId}`;
-    } else {
-      return `/api/photos/${photoId}/download`;
+    if (!session) {
+      triggerDownload(sources.download, current.filename);
+      return;
     }
-  };
-
-  // Session-based image loading for password-protected shares
-  useEffect(() => {
-    if (isSharedView && shareToken && sessionToken && photo.id) {
-      let isCancelled = false;
-      const abortController = new AbortController();
-
-      const loadSessionImage = async () => {
-        try {
-          const response = await fetch(
-            `/api/shares/${shareToken}/view/${photo.id}`,
-            {
-              headers: { "x-share-session": sessionToken },
-              signal: abortController.signal,
-            },
-          );
-
-          if (isCancelled) return;
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          const blob = await response.blob();
-          if (isCancelled) {
-            URL.revokeObjectURL(URL.createObjectURL(blob));
-            return;
-          }
-
-          imageActions.setBlobUrl(URL.createObjectURL(blob));
-        } catch (error) {
-          if (error instanceof DOMException && error.name === "AbortError") {
-            return;
-          }
-          if (!isCancelled) {
-            console.error("Failed to load full image with session:", error);
-            imageActions.setError();
-          }
-        }
-      };
-
-      loadSessionImage();
-
-      return () => {
-        isCancelled = true;
-        abortController.abort();
-      };
-    }
-  }, [photo.id, isSharedView, shareToken, sessionToken, imageActions]);
-
-  // Preload nearby images for smooth navigation
-  const preloadImages = useCallback(
-    (centerIndex: number) => {
-      if (!photos) return;
-
-      // Skip preloading for password-protected shares since they need session authentication
-      if (isSharedView && sessionToken) return;
-
-      const indicesToPreload = [
-        centerIndex + 1,
-        centerIndex + 2,
-        centerIndex + 3,
-        centerIndex - 1,
-      ].filter((index) => index >= 0 && index < photos.length);
-
-      indicesToPreload.forEach((index) => {
-        const photoId = photos[index].id.toString();
-        if (!navState.preloadedIds.has(photoId)) {
-          const img = new Image();
-          img.src = getFullImageUrl(photos[index].id);
-          img.onload = () => navActions.markPreloaded(photoId);
-        }
+    try {
+      const response = await fetch(sources.download, {
+        headers: { "x-share-session": session },
       });
-    },
-    [photos, navState.preloadedIds, isSharedView, sessionToken, navActions],
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      triggerDownload(url, current.filename);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      toast.show("The download didn't start. Try again.", "error");
+    }
+  }, [
+    allowDownload,
+    shared,
+    session,
+    sources.download,
+    current.filename,
+    toast,
+  ]);
+
+  const confirmDelete = useCallback(async () => {
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/photos/${currentId}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) throw new Error(data.error);
+      onDelete?.(current);
+      toast.show("Photo deleted.", "success");
+      setConfirmOpen(false);
+      onClose();
+    } catch {
+      toast.show("Couldn't delete the photo. Try again.", "error");
+    } finally {
+      setDeleting(false);
+    }
+  }, [currentId, current, onDelete, onClose, toast]);
+
+  // ---- navigation, slideshow, zoom --------------------------------------
+
+  const { goToPrevious: previous, goToNext: next, goTo } = nav;
+  const stopSlideshow = useCallback(() => setPlaying(false), []);
+  const toggleSlideshow = useCallback(() => {
+    if (nav.total < 2) return;
+    setPlaying((p) => !p);
+  }, [nav.total]);
+
+  const toggleZoom = useCallback(() => {
+    if (video || full.status !== "ready") return;
+    setZoomedId((id) => (id === currentId ? null : currentId));
+  }, [video, full.status, currentId]);
+
+  const onZoomedChange = useCallback(
+    (z: boolean) => setZoomedId(z ? currentId : null),
+    [currentId],
+  );
+  const onStatus = useCallback(
+    (status: FullStatus, placeholder: PlaceholderState) =>
+      setFullState({ id: currentId, value: { status, placeholder } }),
+    [currentId],
+  );
+  const onVideoSettled = useCallback(
+    (outcome: "playing" | "ended" | "failed") =>
+      setVideoState({ id: currentId, value: outcome }),
+    [currentId],
   );
 
-  // Preload images when current index changes
+  const photoReady = video
+    ? videoOutcome === "ended" || videoOutcome === "failed"
+    : full.status !== "loading";
+  const clockRunning = useSlideshow({
+    playing,
+    photoKey: currentId,
+    ready: photoReady,
+    waitForEnd: video && videoOutcome !== "ended" && videoOutcome !== "failed",
+    hasNext: nav.hasNext,
+    onNext: next,
+    onEnd: stopSlideshow,
+  });
+
+  const swipe = useSwipe({
+    disabled: zoomed,
+    onPrevious: previous,
+    onNext: next,
+    hasPrevious: nav.hasPrevious,
+    hasNext: nav.hasNext,
+  });
+
+  // Neighbours: their cheap layers right away, their originals once this
+  // photo's original is in (they would only slow it down before).
   useEffect(() => {
-    preloadImages(navState.currentIndex);
-  }, [navState.currentIndex, preloadImages]);
+    const keep: string[] = [];
+    if (sources.full && !video) keep.push(sources.full);
+    const settled = video || full.status !== "loading";
+    nav.neighbours.forEach((p, i) => {
+      if (isVideo(p)) return;
+      const s = viewerSources(p, shared);
+      const layers = placeholderSources(p, s);
+      [layers.preview, layers.thumb].forEach((src) => {
+        if (!src) return;
+        loadImage(src);
+        keep.push(src);
+      });
+      if (s.full && settled && i < 2) {
+        loadImage(s.full, { sessionToken: session });
+        keep.push(s.full);
+      }
+    });
+    retainImages(keep);
+  }, [nav.neighbours, sources.full, video, full.status, shared, session]);
 
-  // Navigation wrapper functions that also reset image loading state
-  const goToPrevious = useCallback(() => {
-    const newPhoto = navActions.goToPrevious();
-    if (newPhoto) {
-      imageActions.reset();
-      favoriteActions.setFavorite(newPhoto.is_favorite);
-    }
-  }, [navActions, imageActions, favoriteActions]);
+  // Closing cancels the originals still on their way: the grid needs the
+  // bandwidth. Deferred so the stage has unsubscribed from its own first.
+  useEffect(() => () => void setTimeout(() => retainImages([]), 0), []);
 
-  const goToNext = useCallback(() => {
-    const newPhoto = navActions.goToNext();
-    if (newPhoto) {
-      imageActions.reset();
-      favoriteActions.setFavorite(newPhoto.is_favorite);
-    }
-  }, [navActions, imageActions, favoriteActions]);
+  // ---- caption ----------------------------------------------------------
 
-  // Handle favorite toggle using the hook
-  const handleFavoriteToggle = useCallback(
-    (e: React.MouseEvent | KeyboardEvent) => {
+  const taken = current.metadata?.date_taken
+    ? formatTaken(current.metadata.date_taken)
+    : null;
+  const album = isSharedView ? null : albumOf(current);
+  const position =
+    nav.index >= 0 && nav.total > 1 ? `${nav.index + 1} / ${nav.total}` : null;
+  const captionTitle = taken?.day ?? current.filename;
+
+  useEffect(() => {
+    setAnnouncement(
+      [position && `Photo ${position.replace(" / ", " of ")}`, captionTitle]
+        .filter(Boolean)
+        .join(", "),
+    );
+  }, [currentId, position, captionTitle]);
+
+  // ---- focus, keyboard, scroll lock -------------------------------------
+
+  const confirmOpenRef = useRef(confirmOpen);
+  confirmOpenRef.current = confirmOpen;
+  const deletingRef = useRef(deleting);
+  deletingRef.current = deleting;
+  // Stable: the Dialog re-runs its focus effect whenever onClose changes.
+  const closeConfirm = useCallback(() => {
+    if (!deletingRef.current) setConfirmOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const opener = document.activeElement as HTMLElement | null;
+    rootRef.current?.focus({ preventScroll: true });
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    // Focus that wanders out (a click on something behind) is brought back.
+    const onFocusIn = (e: FocusEvent) => {
+      const root = rootRef.current;
+      if (!root || confirmOpenRef.current) return;
+      if (e.target instanceof Node && !root.contains(e.target))
+        root.focus({ preventScroll: true });
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.body.style.overflow = overflow;
+      if (opener?.isConnected && opener !== document.body)
+        opener.focus({ preventScroll: true });
+    };
+  }, [mounted]);
+
+  const onKey = (e: KeyboardEvent) => {
+    // The delete confirmation owns the keyboard while it is open.
+    if (confirmOpenRef.current) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    const handled = () => {
       e.preventDefault();
       e.stopPropagation();
-      favoriteActions.toggle(navState.currentPhoto, onFavoriteToggle);
-    },
-    [favoriteActions, navState.currentPhoto, onFavoriteToggle],
-  );
+    };
 
-  const handleDelete = useCallback(async () => {
-    if (deleteLoading) return;
-
-    // Show confirmation first
-    if (!showDeleteConfirm) {
-      setShowDeleteConfirm(true);
+    if (e.key === "Tab") {
+      const items = Array.from(
+        root.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null);
+      if (items.length === 0) return handled();
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = target && root.contains(target) && target !== root;
+      if (e.shiftKey && (!inside || target === first)) {
+        handled();
+        last.focus();
+      } else if (!e.shiftKey && (!inside || target === last)) {
+        handled();
+        first.focus();
+      }
       return;
     }
 
-    setDeleteLoading(true);
-    try {
-      const response = await fetch(`/api/photos/${navState.currentPhoto.id}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to delete photo");
-      }
-
-      // Call onDelete callback to update parent state
-      if (onDelete) {
-        onDelete(navState.currentPhoto);
-      }
-
-      // Close the viewer after successful deletion
-      onClose();
-    } catch (error) {
-      console.error("Failed to delete photo:", error);
-      alert(error instanceof Error ? error.message : "Failed to delete photo");
-    } finally {
-      setDeleteLoading(false);
-      setShowDeleteConfirm(false);
+    if (e.key === "Escape") {
+      handled();
+      if (helpOpen) setHelpOpen(false);
+      else if (zoomed) setZoomedId(null);
+      else onClose();
+      return;
     }
-  }, [deleteLoading, showDeleteConfirm, navState.currentPhoto, onDelete, onClose]);
 
-  // Reset delete confirmation when photo changes
+    // Shortcuts of the page behind (⌘K, /) must not reach it.
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      if (e.key.toLowerCase() === "k") handled();
+      return;
+    }
+    if (target?.closest('input, textarea, select, [contenteditable="true"]'))
+      return;
+    // A focused video keeps its own keys.
+    if (
+      target?.tagName === "VIDEO" &&
+      [
+        " ",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "k",
+        "m",
+        "f",
+      ].includes(e.key)
+    )
+      return;
+
+    switch (e.key) {
+      case "ArrowLeft":
+        handled();
+        previous();
+        break;
+      case "ArrowRight":
+        handled();
+        next();
+        break;
+      case "Home":
+        handled();
+        goTo(0);
+        break;
+      case "End":
+        handled();
+        goTo(nav.total - 1);
+        break;
+      case " ":
+        // Space presses a focused button; elsewhere it runs the slideshow.
+        if (target?.closest("button, a")) return;
+        handled();
+        toggleSlideshow();
+        break;
+      case "f":
+      case "F":
+        if (!canFavorite) return;
+        handled();
+        toggleFavorite();
+        break;
+      case "i":
+      case "I":
+        handled();
+        setInfoOpen((v) => !v);
+        break;
+      case "z":
+      case "Z":
+        handled();
+        toggleZoom();
+        break;
+      case "?":
+        handled();
+        setHelpOpen((v) => !v);
+        break;
+      case "/":
+        handled();
+        break;
+      case "Delete":
+      case "Backspace":
+        if (!canDelete) return;
+        handled();
+        setConfirmOpen(true);
+        break;
+    }
+  };
+  const onKeyRef = useRef(onKey);
+  onKeyRef.current = onKey;
+
   useEffect(() => {
-    setShowDeleteConfirm(false);
-  }, [navState.currentPhoto.id]);
+    // Capture phase: runs before the page's own shortcuts, which it can then stop.
+    const listener = (e: KeyboardEvent) => onKeyRef.current(e);
+    document.addEventListener("keydown", listener, true);
+    return () => document.removeEventListener("keydown", listener, true);
+  }, []);
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        goToPrevious();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        goToNext();
-      } else if (e.key === " " || e.key === "Spacebar") {
-        e.preventDefault();
-        navActions.toggleSlideshow();
-      } else if (e.key === "f" || e.key === "F") {
-        e.preventDefault();
-        handleFavoriteToggle(e);
-      } else if (e.key === "e" || e.key === "E") {
-        e.preventDefault();
-        setIsExpanded((prev) => !prev);
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        if (!isSharedView) {
-          handleDelete();
-        }
-      }
-    };
+  const chromeVisible = useAutoHide(
+    rootRef,
+    infoOpen || helpOpen || confirmOpen,
+    mounted,
+  );
+  const chromeClass = cn(
+    "transition-opacity duration-300 ease-out-soft",
+    !chromeVisible && "pointer-events-none opacity-0",
+  );
 
-    document.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "unset";
-    };
-  }, [onClose, goToPrevious, goToNext, navActions, handleFavoriteToggle, handleDelete, isSharedView]);
-
-  const handleDownload = async () => {
-    const currentPhoto = navState.currentPhoto;
-    try {
-      if (isSharedView && shareToken) {
-        const response = await fetch(
-          `/api/shares/${shareToken}/download/${currentPhoto.id}`,
-          {
-            headers: sessionToken ? { "x-share-session": sessionToken } : {},
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        triggerDownload(url, currentPhoto.filename);
-        URL.revokeObjectURL(url);
-      } else {
-        triggerDownload(
-          `/api/photos/${currentPhoto.id}/download`,
-          currentPhoto.filename,
-        );
-      }
-    } catch (error) {
-      console.error("[CLIENT] Download failed:", error);
-      alert("Download failed. Please try again.");
-    }
-  };
-
-  const getFolderBreadcrumbs = (s3Key: string) => {
-    const pathParts = s3Key.split("/");
-    pathParts.pop(); // Remove filename
-
-    if (pathParts.length === 0) return [];
-
-    return pathParts.map((folderName, index) => ({
-      name: folderName,
-      path: pathParts.slice(0, index + 1).join("/"),
-    }));
-  };
-
-  const handleBackgroundClick = (e: React.MouseEvent) => {
-    // Only close if clicked on the background, not the content
-    if (e.target === e.currentTarget) {
+  // A mouse click on the paper around the photo closes, as it always has.
+  const pointerType = useRef("mouse");
+  const onStageClick = (e: React.MouseEvent) => {
+    if (pointerType.current !== "mouse") return;
+    if (
+      e.target instanceof HTMLElement &&
+      e.target.hasAttribute("data-backdrop")
+    )
       onClose();
-    }
   };
 
-  // Destructure for cleaner JSX
-  const currentPhoto = navState.currentPhoto;
+  if (!mounted) return null;
 
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4 cursor-pointer"
-      onClick={handleBackgroundClick}
-    >
-      <div className="relative max-w-4xl max-h-full w-full h-full flex flex-col cursor-default">
-        <div className="flex flex-col p-4 bg-black bg-opacity-50 text-white">
-          {/* Top row: filename, size, and buttons */}
-          <div className="flex justify-between items-start mb-2">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center flex-wrap gap-3">
-                <h3 className="text-lg font-medium truncate">
-                  {currentPhoto.filename}
-                </h3>
-                <div className="flex items-center text-sm text-gray-300">
-                  <HardDrive className="w-4 h-4 mr-1" />
-                  {formatFileSize(currentPhoto.size)}
-                </div>
-              </div>
-            </div>
-            <PhotoViewerControls
-              totalPhotos={photos?.length ?? 0}
-              currentIndex={navState.currentIndex}
-              isSlideshow={navState.isSlideshow}
-              onSlideshowToggle={navActions.toggleSlideshow}
-              isExpanded={isExpanded}
-              onExpandToggle={() => setIsExpanded((prev) => !prev)}
-              isSharedView={isSharedView}
-              favoriteLoading={favoriteState.isLoading}
-              isFavorite={favoriteState.isFavorite}
-              heartAnimating={favoriteState.isAnimating}
-              onFavoriteToggle={() =>
-                handleFavoriteToggle({
-                  preventDefault: () => {},
-                  stopPropagation: () => {},
-                } as React.MouseEvent)
-              }
-              allowDownload={allowDownload}
-              onDownload={handleDownload}
-              onClose={onClose}
-              onDelete={handleDelete}
-              deleteLoading={deleteLoading || showDeleteConfirm}
-            />
-          </div>
-
-          {/* Full width breadcrumb row */}
-          <div className="w-full">
-            {/* Folder breadcrumb - clickable path navigation, especially useful in favorites */}
-            {(() => {
-              const breadcrumbs = getFolderBreadcrumbs(currentPhoto.s3_key);
-              return (
-                breadcrumbs.length > 0 && (
-                  <div className="text-sm text-gray-400 mb-3 flex items-center flex-wrap">
-                    <span className="mr-2">📁</span>
-                    {breadcrumbs.map((crumb, index) => (
-                      <div key={crumb.path} className="flex items-center">
-                        {index > 0 && (
-                          <ChevronRightIcon className="w-3 h-3 mx-1 text-gray-500" />
-                        )}
-                        <a
-                          href={`/folder/${crumb.path}`}
-                          className="opacity-75 hover:opacity-100 hover:text-blue-300 transition-colors underline-offset-2 hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation(); // Prevent photo viewer from closing
-                          }}
-                          title={`Go to ${crumb.name} folder`}
-                        >
-                          {crumb.name}
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )
-              );
-            })()}
-
-            {/* Metadata section */}
-            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-300">
-              {currentPhoto.metadata?.date_taken && (
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  {new Date(currentPhoto.metadata.date_taken).toLocaleString()}
-                </div>
-              )}
-              {currentPhoto.metadata?.dimensions && (
-                <div className="flex items-center">
-                  <span className="mr-1">📐</span>
-                  {currentPhoto.metadata.dimensions.width} ×{" "}
-                  {currentPhoto.metadata.dimensions.height}
-                </div>
-              )}
-              {currentPhoto.metadata?.location && (
-                <div className="flex items-center">
-                  <MapPin className="w-4 h-4 mr-1" />
-                  {currentPhoto.metadata.location.latitude.toFixed(4)},{" "}
-                  {currentPhoto.metadata.location.longitude.toFixed(4)}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 flex items-center justify-center min-h-0 relative group">
-          {/* Loading skeleton - only show when no images are loaded yet and after delay */}
-          {imageState.showLoadingUI &&
-            !imageState.thumbnailReady &&
-            !imageState.fullImageReady && (
-              <div className="absolute inset-4 bg-gray-800 rounded-lg flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-gray-600 border-t-white rounded-full animate-spin"></div>
-              </div>
-            )}
-
-          {/* Error state */}
-          {imageState.hasError && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-white text-center p-8 max-w-md mx-auto">
-                {(() => {
-                  const filename = currentPhoto.filename.toLowerCase();
-                  const rawFormats = [
-                    ".nef",
-                    ".cr2",
-                    ".cr3",
-                    ".arw",
-                    ".dng",
-                    ".raf",
-                    ".orf",
-                    ".rw2",
-                    ".pef",
-                    ".srw",
-                    ".x3f",
-                  ];
-                  const isRawFormat = rawFormats.some((ext) =>
-                    filename.endsWith(ext),
-                  );
-
-                  if (isRawFormat) {
-                    return (
-                      <>
-                        <ImageOff className="w-16 h-16 mx-auto mb-6 text-yellow-500" />
-                        <h3 className="text-xl font-medium mb-2">
-                          RAW File Preview Unavailable
-                        </h3>
-                        <p className="text-gray-300 mb-4">
-                          This is a camera RAW file (
-                          {currentPhoto.filename
-                            .split(".")
-                            .pop()
-                            ?.toUpperCase()}
-                          ) which cannot be displayed directly in the browser.
-                        </p>
-                        <div className="bg-gray-800 rounded-lg p-4 text-sm text-left space-y-2">
-                          <p className="text-gray-300">To view this image:</p>
-                          <ul className="list-disc list-inside space-y-1 text-gray-400">
-                            <li>Download the file using the button above</li>
-                            <li>
-                              Open with photo editing software (Lightroom,
-                              Photoshop, etc.)
-                            </li>
-                            <li>
-                              Use RAW processing tools to convert and edit
-                            </li>
-                          </ul>
-                        </div>
-                        <p className="text-xs text-gray-400 mt-4">
-                          {currentPhoto.filename}
-                        </p>
-                      </>
-                    );
-                  } else {
-                    return (
-                      <>
-                        <AlertCircle className="w-16 h-16 mx-auto mb-6 text-red-500" />
-                        <h3 className="text-xl font-medium mb-2">
-                          Failed to Load Image
-                        </h3>
-                        <p className="text-gray-300 mb-4">
-                          There was an error loading this image. It may be
-                          corrupted or in an unsupported format.
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {currentPhoto.filename}
-                        </p>
-                      </>
-                    );
-                  }
-                })()}
-              </div>
-            </div>
+  const note = (() => {
+    if (video) return null;
+    if (full.status === "unavailable") {
+      const kind = isRawFile(current)
+        ? `${current.filename.split(".").pop()?.toUpperCase()} RAW files`
+        : "Files of this type";
+      return full.placeholder === "shown" ? (
+        <>
+          This is a preview. {kind} can&rsquo;t be shown at full size in a
+          browser.
+          {allowDownload && (
+            <button
+              type="button"
+              onClick={download}
+              className="ml-1 text-accent-strong underline-offset-2 hover:underline"
+            >
+              Download the original
+            </button>
           )}
+        </>
+      ) : null;
+    }
+    if (full.status === "error") {
+      return (
+        <>
+          The full-size photo didn&rsquo;t load.
+          <button
+            type="button"
+            onClick={() => setRetry({ id: currentId, value: retryKey + 1 })}
+            className="ml-1 text-accent-strong underline-offset-2 hover:underline"
+          >
+            Try again
+          </button>
+        </>
+      );
+    }
+    if (full.status === "loading") {
+      return (
+        <span className="animate-fade-in [animation-delay:1200ms]">
+          {full.placeholder === "shown"
+            ? "Loading full size…"
+            : "Loading the photo…"}
+        </span>
+      );
+    }
+    return null;
+  })();
 
-          {/* Navigation hints */}
-          {photos &&
-            photos.length > 1 &&
-            (imageState.thumbnailReady || imageState.fullImageReady) &&
-            !imageState.hasError && (
-              <>
-                {/* Previous photo hint */}
-                {navState.hasPrevious && (
-                  <button
-                    onClick={goToPrevious}
-                    className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
-                      isExpanded ? "-left-2" : "left-4"
-                    }`}
-                    title="Previous photo (←)"
-                  >
-                    <ChevronLeft className="w-8 h-8" />
-                  </button>
-                )}
+  const nothingToShow =
+    !video &&
+    (full.status === "unavailable" || full.status === "error") &&
+    full.placeholder === "none";
 
-                {/* Next photo hint */}
-                {navState.hasNext && (
-                  <button
-                    onClick={goToNext}
-                    className={`absolute top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-opacity-70 z-10 ${
-                      isExpanded ? "-right-2" : "right-4"
-                    }`}
-                    title="Next photo (→)"
-                  >
-                    <ChevronRight className="w-8 h-8" />
-                  </button>
-                )}
-              </>
-            )}
+  const stageChildren = video ? (
+    <ViewerVideo
+      key={currentId}
+      photo={current}
+      sources={sources}
+      sessionToken={session}
+      allowDownload={allowDownload}
+      onDownload={download}
+      onSettled={onVideoSettled}
+    />
+  ) : (
+    <ViewerPhoto
+      key={currentId}
+      photo={current}
+      sources={sources}
+      sessionToken={session}
+      zoomed={zoomed}
+      onZoomedChange={onZoomedChange}
+      onStatus={onStatus}
+      retryKey={retryKey}
+    />
+  );
 
-          {/* Progressive Loading Images / Video Player */}
-          <div className="relative w-full h-full flex items-center justify-center">
-            {isVideoMimeType(currentPhoto.mime_type) ? (
-              /* Video Player */
-              <video
-                key={currentPhoto.id}
-                src={imageState.blobUrl || getFullImageUrl(currentPhoto.id)}
-                controls
-                autoPlay
-                className={`transition-all duration-300 ${
-                  isExpanded ? "max-w-none max-h-none" : "max-w-full max-h-full"
-                }`}
-                style={{
-                  width: isExpanded ? "90vw" : "100%",
-                  height: isExpanded ? "90vh" : "100%",
-                  maxWidth: isExpanded ? "90vw" : "100%",
-                  maxHeight: isExpanded ? "90vh" : "100%",
-                  objectFit: "contain",
-                }}
-                onLoadedData={() => imageActions.setFullImageLoaded()}
-                onError={() => imageActions.setError()}
-              />
-            ) : (
-              <>
-                {/* Thumbnail - loads first and shows immediately, sized to match final image */}
-                <img
-                  src={getThumbnailUrl(currentPhoto.id)}
-                  alt={`${currentPhoto.filename} thumbnail`}
-                  className={`absolute transition-all duration-500 ${
-                    isExpanded
-                      ? "max-w-none max-h-none object-contain"
-                      : "max-w-full max-h-full object-contain"
-                  } ${
-                    imageState.thumbnailReady && !imageState.fullImageReady
-                      ? "opacity-100"
-                      : "opacity-0"
-                  } ${
-                    imageState.fullImageReady
-                      ? "scale-110 blur-sm"
-                      : "scale-100 blur-0"
-                  }`}
-                  style={{
-                    imageRendering: "auto",
-                    width: isExpanded ? "90vw" : "100%",
-                    height: isExpanded ? "90vh" : "100%",
-                    maxWidth: isExpanded ? "90vw" : "100%",
-                    maxHeight: isExpanded ? "90vh" : "100%",
-                    objectFit: "contain",
-                  }}
-                  loading="eager"
-                  onLoad={() => imageActions.setThumbnailLoaded()}
-                  onError={() => {
-                    // For shared views, silently handle thumbnail errors
-                    if (isSharedView) {
-                      imageActions.clearLoadingTimeout();
-                    } else {
-                      console.log(
-                        "Thumbnail load error for:",
-                        currentPhoto.filename,
-                      );
-                    }
-                  }}
-                />
-
-                {/* Full Resolution Image - loads in background, sized to match thumbnail */}
-                <img
-                  src={
-                    // For password-protected shares, don't load until blob URL is ready
-                    isSharedView && sessionToken && !imageState.blobUrl
-                      ? ""
-                      : imageState.blobUrl || getFullImageUrl(currentPhoto.id)
+  return createPortal(
+    <>
+      <div
+        ref={rootRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={cn(
+          "fixed inset-0 z-viewer flex animate-fade-in flex-col bg-paper text-ink outline-none",
+          "pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]",
+          !chromeVisible && "cursor-none",
+        )}
+        onPointerDownCapture={(e) => (pointerType.current = e.pointerType)}
+      >
+        <header
+          data-chrome
+          className={cn(
+            "flex h-14 shrink-0 items-center justify-between gap-2 px-2 sm:px-4",
+            chromeClass,
+          )}
+        >
+          <IconButton
+            icon={X}
+            label="Close (Esc)"
+            aria-keyshortcuts="Escape"
+            onClick={onClose}
+          />
+          <PhotoViewerControls
+            slideshow={
+              nav.total > 1 ? { playing, onToggle: toggleSlideshow } : undefined
+            }
+            zoom={
+              video
+                ? undefined
+                : {
+                    active: zoomed,
+                    available: full.status === "ready",
+                    onToggle: toggleZoom,
                   }
-                  alt={currentPhoto.filename}
-                  className={`transition-all duration-500 ${
-                    isExpanded
-                      ? "max-w-none max-h-none object-contain"
-                      : "max-w-full max-h-full object-contain"
-                  } ${imageState.fullImageReady ? "opacity-100" : "opacity-0"}`}
-                  style={{
-                    imageRendering: isExpanded ? "crisp-edges" : "auto",
-                    width: isExpanded ? "90vw" : "100%",
-                    height: isExpanded ? "90vh" : "100%",
-                    maxWidth: isExpanded ? "90vw" : "100%",
-                    maxHeight: isExpanded ? "90vh" : "100%",
-                    objectFit: "contain",
-                  }}
-                  loading="eager"
-                  onLoad={() => {
-                    const isPasswordProtectedShare =
-                      isSharedView && sessionToken;
-                    const isUsingBlobUrl = imageState.blobUrl !== null;
+            }
+            favorite={
+              canFavorite
+                ? { active: favorite.isFavorite, onToggle: toggleFavorite }
+                : undefined
+            }
+            info={{
+              open: infoOpen,
+              panelId: infoId,
+              onToggle: () => setInfoOpen((v) => !v),
+            }}
+            onDownload={allowDownload ? download : undefined}
+            onDelete={canDelete ? () => setConfirmOpen(true) : undefined}
+            help={{
+              open: helpOpen,
+              panelId: helpId,
+              onToggle: () => setHelpOpen((v) => !v),
+            }}
+          />
+        </header>
 
-                    if (!isPasswordProtectedShare || isUsingBlobUrl) {
-                      imageActions.setFullImageLoaded();
-                    }
-                  }}
-                  onError={(e) => {
-                    const isWaitingForSessionLoad =
-                      isSharedView && sessionToken && !imageState.blobUrl;
-
-                    if (!isWaitingForSessionLoad) {
-                      console.log("PhotoViewer full image error:", {
-                        filename: currentPhoto.filename,
-                        src: e.currentTarget.src,
-                        isSharedView,
-                        sessionToken: !!sessionToken,
-                        blobUrl: !!imageState.blobUrl,
-                      });
-                      setTimeout(() => imageActions.setError(), 100);
-                    }
-                  }}
+        <div className="relative flex min-h-0 flex-1">
+          <div className="relative flex min-w-0 flex-1 flex-col">
+            {playing && (
+              <div
+                aria-hidden
+                className="absolute inset-x-0 top-0 z-10 h-0.5 bg-line"
+              >
+                <SlideshowProgress
+                  key={`${currentId}-${clockRunning}`}
+                  running={clockRunning}
                 />
-              </>
+              </div>
             )}
+
+            <div
+              className="relative min-h-0 flex-1"
+              style={{ touchAction: zoomed ? "auto" : "pan-y pinch-zoom" }}
+              data-backdrop
+              onClick={onStageClick}
+              {...swipe.handlers}
+            >
+              <div
+                data-backdrop
+                className={cn(
+                  "absolute inset-0 px-0 py-2 sm:px-6 sm:py-3 md:px-20 lg:px-24",
+                  !swipe.dragging &&
+                    "transition-transform duration-200 ease-out-soft",
+                )}
+                style={{
+                  transform: swipe.offset
+                    ? `translate3d(${swipe.offset}px, 0, 0)`
+                    : undefined,
+                }}
+              >
+                <div data-backdrop className="relative h-full w-full">
+                  {stageChildren}
+                  {nothingToShow && (
+                    <Unviewable
+                      photo={current}
+                      allowDownload={allowDownload}
+                      onDownload={download}
+                      onRetry={
+                        full.status === "error"
+                          ? () =>
+                              setRetry({ id: currentId, value: retryKey + 1 })
+                          : undefined
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+
+              {nav.total > 1 && (
+                <>
+                  <div
+                    data-chrome
+                    className={cn(
+                      "absolute left-3 top-1/2 hidden -translate-y-1/2 md:block lg:left-5",
+                      chromeClass,
+                    )}
+                  >
+                    <IconButton
+                      icon={ChevronLeft}
+                      label="Previous photo (←)"
+                      aria-keyshortcuts="ArrowLeft"
+                      variant="secondary"
+                      size="lg"
+                      disabled={!nav.hasPrevious}
+                      onClick={previous}
+                      className="shadow-lift"
+                    />
+                  </div>
+                  <div
+                    data-chrome
+                    className={cn(
+                      "absolute right-3 top-1/2 hidden -translate-y-1/2 md:block lg:right-5",
+                      chromeClass,
+                    )}
+                  >
+                    <IconButton
+                      icon={ChevronRight}
+                      label="Next photo (→)"
+                      aria-keyshortcuts="ArrowRight"
+                      variant="secondary"
+                      size="lg"
+                      disabled={!nav.hasNext}
+                      onClick={next}
+                      className="shadow-lift"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex h-[5.75rem] shrink-0 items-center gap-1 px-1 sm:px-6">
+              {nav.total > 1 && (
+                <IconButton
+                  icon={ChevronLeft}
+                  label="Previous photo"
+                  disabled={!nav.hasPrevious}
+                  onClick={previous}
+                  className="md:hidden"
+                />
+              )}
+              <figure className="min-w-0 flex-1 text-center">
+                <figcaption>
+                  <p
+                    id={titleId}
+                    className="truncate font-display text-lg font-light leading-tight text-ink sm:text-xl"
+                  >
+                    {captionTitle}
+                  </p>
+                  <p className="mt-1 flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted">
+                    {taken?.time && (
+                      <span className="tabular">{taken.time}</span>
+                    )}
+                    {taken?.time && (album || position) && <Dot />}
+                    {album && (
+                      <Link
+                        href={album.href}
+                        className="truncate text-ink-soft underline-offset-2 transition-colors hover:text-accent-strong hover:underline"
+                      >
+                        {album.title}
+                      </Link>
+                    )}
+                    {album && position && <Dot />}
+                    {position && (
+                      <span className="tabular shrink-0">{position}</span>
+                    )}
+                  </p>
+                  <p className="mt-1 h-4 truncate text-xs text-ink-faint">
+                    {note}
+                  </p>
+                </figcaption>
+              </figure>
+              {nav.total > 1 && (
+                <IconButton
+                  icon={ChevronRight}
+                  label="Next photo"
+                  disabled={!nav.hasNext}
+                  onClick={next}
+                  className="md:hidden"
+                />
+              )}
+            </div>
           </div>
+
+          {infoOpen && (
+            <InfoPanel
+              id={infoId}
+              photo={current}
+              showAlbum={!isSharedView}
+              onClose={() => setInfoOpen(false)}
+            />
+          )}
         </div>
+
+        {helpOpen && (
+          <ShortcutsHelp
+            id={helpId}
+            canFavorite={canFavorite}
+            canDelete={canDelete}
+            onClose={() => setHelpOpen(false)}
+          />
+        )}
+
+        <p aria-live="polite" className="sr-only">
+          {announcement}
+        </p>
       </div>
 
-      {/* Delete Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 z-[60] flex items-center justify-center">
-          <div className="bg-gray-900 rounded-lg p-6 max-w-sm mx-4 text-white">
-            <h3 className="text-lg font-semibold mb-2">Delete Photo?</h3>
-            <p className="text-gray-300 mb-4">
-              This will permanently delete &quot;{currentPhoto.filename}&quot; from storage. This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
-                disabled={deleteLoading}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteLoading}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 transition-colors flex items-center gap-2"
-              >
-                {deleteLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Deleting...
-                  </>
-                ) : (
-                  "Delete"
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+      <Dialog
+        open={confirmOpen}
+        onClose={closeConfirm}
+        size="sm"
+        title="Delete this photo?"
+        description={`“${current.filename}” will be removed from your library and from storage. This can't be undone.`}
+        footer={
+          <>
+            <Button data-autofocus onClick={closeConfirm} disabled={deleting}>
+              Keep it
+            </Button>
+            <Button variant="danger" onClick={confirmDelete} loading={deleting}>
+              Delete photo
+            </Button>
+          </>
+        }
+      />
+    </>,
+    document.body,
+  );
+}
+
+function Dot() {
+  return (
+    <span
+      aria-hidden
+      className="h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint"
+    />
+  );
+}
+
+/** Fills over one slideshow interval. Reduced motion gets a still bar. */
+function SlideshowProgress({ running }: { running: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !running) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const animation = el.animate(
+      [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+      {
+        duration: SLIDESHOW_INTERVAL_MS,
+        easing: "linear",
+        fill: "forwards",
+      },
+    );
+    return () => animation.cancel();
+  }, [running]);
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "h-full origin-left bg-accent",
+        running ? "scale-x-100 motion-safe:scale-x-0" : "scale-x-0",
       )}
+    />
+  );
+}
+
+function Unviewable({
+  photo,
+  allowDownload,
+  onDownload,
+  onRetry,
+}: {
+  photo: Photo;
+  allowDownload: boolean;
+  onDownload: () => void;
+  onRetry?: () => void;
+}) {
+  const raw = isRawFile(photo);
+  return (
+    <div
+      data-backdrop
+      className="absolute inset-0 flex items-center justify-center p-4"
+    >
+      <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
+        <h2 className="font-display text-display-sm font-normal text-ink">
+          {onRetry
+            ? "This photo didn't load"
+            : "This photo can't be shown here"}
+        </h2>
+        <p className="mt-2 text-pretty text-sm text-ink-muted">
+          {onRetry
+            ? "Storage may be slow right now. Try again in a moment."
+            : raw
+              ? `It's a camera RAW file (${photo.filename.split(".").pop()?.toUpperCase()}). Browsers can't display those. Download it and open it in a photo editor.`
+              : "Browsers can't display this kind of file. Download it to open it on your computer."}
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {onRetry && (
+            <Button variant="primary" onClick={onRetry}>
+              Try again
+            </Button>
+          )}
+          {allowDownload && (
+            <Button onClick={onDownload}>Download original</Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

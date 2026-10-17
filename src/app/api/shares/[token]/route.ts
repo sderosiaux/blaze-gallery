@@ -36,8 +36,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Check password if required
     if (share.password_hash) {
       if (!password) {
+        // The album name lets the gate greet the guest; the link holder was
+        // given it by the sender, the photos stay behind the password.
         return NextResponse.json(
-          { error: "Password required", requires_password: true },
+          {
+            error: "Password required",
+            requires_password: true,
+            folder: { name: share.folder_path.split("/").pop() },
+          },
           { status: 401 },
         );
       }

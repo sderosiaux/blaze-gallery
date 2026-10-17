@@ -1,139 +1,240 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Photo } from "@/types";
-import PhotoGrid from "@/components/PhotoGrid";
-import { FolderOpen, Heart } from "lucide-react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { CalendarDays, Heart, Library } from "lucide-react";
+import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
+import {
+  ButtonLink,
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  PageSkeleton,
+  Skeleton,
+  useToast,
+} from "@/components/ui";
+import { LoadError } from "@/components/find/LoadError";
+import { setFavorite } from "@/components/find/favorites";
+import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { formatCount, formatDateRange, photoDateRange } from "@/lib/albums";
+
+type FavoritePhoto = Photo & { folder_path?: string | null };
+
+/** Newest first; photos whose date hasn't been read yet come last, by name. */
+function newestFirst(a: Photo, b: Photo) {
+  const da = a.metadata?.date_taken;
+  const db = b.metadata?.date_taken;
+  if (da && db && da !== db) return da < db ? 1 : -1;
+  if (da && !db) return -1;
+  if (!da && db) return 1;
+  return a.filename.localeCompare(b.filename);
+}
+
+const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
+  String(a.id) === String(b.id);
 
 function FavoritesContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [photos, setPhotos] = useState<FavoritePhoto[]>([]);
 
-  // Get selected photo ID from URL search params
-  const selectedPhotoId = searchParams.get("photo");
+  // Un-hearted while the viewer is open: they stay put until it closes, so
+  // previous/next keep working on the list the viewer was opened with.
+  const pending = useRef(new Set<string>());
+  const viewerOpen = selectedPhotoId !== null;
+  const viewerOpenRef = useRef(viewerOpen);
+  viewerOpenRef.current = viewerOpen;
 
-  // Handle photo URL changes
-  const handlePhotoUrlChange = (photoId: string | null) => {
-    const url = new URL(window.location.href);
-    if (photoId) {
-      url.searchParams.set("photo", photoId);
-    } else {
-      url.searchParams.delete("photo");
-    }
-    router.push(url.pathname + url.search, { scroll: false });
-  };
-
-  useEffect(() => {
-    loadFavorites();
-  }, []);
-
-  const loadFavorites = async () => {
+  const load = useCallback(async () => {
+    setStatus("loading");
     try {
-      setLoading(true);
       const response = await fetch("/api/favorites");
       const data = await response.json();
-
-      if (data.success) {
-        setPhotos(data.photos || []);
-      } else {
-        console.error("Failed to load favorites:", data.error);
-      }
-    } catch (error) {
-      console.error("[CLIENT] Failed to load favorites:", error);
-    } finally {
-      setLoading(false);
+      if (!response.ok || !data.success) throw new Error(data.error);
+      setPhotos([...(data.photos as FavoritePhoto[])].sort(newestFirst));
+      setStatus("ready");
+    } catch {
+      setStatus("error");
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (viewerOpen || pending.current.size === 0) return;
+    const gone = pending.current;
+    pending.current = new Set();
+    setPhotos((all) =>
+      all.filter((p) => p.is_favorite || !gone.has(String(p.id))),
+    );
+  }, [viewerOpen]);
+
+  const restore = useCallback((photo: FavoritePhoto) => {
+    pending.current.delete(String(photo.id));
+    setPhotos((all) =>
+      all.some((p) => sameId(p, photo))
+        ? all.map((p) => (sameId(p, photo) ? { ...p, is_favorite: true } : p))
+        : [...all, { ...photo, is_favorite: true }].sort(newestFirst),
+    );
+  }, []);
+
+  const undo = useCallback(
+    async (photo: FavoritePhoto) => {
+      try {
+        await setFavorite(photo, true);
+        restore(photo);
+        toast.show("Back in your favorites.", "success");
+      } catch {
+        toast.show("Couldn't put it back. Try again.", "error");
+      }
+    },
+    [restore, toast],
+  );
+
+  const onPhotoUpdated = useCallback(
+    (updated: FavoritePhoto) => {
+      if (updated.is_favorite) {
+        restore(updated);
+        return;
+      }
+      if (viewerOpenRef.current) {
+        pending.current.add(String(updated.id));
+        setPhotos((all) =>
+          all.map((p) =>
+            sameId(p, updated) ? { ...p, is_favorite: false } : p,
+          ),
+        );
+      } else {
+        setPhotos((all) => all.filter((p) => !sameId(p, updated)));
+      }
+      toast.show("Removed from favorites.", "info", {
+        action: { label: "Undo", onClick: () => undo(updated) },
+      });
+    },
+    [restore, toast, undo],
+  );
+
+  const kept = useMemo(() => photos.filter((p) => p.is_favorite), [photos]);
+  const albumCount = useMemo(
+    () => new Set(kept.map((p) => p.folder_path ?? "")).size,
+    [kept],
+  );
+  const span = useMemo(() => {
+    const { from, to } = photoDateRange(kept);
+    return formatDateRange(from, to);
+  }, [kept]);
+
+  if (status === "error") {
+    return (
+      <>
+        <PageHeader title="Favorites" />
+        <LoadError title="Your favorites didn't load" onRetry={load} />
+      </>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <>
+        <PageHeader
+          title="Favorites"
+          meta={<Skeleton className="h-4 w-48" />}
+        />
+        <PhotoGridSkeleton />
+      </>
+    );
+  }
+
+  if (photos.length === 0) {
+    return (
+      <>
+        <PageHeader title="Favorites" />
+        <EmptyState
+          icon={Heart}
+          title="Nothing kept here yet"
+          body="Tap the heart on any photo, in an album or in the viewer, and it will wait for you here."
+          action={
+            <>
+              <ButtonLink href="/" variant="primary" icon={Library}>
+                Open the library
+              </ButtonLink>
+              <ButtonLink
+                href="/timeline"
+                variant="secondary"
+                icon={CalendarDays}
+              >
+                Browse by date
+              </ButtonLink>
+            </>
+          }
+          className="py-20"
+        />
+      </>
+    );
+  }
 
   return (
-    <AppLayout>
-      <ProtectedRoute>
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
-          </div>
-        ) : photos.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="relative mx-auto w-32 h-32 mb-8">
-              {/* Animated heart with sparkles */}
-              <div className="absolute inset-0 animate-pulse">
-                <Heart className="w-32 h-32 text-gray-200 mx-auto" />
-              </div>
-              <div className="absolute top-2 right-2">
-                <div className="w-4 h-4 bg-yellow-300 rounded-full animate-ping"></div>
-              </div>
-              <div className="absolute bottom-4 left-4">
-                <div className="w-2 h-2 bg-pink-300 rounded-full animate-pulse delay-300"></div>
-              </div>
-              <div className="absolute top-6 left-2">
-                <div className="w-3 h-3 bg-blue-300 rounded-full animate-bounce delay-500"></div>
-              </div>
-            </div>
-
-            <h2 className="text-2xl font-bold text-gray-900 mb-3">
-              Your favorite moments await
-            </h2>
-            <p className="text-lg text-gray-600 mb-6 max-w-md mx-auto">
-              Start building your collection of special memories by clicking the
-              ❤️ icon on photos you love
-            </p>
-
-            <div className="bg-gradient-to-r from-pink-50 to-red-50 rounded-xl p-6 max-w-lg mx-auto border border-pink-100">
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-700">
-                <span>💡</span>
-                <span>
-                  <strong>Tip:</strong> Favorites from all folders appear here
-                  in one place
+    <>
+      <PageHeader
+        title="Favorites"
+        meta={
+          <>
+            <span className="tabular inline-flex items-center gap-1.5">
+              <Heart
+                className="h-3.5 w-3.5 fill-current text-favorite"
+                aria-hidden
+              />
+              {formatCount(kept.length, "photo")}
+            </span>
+            {albumCount > 0 && (
+              <>
+                <MetaDot />
+                <span className="tabular">
+                  from {formatCount(albumCount, "album")}
                 </span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => router.push("/")}
-              className="mt-8 inline-flex items-center px-6 py-3 bg-gradient-to-r from-pink-500 to-red-500 text-white font-medium rounded-lg hover:from-pink-600 hover:to-red-600 transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              <FolderOpen className="w-5 h-5 mr-2" />
-              Start Exploring Photos
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">
-                {photos.length} favorite photo{photos.length !== 1 ? "s" : ""}
-              </h2>
-            </div>
-            <PhotoGrid
-              photos={photos}
-              selectedPhotoId={selectedPhotoId}
-              onPhotoUrlChange={handlePhotoUrlChange}
-            />
-          </div>
-        )}
-      </ProtectedRoute>
-    </AppLayout>
+              </>
+            )}
+            {span && (
+              <>
+                <MetaDot />
+                <span>{span}</span>
+              </>
+            )}
+          </>
+        }
+      />
+      <PhotoGrid
+        photos={photos}
+        selectedPhotoId={selectedPhotoId}
+        onPhotoUrlChange={setPhotoParam}
+        onPhotoUpdated={onPhotoUpdated}
+      />
+    </>
   );
 }
 
 export default function FavoritesPage() {
   return (
-    <Suspense
-      fallback={
-        <AppLayout>
-          <ProtectedRoute>
-            <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
-            </div>
-          </ProtectedRoute>
-        </AppLayout>
-      }
-    >
-      <FavoritesContent />
-    </Suspense>
+    <AppLayout>
+      <ProtectedRoute>
+        <Suspense fallback={<PageSkeleton />}>
+          <FavoritesContent />
+        </Suspense>
+      </ProtectedRoute>
+    </AppLayout>
   );
 }

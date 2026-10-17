@@ -28,6 +28,7 @@ import type { SyncJob } from "./database";
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { PhotoMetadata, Photo } from "@/types";
+import type { MetadataStatus, ThumbnailStatus } from "@/types/common";
 
 /**
  * Progress tracking for sync operations
@@ -90,8 +91,8 @@ interface PhotoBatchItem {
   size: number;
   mime_type: string;
   modified_at: string;
-  metadata_status: "none" | "pending" | "extracted" | "skipped_size";
-  thumbnail_status: "none" | "pending" | "generated" | "skipped_size";
+  metadata_status: MetadataStatus;
+  thumbnail_status: ThumbnailStatus;
 }
 
 /**
@@ -181,10 +182,9 @@ async function processScanObject(
   const filename = getFilenameFromKey(object.key);
   const sizeMB = object.size / (1024 * 1024);
 
-  // Determine processing status based on size thresholds
-  const metadataStatus =
-    sizeMB > ctx.config.auto_metadata_threshold_mb ? "skipped_size" : "none";
-  const thumbnailStatus =
+  // Metadata has no size threshold: the head probe reads 64 KB whatever the file size
+  const metadataStatus: MetadataStatus = "none";
+  const thumbnailStatus: ThumbnailStatus =
     sizeMB > ctx.config.auto_thumbnail_threshold_mb ? "skipped_size" : "none";
 
   return {
@@ -197,58 +197,6 @@ async function processScanObject(
     metadata_status: metadataStatus,
     thumbnail_status: thumbnailStatus,
   };
-}
-
-/**
- * EXIF tag structure from ExifReader
- */
-interface ExifTags {
-  DateTime?: { description: string };
-  GPSLatitude?: { description: string };
-  GPSLongitude?: { description: string };
-  "Image Width"?: { value: string | number };
-  "Image Height"?: { value: string | number };
-  [key: string]: unknown;
-}
-
-/**
- * Parse EXIF tags into PhotoMetadata structure
- */
-function parseExifToMetadata(tags: ExifTags): PhotoMetadata | undefined {
-  const metadata: PhotoMetadata = {};
-
-  // Parse date taken
-  if (tags.DateTime?.description) {
-    const dateStr = tags.DateTime.description;
-    const date = new Date(
-      dateStr
-        .replace(/:/g, "-")
-        .replace(/(\d{4})-(\d{2})-(\d{2}) /, "$1-$2-$3T") + "Z",
-    );
-    if (!isNaN(date.getTime())) {
-      metadata.date_taken = date.toISOString();
-    }
-  }
-
-  // Parse GPS location
-  if (tags.GPSLatitude?.description && tags.GPSLongitude?.description) {
-    const lat = parseFloat(tags.GPSLatitude.description);
-    const lon = parseFloat(tags.GPSLongitude.description);
-    if (!isNaN(lat) && !isNaN(lon)) {
-      metadata.location = { latitude: lat, longitude: lon };
-    }
-  }
-
-  // Parse image dimensions
-  if (tags["Image Width"]?.value && tags["Image Height"]?.value) {
-    const width = parseInt(String(tags["Image Width"].value));
-    const height = parseInt(String(tags["Image Height"].value));
-    if (!isNaN(width) && !isNaN(height)) {
-      metadata.dimensions = { width, height };
-    }
-  }
-
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 export class SyncService {
@@ -920,11 +868,12 @@ export class SyncService {
       `
       SELECT * FROM photos
       WHERE folder_id = $1
-        AND metadata_status IN ('none', 'pending')
-        AND size <= $2
-      ORDER BY size ASC
+        AND metadata IS NULL
+        AND metadata_status IN ('none', 'pending', 'skipped_size')
+        AND mime_type LIKE 'image/%'
+      ORDER BY id
     `,
-      [folder.id, config.auto_metadata_threshold_mb * 1024 * 1024],
+      [folder.id],
     );
 
     const photosToProcess = result.rows as Photo[];
@@ -939,7 +888,6 @@ export class SyncService {
       jobId: job.id,
       folderPath: job.folder_path,
       totalPhotos: photosToProcess.length,
-      maxSizeMB: config.auto_metadata_threshold_mb,
     });
 
     for (const photo of photosToProcess) {
@@ -960,7 +908,7 @@ export class SyncService {
         if (metadata) {
           await updatePhotoMetadata(photo.id, metadata);
         } else {
-          await updatePhotoStatus(photo.id, { metadata_status: "extracted" });
+          await updatePhotoStatus(photo.id, { metadata_status: "failed" });
         }
 
         processedCount++;
@@ -1149,119 +1097,17 @@ export class SyncService {
     object: S3Object,
     bucket: string,
   ): Promise<PhotoMetadata | undefined> {
-    let stream: any = null;
-
+    if (!getMimeType(object.key).startsWith("image/")) {
+      return undefined;
+    }
     try {
-      const ExifReader = require("exifreader");
-      const { getObjectStream } = await import("./s3");
-
-      stream = await getObjectStream(bucket, object.key);
-
-      if (!stream) return undefined;
-
-      const chunks: Buffer[] = [];
-      const MAX_SIZE = 512 * 1024; // Reduced to 512KB for memory efficiency
-      let totalSize = 0;
-      let isResolved = false;
-
-      if (stream && typeof stream === "object" && "on" in stream) {
-        return new Promise<PhotoMetadata | undefined>((resolve, reject) => {
-          const cleanup = () => {
-            if (stream && typeof stream.destroy === "function") {
-              stream.destroy();
-            }
-            chunks.length = 0; // Clear array to free memory
-          };
-
-          const safeResolve = (result: PhotoMetadata | undefined) => {
-            if (!isResolved) {
-              isResolved = true;
-              cleanup();
-              resolve(result);
-            }
-          };
-
-          // Set timeout to prevent hanging streams
-          const timeout = setTimeout(() => {
-            logger.warn("Metadata extraction timeout", {
-              component: "SyncService",
-              s3Key: object.key,
-              bucket: bucket,
-              totalSize,
-            });
-            safeResolve(undefined);
-          }, 30000); // 30 second timeout
-
-          stream.on("data", (chunk: Buffer) => {
-            if (isResolved) return;
-
-            const chunkSize = chunk.length;
-            if (totalSize + chunkSize > MAX_SIZE) {
-              // Take only what we need to reach MAX_SIZE
-              const remainingSize = MAX_SIZE - totalSize;
-              if (remainingSize > 0) {
-                chunks.push(chunk.subarray(0, remainingSize));
-                totalSize += remainingSize;
-              }
-              // Stop reading more data
-              stream.destroy();
-              return;
-            }
-
-            chunks.push(Buffer.from(chunk));
-            totalSize += chunkSize;
-          });
-
-          stream.on("end", () => {
-            if (isResolved) return;
-            clearTimeout(timeout);
-
-            try {
-              if (chunks.length === 0) {
-                safeResolve(undefined);
-                return;
-              }
-
-              const buffer = Buffer.concat(chunks);
-              const tags = ExifReader.load(buffer);
-              const metadata = parseExifToMetadata(tags);
-
-              safeResolve(metadata);
-            } catch (error) {
-              logger.warn("Error parsing EXIF data", {
-                component: "SyncService",
-                s3Key: object.key,
-                bucket: bucket,
-                error: error instanceof Error ? error.message : "Unknown error",
-              });
-              safeResolve(undefined);
-            }
-          });
-
-          stream.on("error", (error: Error) => {
-            if (isResolved) return;
-            clearTimeout(timeout);
-            logger.warn("Stream error during metadata extraction", {
-              component: "SyncService",
-              s3Key: object.key,
-              bucket: bucket,
-              error: error.message,
-            });
-            safeResolve(undefined);
-          });
-        });
-      } else {
-        return undefined;
-      }
+      const { probeImageHead } = await import("./imageProbe");
+      return (await probeImageHead(object.key)).metadata;
     } catch (error) {
-      // Ensure stream is cleaned up in case of exception
-      if (stream && typeof stream.destroy === "function") {
-        stream.destroy();
-      }
       logger.warn("Could not extract metadata from object", {
         component: "SyncService",
         s3Key: object.key,
-        bucket: bucket,
+        bucket,
         error: error instanceof Error ? error.message : "Unknown error",
       });
       return undefined;

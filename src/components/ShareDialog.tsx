@@ -1,37 +1,61 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Copy, Eye, EyeOff, ExternalLink } from "lucide-react";
 import {
-  X,
-  Share2,
-  Lock,
-  Calendar,
-  Download,
-  Copy,
-  Check,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+  Button,
+  Dialog,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  Switch,
+  Textarea,
+  buttonClasses,
+} from "@/components/ui";
+import AlbumLinks from "@/components/sharing/AlbumLinks";
+import { ShareBadges } from "@/components/sharing/ShareBadges";
+import { expiryLabel, formatInstant } from "@/components/sharing/shareFormat";
+import { useCopyLink } from "@/components/sharing/useCopyLink";
+import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
+import { createShare, listShares, type ShareLink } from "@/lib/shareClient";
 
 interface ShareDialogProps {
   isOpen: boolean;
   onClose: () => void;
   folderPath: string;
   folderName: string;
+  /** Lets the dialog say how many photos the guest will see. */
+  photoCount?: number;
 }
 
-interface ShareResponse {
-  success: boolean;
-  share: {
-    id: number;
-    share_token: string;
-    folder_path: string;
-    expires_at: string | null;
-    description: string | null;
-    allow_download: boolean;
-    created_at: string;
-  };
-  share_url: string;
+type Expiry = "never" | "1" | "7" | "30" | "90" | "custom";
+
+const EXPIRY_OPTIONS: Array<{ value: Expiry; label: string }> = [
+  { value: "never", label: "Never" },
+  { value: "1", label: "In 1 day" },
+  { value: "7", label: "In 7 days" },
+  { value: "30", label: "In 30 days" },
+  { value: "90", label: "In 3 months" },
+  { value: "custom", label: "On a date I choose" },
+];
+
+const NOTE_MAX = 500;
+const DAY = 24 * 60 * 60 * 1000;
+
+function localDateInput(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** The instant the link stops working, or undefined for never. A chosen day lasts until its end. */
+function expiryInstant(expiry: Expiry, customDate: string): string | undefined {
+  if (expiry === "never") return undefined;
+  if (expiry === "custom")
+    return customDate
+      ? new Date(`${customDate}T23:59:59`).toISOString()
+      : undefined;
+  return new Date(Date.now() + Number(expiry) * DAY).toISOString();
 }
 
 export default function ShareDialog({
@@ -39,342 +63,314 @@ export default function ShareDialog({
   onClose,
   folderPath,
   folderName,
+  photoCount,
 }: ShareDialogProps) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [shareData, setShareData] = useState<ShareResponse | null>(null);
-  const [copied, setCopied] = useState(false);
+  const copy = useCopyLink();
+  const path = useMemo(() => {
+    try {
+      return decodeURIComponent(folderPath);
+    } catch {
+      return folderPath;
+    }
+  }, [folderPath]);
+  const { title } = parseAlbumName(folderName);
+  const dateLabel = albumDateLabel({
+    name: folderName,
+    date_from: null,
+    date_to: null,
+  });
 
-  // Form state
+  // Callers pass inline closures; a stable one keeps Dialog from re-running its focus setup on every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const close = useCallback(() => onCloseRef.current(), []);
+
+  const [expiry, setExpiry] = useState<Expiry>("never");
+  const [customDate, setCustomDate] = useState("");
+  const [protect, setProtect] = useState(false);
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [expiresAt, setExpiresAt] = useState("");
-  const [description, setDescription] = useState("");
+  const [reveal, setReveal] = useState(false);
   const [allowDownload, setAllowDownload] = useState(true);
+  const [note, setNote] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{
+    share: ShareLink;
+    url: string;
+  } | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Reset form when dialog opens/closes
+  const [links, setLinks] = useState<ShareLink[] | null>(null);
+  const [linksError, setLinksError] = useState(false);
+
+  const loadLinks = useCallback(async () => {
+    setLinksError(false);
+    try {
+      const all = await listShares();
+      setLinks(all.filter((s) => s.folder_path === path));
+    } catch {
+      setLinksError(true);
+    }
+  }, [path]);
+
   useEffect(() => {
-    if (!isOpen) {
-      setShareData(null);
-      setError(null);
-      setPassword("");
-      setExpiresAt("");
-      setDescription("");
-      setAllowDownload(true);
-      setCopied(false);
+    if (isOpen) {
+      loadLinks();
+      return;
     }
-  }, [isOpen]);
+    setExpiry("never");
+    setCustomDate("");
+    setProtect(false);
+    setPassword("");
+    setReveal(false);
+    setAllowDownload(true);
+    setNote("");
+    setCreating(false);
+    setCreateError(null);
+    setCreated(null);
+    setLinks(null);
+  }, [isOpen, loadLinks]);
 
-  const handleCreateShare = async () => {
-    if (!folderPath) return;
+  useEffect(() => {
+    if (created) copyButtonRef.current?.focus();
+  }, [created]);
 
-    setIsLoading(true);
-    setError(null);
+  const tomorrow = localDateInput(new Date(Date.now() + DAY));
+  const expiresAt = expiryInstant(expiry, customDate);
+  const missingPassword = protect && !password.trim();
+  const missingDate = expiry === "custom" && !customDate;
 
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creating || missingPassword || missingDate) return;
+    setCreating(true);
+    setCreateError(null);
     try {
-      // Ensure path is decoded (in case it contains URL-encoded characters like %20)
-      const decodedPath = decodeURIComponent(folderPath);
-
-      const payload: any = {
-        folder_path: decodedPath,
+      const result = await createShare({
+        folder_path: path,
         allow_download: allowDownload,
-      };
-
-      if (password.trim()) {
-        payload.password = password.trim();
-      }
-
-      if (expiresAt) {
-        payload.expires_at = new Date(expiresAt).toISOString();
-      }
-
-      if (description.trim()) {
-        payload.description = description.trim();
-      }
-
-      const response = await fetch("/api/shares", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+        password: protect ? password.trim() : undefined,
+        expires_at: expiresAt,
+        description: note.trim() || undefined,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        const errorMsg = data.details
-          ? `${data.error}: ${data.details}`
-          : data.error || "Failed to create share";
-        throw new Error(errorMsg);
-      }
-
-      setShareData(data);
+      setCreated({ share: result.share, url: result.share_url });
+      loadLinks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create share");
+      setCreateError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setIsLoading(false);
+      setCreating(false);
     }
   };
 
-  const handleCopyUrl = async () => {
-    if (!shareData?.share_url) return;
-
-    try {
-      await navigator.clipboard.writeText(shareData.share_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy URL:", err);
-    }
-  };
-
-  const getMinDate = () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split("T")[0];
-  };
-
-  if (!isOpen) return null;
+  const albumLine = (
+    <>
+      <span className="font-medium text-ink-soft">{title}</span>
+      {dateLabel && <> · {dateLabel}</>}
+      {photoCount !== undefined && <> · {formatCount(photoCount, "photo")}</>}
+    </>
+  );
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b">
-          <div className="flex items-center">
-            <Share2 className="w-5 h-5 mr-2 text-blue-600" />
-            <h2 className="text-lg font-semibold">Share Folder</h2>
+    <Dialog
+      open={isOpen}
+      onClose={close}
+      title={created ? "Your link is ready" : "Share this album"}
+      description={
+        created
+          ? `Anyone with this link can open ${title}. Send it however you like.`
+          : albumLine
+      }
+      footer={
+        created ? (
+          <>
+            <a
+              href={created.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonClasses({ variant: "secondary" })}
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              Open as a guest
+            </a>
+            <Button variant="primary" onClick={close}>
+              Done
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="share-form"
+              variant="primary"
+              loading={creating}
+              disabled={missingPassword || missingDate}
+            >
+              Create link
+            </Button>
+          </>
+        )
+      }
+    >
+      {created ? (
+        <div className="animate-fade-in">
+          <div className="flex items-center gap-2 text-sm font-medium text-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+            Link created
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Input
+              readOnly
+              value={created.url}
+              aria-label="Share link"
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 bg-paper sm:flex-1"
+            />
+            <Button
+              ref={copyButtonRef}
+              variant="primary"
+              icon={Copy}
+              onClick={() => copy(created.url)}
+            >
+              Copy link
+            </Button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-ink-muted">
+            <ShareBadges share={created.share} />
+            <span>{expiryLabel(created.share)}</span>
+            {created.share.allow_download && <span>Downloads allowed</span>}
+          </div>
         </div>
+      ) : (
+        <form
+          id="share-form"
+          onSubmit={submit}
+          className="space-y-5"
+          noValidate
+        >
+          <p className="text-sm leading-relaxed text-ink-muted">
+            Guests see this album&apos;s photos on a simple page, without
+            signing in and without the rest of your library.
+          </p>
 
-        <div className="p-6">
-          {!shareData ? (
-            <div className="space-y-4">
-              {/* Folder info */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center">
-                  <span className="text-2xl mr-3">📁</span>
-                  <div>
-                    <h3 className="font-medium">{folderName}</h3>
-                    <p className="text-sm text-gray-500">{folderPath}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Error message */}
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-red-800 text-sm">{error}</p>
-                </div>
-              )}
-
-              {/* Form fields */}
-              <div className="space-y-4">
-                {/* Password protection */}
-                <div>
-                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                    <Lock className="w-4 h-4 mr-1" />
-                    Password Protection (optional)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter password to protect share"
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expiration date */}
-                <div>
-                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                    <Calendar className="w-4 h-4 mr-1" />
-                    Expiration Date (optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={expiresAt}
-                    onChange={(e) => setExpiresAt(e.target.value)}
-                    min={getMinDate()}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description (optional)
-                  </label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Add a note about what you're sharing"
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  />
-                </div>
-
-                {/* Download permission */}
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={allowDownload}
-                      onChange={(e) => setAllowDownload(e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <Download className="w-4 h-4 ml-2 mr-1" />
-                    <span className="text-sm text-gray-700">
-                      Allow file downloads
-                    </span>
-                  </label>
-                  <p className="text-xs text-gray-500 mt-1 ml-6">
-                    Recipients can save original photos to their device. They
-                    can always view and browse photos.
-                  </p>
-                </div>
-              </div>
-
-              {/* Create button */}
-              <button
-                onClick={handleCreateShare}
-                disabled={isLoading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Link expires"
+              htmlFor="share-expiry"
+              hint={
+                expiry === "never"
+                  ? "Works until you revoke it"
+                  : expiry !== "custom" && expiresAt
+                    ? `Open until ${formatInstant(expiresAt)}`
+                    : undefined
+              }
+              className={expiry === "custom" ? undefined : "sm:col-span-2"}
+            >
+              <Select
+                id="share-expiry"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value as Expiry)}
               >
-                {isLoading ? (
-                  <div className="flex items-center justify-center">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Creating Share...
-                  </div>
-                ) : (
-                  "Create Share Link"
-                )}
-              </button>
-            </div>
-          ) : (
-            /* Share created successfully */
-            <div className="space-y-4">
-              <div className="text-center py-4">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-8 h-8 text-green-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Share Link Created!
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Anyone with this link can access the folder
-                </p>
-              </div>
+                {EXPIRY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {expiry === "custom" && (
+              <Field
+                label="Last day"
+                htmlFor="share-expiry-date"
+                hint={
+                  customDate ? "Works until the end of that day" : "Pick a day"
+                }
+              >
+                <Input
+                  id="share-expiry-date"
+                  type="date"
+                  min={tomorrow}
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                />
+              </Field>
+            )}
+          </div>
 
-              {/* Share URL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Share Link
-                </label>
-                <div className="flex">
-                  <input
-                    type="text"
-                    value={shareData.share_url}
-                    readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg bg-gray-50 text-sm"
-                  />
-                  <button
-                    onClick={handleCopyUrl}
-                    className="px-4 py-2 bg-blue-600 text-white border border-blue-600 rounded-r-lg hover:bg-blue-700 transition-colors"
-                    title="Copy link"
-                  >
-                    {copied ? (
-                      <Check className="w-4 h-4" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
+          <div className="space-y-3">
+            <Switch
+              id="share-protect"
+              checked={protect}
+              onChange={setProtect}
+              label="Ask for a password"
+              description="Guests type it once on each device."
+            />
+            {protect && (
+              <div className="relative animate-fade-in">
+                <Input
+                  id="share-password"
+                  aria-label="Password"
+                  type={reveal ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Choose a password"
+                  autoComplete="new-password"
+                  autoFocus
+                  className="pr-12"
+                />
+                <IconButton
+                  icon={reveal ? EyeOff : Eye}
+                  label={reveal ? "Hide password" : "Show password"}
+                  size="sm"
+                  onClick={() => setReveal((r) => !r)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                />
               </div>
+            )}
+          </div>
 
-              {/* Share details */}
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Folder:</span>
-                  <span className="font-medium">{folderName}</span>
-                </div>
-                {shareData.share.description && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Description:</span>
-                    <span className="font-medium">
-                      {shareData.share.description}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Password:</span>
-                  <span className="font-medium">
-                    {password ? "Protected" : "None"}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Downloads:</span>
-                  <span className="font-medium">
-                    {shareData.share.allow_download ? "Allowed" : "Disabled"}
-                  </span>
-                </div>
-                {shareData.share.expires_at && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Expires:</span>
-                    <span className="font-medium">
-                      {new Date(
-                        shareData.share.expires_at,
-                      ).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Created:</span>
-                  <span className="font-medium">
-                    {new Date(shareData.share.created_at).toLocaleString()}
-                  </span>
-                </div>
-              </div>
+          <Switch
+            id="share-download"
+            checked={allowDownload}
+            onChange={setAllowDownload}
+            label="Allow downloads"
+            description="Guests can save the original files. They can always view the photos."
+          />
 
-              {/* Actions */}
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => window.open(shareData.share_url, "_blank")}
-                  className="flex-1 bg-gray-100 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Preview Share
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
+          <Field
+            label="A note to your guests"
+            htmlFor="share-note"
+            hint={`Optional, shown at the top of the album. ${NOTE_MAX - note.length} characters left.`}
+          >
+            <Textarea
+              id="share-note"
+              value={note}
+              maxLength={NOTE_MAX}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="The photos from Sunday, as promised."
+              rows={3}
+            />
+          </Field>
+
+          {createError && (
+            <p
+              role="alert"
+              className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+            >
+              We couldn&apos;t create the link. {createError}
+            </p>
           )}
-        </div>
-      </div>
-    </div>
+        </form>
+      )}
+
+      <AlbumLinks
+        links={links}
+        error={linksError}
+        onRetry={loadLinks}
+        highlightToken={created?.share.share_token}
+      />
+    </Dialog>
   );
 }

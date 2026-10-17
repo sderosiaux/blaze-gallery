@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from "pg";
+import { Pool, PoolClient, QueryResult, types } from "pg";
 import { Folder, Photo, Config, PhotoMetadata } from "@/types";
 import * as crypto from "crypto";
 import {
@@ -12,6 +12,13 @@ import {
   ThumbnailStatus,
 } from "@/types/common";
 import * as path from "path";
+
+// Columns typed `timestamp without time zone` hold UTC wall-clock values
+// (CURRENT_TIMESTAMP in a UTC session). node-pg would read them in the host's
+// zone, shifting every instant on any server not running in UTC.
+types.setTypeParser(types.builtins.TIMESTAMP, (value) =>
+  value === null ? null : new Date(value.replace(" ", "T") + "Z"),
+);
 
 export interface SyncJob {
   id: number;
@@ -212,56 +219,209 @@ export async function query(
   return pool.query(text, params);
 }
 
-export async function getFolders(parentPath?: string): Promise<Folder[]> {
-  let sql: string;
-  let params: any[];
+// A camera wrote it: rules out scans, screenshots, album art and sprites
+const PHOTO_LIKE = `(p.mime_type IN ('image/jpeg', 'image/heic', 'image/heif')
+  AND p.metadata->'camera'->>'make' IS NOT NULL
+  AND (p.metadata->>'date_taken') IS NOT NULL)`;
+const COVER_RANK = `${PHOTO_LIKE} DESC, (p.thumbnail_status = 'generated') DESC, p.filename, p.id`;
 
-  if (parentPath === undefined || parentPath === "") {
-    sql = `
+/**
+ * Adds listing fields (thumbnail state, size, date span, cover) to the
+ * folders selected by `baseSql`, which must select `f.*` from `folders f`.
+ */
+async function listFolders(
+  baseSql: string,
+  orderBy: string,
+  params: unknown[],
+): Promise<Folder[]> {
+  // Cover: a photograph rather than a scan, album art or game sprite. An
+  // image is photo-like when a camera wrote it (JPEG/HEIC with EXIF make and
+  // date taken). Order: photo-like image of the folder itself, else the first
+  // descendant folder (by path) holding one, else any image of the folder,
+  // else of the first descendant holding images. Ties go to a generated
+  // thumbnail (instant), then filename.
+  // The path range lets the btree on folders.path serve the prefix lookup
+  // (C.UTF-8 orders by code point, and '/' + 1 = '0'); starts_with keeps it
+  // exact when names contain LIKE wildcards.
+  const sql = `
+    WITH sub AS (${baseSql})
+    SELECT
+      s.*,
+      agg.thumbnails_generated,
+      agg.total_size,
+      agg.folder_created_at,
+      agg.date_from,
+      agg.date_to,
+      (CASE WHEN own_cover.is_photo THEN own_cover.id
+            ELSE COALESCE(descendant_photo.id, own_cover.id, descendant_image.id)
+       END)::int AS cover_photo_id
+    FROM sub s
+    LEFT JOIN LATERAL (
       SELECT
-        f.*,
         CASE
-          WHEN f.photo_count = 0 THEN false
-          WHEN COUNT(CASE WHEN p.thumbnail_status = 'generated' THEN 1 END) = f.photo_count THEN true
+          WHEN s.photo_count = 0 THEN false
+          WHEN COUNT(*) FILTER (WHERE p.thumbnail_status = 'generated') = s.photo_count THEN true
           ELSE false
-        END as thumbnails_generated,
-        COALESCE(SUM(p.size), 0) as total_size,
-        MIN(p.modified_at) as folder_created_at
-      FROM folders f
-      LEFT JOIN photos p ON p.folder_id = f.id
-      WHERE f.parent_id IS NULL
-      GROUP BY f.id
-      ORDER BY f.name
-    `;
-    params = [];
-  } else {
-    sql = `
-      SELECT
-        f.*,
-        CASE
-          WHEN f.photo_count = 0 THEN false
-          WHEN COUNT(CASE WHEN p.thumbnail_status = 'generated' THEN 1 END) = f.photo_count THEN true
-          ELSE false
-        END as thumbnails_generated,
-        COALESCE(SUM(p.size), 0) as total_size,
-        MIN(p.modified_at) as folder_created_at
-      FROM folders f
-      INNER JOIN folders parent ON f.parent_id = parent.id
-      LEFT JOIN photos p ON p.folder_id = f.id
-      WHERE parent.path = $1
-      GROUP BY f.id
-      ORDER BY f.name
-    `;
-    params = [parentPath];
-  }
+        END AS thumbnails_generated,
+        COALESCE(SUM(p.size), 0) AS total_size,
+        MIN(p.modified_at) AS folder_created_at,
+        MIN(p.metadata->>'date_taken') AS date_from,
+        MAX(p.metadata->>'date_taken') AS date_to
+      FROM photos p
+      WHERE p.folder_id = s.id
+    ) agg ON true
+    LEFT JOIN LATERAL (
+      SELECT p.id, ${PHOTO_LIKE} AS is_photo
+      FROM photos p
+      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%'
+      ORDER BY ${COVER_RANK}
+      LIMIT 1
+    ) own_cover ON true
+    LEFT JOIN LATERAL (
+      SELECT (
+        SELECT p.id FROM photos p
+        WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        ORDER BY ${COVER_RANK}
+        LIMIT 1
+      ) AS id
+      FROM folders d
+      WHERE own_cover.is_photo IS NOT TRUE
+        AND d.path >= s.path || '/'
+        AND d.path < s.path || '0'
+        AND starts_with(d.path, s.path || '/')
+        AND d.photo_count > 0
+        AND EXISTS (
+          SELECT 1 FROM photos p WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        )
+      ORDER BY d.path
+      LIMIT 1
+    ) descendant_photo ON true
+    LEFT JOIN LATERAL (
+      SELECT (
+        SELECT p.id FROM photos p
+        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        ORDER BY ${COVER_RANK}
+        LIMIT 1
+      ) AS id
+      FROM folders d
+      WHERE own_cover.id IS NULL
+        AND descendant_photo.id IS NULL
+        AND d.path >= s.path || '/'
+        AND d.path < s.path || '0'
+        AND starts_with(d.path, s.path || '/')
+        AND d.photo_count > 0
+        AND EXISTS (
+          SELECT 1 FROM photos p
+          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        )
+      ORDER BY d.path
+      LIMIT 1
+    ) descendant_image ON true
+    ORDER BY ${orderBy}
+  `;
 
   const result = await query(sql, params);
-  const folders = result.rows;
 
-  return folders.map((folder) => ({
+  return result.rows.map((folder) => ({
     ...folder,
     thumbnails_generated: Boolean(folder.thumbnails_generated),
+    cover_photo_id: folder.cover_photo_id ?? null,
+    date_from: folder.date_from ?? null,
+    date_to: folder.date_to ?? null,
   })) as Folder[];
+}
+
+export async function getFolders(parentPath?: string): Promise<Folder[]> {
+  const isRoot = parentPath === undefined || parentPath === "";
+  return isRoot
+    ? listFolders(
+        "SELECT f.* FROM folders f WHERE f.parent_id IS NULL",
+        "s.name",
+        [],
+      )
+    : listFolders(
+        "SELECT f.* FROM folders f WHERE f.parent_id = (SELECT id FROM folders WHERE path = $1)",
+        "s.name",
+        [parentPath],
+      );
+}
+
+/**
+ * Albums (folders holding media directly) by last visit, newest first.
+ * Container folders with no direct media and the root are left out.
+ */
+export async function getRecentlyVisitedFolders(
+  limit: number,
+): Promise<Folder[]> {
+  return listFolders(
+    `SELECT f.* FROM folders f
+     WHERE f.last_visited IS NOT NULL AND f.path <> '' AND f.photo_count > 0
+     ORDER BY f.last_visited DESC
+     LIMIT $1`,
+    "s.last_visited DESC",
+    [limit],
+  );
+}
+
+/** Folders whose name or path matches an ILIKE pattern, first 20 by name, with listing fields */
+export async function searchFolders(pattern: string): Promise<Folder[]> {
+  return listFolders(
+    `SELECT f.* FROM folders f
+     WHERE f.name ILIKE $1 OR f.path ILIKE $1
+     ORDER BY f.name
+     LIMIT 20`,
+    "s.name",
+    [pattern],
+  );
+}
+
+export interface LibrarySummary {
+  photos: number;
+  videos: number;
+  /** All folders, containers included */
+  folders: number;
+  /** Folders holding media directly */
+  albums: number;
+  /** Year span of date_taken; null until some metadata exists */
+  years: { from: number; to: number } | null;
+}
+
+export async function getLibrarySummary(): Promise<LibrarySummary> {
+  // min/max read the ends of idx_photos_date_taken; the counts scan photos once
+  const [media, folders, span] = await Promise.all([
+    query(`
+      SELECT
+        COUNT(*) FILTER (WHERE mime_type LIKE 'image/%')::int AS photos,
+        COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
+      FROM photos
+    `),
+    query(`
+      SELECT COUNT(*)::int AS folders,
+             COUNT(*) FILTER (WHERE photo_count > 0)::int AS albums
+      FROM folders WHERE path <> ''
+    `),
+    query(`
+      SELECT
+        (SELECT metadata->>'date_taken' FROM photos
+         WHERE (metadata->>'date_taken') IS NOT NULL
+         ORDER BY (metadata->>'date_taken'), id LIMIT 1) AS first,
+        (SELECT metadata->>'date_taken' FROM photos
+         WHERE (metadata->>'date_taken') IS NOT NULL
+         ORDER BY (metadata->>'date_taken') DESC, id DESC LIMIT 1) AS last
+    `),
+  ]);
+
+  const { first, last } = span.rows[0];
+  return {
+    photos: media.rows[0].photos,
+    videos: media.rows[0].videos,
+    folders: folders.rows[0].folders,
+    albums: folders.rows[0].albums,
+    years:
+      first && last
+        ? { from: Number(first.slice(0, 4)), to: Number(last.slice(0, 4)) }
+        : null,
+  };
 }
 
 export async function getFolderByPath(path: string): Promise<Folder | null> {
@@ -465,6 +625,81 @@ export async function updatePhotoMetadata(
   );
 }
 
+/** Persists probed metadata only when the row has none yet (never overwrites) */
+export async function fillPhotoMetadataIfMissing(
+  photoId: number,
+  metadata: PhotoMetadata,
+): Promise<boolean> {
+  const result = await query(
+    `UPDATE photos SET metadata = $1, metadata_status = 'extracted'
+     WHERE id = $2 AND metadata IS NULL`,
+    [metadata, photoId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export interface TimelineCursor {
+  dateTaken: string;
+  id: number;
+}
+
+export type TimelinePhoto = Photo & { folder_path: string };
+
+/**
+ * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id).
+ * Uses idx_photos_date_taken (scripts/create-timeline-index.ts).
+ */
+export async function getTimelinePhotos(
+  before: TimelineCursor | null,
+  limit: number,
+): Promise<TimelinePhoto[]> {
+  const params: unknown[] = [limit];
+  let cursorFilter = "";
+  if (before) {
+    params.push(before.dateTaken, before.id);
+    // Row comparison so the btree on (date_taken, id) serves the seek
+    cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
+  }
+
+  const result = await query(
+    `
+    SELECT p.*, f.path AS folder_path
+    FROM photos p
+    JOIN folders f ON f.id = p.folder_id
+    WHERE (p.metadata->>'date_taken') IS NOT NULL
+      ${cursorFilter}
+    ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
+    LIMIT $1
+  `,
+    params,
+  );
+
+  return result.rows.map((row) => ({
+    ...normalizePhoto(row as DatabasePhoto),
+    folder_path: row.folder_path,
+  }));
+}
+
+export interface TimelineSummary {
+  months: { month: string; count: number }[];
+  /** Every row of photos (images and videos), dated or not */
+  total_photos: number;
+}
+
+export async function getTimelineSummary(): Promise<TimelineSummary> {
+  const [months, total] = await Promise.all([
+    query(`
+      SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
+      FROM photos p
+      WHERE (p.metadata->>'date_taken') IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1 DESC
+    `),
+    query(`SELECT COUNT(*)::int AS total FROM photos`),
+  ]);
+  return { months: months.rows, total_photos: total.rows[0].total };
+}
+
 export async function updatePhotoStatus(
   photoId: number,
   status: UpdatePhotoStatus,
@@ -504,10 +739,9 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
 }
 
 export async function deletePhoto(photoId: number): Promise<boolean> {
-  const result = await query(
-    "DELETE FROM photos WHERE id = $1 RETURNING id",
-    [photoId],
-  );
+  const result = await query("DELETE FROM photos WHERE id = $1 RETURNING id", [
+    photoId,
+  ]);
   return result.rowCount !== null && result.rowCount > 0;
 }
 
@@ -730,6 +964,10 @@ export interface SharedFolder {
   allow_download: boolean;
   is_active: boolean;
   created_by: string;
+  /** Present on listings (getAllSharedFolders) only */
+  cover_photo_id?: number | null;
+  date_from?: string | null;
+  date_to?: string | null;
 }
 
 export interface ShareAccessLog {
@@ -882,10 +1120,29 @@ export async function logShareAccess(
 }
 
 export async function getAllSharedFolders(): Promise<SharedFolder[]> {
+  // A share exposes the folder's own photos, so the cover comes from those only.
   const result = await query(`
-    SELECT sf.*, f.name as folder_name
+    SELECT
+      sf.*,
+      f.name AS folder_name,
+      cover.id::int AS cover_photo_id,
+      dates.date_from,
+      dates.date_to
     FROM shared_folders sf
     LEFT JOIN folders f ON sf.folder_id = f.id
+    LEFT JOIN LATERAL (
+      SELECT p.id FROM photos p
+      WHERE p.folder_id = sf.folder_id AND p.mime_type LIKE 'image/%'
+      ORDER BY (p.thumbnail_status = 'generated') DESC, p.filename, p.id
+      LIMIT 1
+    ) cover ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        MIN(p.metadata->>'date_taken') AS date_from,
+        MAX(p.metadata->>'date_taken') AS date_to
+      FROM photos p
+      WHERE p.folder_id = sf.folder_id
+    ) dates ON true
     ORDER BY sf.created_at DESC
   `);
 

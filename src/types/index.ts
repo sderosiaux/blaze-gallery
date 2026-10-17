@@ -10,6 +10,11 @@ export interface Folder {
   thumbnails_generated: boolean;
   total_size: number;
   folder_created_at?: string;
+  /** An image from this folder, else from its first descendant folder holding images */
+  cover_photo_id: number | null;
+  /** Min/max metadata.date_taken of the folder's direct photos */
+  date_from: string | null;
+  date_to: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -31,15 +36,23 @@ export interface Photo {
 }
 
 export interface PhotoMetadata {
+  /** EXIF wall-clock time serialized as ISO with a `Z` suffix: format it with timeZone "UTC" */
   date_taken?: string;
   location?: {
     latitude: number;
     longitude: number;
   };
+  /** Display orientation: width/height are already swapped for EXIF orientations 5-8 */
   dimensions?: {
     width: number;
     height: number;
   };
+  camera?: {
+    make?: string;
+    model?: string;
+  };
+  /** Raw EXIF orientation (1-8) */
+  orientation?: number;
 }
 
 export interface SyncJob {

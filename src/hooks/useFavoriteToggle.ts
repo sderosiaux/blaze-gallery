@@ -1,110 +1,71 @@
-import { useState, useCallback } from "react";
-import { Photo } from "@/types";
+import { useCallback, useRef, useState } from "react";
+import type { Photo } from "@/types";
 
-/**
- * State for favorite toggle functionality
- */
-export interface FavoriteState {
-  isLoading: boolean;
-  isFavorite: boolean;
-  isAnimating: boolean;
+interface Options {
+  /** Shared views can't favourite. */
+  enabled: boolean;
+  /** Called with the photo as the server now has it. */
+  onChange?: (photo: Photo) => void;
+  onError?: () => void;
 }
 
 /**
- * Actions to control favorite state
- */
-export interface FavoriteActions {
-  toggle: (
-    photo: Photo,
-    onSuccess?: (updatedPhoto: Photo) => void,
-  ) => Promise<void>;
-  setFavorite: (value: boolean) => void;
-}
-
-const ANIMATION_DURATION_MS = 300;
-
-/**
- * Custom hook for managing photo favorite toggle with optimistic updates
- * Handles API calls, loading states, and heart animation
+ * Optimistic favourite toggle, keyed by photo so moving to the next photo
+ * mid-request never paints the wrong heart. The route flips the flag rather
+ * than setting it, so requests for one photo go one at a time until the
+ * server agrees with the last press.
  */
 export function useFavoriteToggle(
-  initialValue: boolean,
-  isSharedView: boolean = false,
-): [FavoriteState, FavoriteActions] {
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(initialValue);
-  const [isAnimating, setIsAnimating] = useState(false);
+  photo: Photo,
+  { enabled, onChange, onError }: Options,
+) {
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const desired = useRef(new Map<string, boolean>());
+  // What the server last said, for parents that don't pass the update back down.
+  const known = useRef(new Map<string, boolean>());
+  const inFlight = useRef(new Set<string>());
 
-  // Toggle favorite with optimistic update
-  const toggle = useCallback(
-    async (photo: Photo, onSuccess?: (updatedPhoto: Photo) => void) => {
-      // Don't allow favorite toggling in shared view
-      if (isSharedView || isLoading) return;
+  const id = String(photo.id);
+  const isFavorite = overrides[id] ?? photo.is_favorite;
 
-      setIsLoading(true);
-      const originalState = isFavorite;
-
+  const sync = useCallback(
+    async (target: Photo) => {
+      const key = String(target.id);
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
+      const before = known.current.get(key) ?? target.is_favorite;
+      let server = before;
       try {
-        // Trigger heart animation
-        setIsAnimating(true);
-        setTimeout(() => setIsAnimating(false), ANIMATION_DURATION_MS);
-
-        // Optimistically update the UI
-        setIsFavorite(!isFavorite);
-
-        const response = await fetch(`/api/photos/${photo.id}/favorite`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        for (let round = 0; desired.current.get(key) !== server; round++) {
+          if (round === 4) throw new Error("favorite_out_of_sync");
+          const response = await fetch(`/api/photos/${key}/favorite`, {
+            method: "POST",
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success)
+            throw new Error(data.error ?? `HTTP ${response.status}`);
+          server = Boolean(data.is_favorite);
         }
-
-        const data = await response.json();
-
-        if (data.success) {
-          // Update with server state
-          setIsFavorite(data.is_favorite);
-          // Create updated photo for the parent callback
-          const updatedPhoto = {
-            ...photo,
-            is_favorite: data.is_favorite,
-          };
-          onSuccess?.(updatedPhoto);
-        } else {
-          // Revert favorite state on server error
-          setIsFavorite(originalState);
-          console.error("Server error toggling favorite:", data.error);
-        }
-      } catch (error) {
-        // Revert favorite state on network error
-        setIsFavorite(originalState);
-        console.error("Failed to toggle favorite:", error);
+      } catch {
+        desired.current.set(key, server);
+        onError?.();
       } finally {
-        setIsLoading(false);
+        inFlight.current.delete(key);
+        known.current.set(key, server);
+        setOverrides((all) => ({ ...all, [key]: server }));
+        if (server !== before) onChange?.({ ...target, is_favorite: server });
       }
     },
-    [isLoading, isFavorite, isSharedView],
+    [onChange, onError],
   );
 
-  // Direct setter for when photo changes externally
-  const setFavorite = useCallback((value: boolean) => {
-    setIsFavorite(value);
-  }, []);
+  const toggle = useCallback(() => {
+    if (!enabled) return;
+    const next = !isFavorite;
+    desired.current.set(id, next);
+    setOverrides((all) => ({ ...all, [id]: next }));
+    void sync(photo);
+  }, [enabled, id, isFavorite, photo, sync]);
 
-  const state: FavoriteState = {
-    isLoading,
-    isFavorite,
-    isAnimating,
-  };
-
-  const actions: FavoriteActions = {
-    toggle,
-    setFavorite,
-  };
-
-  return [state, actions];
+  return { isFavorite, toggle };
 }

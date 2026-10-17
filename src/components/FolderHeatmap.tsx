@@ -1,188 +1,173 @@
-import { FolderStats } from "@/types/stats";
+"use client";
+
+import Link from "next/link";
 import { useState } from "react";
+import { albumHref } from "@/components/photos/AlbumCard";
+import { MarkTooltip, ShowMore, TipRow } from "@/components/stats/charts";
+import {
+  albumKicker,
+  formatNumber,
+  formatPercent,
+  formatSize,
+  ownDate,
+} from "@/components/stats/format";
+import type { AlbumStat } from "@/components/stats/types";
+import { parseAlbumName } from "@/lib/albums";
+import { cn } from "@/lib/cn";
+
+// Single-hue sequential scale: chart-5 at rising opacity over the paper, light
+// to dark. Five steps stay distinguishable; text flips to on-photo only on the
+// darkest step, where ink would lose contrast (ink ≥ 5.6:1 on steps 1–4,
+// on-photo ≥ 5.2:1 on step 5).
+const STEPS = [
+  "bg-chart-5/10",
+  "bg-chart-5/25",
+  "bg-chart-5/45",
+  "bg-chart-5/65",
+  "bg-chart-5/90",
+];
+const DARK_STEP = STEPS.length - 1;
 
 interface FolderHeatmapProps {
-  folders: FolderStats[];
-  type: "size" | "count";
-  maxItems?: number;
+  albums: AlbumStat[];
+  metric: "size" | "count";
+  /** Share of the library each tile is compared against, for the tooltip */
+  totalBytes?: number;
+  initial?: number;
+  step?: number;
 }
 
+const valueOf = (a: AlbumStat, metric: "size" | "count") =>
+  metric === "size" ? a.total_size : a.photo_count + a.video_count;
+
+const formatValue = (v: number, metric: "size" | "count") =>
+  metric === "size" ? formatSize(v) : `${formatNumber(v)} files`;
+
 export default function FolderHeatmap({
-  folders,
-  type,
-  maxItems = 20,
+  albums,
+  metric,
+  totalBytes,
+  initial = 12,
+  step = 12,
 }: FolderHeatmapProps) {
-  const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
+  const [visible, setVisible] = useState(initial);
+  if (albums.length === 0) return null;
 
-  // Take only the top folders and calculate heat intensity
-  const topFolders = folders.slice(0, maxItems);
-  if (topFolders.length === 0) return null;
-
-  const maxValue = Math.max(
-    ...topFolders.map((f) => (type === "size" ? f.total_size : f.photo_count)),
-  );
-  const minValue = Math.min(
-    ...topFolders.map((f) => (type === "size" ? f.total_size : f.photo_count)),
-  );
-
-  const getHeatIntensity = (value: number) => {
-    if (maxValue === minValue) return 1;
-    return (value - minValue) / (maxValue - minValue);
-  };
-
-  const getHeatColor = (intensity: number) => {
-    // Smooth gradient from cool blue-green to warm red-orange
-    // Clamp intensity between 0 and 1
-    const clampedIntensity = Math.max(0, Math.min(1, intensity));
-
-    // Smooth hue transition: 200° (cyan-blue) to 0° (red)
-    const hue = 200 - clampedIntensity * 200;
-
-    // Smooth saturation transition: starts moderate, peaks in middle, stays high at end
-    const saturation = 50 + clampedIntensity * 45; // 50% to 95%
-
-    // Smooth lightness transition: starts light, gets darker towards red
-    const lightness = 88 - clampedIntensity * 28; // 88% to 60%
-
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  };
-
-  const formatValue = (folder: FolderStats) => {
-    if (type === "size") {
-      const bytes = folder.total_size;
-      if (bytes === 0) return "0 B";
-      const k = 1024;
-      const sizes = ["B", "KB", "MB", "GB", "TB"];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-    } else {
-      return `${folder.photo_count.toLocaleString()} photos`;
-    }
-  };
-
-  const getFolderDisplayName = (folder: FolderStats) => {
-    // Show just the folder name, not the full path
-    return folder.name || folder.path.split("/").pop() || "Root";
-  };
+  // The scale spans every album returned, not just the visible ones, so a
+  // tile keeps its shade when "Show more" reveals smaller albums. Sizes are
+  // heavily skewed (one album can weigh ten of the others), so the steps are
+  // spread on a log scale; the exact value is printed on every tile.
+  const values = albums.map((a) => Math.max(1, valueOf(a, metric)));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.log(max) - Math.log(min);
+  const stepOf = (v: number) =>
+    span === 0
+      ? DARK_STEP
+      : Math.min(
+          DARK_STEP,
+          Math.floor(
+            ((Math.log(Math.max(1, v)) - Math.log(min)) / span) * STEPS.length,
+          ),
+        );
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center text-sm text-gray-600">
-        <span>
-          {type === "size" ? "Storage Usage" : "Photo Distribution"} by Folder
-        </span>
-        <div className="flex items-center space-x-2">
-          <span className="text-xs">Less</span>
-          <div className="flex">
-            {Array.from({ length: 10 }, (_, i) => (
-              <div
-                key={i}
-                className="w-3 h-3"
-                style={{ backgroundColor: getHeatColor(i / 9) }}
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <p className="text-xs text-ink-muted">
+          {metric === "size"
+            ? "Darker tiles take more space."
+            : "Darker tiles hold more files."}{" "}
+          Open one to browse it.
+        </p>
+        <div
+          className="flex items-center gap-2 text-xs text-ink-muted"
+          aria-hidden
+        >
+          <span className="tabular">{formatValue(min, metric)}</span>
+          <span className="flex gap-0.5">
+            {STEPS.map((s) => (
+              <span
+                key={s}
+                className={cn(
+                  "h-2.5 w-5 first:rounded-l-sm last:rounded-r-sm",
+                  s,
+                )}
               />
             ))}
-          </div>
-          <span className="text-xs">More</span>
+          </span>
+          <span className="tabular">{formatValue(max, metric)}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {topFolders.map((folder, index) => {
-          const value =
-            type === "size" ? folder.total_size : folder.photo_count;
-          const intensity = getHeatIntensity(value);
-          const isHovered = hoveredFolder === folder.path;
-          const baseColor = getHeatColor(intensity);
-
+      <ol className="grid grid-cols-2 gap-0.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+        {albums.slice(0, visible).map((album, i) => {
+          const value = valueOf(album, metric);
+          const s = stepOf(value);
+          const dark = s === DARK_STEP;
+          const { title } = parseAlbumName(album.name);
+          const kicker = albumKicker(album.path, ownDate(album.name));
+          const files = album.photo_count + album.video_count;
           return (
-            <a
-              key={folder.path}
-              href={folder.path === "" ? "/" : `/folder/${folder.path}`}
-              className={`
-                block relative p-4 rounded-xl cursor-pointer transition-all duration-300 group
-                ${
-                  isHovered
-                    ? "transform scale-110 shadow-2xl z-10 ring-2 ring-white ring-opacity-60"
-                    : "hover:scale-105 hover:shadow-lg shadow-md"
-                }
-              `}
-              style={{
-                background: `linear-gradient(135deg, ${baseColor}, ${getHeatColor(Math.min(intensity + 0.1, 1))})`,
-                boxShadow: isHovered
-                  ? `0 20px 40px rgba(0,0,0,0.15), 0 0 20px ${baseColor}40`
-                  : "0 4px 12px rgba(0,0,0,0.08)",
-              }}
-              onMouseEnter={() => setHoveredFolder(folder.path)}
-              onMouseLeave={() => setHoveredFolder(null)}
-              title={`${folder.path}\n${formatValue(folder)}\nClick to browse this folder`}
-            >
-              <div className="text-center relative z-10">
-                <div className="text-sm font-semibold text-gray-900 truncate mb-1 drop-shadow-sm">
-                  {getFolderDisplayName(folder)}
-                </div>
-                <div className="text-xs font-medium text-gray-800 drop-shadow-sm">
-                  {type === "size"
-                    ? formatValue(folder)
-                    : `${folder.photo_count.toLocaleString()}`}
-                  {type === "count" && (
-                    <span className="text-gray-700 ml-1">photos</span>
+            <li key={album.id} className="min-w-0">
+              <Link
+                href={albumHref(album.path)}
+                aria-label={`${title}, ${formatSize(album.total_size)}, ${formatNumber(files)} files`}
+                className={cn(
+                  "group relative flex h-full min-h-[96px] flex-col justify-between rounded-sm p-3 ring-1 ring-inset ring-transparent",
+                  "transition-[box-shadow] duration-150 ease-out-soft hover:ring-ink/30 focus-visible:ring-ink/40",
+                  STEPS[s],
+                  dark ? "text-on-photo" : "text-ink",
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="tabular mb-1 flex items-baseline justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                    <span className="truncate">{kicker ?? "Library"}</span>
+                    <span aria-hidden>{i + 1}</span>
+                  </span>
+                  <span className="line-clamp-2 font-display text-base leading-snug">
+                    {title}
+                  </span>
+                </span>
+                <span className="tabular mt-2 text-sm font-medium">
+                  {formatValue(value, metric)}
+                </span>
+                <MarkTooltip>
+                  <span className="mb-1.5 block truncate font-medium text-ink">
+                    {album.path}
+                  </span>
+                  <TipRow label="Size" value={formatSize(album.total_size)} />
+                  {totalBytes ? (
+                    <TipRow
+                      label="Share of library"
+                      value={formatPercent(album.total_size, totalBytes)}
+                    />
+                  ) : null}
+                  <TipRow
+                    label="Photos"
+                    value={formatNumber(album.photo_count)}
+                  />
+                  {album.video_count > 0 && (
+                    <TipRow
+                      label="Videos"
+                      value={formatNumber(album.video_count)}
+                    />
                   )}
-                </div>
-              </div>
-
-              {/* Hover overlay with full details */}
-              {isHovered && (
-                <div className="absolute z-20 bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 bg-gray-900 bg-opacity-95 backdrop-blur-sm text-white text-sm rounded-xl shadow-2xl whitespace-nowrap border border-gray-700">
-                  <div className="font-semibold text-white">
-                    {getFolderDisplayName(folder)}
-                  </div>
-                  <div className="text-gray-300 text-xs mt-1 max-w-xs truncate">
-                    {folder.path}
-                  </div>
-                  <div className="mt-2 space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Photos:</span>
-                      <span className="font-medium">
-                        {folder.photo_count.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400">Size:</span>
-                      <span className="font-medium">
-                        {type === "size"
-                          ? formatValue(folder)
-                          : (() => {
-                              const bytes = folder.total_size;
-                              if (bytes === 0) return "0 B";
-                              const k = 1024;
-                              const sizes = ["B", "KB", "MB", "GB", "TB"];
-                              const i = Math.floor(
-                                Math.log(bytes) / Math.log(k),
-                              );
-                              return (
-                                parseFloat(
-                                  (bytes / Math.pow(k, i)).toFixed(1),
-                                ) +
-                                " " +
-                                sizes[i]
-                              );
-                            })()}
-                      </span>
-                    </div>
-                  </div>
-                  {/* Arrow */}
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-transparent border-t-gray-900"></div>
-                </div>
-              )}
-            </a>
+                </MarkTooltip>
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ol>
 
-      <div className="text-xs text-gray-500 text-center">
-        Showing top {topFolders.length} folders by{" "}
-        {type === "size" ? "storage size" : "photo count"}
-      </div>
+      <ShowMore
+        total={albums.length}
+        visible={visible}
+        initial={initial}
+        step={step}
+        noun="more albums"
+        onChange={setVisible}
+      />
     </div>
   );
 }

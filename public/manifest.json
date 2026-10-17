@@ -1,11 +1,11 @@
 {
   "name": "Blaze Gallery",
-  "short_name": "Blaze Gallery",
-  "description": "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+  "short_name": "Blaze",
+  "description": "A quiet home for your family photos, straight from your own storage.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#FF6B35",
+  "background_color": "#F8F6F1",
+  "theme_color": "#F8F6F1",
   "icons": [
     {
       "src": "/favicon.svg",
@@ -26,7 +26,11 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["photo", "multimedia", "utilities"],
+  "categories": [
+    "photo",
+    "multimedia",
+    "utilities"
+  ],
   "lang": "en",
   "orientation": "any",
   "scope": "/",

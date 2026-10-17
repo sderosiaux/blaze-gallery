@@ -582,16 +582,41 @@ export async function getObjectMetadata(
   }
 }
 
+export interface SignedDownloadOptions {
+  /** Signs a Content-Disposition: attachment override so the browser saves the file */
+  attachmentFilename?: string;
+}
+
+/**
+ * RFC 6266 attachment header: an ASCII fallback for old clients plus the
+ * RFC 5987 UTF-8 form that modern browsers prefer.
+ */
+export function attachmentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function getSignedDownloadUrl(
   bucket: string,
   key: string,
   expiresIn: number = 3600,
   request?: Request,
+  options: SignedDownloadOptions = {},
 ): Promise<string> {
   // Initialize cache cleanup on first use
   initializeCacheCleanup();
 
-  const cacheKey = getCacheKey(bucket, key, expiresIn);
+  const disposition = options.attachmentFilename
+    ? attachmentDisposition(options.attachmentFilename)
+    : undefined;
+  // The disposition is part of the signature, so it is part of the cache key
+  const cacheKey = disposition
+    ? `${getCacheKey(bucket, key, expiresIn)}:${disposition}`
+    : getCacheKey(bucket, key, expiresIn);
   const now = Date.now();
 
   // Check if we have a cached URL that's still valid with 10% buffer
@@ -624,6 +649,7 @@ export async function getSignedDownloadUrl(
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
+      ...(disposition ? { ResponseContentDisposition: disposition } : {}),
     });
 
     const signedUrl = await getSignedUrl(client, command, { expiresIn });
@@ -740,6 +766,72 @@ export async function getObjectStream(
       bucket,
       key,
       operation: "getObjectStream",
+    });
+    throw error;
+  }
+}
+
+/**
+ * Read bytes [start, end] (inclusive) of an object from the photo bucket.
+ * Objects shorter than the range come back whole; empty objects give an empty buffer.
+ */
+export async function getObjectRange(
+  bucket: string,
+  key: string,
+  start: number,
+  end: number,
+  request?: Request,
+): Promise<Buffer> {
+  const client = S3Manager.getInstance().getS3Client();
+  const startTime = Date.now();
+
+  try {
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Range: `bytes=${start}-${end}`,
+      }),
+    );
+    const body = response.Body
+      ? Buffer.from(await response.Body.transformToByteArray())
+      : Buffer.alloc(0);
+
+    await auditMiddleware.log({
+      operation: "GetObject",
+      method: "GET",
+      bucket,
+      key,
+      startTime,
+      statusCode: response.$metadata.httpStatusCode ?? 206,
+      bytesTransferred: body.length,
+      request,
+    });
+
+    return body;
+  } catch (error) {
+    const errorInfo = extractS3ErrorInfo(error);
+
+    await auditMiddleware.log({
+      operation: "GetObject",
+      method: "GET",
+      bucket,
+      key,
+      startTime,
+      statusCode: errorInfo.statusCode,
+      error: errorInfo.message,
+      request,
+    });
+
+    // 416: the object is empty, there is no byte to read
+    if (errorInfo.statusCode === 416) {
+      return Buffer.alloc(0);
+    }
+
+    logger.s3Error("Failed to get object range", error as Error, {
+      bucket,
+      key,
+      operation: "getObjectRange",
     });
     throw error;
   }
@@ -1012,9 +1104,10 @@ export async function getSignedDownloadUrlAuto(
   key: string,
   expiresIn: number = 3600,
   request?: Request,
+  options: SignedDownloadOptions = {},
 ): Promise<string> {
   const bucket = S3Manager.getInstance().getBucketName();
-  return getSignedDownloadUrl(bucket, key, expiresIn, request);
+  return getSignedDownloadUrl(bucket, key, expiresIn, request, options);
 }
 
 /**

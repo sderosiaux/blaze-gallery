@@ -1,8 +1,24 @@
 import type { Metadata, Viewport } from "next";
+import { Newsreader, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import StartupManager from "@/components/StartupManager";
 import { LayoutProvider } from "@/contexts/LayoutContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ToastProvider } from "@/components/ui/Toast";
+
+const display = Newsreader({
+  subsets: ["latin", "latin-ext"],
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const sans = Hanken_Grotesk({
+  subsets: ["latin", "latin-ext"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -72,7 +88,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#FF6B35",
+  themeColor: "#F8F6F1",
   colorScheme: "light",
 };
 
@@ -82,15 +98,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${display.variable} ${sans.variable}`}>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body className="min-h-screen bg-gray-50">
+      <body className="min-h-dvh">
         <LayoutProvider>
           <AuthProvider>
-            <StartupManager />
-            {children}
+            <ToastProvider>
+              <StartupManager />
+              {children}
+            </ToastProvider>
           </AuthProvider>
         </LayoutProvider>
       </body>

@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Photo } from "@/types";
-import { Expand, Minimize2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import type { Photo } from "@/types";
 import PhotoViewer from "./PhotoViewer";
-import PhotoSkeleton from "./PhotoSkeleton";
-import PhotoItem from "./PhotoItem";
-import { useLayout } from "@/contexts/LayoutContext";
+import JustifiedGrid from "./photos/JustifiedGrid";
+import PhotoTile from "./photos/PhotoTile";
+import { useToast } from "@/components/ui";
 
 interface PhotoGridProps {
   photos: Photo[];
@@ -14,10 +13,35 @@ interface PhotoGridProps {
   selectedPhotoId?: string | null;
   onPhotoUrlChange?: (photoId: string | null) => void;
   onPhotoDeleted?: (photo: Photo) => void;
+  /** Lets the page keep its own copy in sync (favorites page drops un-favorited photos). */
+  onPhotoUpdated?: (photo: Photo) => void;
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
   sessionToken?: string;
+  /** Number of tiles loaded eagerly, the first screen. */
+  eagerCount?: number;
+}
+
+export function PhotoGridSkeleton({ count = 12 }: { count?: number }) {
+  // Percentages, so a phone shows three or four tiles a row like the real grid.
+  const widths = [22, 16, 19, 26, 17, 21, 15, 24, 19, 20, 16, 23];
+  return (
+    <div
+      role="status"
+      aria-label="Loading photos"
+      className="flex flex-wrap gap-1"
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="skeleton h-[110px] flex-grow rounded-sm sm:h-[170px] lg:h-[220px]"
+          style={{ flexBasis: `${widths[i % widths.length]}%` }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function PhotoGrid({
@@ -26,233 +50,107 @@ export default function PhotoGrid({
   selectedPhotoId,
   onPhotoUrlChange,
   onPhotoDeleted,
+  onPhotoUpdated,
   isSharedView = false,
   shareToken,
   allowDownload = true,
   sessionToken,
+  eagerCount = 18,
 }: PhotoGridProps) {
-  const { isFullWidth, setIsFullWidth } = useLayout();
+  const toast = useToast();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
-  const [photosState, setPhotosState] = useState<Photo[]>(photos);
+  const [items, setItems] = useState<Photo[]>(photos);
 
-  // Update photos state when props change
+  useEffect(() => setItems(photos), [photos]);
+
   useEffect(() => {
-    setPhotosState(photos);
-  }, [photos]);
-
-  // Keyboard navigation for gallery expand/compress
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle if no photo viewer is open and no modal is visible
-      const hasModal = document.querySelector(
-        '[role="dialog"], .fixed.inset-0.z-50, .fixed.inset-0.bg-black',
-      );
-      const isInputFocused =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement;
-
-      if (
-        !selectedPhoto &&
-        !hasModal &&
-        !isInputFocused &&
-        (e.key === "e" || e.key === "E")
-      ) {
-        e.preventDefault();
-        setIsFullWidth(!isFullWidth);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [selectedPhoto, isFullWidth]);
-
-  // Handle initial photo selection from URL params
-  useEffect(() => {
-    if (selectedPhotoId && photos.length > 0) {
-      const photo = photos.find((p) => p.id.toString() === selectedPhotoId);
-      if (photo) {
-        setSelectedPhoto(photo);
-      }
+    if (!selectedPhotoId) {
+      setSelectedPhoto(null);
+      return;
     }
-  }, [selectedPhotoId, photos]);
+    const match = items.find((p) => String(p.id) === selectedPhotoId);
+    if (match) setSelectedPhoto(match);
+  }, [selectedPhotoId, items]);
 
-  // Handle photo selection and URL updates
-  const handlePhotoSelect = (photo: Photo) => {
-    setSelectedPhoto(photo);
-    onPhotoUrlChange?.(photo.id.toString());
-  };
+  const updateOne = useCallback(
+    (updated: Photo) => {
+      setItems((all) => all.map((p) => (p.id === updated.id ? updated : p)));
+      onPhotoUpdated?.(updated);
+    },
+    [onPhotoUpdated],
+  );
 
-  // Handle photo close and URL updates
-  const handlePhotoClose = () => {
+  const open = useCallback(
+    (photo: Photo) => {
+      setSelectedPhoto(photo);
+      onPhotoUrlChange?.(String(photo.id));
+    },
+    [onPhotoUrlChange],
+  );
+
+  const close = () => {
     setSelectedPhoto(null);
     onPhotoUrlChange?.(null);
   };
 
-  // Handle photo deletion
-  const handlePhotoDelete = (deletedPhoto: Photo) => {
-    // Remove from local state immediately
-    setPhotosState((prevPhotos) =>
-      prevPhotos.filter((p) => p.id !== deletedPhoto.id)
-    );
-    // Notify parent if callback provided
-    onPhotoDeleted?.(deletedPhoto);
-  };
-
-  const toggleFavorite = async (photo: Photo, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent opening the photo viewer
-
-    // Don't allow favorite toggling in shared view
-    if (isSharedView) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/photos/${photo.id}/favorite`, {
-        method: "POST",
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        // Update local state
-        setPhotosState((prevPhotos) =>
-          prevPhotos.map((p) =>
-            p.id === photo.id ? { ...p, is_favorite: data.is_favorite } : p,
-          ),
-        );
+  const toggleFavorite = useCallback(
+    async (photo: Photo) => {
+      const optimistic = { ...photo, is_favorite: !photo.is_favorite };
+      updateOne(optimistic);
+      try {
+        const response = await fetch(`/api/photos/${photo.id}/favorite`, {
+          method: "POST",
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error);
+        if (data.is_favorite !== optimistic.is_favorite)
+          updateOne({ ...photo, is_favorite: data.is_favorite });
+      } catch {
+        updateOne(photo);
+        toast.show("Couldn't update favorites. Try again.", "error");
       }
-    } catch (error) {
-      console.error("Failed to toggle favorite:", error);
-    }
-  };
+    },
+    [toast, updateOne],
+  );
 
-  // Show skeletons while loading
-  if (loading) {
-    return (
-      <div
-        className={`bg-white shadow ${
-          isFullWidth
-            ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6"
-            : "rounded-lg p-6"
-        }`}
-      >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-medium text-gray-900">
-            Loading photos...
-          </h2>
-          <button
-            onClick={() => setIsFullWidth(!isFullWidth)}
-            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
-              isFullWidth
-                ? "bg-gray-100 text-blue-600"
-                : "text-gray-600 hover:text-blue-600"
-            }`}
-            title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
-          >
-            {isFullWidth ? (
-              <Minimize2 className="w-5 h-5" />
-            ) : (
-              <Expand className="w-5 h-5" />
-            )}
-          </button>
-        </div>
-        <div
-          className={`photo-mosaic ${
-            isFullWidth
-              ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
-              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
-          }`}
-        >
-          {Array.from({ length: 12 }).map((_, index) => (
-            <PhotoSkeleton key={index} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Don't render anything if there are no photos - let the parent handle empty state
-  if (photos.length === 0) {
-    return null;
-  }
+  if (loading) return <PhotoGridSkeleton />;
+  if (items.length === 0) return null;
 
   return (
     <>
-      <div
-        className={`bg-white shadow ${
-          isFullWidth
-            ? "w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 py-6"
-            : "rounded-lg p-6"
-        }`}
-      >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-medium text-gray-900">
-            Media ({photosState.length})
-          </h2>
-          <button
-            onClick={() => setIsFullWidth(!isFullWidth)}
-            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
-              isFullWidth
-                ? "bg-gray-100 text-blue-600"
-                : "text-gray-600 hover:text-blue-600"
-            }`}
-            title={isFullWidth ? "Compress gallery (E)" : "Expand gallery (E)"}
-          >
-            {isFullWidth ? (
-              <Minimize2 className="w-5 h-5" />
-            ) : (
-              <Expand className="w-5 h-5" />
-            )}
-          </button>
-        </div>
-        <div
-          className={`photo-mosaic ${
-            isFullWidth
-              ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
-              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
-          }`}
-        >
-          {photosState.map((photo, index) => (
-            <PhotoItem
-              key={photo.id}
-              photo={photo}
-              onPhotoClick={handlePhotoSelect}
-              onToggleFavorite={toggleFavorite}
-              priority={index < 20 ? 10 - Math.floor(index / 2) : 0} // First 20 images get higher priority
-              isSharedView={isSharedView}
-              shareToken={shareToken}
-              sessionToken={sessionToken}
-            />
-          ))}
-        </div>
-      </div>
+      <JustifiedGrid
+        photos={items}
+        renderTile={(photo, size, index) => (
+          <PhotoTile
+            photo={photo}
+            width={size.width}
+            height={size.height}
+            eager={index < eagerCount}
+            shareToken={isSharedView ? shareToken : undefined}
+            onOpen={open}
+            onToggleFavorite={isSharedView ? undefined : toggleFavorite}
+          />
+        )}
+      />
 
       {selectedPhoto && (
         <PhotoViewer
           photo={selectedPhoto}
-          photos={photosState}
-          onClose={handlePhotoClose}
-          onFavoriteToggle={
-            !isSharedView
-              ? (updatedPhoto) => {
-                  // Update the photo in the local state
-                  setPhotosState((prevPhotos) =>
-                    prevPhotos.map((p) =>
-                      p.id === updatedPhoto.id ? updatedPhoto : p,
-                    ),
-                  );
-                  // DON'T update selectedPhoto here - it causes image reload in PhotoViewer
-                  // The PhotoViewer manages its own favorite state separately to prevent this issue
-                }
-              : undefined
-          }
-          onPhotoChange={(newPhoto) => {
-            setSelectedPhoto(newPhoto);
-            onPhotoUrlChange?.(newPhoto.id.toString());
+          photos={items}
+          onClose={close}
+          onFavoriteToggle={isSharedView ? undefined : updateOne}
+          onPhotoChange={(next) => {
+            setSelectedPhoto(next);
+            onPhotoUrlChange?.(String(next.id));
           }}
-          onDelete={!isSharedView ? handlePhotoDelete : undefined}
+          onDelete={
+            isSharedView
+              ? undefined
+              : (deleted) => {
+                  setItems((all) => all.filter((p) => p.id !== deleted.id));
+                  onPhotoDeleted?.(deleted);
+                }
+          }
           isSharedView={isSharedView}
           shareToken={shareToken}
           allowDownload={allowDownload}

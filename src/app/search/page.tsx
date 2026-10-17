@@ -1,204 +1,322 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Photo, Folder } from "@/types";
-import PhotoGrid from "@/components/PhotoGrid";
-import FolderBrowser from "@/components/FolderBrowser";
-import { FolderOpen, Search } from "lucide-react";
+import Link from "next/link";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { CalendarDays, Library, SearchX } from "lucide-react";
+import type { Folder, Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
+import { AlbumGrid } from "@/components/photos/AlbumCard";
+import {
+  ButtonLink,
+  EmptyState,
+  MetaDot,
+  PageHeader,
+  PageSkeleton,
+  Section,
+  Skeleton,
+} from "@/components/ui";
+import { AlbumGridSkeleton } from "@/components/find/AlbumGridSkeleton";
+import { LoadError } from "@/components/find/LoadError";
+import { StartingPoints } from "@/components/find/StartingPoints";
+import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { formatCount } from "@/lib/albums";
+import { normalizeTextForSearch } from "@/lib/textUtils";
 
-interface SearchResults {
+interface Results {
   photos: Photo[];
   folders: Folder[];
-  query: string;
+  /** Every matching photo; the API sends the first 50. */
+  photoTotal: number;
+}
+
+type State =
+  | { status: "idle" }
+  | { status: "loading"; q: string }
+  | { status: "error"; q: string }
+  | { status: "ready"; q: string; results: Results };
+
+const FOLDER_LIMIT = 20;
+
+/** Albums named after the query first, then those that only sit under a matching folder. */
+function rankAlbums(folders: Folder[], q: string): Folder[] {
+  const needle = normalizeTextForSearch(q);
+  return folders
+    .filter((f) => Number(f.photo_count) > 0 || Number(f.subfolder_count) > 0)
+    .map((folder, i) => ({
+      folder,
+      i,
+      named: normalizeTextForSearch(folder.name).includes(needle),
+    }))
+    .sort((a, b) => Number(b.named) - Number(a.named) || a.i - b.i)
+    .map(({ folder }) => folder);
+}
+
+function Quote({ children }: { children: React.ReactNode }) {
+  return <>“{children}”</>;
 }
 
 function SearchContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const query = searchParams?.get("q") || "";
-  const selectedPhotoId = searchParams?.get("photo");
-
-  const [results, setResults] = useState<SearchResults>({
-    photos: [],
-    folders: [],
-    query: "",
-  });
-  const [loading, setLoading] = useState(false);
-  const [searchInput, setSearchInput] = useState(query);
-
-  // Handle photo URL changes
-  const handlePhotoUrlChange = (photoId: string | null) => {
-    const url = new URL(window.location.href);
-    if (photoId) {
-      url.searchParams.set("photo", photoId);
-    } else {
-      url.searchParams.delete("photo");
-    }
-    router.push(url.pathname + url.search, { scroll: false });
-  };
+  const q = (useSearchParams()?.get("q") ?? "").trim();
+  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [state, setState] = useState<State>(() =>
+    q ? { status: "loading", q } : { status: "idle" },
+  );
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (query) {
-      setSearchInput(query);
-      performSearch(query);
-    }
-  }, [query]);
-
-  const performSearch = async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
-      setResults({ photos: [], folders: [], query: searchQuery });
+    if (!q) {
+      setState({ status: "idle" });
       return;
     }
-
-    try {
-      setLoading(true);
-      const response = await fetch(
-        `/api/search?q=${encodeURIComponent(searchQuery)}`,
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        setResults({
-          photos: data.photos || [],
-          folders: data.folders || [],
-          query: data.query,
+    const controller = new AbortController();
+    setState({ status: "loading", q });
+    fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error);
+        const photos: Photo[] = data.photos ?? [];
+        setState({
+          status: "ready",
+          q,
+          results: {
+            photos,
+            folders: rankAlbums(data.folders ?? [], q),
+            photoTotal:
+              typeof data.photo_total === "number"
+                ? data.photo_total
+                : photos.length,
+          },
         });
-      } else {
-        console.error("Search failed:", data.error);
-      }
-    } catch (error) {
-      console.error("[CLIENT] Failed to search:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ status: "error", q });
+      });
+    return () => controller.abort();
+  }, [q, attempt]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedQuery = searchInput.trim();
-    if (trimmedQuery) {
-      router.push(`/search?q=${encodeURIComponent(trimmedQuery)}`);
-    } else {
-      router.push("/search");
-    }
-  };
+  if (state.status === "idle") {
+    return (
+      <>
+        <PageHeader kicker="Search" title="Find a memory">
+          <p className="mt-4 max-w-2xl text-pretty text-base leading-relaxed text-ink-soft">
+            Search reads album names, the folders they sit in and file names. A
+            place, an event, a first name or a year usually finds it. Type in
+            the field above
+            <span className="hidden sm:inline">
+              , or press{" "}
+              <kbd className="rounded border border-line bg-surface px-1.5 py-0.5 text-xs text-ink-muted">
+                /
+              </kbd>{" "}
+              from any page
+            </span>
+            .
+          </p>
+        </PageHeader>
+        <StartingPoints />
+      </>
+    );
+  }
 
-  const navigateToFolder = (folderPath: string) => {
-    if (folderPath === "") {
-      router.push("/");
-    } else {
-      router.push(`/folder/${folderPath}`);
-    }
-  };
+  const title = (
+    <>
+      Results for <Quote>{state.q}</Quote>
+    </>
+  );
+
+  if (state.status === "error") {
+    return (
+      <>
+        <PageHeader kicker="Search" title={title} />
+        <LoadError
+          title="Search didn't go through"
+          onRetry={() => setAttempt((n) => n + 1)}
+        />
+      </>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <>
+        <PageHeader
+          kicker="Search"
+          title={title}
+          meta={<Skeleton className="h-4 w-44" />}
+        />
+        <div aria-live="polite" className="sr-only">
+          Searching
+        </div>
+        <Section title="Albums">
+          <AlbumGridSkeleton count={4} />
+        </Section>
+        <Section title="Photos">
+          <PhotoGridSkeleton count={8} />
+        </Section>
+      </>
+    );
+  }
 
   return (
-    <AppLayout>
-      <ProtectedRoute>
-        {/* Search Form */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <form onSubmit={handleSearch} className="flex gap-4">
-            <div className="flex-1">
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search photos by name, folder, or location..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                autoFocus
-              />
-            </div>
-            <button
-              type="submit"
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-            >
-              Search
-            </button>
-          </form>
-        </div>
+    <ResultsView
+      q={state.q}
+      title={title}
+      results={state.results}
+      selectedPhotoId={selectedPhotoId}
+      onPhotoUrlChange={setPhotoParam}
+    />
+  );
+}
 
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        ) : !query ? (
-          <div className="text-center py-12">
-            <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-medium text-gray-900 mb-2">
-              Search your photos
-            </h2>
-            <p className="text-gray-500">
-              Enter a search term to find photos and folders
-            </p>
-          </div>
-        ) : results.photos.length === 0 && results.folders.length === 0 ? (
-          <div className="text-center py-12">
-            <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-medium text-gray-900 mb-2">
-              No results found
-            </h2>
-            <p className="text-gray-500">
-              Try searching with different keywords
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Folders Results */}
-            {results.folders.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">
-                  Folders ({results.folders.length})
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {results.folders.map((folder) => (
-                    <button
-                      key={folder.id}
-                      onClick={() => navigateToFolder(folder.path)}
-                      className="flex items-center p-3 border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-sm transition-colors text-left"
-                    >
-                      <FolderOpen className="w-8 h-8 text-blue-500 mr-3 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900 truncate">
-                          {folder.name}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {folder.photo_count} photos
-                        </p>
-                      </div>
-                    </button>
+function ResultsView({
+  q,
+  title,
+  results,
+  selectedPhotoId,
+  onPhotoUrlChange,
+}: {
+  q: string;
+  title: React.ReactNode;
+  results: Results;
+  selectedPhotoId: string | null;
+  onPhotoUrlChange: (id: string | null) => void;
+}) {
+  const { photos, folders, photoTotal } = results;
+  const words = useMemo(
+    () => Array.from(new Set(q.split(/\s+/).filter((w) => w.length > 1))),
+    [q],
+  );
+
+  if (folders.length === 0 && photos.length === 0) {
+    return (
+      <>
+        <PageHeader
+          kicker="Search"
+          title={title}
+          meta={<span>No albums or photos</span>}
+        />
+        <EmptyState
+          icon={SearchX}
+          title={
+            <>
+              Nothing matches <Quote>{q}</Quote>
+            </>
+          }
+          body={
+            <>
+              Search reads album names, folder names and file names, not what is
+              inside the photos. Try a shorter word, a place, a first name or a
+              year.
+              {words.length > 1 && (
+                <span className="mt-3 block">
+                  Or one word at a time:{" "}
+                  {words.map((w, i) => (
+                    <span key={w}>
+                      {i > 0 && ", "}
+                      <Link
+                        href={`/search?q=${encodeURIComponent(w)}`}
+                        className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-accent"
+                      >
+                        <Quote>{w}</Quote>
+                      </Link>
+                    </span>
                   ))}
-                </div>
-              </div>
-            )}
+                </span>
+              )}
+            </>
+          }
+          action={
+            <>
+              <ButtonLink href="/" variant="primary" icon={Library}>
+                Browse the library
+              </ButtonLink>
+              <ButtonLink
+                href="/timeline"
+                variant="secondary"
+                icon={CalendarDays}
+              >
+                Browse by date
+              </ButtonLink>
+            </>
+          }
+          className="pb-8 pt-10"
+        />
+        <StartingPoints albumLimit={4} />
+      </>
+    );
+  }
 
-            {/* Photos Results */}
-            {results.photos.length > 0 && (
-              <PhotoGrid
-                photos={results.photos}
-                loading={loading}
-                selectedPhotoId={selectedPhotoId}
-                onPhotoUrlChange={handlePhotoUrlChange}
-              />
-            )}
-          </div>
-        )}
-      </ProtectedRoute>
-    </AppLayout>
+  const partial = photos.length < photoTotal;
+
+  return (
+    <>
+      <PageHeader
+        kicker="Search"
+        title={title}
+        meta={
+          <>
+            <span className="tabular">
+              {formatCount(folders.length, "album")}
+            </span>
+            <MetaDot />
+            <span className="tabular">{formatCount(photoTotal, "photo")}</span>
+          </>
+        }
+      />
+
+      {folders.length > 0 && (
+        <Section
+          title="Albums"
+          description={
+            folders.length >= FOLDER_LIMIT
+              ? `The first ${FOLDER_LIMIT} by name. A more precise word narrows them down.`
+              : "Named after your search, or kept inside a folder that is."
+          }
+        >
+          <AlbumGrid folders={folders} showPath eagerCount={8} />
+        </Section>
+      )}
+
+      {photos.length > 0 && (
+        <Section
+          title="Photos"
+          description={
+            partial
+              ? `The first ${photos.length.toLocaleString("en-GB")} of ${photoTotal.toLocaleString("en-GB")}, by file name. Open an album above to see them all.`
+              : "Matched by file name or by the album they belong to."
+          }
+          action={
+            <span className="tabular text-sm text-ink-muted">
+              {partial
+                ? `${photos.length} of ${photoTotal.toLocaleString("en-GB")}`
+                : photos.length}
+            </span>
+          }
+        >
+          <PhotoGrid
+            photos={photos}
+            selectedPhotoId={selectedPhotoId}
+            onPhotoUrlChange={onPhotoUrlChange}
+            eagerCount={12}
+          />
+        </Section>
+      )}
+    </>
   );
 }
 
 export default function SearchPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      }
-    >
-      <SearchContent />
-    </Suspense>
+    <AppLayout>
+      <ProtectedRoute>
+        <Suspense fallback={<PageSkeleton />}>
+          <SearchContent />
+        </Suspense>
+      </ProtectedRoute>
+    </AppLayout>
   );
 }

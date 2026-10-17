@@ -1,186 +1,127 @@
 "use client";
 
 import {
-  X,
   Download,
   Heart,
-  Play,
+  Info,
+  Keyboard,
   Pause,
-  Expand,
-  Minimize2,
+  Play,
   Trash2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
+import { IconButton } from "@/components/ui";
+import { cn } from "@/lib/cn";
 
 interface PhotoViewerControlsProps {
-  /** Total number of photos for navigation */
-  totalPhotos: number;
-  /** Current index in the photos array */
-  currentIndex: number;
-  /** Whether slideshow mode is active */
-  isSlideshow: boolean;
-  /** Toggle slideshow mode */
-  onSlideshowToggle: () => void;
-  /** Whether image is expanded */
-  isExpanded: boolean;
-  /** Toggle expanded mode */
-  onExpandToggle: () => void;
-  /** Whether this is a shared view (hides favorite button) */
-  isSharedView: boolean;
-  /** Whether favorite operation is in progress */
-  favoriteLoading: boolean;
-  /** Current favorite state of the photo */
-  isFavorite: boolean;
-  /** Whether heart animation is playing */
-  heartAnimating: boolean;
-  /** Handle favorite toggle */
-  onFavoriteToggle: () => void;
-  /** Whether download is allowed */
-  allowDownload: boolean;
-  /** Handle download */
-  onDownload: () => void;
-  /** Handle close */
-  onClose: () => void;
-  /** Handle delete */
+  slideshow?: { playing: boolean; onToggle: () => void };
+  zoom?: { active: boolean; available: boolean; onToggle: () => void };
+  favorite?: { active: boolean; onToggle: () => void };
+  info: { open: boolean; panelId: string; onToggle: () => void };
+  /** Absent when downloads aren't allowed. */
+  onDownload?: () => void;
+  /** Absent in shared views and when the parent can't delete. */
   onDelete?: () => void;
-  /** Whether delete operation is in progress */
-  deleteLoading?: boolean;
+  help: { open: boolean; panelId: string; onToggle: () => void };
 }
 
+/** The viewer's actions, right side of the top bar. Every one has a key, named in its label. */
 export default function PhotoViewerControls({
-  totalPhotos,
-  currentIndex,
-  isSlideshow,
-  onSlideshowToggle,
-  isExpanded,
-  onExpandToggle,
-  isSharedView,
-  favoriteLoading,
-  isFavorite,
-  heartAnimating,
-  onFavoriteToggle,
-  allowDownload,
+  slideshow,
+  zoom,
+  favorite,
+  info,
   onDownload,
-  onClose,
   onDelete,
-  deleteLoading,
+  help,
 }: PhotoViewerControlsProps) {
   return (
-    <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
-      {/* Photo counter */}
-      {totalPhotos > 1 && (
-        <div className="text-sm text-gray-300 bg-black bg-opacity-30 px-3 py-1 rounded-lg">
-          {currentIndex + 1} of {totalPhotos}
-        </div>
-      )}
-
-      {/* Slideshow controls */}
-      {totalPhotos > 1 && (
-        <button
-          onClick={onSlideshowToggle}
-          className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
-            isSlideshow ? "bg-white bg-opacity-20" : ""
-          }`}
-          title={
-            isSlideshow ? "Pause slideshow (Space)" : "Start slideshow (Space)"
+    <div className="flex items-center gap-0.5 sm:gap-1">
+      {slideshow && (
+        <IconButton
+          icon={slideshow.playing ? Pause : Play}
+          label={
+            slideshow.playing
+              ? "Pause slideshow (Space)"
+              : "Play slideshow (Space)"
           }
-        >
-          {isSlideshow ? (
-            <Pause className="w-5 h-5" />
-          ) : (
-            <Play className="w-5 h-5" />
-          )}
-        </button>
+          aria-keyshortcuts="Space"
+          active={slideshow.playing}
+          onClick={slideshow.onToggle}
+          iconClassName={cn(slideshow.playing && "text-accent-strong")}
+        />
       )}
-
-      <button
-        onClick={onExpandToggle}
-        className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors ${
-          isExpanded ? "bg-white bg-opacity-20" : ""
-        }`}
-        title={isExpanded ? "Fit to screen (E)" : "Expand image (E)"}
-      >
-        {isExpanded ? (
-          <Minimize2 className="w-5 h-5" />
-        ) : (
-          <Expand className="w-5 h-5" />
-        )}
-      </button>
-
-      {/* Favorite button - only show in regular view */}
-      {!isSharedView && (
-        <button
-          onClick={onFavoriteToggle}
-          disabled={favoriteLoading}
-          className={`p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors relative ${
-            favoriteLoading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-          title={
-            favoriteLoading
-              ? "Updating..."
-              : isFavorite
-                ? "Remove from favorites (F)"
-                : "Add to favorites (F)"
+      {zoom && (
+        <IconButton
+          icon={zoom.active ? ZoomOut : ZoomIn}
+          label={
+            zoom.active
+              ? "Zoom out (Z)"
+              : zoom.available
+                ? "Zoom in (Z)"
+                : "Zoom in (Z), once the full photo has loaded"
           }
-        >
-          {favoriteLoading ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <Heart
-              className={`w-5 h-5 transition-all duration-300 ease-out ${
-                isFavorite
-                  ? "text-red-500 fill-current"
-                  : "text-white hover:text-red-400"
-              } ${
-                heartAnimating
-                  ? "transform scale-125 rotate-12"
-                  : "transform scale-100 rotate-0"
-              }`}
-              style={{
-                filter: heartAnimating
-                  ? "drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))"
-                  : "none",
-              }}
-            />
-          )}
-        </button>
+          aria-keyshortcuts="Z"
+          active={zoom.active}
+          disabled={!zoom.available}
+          onClick={zoom.onToggle}
+          className="hidden sm:inline-flex"
+        />
       )}
-
-      {/* Download button - only show if downloads are allowed */}
-      {allowDownload && (
-        <button
+      {/* Colours go on the icon: the button's own text colour classes would compete with them. */}
+      {favorite && (
+        <IconButton
+          icon={Heart}
+          label={
+            favorite.active
+              ? "Remove from favorites (F)"
+              : "Add to favorites (F)"
+          }
+          aria-keyshortcuts="F"
+          active={favorite.active}
+          onClick={favorite.onToggle}
+          iconClassName={cn(
+            "transition-transform duration-200 ease-out-soft",
+            favorite.active && "scale-110 fill-current text-favorite",
+          )}
+        />
+      )}
+      <IconButton
+        icon={Info}
+        label={info.open ? "Hide details (I)" : "Show details (I)"}
+        aria-keyshortcuts="I"
+        aria-expanded={info.open}
+        aria-controls={info.open ? info.panelId : undefined}
+        active={info.open}
+        onClick={info.onToggle}
+      />
+      {onDownload && (
+        <IconButton
+          icon={Download}
+          label="Download original"
           onClick={onDownload}
-          className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-          title="Download original"
-        >
-          <Download className="w-5 h-5" />
-        </button>
+        />
       )}
-
-      {/* Delete button - only show in regular view */}
-      {!isSharedView && onDelete && (
-        <button
+      {onDelete && (
+        <IconButton
+          icon={Trash2}
+          label="Delete photo (Delete)"
+          aria-keyshortcuts="Delete"
           onClick={onDelete}
-          disabled={deleteLoading}
-          className={`p-2 hover:bg-red-500 hover:bg-opacity-30 rounded-lg transition-colors ${
-            deleteLoading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-          title={deleteLoading ? "Deleting..." : "Delete photo (Del)"}
-        >
-          {deleteLoading ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <Trash2 className="w-5 h-5 text-white hover:text-red-400" />
-          )}
-        </button>
+          className="hover:bg-danger-soft hover:text-danger"
+        />
       )}
-
-      <button
-        onClick={onClose}
-        className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
-        title="Close (Esc)"
-      >
-        <X className="w-5 h-5" />
-      </button>
+      <IconButton
+        icon={Keyboard}
+        label="Keyboard shortcuts (?)"
+        aria-keyshortcuts="?"
+        aria-expanded={help.open}
+        aria-controls={help.open ? help.panelId : undefined}
+        active={help.open}
+        onClick={help.onToggle}
+        className="hidden md:inline-flex"
+      />
     </div>
   );
 }

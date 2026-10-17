@@ -1,490 +1,501 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  AlertCircle,
+  Copy,
+  ExternalLink,
+  RotateCw,
+  Search,
+  Share2,
+  X,
+} from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import {
-  Share2,
-  Eye,
-  Download,
-  Calendar,
-  Lock,
-  Trash2,
-  Copy,
-  Check,
-  AlertCircle,
-  Plus,
-  Search,
-  Filter,
-} from "lucide-react";
-import { formatFileSize } from "@/lib/format";
+  Button,
+  ButtonLink,
+  EmptyState,
+  IconButton,
+  Input,
+  PageHeader,
+  Skeleton,
+  Stat,
+  Tabs,
+  useToast,
+  type TabItem,
+} from "@/components/ui";
+import ProgressiveImage from "@/components/photos/ProgressiveImage";
+import { albumHref } from "@/components/photos/AlbumCard";
+import RevokeDialog from "@/components/sharing/RevokeDialog";
+import { ShareBadges } from "@/components/sharing/ShareBadges";
+import {
+  expiryLabel,
+  formatInstant,
+  lastOpenedLabel,
+  relativeTime,
+  shortDay,
+} from "@/components/sharing/shareFormat";
+import { useCopyLink } from "@/components/sharing/useCopyLink";
+import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
+import {
+  folderNameOf,
+  listShares,
+  shareState,
+  shareUrl,
+  type ShareLink,
+  type ShareState,
+} from "@/lib/shareClient";
 
-interface SharedFolder {
-  id: number;
-  folder_path: string;
-  folder_name: string;
-  share_token: string;
-  expires_at: string | null;
-  description: string | null;
-  view_count: number;
-  last_accessed: string | null;
-  allow_download: boolean;
-  is_active: boolean;
-  created_at: string;
-  created_by: string;
-  has_password: boolean;
-}
+type Filter = "all" | ShareState;
 
-export default function SharesManagementPage() {
-  const [shares, setShares] = useState<SharedFolder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterActive, setFilterActive] = useState<boolean | null>(null);
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadShares();
-  }, []);
-
-  const loadShares = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch("/api/shares");
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load shares");
-      }
-
-      setShares(data.shares || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load shares");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyShareUrl = async (shareToken: string) => {
-    try {
-      const shareUrl = `${window.location.origin}/share/${shareToken}`;
-      await navigator.clipboard.writeText(shareUrl);
-      setCopiedToken(shareToken);
-      setTimeout(() => setCopiedToken(null), 2000);
-    } catch (err) {
-      console.error("Failed to copy share URL:", err);
-    }
-  };
-
-  const handleDeactivateShare = async (shareToken: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to deactivate this share? This will make the link inaccessible.",
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/shares/${shareToken}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to deactivate share");
-      }
-
-      // Refresh the shares list
-      await loadShares();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to deactivate share");
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
-  };
-
-  const getTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInMs = now.getTime() - date.getTime();
-    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-    if (diffInDays === 0) return "Today";
-    if (diffInDays === 1) return "Yesterday";
-    if (diffInDays < 30) return `${diffInDays} days ago`;
-    if (diffInDays < 365) return `${Math.floor(diffInDays / 30)} months ago`;
-    return `${Math.floor(diffInDays / 365)} years ago`;
-  };
-
-  const isExpired = (expiresAt: string | null) => {
-    if (!expiresAt) return false;
-    return new Date(expiresAt) < new Date();
-  };
-
-  const filteredShares = shares.filter((share) => {
-    const matchesSearch =
-      !searchTerm ||
-      share.folder_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      share.folder_path.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      share.description?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filterActive === null || share.is_active === filterActive;
-
-    return matchesSearch && matchesFilter;
-  });
-
-  if (loading) {
-    return (
-      <AppLayout>
-        <ProtectedRoute>
-          <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-          </div>
-        </ProtectedRoute>
-      </AppLayout>
-    );
-  }
-
+export default function SharedLinksPage() {
   return (
     <AppLayout>
       <ProtectedRoute>
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-                <Share2 className="w-6 h-6 mr-2" />
-                Share Management
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Manage and monitor folder shares across your gallery
-              </p>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search shares by folder name, path, or description"
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Filter className="w-4 h-4 text-gray-400" />
-                <select
-                  value={
-                    filterActive === null
-                      ? "all"
-                      : filterActive
-                        ? "active"
-                        : "inactive"
-                  }
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFilterActive(
-                      value === "all" ? null : value === "active",
-                    );
-                  }}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Shares</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center">
-                <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-                <p className="text-red-800">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Shares List */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            {filteredShares.length === 0 ? (
-              <div className="text-center py-12">
-                <Share2 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  No Shared Folders
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  {searchTerm || filterActive !== null
-                    ? "No shares match your current filters."
-                    : "You haven't created any folder shares yet."}
-                </p>
-                {!searchTerm && filterActive === null && (
-                  <p className="text-sm text-gray-400">
-                    Visit any folder page and click the &quot;Share&quot; button
-                    to create your first share.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Folder
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Security
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Activity
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {filteredShares.map((share) => (
-                      <tr key={share.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div className="flex items-start">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-gray-900">
-                                {share.folder_name ||
-                                  share.folder_path.split("/").pop()}
-                              </p>
-                              <p className="text-sm text-gray-500 truncate">
-                                {share.folder_path}
-                              </p>
-                              {share.description && (
-                                <p className="text-xs text-gray-400 mt-1">
-                                  {share.description}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center text-sm">
-                              {share.has_password ? (
-                                <>
-                                  <Lock className="w-3 h-3 mr-1 text-green-500" />
-                                  <span className="text-green-700">
-                                    Password protected
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <Lock className="w-3 h-3 mr-1 text-gray-400" />
-                                  <span className="text-gray-500">
-                                    Public access
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex items-center text-sm">
-                              <Download className="w-3 h-3 mr-1" />
-                              <span
-                                className={
-                                  share.allow_download
-                                    ? "text-blue-600"
-                                    : "text-gray-500"
-                                }
-                              >
-                                {share.allow_download
-                                  ? "Downloads enabled"
-                                  : "View only"}
-                              </span>
-                            </div>
-                            {share.expires_at && (
-                              <div className="flex items-center text-sm">
-                                <Calendar className="w-3 h-3 mr-1" />
-                                <span
-                                  className={
-                                    isExpired(share.expires_at)
-                                      ? "text-red-600"
-                                      : "text-orange-600"
-                                  }
-                                >
-                                  {isExpired(share.expires_at)
-                                    ? "Expired"
-                                    : "Expires"}{" "}
-                                  {formatDate(share.expires_at)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="space-y-1 text-sm">
-                            <div className="flex items-center">
-                              <Eye className="w-3 h-3 mr-1 text-blue-500" />
-                              <span>{share.view_count} views</span>
-                            </div>
-                            {share.last_accessed && (
-                              <p className="text-gray-500 text-xs">
-                                Last accessed {getTimeAgo(share.last_accessed)}
-                              </p>
-                            )}
-                            <p className="text-gray-500 text-xs">
-                              Created {getTimeAgo(share.created_at)}
-                            </p>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex items-center">
-                            <div
-                              className={`w-2 h-2 rounded-full mr-2 ${
-                                !share.is_active
-                                  ? "bg-red-500"
-                                  : isExpired(share.expires_at)
-                                    ? "bg-orange-500"
-                                    : "bg-green-500"
-                              }`}
-                            />
-                            <span
-                              className={`text-sm ${
-                                !share.is_active
-                                  ? "text-red-700"
-                                  : isExpired(share.expires_at)
-                                    ? "text-orange-700"
-                                    : "text-green-700"
-                              }`}
-                            >
-                              {!share.is_active
-                                ? "Inactive"
-                                : isExpired(share.expires_at)
-                                  ? "Expired"
-                                  : "Active"}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() =>
-                                handleCopyShareUrl(share.share_token)
-                              }
-                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                              title="Copy share link"
-                            >
-                              {copiedToken === share.share_token ? (
-                                <Check className="w-4 h-4 text-green-600" />
-                              ) : (
-                                <Copy className="w-4 h-4" />
-                              )}
-                            </button>
-
-                            <button
-                              onClick={() =>
-                                window.open(
-                                  `/share/${share.share_token}`,
-                                  "_blank",
-                                )
-                              }
-                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                              title="Open share"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-
-                            <button
-                              onClick={() =>
-                                handleDeactivateShare(share.share_token)
-                              }
-                              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                              title="Deactivate share"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Summary Stats */}
-          {shares.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center">
-                  <Share2 className="w-8 h-8 text-blue-600" />
-                  <div className="ml-3">
-                    <p className="text-sm text-gray-500">Total Shares</p>
-                    <p className="text-lg font-semibold">{shares.length}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center">
-                  <Eye className="w-8 h-8 text-green-600" />
-                  <div className="ml-3">
-                    <p className="text-sm text-gray-500">Active Shares</p>
-                    <p className="text-lg font-semibold">
-                      {
-                        shares.filter(
-                          (s) => s.is_active && !isExpired(s.expires_at),
-                        ).length
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center">
-                  <Lock className="w-8 h-8 text-purple-600" />
-                  <div className="ml-3">
-                    <p className="text-sm text-gray-500">Protected</p>
-                    <p className="text-lg font-semibold">
-                      {shares.filter((s) => s.has_password).length}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center">
-                  <Eye className="w-8 h-8 text-orange-600" />
-                  <div className="ml-3">
-                    <p className="text-sm text-gray-500">Total Views</p>
-                    <p className="text-lg font-semibold">
-                      {shares.reduce((sum, s) => sum + s.view_count, 0)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        <SharedLinks />
       </ProtectedRoute>
     </AppLayout>
+  );
+}
+
+function SharedLinks() {
+  const toast = useToast();
+  const [shares, setShares] = useState<ShareLink[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+  const [revoking, setRevoking] = useState<ShareLink | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setShares(await listShares());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }, []);
+
+  useEffect(() => {
+    document.title = "Shared links · Blaze Gallery";
+    load();
+  }, [load]);
+
+  const states = useMemo(
+    () => new Map((shares ?? []).map((s) => [s.share_token, shareState(s)])),
+    [shares],
+  );
+
+  const counts = useMemo(() => {
+    const c = { all: 0, active: 0, expired: 0, revoked: 0 };
+    states.forEach((state) => {
+      c.all += 1;
+      c[state] += 1;
+    });
+    return c;
+  }, [states]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase();
+    return (shares ?? []).filter((s) => {
+      if (filter !== "all" && states.get(s.share_token) !== filter)
+        return false;
+      if (!q) return true;
+      return [s.folder_name, s.folder_path, s.description].some((v) =>
+        v?.toLocaleLowerCase().includes(q),
+      );
+    });
+  }, [shares, states, filter, query]);
+
+  const onRevoked = (revoked: ShareLink) => {
+    setShares(
+      (all) =>
+        all?.map((s) =>
+          s.share_token === revoked.share_token
+            ? { ...s, is_active: false }
+            : s,
+        ) ?? all,
+    );
+    setRevoking(null);
+    toast.show("Link revoked", "success");
+  };
+
+  if (error && !shares) {
+    return (
+      <>
+        <Header />
+        <EmptyState
+          icon={AlertCircle}
+          title="Your shared links didn't load"
+          body="Your links are fine. The page just couldn't reach them. Try again in a moment."
+          action={
+            <Button variant="primary" icon={RotateCw} onClick={load}>
+              Retry
+            </Button>
+          }
+        />
+      </>
+    );
+  }
+
+  if (!shares) return <SharedLinksSkeleton />;
+
+  if (shares.length === 0) {
+    return (
+      <>
+        <Header />
+        <EmptyState
+          icon={Share2}
+          title="No shared links yet"
+          body="Open an album and choose Share to send it to family or friends. Every link you create shows up here, with how often it was opened and when."
+          action={
+            <ButtonLink href="/" variant="primary">
+              Go to the library
+            </ButtonLink>
+          }
+          className="py-20"
+        />
+      </>
+    );
+  }
+
+  const totalViews = shares.reduce((sum, s) => sum + s.view_count, 0);
+  const protectedActive = shares.filter(
+    (s) => s.has_password && states.get(s.share_token) === "active",
+  ).length;
+  const lastOpened = shares.reduce<string | null>(
+    (latest, s) =>
+      s.last_accessed && (!latest || s.last_accessed > latest)
+        ? s.last_accessed
+        : latest,
+    null,
+  );
+
+  const tabs: TabItem<Filter>[] = [
+    { id: "all", label: "All", count: counts.all },
+    { id: "active", label: "Active", count: counts.active },
+    { id: "expired", label: "Expired", count: counts.expired },
+    { id: "revoked", label: "Revoked", count: counts.revoked },
+  ];
+
+  return (
+    <>
+      <Header />
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-line py-6 lg:grid-cols-4">
+        <Stat
+          label="Active links"
+          value={counts.active}
+          hint={`of ${formatCount(counts.all, "link")}`}
+        />
+        <Stat
+          label="Protected"
+          value={protectedActive}
+          hint="active links with a password"
+        />
+        <Stat
+          label="Views"
+          value={totalViews.toLocaleString("en-GB")}
+          hint="across every link"
+        />
+        <Stat
+          label="Last opened"
+          value={lastOpened ? shortDay(lastOpened) : "Never"}
+          hint={
+            lastOpened
+              ? relativeTime(lastOpened)
+              : "No guest has opened a link yet"
+          }
+        />
+      </div>
+
+      <div className="mt-10 flex flex-col-reverse gap-4 md:flex-row md:items-end md:justify-between">
+        <Tabs
+          tabs={tabs}
+          value={filter}
+          onChange={setFilter}
+          label="Filter links"
+          className="md:flex-1"
+        />
+        <div className="relative w-full md:mb-2 md:w-72">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
+            aria-hidden
+          />
+          <Input
+            type="text"
+            enterKeyHint="search"
+            autoComplete="off"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find an album or a note"
+            aria-label="Find a link by album or note"
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title={
+            query ? `No links match “${query.trim()}”` : `No ${filter} links`
+          }
+          body={
+            query
+              ? "Try another album name or a word from the note."
+              : EMPTY_FILTER[filter]
+          }
+          action={
+            <Button
+              variant="secondary"
+              icon={X}
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+              }}
+            >
+              Show all links
+            </Button>
+          }
+        />
+      ) : (
+        <ShareList shares={visible} states={states} onRevoke={setRevoking} />
+      )}
+
+      <RevokeDialog
+        share={revoking}
+        onClose={() => setRevoking(null)}
+        onRevoked={onRevoked}
+      />
+    </>
+  );
+}
+
+const EMPTY_FILTER: Record<Filter, string> = {
+  all: "Share an album to create your first link.",
+  active:
+    "Every link has expired or been revoked. Share an album again to send a fresh one.",
+  expired: "Links with an end date move here once that day has passed.",
+  revoked: "Links you revoke stay listed here, so you can see they are off.",
+};
+
+function Header() {
+  return (
+    <PageHeader
+      kicker="Sharing"
+      title="Shared links"
+      meta={
+        <span>
+          Albums you have sent to family and friends. You can revoke a link at
+          any time.
+        </span>
+      }
+    />
+  );
+}
+
+const COLUMNS =
+  "xl:grid xl:grid-cols-[minmax(0,1fr)_13rem_11rem_8.5rem] xl:items-center xl:gap-6";
+
+function ShareList({
+  shares,
+  states,
+  onRevoke,
+}: {
+  shares: ShareLink[];
+  states: Map<string, ShareState>;
+  onRevoke: (share: ShareLink) => void;
+}) {
+  return (
+    <div className="mt-2">
+      <div
+        aria-hidden
+        className={`kicker hidden border-b border-line py-3 ${COLUMNS}`}
+      >
+        <span>Album</span>
+        <span>Status</span>
+        <span>Activity</span>
+        <span className="text-right">Actions</span>
+      </div>
+      <ul className="divide-y divide-line border-b border-line">
+        {shares.map((share, i) => (
+          <ShareRow
+            key={share.share_token}
+            share={share}
+            state={states.get(share.share_token) ?? "active"}
+            index={i}
+            onRevoke={onRevoke}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AlbumThumb({ share, title }: { share: ShareLink; title: string }) {
+  const [failed, setFailed] = useState(false);
+  const cover = failed ? null : share.cover_photo_id;
+  return (
+    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-surface-sunken sm:h-16 sm:w-16">
+      {cover ? (
+        <ProgressiveImage
+          previewSrc={`/api/photos/${cover}/preview`}
+          thumbSrc={`/api/photos/${cover}/thumbnail`}
+          displayWidth={64}
+          alt=""
+          onFailed={() => setFailed(true)}
+        />
+      ) : (
+        <span
+          aria-hidden
+          className="absolute inset-0 flex select-none items-center justify-center font-display text-2xl font-light italic text-ink-faint"
+        >
+          {title.charAt(0)}
+        </span>
+      )}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5"
+      />
+    </div>
+  );
+}
+
+function ShareRow({
+  share,
+  state,
+  index,
+  onRevoke,
+}: {
+  share: ShareLink;
+  state: ShareState;
+  index: number;
+  onRevoke: (share: ShareLink) => void;
+}) {
+  const copy = useCopyLink();
+  const name = share.folder_name || folderNameOf(share.folder_path);
+  const { title } = parseAlbumName(name);
+  const dateLabel = albumDateLabel({
+    name,
+    date_from: share.date_from ?? null,
+    date_to: share.date_to ?? null,
+  });
+  const parent = share.folder_path.split("/").slice(0, -1).join(" / ");
+  const active = state === "active";
+  const url = () => shareUrl(share.share_token);
+
+  return (
+    <li
+      data-share-token={share.share_token}
+      className={`animate-rise-in py-5 ${COLUMNS} flex flex-col gap-3`}
+      style={{ animationDelay: `${Math.min(index, 10) * 25}ms` }}
+    >
+      <div className="flex min-w-0 items-center gap-4">
+        <AlbumThumb share={share} title={title} />
+        <div className={`min-w-0 ${active ? "" : "opacity-75"}`}>
+          {dateLabel && (
+            <div className="kicker mb-0.5 truncate">{dateLabel}</div>
+          )}
+          <h3 className="truncate font-display text-xl font-normal leading-snug text-ink">
+            <Link
+              href={albumHref(share.folder_path)}
+              className="transition-colors hover:text-accent-strong"
+              title={share.folder_path}
+            >
+              {title}
+            </Link>
+          </h3>
+          {parent && (
+            <p className="truncate text-xs text-ink-muted">{parent}</p>
+          )}
+          {share.description && (
+            <p
+              className="mt-1 line-clamp-1 text-sm italic text-ink-soft"
+              title={share.description}
+            >
+              “{share.description}”
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pl-[4.5rem] sm:pl-20 xl:block xl:space-y-1.5 xl:pl-0">
+        <ShareBadges share={share} />
+        <p className="text-xs text-ink-muted">
+          {state === "revoked"
+            ? `Created ${formatInstant(share.created_at)}`
+            : expiryLabel(share)}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-baseline gap-x-3 pl-[4.5rem] sm:pl-20 xl:block xl:pl-0">
+        <p className="tabular text-sm text-ink">
+          {formatCount(share.view_count, "view")}
+        </p>
+        <p className="text-xs text-ink-muted">{lastOpenedLabel(share)}</p>
+      </div>
+
+      {/* A dead link has no actions; below xl its badge already says so. */}
+      <div
+        className={`items-center gap-1 pl-[3.75rem] sm:pl-[4.25rem] xl:flex xl:justify-end xl:pl-0 ${active ? "flex" : "hidden"}`}
+      >
+        {active ? (
+          <>
+            <IconButton
+              icon={Copy}
+              label={`Copy link to ${title}`}
+              onClick={() => copy(url())}
+            />
+            <IconButton
+              icon={ExternalLink}
+              label={`Open ${title} as a guest`}
+              onClick={() =>
+                window.open(url(), "_blank", "noopener,noreferrer")
+              }
+            />
+            <Button variant="ghost" size="sm" onClick={() => onRevoke(share)}>
+              Revoke
+            </Button>
+          </>
+        ) : (
+          <span className="px-3 text-xs text-ink-faint">
+            {state === "expired" ? "Link has expired" : "Link is off"}
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function SharedLinksSkeleton() {
+  return (
+    <>
+      <Header />
+      <div role="status" aria-label="Loading shared links">
+        <div className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i}>
+              <Skeleton className="mb-3 h-3 w-24" />
+              <Skeleton className="h-9 w-16" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="mt-10 h-8 w-80 max-w-full" />
+        <ul className="mt-4 divide-y divide-line">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <li key={i} className="flex items-center gap-4 py-5">
+              <Skeleton className="h-16 w-16 rounded-md" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-5 w-56 max-w-full" />
+              </div>
+              <Skeleton className="hidden h-5 w-24 sm:block" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }

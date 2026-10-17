@@ -1,7 +1,13 @@
 // Common reusable types and status enums for the application
 
 // Status types for photo processing
-export type MetadataStatus = "none" | "pending" | "extracted" | "skipped_size";
+// "failed": the file head was read but held no usable metadata; not retried by the backfill
+export type MetadataStatus =
+  | "none"
+  | "pending"
+  | "extracted"
+  | "skipped_size"
+  | "failed";
 export type ThumbnailStatus =
   | "none"
   | "pending"
