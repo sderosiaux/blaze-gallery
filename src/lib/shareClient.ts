@@ -104,7 +104,7 @@ export type GuestResult =
   | { kind: "album"; album: SharedAlbum; sessionToken?: string }
   | { kind: "password"; albumName?: string }
   | { kind: "unavailable" }
-  | { kind: "error"; message: string };
+  | { kind: "error" };
 
 const SESSION_KEY = (token: string) => `share_session_${token}`;
 const SESSION_TTL = 24 * 60 * 60 * 1000;
@@ -161,12 +161,9 @@ export async function openShare(token: string): Promise<GuestResult> {
       }
       return { kind: "password", albumName: data.folder?.name };
     }
-    return { kind: "error", message: data.error || `HTTP ${response.status}` };
-  } catch (err) {
-    return {
-      kind: "error",
-      message: err instanceof Error ? err.message : "Network error",
-    };
+    return { kind: "error" };
+  } catch {
+    return { kind: "error" };
   }
 }
 
@@ -190,12 +187,9 @@ export async function unlockShare(
     }
     if (response.status === 401) return { kind: "wrong-password" };
     if (response.status === 404) return { kind: "unavailable" };
-    return { kind: "error", message: data.error || `HTTP ${response.status}` };
-  } catch (err) {
-    return {
-      kind: "error",
-      message: err instanceof Error ? err.message : "Network error",
-    };
+    return { kind: "error" };
+  } catch {
+    return { kind: "error" };
   }
 }
 

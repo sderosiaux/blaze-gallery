@@ -8,12 +8,8 @@ export function useCopyLink() {
   const toast = useToast();
   return useCallback(
     async (url: string) => {
-      if (await copyText(url)) toast.show("Link copied", "success");
-      else
-        toast.show(
-          "Couldn't copy the link. Select it and copy it by hand.",
-          "error",
-        );
+      if (await copyText(url)) toast.show("Lien copié", "success");
+      else toast.show("Le lien n'a pas pu être copié.", "error");
     },
     [toast],
   );

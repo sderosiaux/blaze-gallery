@@ -1,9 +1,9 @@
+import { LOCALE } from "@/lib/albums";
 import type { ShareLink } from "@/lib/shareClient";
 
 // Share timestamps are real instants (created, opened, expires), unlike EXIF
-// wall-clock dates, so they are shown in the viewer's own time zone.
-
-const LOCALE = "en-GB";
+// wall-clock dates, so they are shown in the viewer's own time zone: albums.ts
+// formats in UTC, which would move an evening expiry to the next day.
 
 export function formatInstant(iso: string): string {
   return new Date(iso).toLocaleDateString(LOCALE, {
@@ -22,44 +22,21 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["minute", 60],
 ];
 
+/** "il y a 3 jours", "hier", "à l'instant". */
 export function relativeTime(iso: string, now = Date.now()): string {
   const seconds = (new Date(iso).getTime() - now) / 1000;
   const abs = Math.abs(seconds);
-  if (abs < 60) return "just now";
+  if (abs < 60) return "à l'instant";
   const rtf = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
   const [unit, size] =
     UNITS.find(([, s]) => abs >= s) ?? UNITS[UNITS.length - 1];
   return rtf.format(Math.round(seconds / size), unit);
 }
 
-/** "Today", "Yesterday", "9 Dec", "Dec 2025": short enough for a big number slot. */
-export function shortDay(iso: string, now = new Date()): string {
-  const d = new Date(iso);
-  const dayStart = (x: Date) =>
-    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((dayStart(now) - dayStart(d)) / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return d.getFullYear() === now.getFullYear()
-    ? d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" })
-    : d.toLocaleDateString(LOCALE, { month: "short", year: "numeric" });
-}
-
-export function expiryLabel(
-  share: Pick<ShareLink, "expires_at">,
-  now = Date.now(),
-): string {
-  if (!share.expires_at) return "Never expires";
-  const when = formatInstant(share.expires_at);
-  return new Date(share.expires_at).getTime() <= now
-    ? `Expired ${when}`
-    : `Expires ${when}`;
-}
-
 export function lastOpenedLabel(
   share: Pick<ShareLink, "last_accessed">,
 ): string {
   return share.last_accessed
-    ? `Last opened ${relativeTime(share.last_accessed)}`
-    : "Not opened yet";
+    ? `Ouvert ${relativeTime(share.last_accessed)}`
+    : "Jamais ouvert";
 }

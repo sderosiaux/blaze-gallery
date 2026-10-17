@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ImageIcon, Link2Off, RotateCw, WifiOff } from "lucide-react";
+import { Link2Off, RotateCw, WifiOff } from "lucide-react";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
-import { Button, EmptyState, MetaDot, Skeleton } from "@/components/ui";
+import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import {
   albumDateLabel,
   formatCount,
-  isVideo,
   parseAlbumName,
   photoDateRange,
 } from "@/lib/albums";
@@ -19,7 +18,6 @@ import {
 } from "@/lib/shareClient";
 import { GuestNotice, GuestShell } from "./GuestShell";
 import PasswordGate from "./PasswordGate";
-import { formatInstant } from "./shareFormat";
 
 type View = { kind: "loading" } | GuestResult;
 
@@ -44,6 +42,7 @@ export default function GuestAlbum({ token }: { token: string }) {
           token={token}
           album={view.album}
           sessionToken={view.sessionToken}
+          onReload={load}
         />
       );
     case "password":
@@ -56,14 +55,14 @@ export default function GuestAlbum({ token }: { token: string }) {
           />
         </GuestShell>
       );
+    // Expired, revoked and unknown links all answer 404: the guest can't tell them apart either.
     case "unavailable":
       return (
         <GuestShell centered>
           <GuestNotice
             icon={Link2Off}
-            kicker="Link unavailable"
-            title="This album is no longer shared"
-            body="The link may have expired, been turned off by the person who sent it, or been copied only in part. If you'd still like to see the photos, ask them for a new link."
+            title="Ce lien n'est pas disponible"
+            body="Demandez un nouveau lien à la personne qui vous l'a envoyé."
           />
         </GuestShell>
       );
@@ -72,12 +71,10 @@ export default function GuestAlbum({ token }: { token: string }) {
         <GuestShell centered>
           <GuestNotice
             icon={WifiOff}
-            kicker="Something went wrong"
-            title="We couldn't open this album"
-            body="The photos are fine. The page just didn't load. Check your connection and try again."
+            title="Le dossier n'a pas pu s'ouvrir"
             action={
               <Button variant="primary" icon={RotateCw} onClick={load}>
-                Try again
+                Réessayer
               </Button>
             }
           />
@@ -89,18 +86,12 @@ export default function GuestAlbum({ token }: { token: string }) {
 export function GuestAlbumSkeleton() {
   return (
     <GuestShell>
-      <div
-        role="status"
-        aria-label="Loading the album"
-        className="pb-10 pt-8 sm:pb-14 sm:pt-16"
-      >
-        <Skeleton className="mb-5 h-3 w-36" />
-        <Skeleton className="mb-3 h-14 w-4/5 max-w-2xl sm:h-20" />
-        <Skeleton className="h-4 w-48" />
+      <div role="status" aria-label="Chargement" className="pb-8 pt-6 sm:pt-10">
+        <Skeleton className="mb-4 h-3 w-36" />
+        <Skeleton className="mb-4 h-12 w-3/5 max-w-xl sm:h-14" />
+        <Skeleton className="h-4 w-20" />
       </div>
-      <div className="border-t border-line pt-6 sm:pt-8">
-        <PhotoGridSkeleton />
-      </div>
+      <PhotoGridSkeleton />
     </GuestShell>
   );
 }
@@ -109,10 +100,12 @@ function AlbumView({
   token,
   album,
   sessionToken,
+  onReload,
 }: {
   token: string;
   album: SharedAlbum;
   sessionToken?: string;
+  onReload: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -121,27 +114,17 @@ function AlbumView({
   const { share, folder, photos } = album;
 
   const { title } = parseAlbumName(folder.name);
-  const { dateLabel, counts } = useMemo(() => {
+  const dateLabel = useMemo(() => {
     const range = photoDateRange(photos);
-    const videos = photos.filter(isVideo).length;
-    const stills = photos.length - videos;
-    return {
-      dateLabel: albumDateLabel({
-        name: folder.name,
-        date_from: range.from ?? null,
-        date_to: range.to ?? null,
-      }),
-      counts: [
-        stills > 0 && formatCount(stills, "photo"),
-        videos > 0 && formatCount(videos, "video"),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    };
+    return albumDateLabel({
+      name: folder.name,
+      date_from: range.from ?? null,
+      date_to: range.to ?? null,
+    });
   }, [folder.name, photos]);
 
   useEffect(() => {
-    document.title = `${title} · Shared album`;
+    document.title = title;
   }, [title]);
 
   // The open photo lives in the URL, so the back button closes the viewer.
@@ -158,63 +141,45 @@ function AlbumView({
 
   return (
     <GuestShell>
-      <header className="max-w-4xl animate-rise-in pb-10 pt-8 sm:pb-14 sm:pt-16">
-        <div className="kicker mb-4">{dateLabel ?? "A shared album"}</div>
-        <h1 className="text-balance break-words font-display text-display-xl font-semibold text-ink">
-          {title}
-        </h1>
-        {share.description && (
-          <figure className="mt-8 max-w-2xl border-l border-line-strong pl-5 sm:pl-6">
-            <blockquote className="whitespace-pre-line text-pretty font-display text-xl font-semibold leading-relaxed text-ink-soft sm:text-2xl">
-              {share.description}
-            </blockquote>
-            <figcaption className="mt-2 text-xs text-ink-muted">
-              A note from the person who shared this album
-            </figcaption>
-          </figure>
-        )}
-        <div className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-          {counts && <span className="tabular">{counts}</span>}
-          {counts && <MetaDot />}
-          <span>
-            {share.allow_download ? "Open a photo to download it" : "View only"}
-          </span>
-          {share.expires_at && (
-            <>
-              <span className="hidden sm:inline">
-                <MetaDot />
-              </span>
-              {/* Own line on phones, so no dot is left dangling at the end of a row. */}
-              <span className="w-full sm:w-auto">
-                Link open until {formatInstant(share.expires_at)}
-              </span>
-            </>
-          )}
-        </div>
-      </header>
-
-      <section
-        aria-label="Photos"
-        className="border-t border-line pt-6 sm:pt-8"
+      {/* Same count as the folder cards in the library: everything in the folder, as photos. */}
+      <PageHeader
+        kicker={dateLabel}
+        title={title}
+        meta={
+          photos.length > 0 && (
+            <span className="tabular">
+              {formatCount(photos.length, "photo")}
+            </span>
+          )
+        }
       >
-        {photos.length > 0 ? (
-          <PhotoGrid
-            photos={photos}
-            selectedPhotoId={selectedPhotoId}
-            onPhotoUrlChange={onPhotoUrlChange}
-            isSharedView
-            shareToken={token}
-            allowDownload={share.allow_download}
-            sessionToken={sessionToken}
-          />
-        ) : (
-          <EmptyState
-            icon={ImageIcon}
-            title="No photos here yet"
-            body="This album is empty for now. The person who shared it may still be adding photos, so try the link again a little later."
-          />
+        {share.description && (
+          <p className="mt-6 max-w-2xl whitespace-pre-line text-pretty border-l-2 border-line-strong pl-4 text-base leading-relaxed text-ink-soft sm:text-lg">
+            {share.description}
+          </p>
         )}
-      </section>
+      </PageHeader>
+
+      {photos.length > 0 ? (
+        <PhotoGrid
+          photos={photos}
+          selectedPhotoId={selectedPhotoId}
+          onPhotoUrlChange={onPhotoUrlChange}
+          isSharedView
+          shareToken={token}
+          allowDownload={share.allow_download}
+          sessionToken={sessionToken}
+        />
+      ) : (
+        <EmptyState
+          title="Ce dossier est vide pour l'instant"
+          action={
+            <Button variant="secondary" icon={RotateCw} onClick={onReload}>
+              Réessayer
+            </Button>
+          }
+        />
+      )}
     </GuestShell>
   );
 }
