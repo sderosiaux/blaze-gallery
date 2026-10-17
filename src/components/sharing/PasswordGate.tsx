@@ -52,7 +52,7 @@ export default function PasswordGate({
         <Lock className="h-6 w-6" aria-hidden />
       </div>
       <div className="kicker mb-3">A private album</div>
-      <h1 className="text-balance break-words font-display text-display-md font-light text-ink">
+      <h1 className="text-balance break-words font-display text-display-md font-semibold text-ink">
         {title ?? "Someone shared photos with you"}
       </h1>
       <p className="mx-auto mt-4 max-w-xs text-pretty text-sm leading-relaxed text-ink-muted">

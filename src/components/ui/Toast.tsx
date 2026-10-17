@@ -105,7 +105,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               )}
               <button
                 type="button"
-                aria-label="Dismiss"
+                aria-label="Fermer"
                 onClick={() => dismiss(t.id)}
                 className="rounded-full p-1 text-paper/60 transition-colors hover:text-paper"
               >

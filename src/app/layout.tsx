@@ -1,18 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Newsreader, Hanken_Grotesk } from "next/font/google";
+import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import StartupManager from "@/components/StartupManager";
 import { LayoutProvider } from "@/contexts/LayoutContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ToastProvider } from "@/components/ui/Toast";
-
-const display = Newsreader({
-  subsets: ["latin", "latin-ext"],
-  style: ["normal", "italic"],
-  axes: ["opsz"],
-  variable: "--font-display",
-  display: "swap",
-});
 
 const sans = Hanken_Grotesk({
   subsets: ["latin", "latin-ext"],
@@ -26,7 +18,7 @@ export const metadata: Metadata = {
   ),
   title: "Blaze Gallery",
   description:
-    "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+    "Vos photos, depuis votre propre stockage.",
   keywords: [
     "photo gallery",
     "backblaze b2",
@@ -63,9 +55,9 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Blaze Gallery",
-    title: "Blaze Gallery - Your Backblaze Photos, Beautifully Browsable",
+    title: "Blaze Gallery",
     description:
-      "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+      "Vos photos, depuis votre propre stockage.",
     images: [
       {
         url: "/icon.svg",
@@ -79,7 +71,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Blaze Gallery",
     description:
-      "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+      "Vos photos, depuis votre propre stockage.",
     images: ["/icon.svg"],
   },
 };
@@ -88,7 +80,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#F8F6F1",
+  themeColor: "#FFFFFF",
   colorScheme: "light",
 };
 
@@ -98,7 +90,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+    <html lang="fr" className={sans.variable}>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
       </head>

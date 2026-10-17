@@ -72,7 +72,7 @@ function TimelineMonth({
       <header className="mb-4 flex flex-col gap-1 border-b border-line pb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
         <h2
           id={headingId}
-          className="shrink-0 font-display text-display-sm font-normal text-ink"
+          className="shrink-0 font-display text-display-sm font-semibold text-ink"
         >
           {label}
         </h2>

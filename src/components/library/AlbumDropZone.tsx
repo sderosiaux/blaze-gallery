@@ -266,7 +266,7 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
               {target ? (
                 <>
                   <p className="kicker">Drop to add to</p>
-                  <p className="mt-2 max-w-2xl text-balance break-words font-display text-display-md font-light text-ink">
+                  <p className="mt-2 max-w-2xl text-balance break-words font-display text-display-md font-semibold text-ink">
                     {target.title}
                   </p>
                   <p className="mt-3 text-sm text-ink-muted">
@@ -275,7 +275,7 @@ const AlbumDropZone = forwardRef<AlbumDropZoneHandle, AlbumDropZoneProps>(
                 </>
               ) : (
                 <>
-                  <p className="font-display text-display-sm font-normal text-ink">
+                  <p className="font-display text-display-sm font-semibold text-ink">
                     Open an album first
                   </p>
                   <p className="mt-2 max-w-sm text-sm text-ink-muted">

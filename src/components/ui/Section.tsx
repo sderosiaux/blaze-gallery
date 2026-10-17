@@ -26,7 +26,7 @@ export function Section({
           <div className="min-w-0">
             {kicker && <div className="kicker mb-1.5">{kicker}</div>}
             {title && (
-              <h2 className="font-display text-display-sm font-normal text-ink">
+              <h2 className="font-display text-display-sm font-semibold text-ink">
                 {title}
               </h2>
             )}

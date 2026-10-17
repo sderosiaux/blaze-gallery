@@ -350,7 +350,7 @@ function AlbumThumb({ share, title }: { share: ShareLink; title: string }) {
       ) : (
         <span
           aria-hidden
-          className="absolute inset-0 flex select-none items-center justify-center font-display text-2xl font-light italic text-ink-faint"
+          className="absolute inset-0 flex select-none items-center justify-center font-display text-2xl font-semibold text-ink-faint"
         >
           {title.charAt(0)}
         </span>
@@ -398,7 +398,7 @@ function ShareRow({
           {dateLabel && (
             <div className="kicker mb-0.5 truncate">{dateLabel}</div>
           )}
-          <h3 className="truncate font-display text-xl font-normal leading-snug text-ink">
+          <h3 className="truncate font-display text-xl font-semibold leading-snug text-ink">
             <Link
               href={albumHref(share.folder_path)}
               className="transition-colors hover:text-accent-strong"
@@ -412,7 +412,7 @@ function ShareRow({
           )}
           {share.description && (
             <p
-              className="mt-1 line-clamp-1 text-sm italic text-ink-soft"
+              className="mt-1 line-clamp-1 text-sm text-ink-soft"
               title={share.description}
             >
               “{share.description}”

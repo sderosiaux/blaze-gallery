@@ -97,7 +97,7 @@ export function Dialog({
           <div className="min-w-0">
             <h2
               id={titleId}
-              className="font-display text-display-sm font-normal text-ink"
+              className="font-display text-display-sm font-semibold text-ink"
             >
               {title}
             </h2>
@@ -109,7 +109,7 @@ export function Dialog({
           </div>
           <IconButton
             icon={X}
-            label="Close"
+            label="Fermer"
             size="sm"
             onClick={onClose}
             className="-mr-2 -mt-1"

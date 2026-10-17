@@ -160,12 +160,12 @@ function AlbumView({
     <GuestShell>
       <header className="max-w-4xl animate-rise-in pb-10 pt-8 sm:pb-14 sm:pt-16">
         <div className="kicker mb-4">{dateLabel ?? "A shared album"}</div>
-        <h1 className="text-balance break-words font-display text-display-xl font-light text-ink">
+        <h1 className="text-balance break-words font-display text-display-xl font-semibold text-ink">
           {title}
         </h1>
         {share.description && (
           <figure className="mt-8 max-w-2xl border-l border-line-strong pl-5 sm:pl-6">
-            <blockquote className="whitespace-pre-line text-pretty font-display text-xl font-light italic leading-relaxed text-ink-soft sm:text-2xl">
+            <blockquote className="whitespace-pre-line text-pretty font-display text-xl font-semibold leading-relaxed text-ink-soft sm:text-2xl">
               {share.description}
             </blockquote>
             <figcaption className="mt-2 text-xs text-ink-muted">

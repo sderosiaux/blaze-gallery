@@ -69,7 +69,7 @@ export default function ViewerVideo({
           <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-sunken text-ink-soft">
             <Film className="h-5 w-5" aria-hidden />
           </span>
-          <h2 className="font-display text-display-sm font-normal text-ink">
+          <h2 className="font-display text-display-sm font-semibold text-ink">
             This video can&rsquo;t play here
           </h2>
           <p className="mt-2 text-pretty text-sm text-ink-muted">

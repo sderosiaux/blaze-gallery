@@ -23,18 +23,20 @@ export default function ProtectedRoute({
 
   if (error) {
     const notAllowed =
-      error.includes("not authorized") || error.includes("not whitelisted");
+      error === "not_authorized" ||
+      error.includes("not authorized") ||
+      error.includes("not whitelisted");
     return (
       <EmptyState
         icon={ShieldAlert}
         title={
           notAllowed
-            ? "This account isn't on the guest list"
-            : "Sign-in didn't go through"
+            ? "Ce compte n'a pas accès"
+            : "La connexion n'a pas abouti"
         }
         body={
           notAllowed
-            ? "Only a few email addresses can open this gallery. Ask the owner to add yours, or sign in with another Google account."
+            ? "Connectez-vous avec un autre compte Google, ou demandez l'accès."
             : error
         }
         action={
@@ -52,8 +54,8 @@ export default function ProtectedRoute({
     return (
       <EmptyState
         icon={Lock}
-        title="A private gallery"
-        body="These photos are kept for the people they belong to. Sign in with an allowed Google account to open the library."
+        title="Galerie privée"
+        body="Connectez-vous avec un compte Google autorisé."
         action={
           <div className="w-64">
             <AuthButton />

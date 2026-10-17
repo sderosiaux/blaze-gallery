@@ -36,7 +36,7 @@ export function PageHeader({
         {kicker && <div className="kicker mb-3">{kicker}</div>}
         <h1
           className={cn(
-            "text-balance break-words font-display font-light text-ink",
+            "text-balance break-words font-display font-semibold text-ink",
             titleSizes[size],
           )}
         >

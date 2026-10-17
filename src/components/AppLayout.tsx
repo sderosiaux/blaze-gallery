@@ -37,25 +37,25 @@ interface NavLinkItem {
 const PRIMARY_NAV: NavLinkItem[] = [
   {
     href: "/",
-    label: "Library",
+    label: "Bibliothèque",
     icon: Library,
     match: (p) => p === "/" || p.startsWith("/folder"),
   },
   {
     href: "/timeline",
-    label: "Timeline",
+    label: "Chronologie",
     icon: CalendarDays,
     match: (p) => p.startsWith("/timeline"),
   },
   {
     href: "/favorites",
-    label: "Favorites",
+    label: "Favoris",
     icon: Heart,
     match: (p) => p.startsWith("/favorites"),
   },
   {
     href: "/admin/shares",
-    label: "Shared links",
+    label: "Liens partagés",
     icon: Share2,
     match: (p) => p.startsWith("/admin/shares"),
   },
@@ -64,13 +64,13 @@ const PRIMARY_NAV: NavLinkItem[] = [
 const ADMIN_NAV: NavLinkItem[] = [
   {
     href: "/stats",
-    label: "Statistics",
+    label: "Statistiques",
     icon: BarChart3,
     match: (p) => p.startsWith("/stats"),
   },
   {
     href: "/audit",
-    label: "Storage audit",
+    label: "Audit stockage",
     icon: Gauge,
     match: (p) => p.startsWith("/audit"),
   },
@@ -174,10 +174,10 @@ function SidebarContent({
         onNavigate?.();
         router.push(data.data.path === "" ? "/" : `/folder/${data.data.path}`);
       } else {
-        toast.show("No album with photos was found.", "error");
+        toast.show("Aucun dossier ne contient de photos.", "error");
       }
     } catch {
-      toast.show("Couldn't pick a random album. Try again.", "error");
+      toast.show("Impossible de choisir un dossier au hasard.", "error");
     } finally {
       setSurpriseLoading(false);
     }
@@ -194,19 +194,19 @@ function SidebarContent({
         <Link
           href="/"
           onClick={onNavigate}
-          aria-label="Blaze Gallery, home"
+          aria-label="Blaze Gallery, accueil"
           className="rounded"
         >
           <BrandMark compact={collapsed} />
         </Link>
         {onClose && (
-          <IconButton icon={X} label="Close menu" size="sm" onClick={onClose} />
+          <IconButton icon={X} label="Fermer le menu" size="sm" onClick={onClose} />
         )}
       </div>
 
       {showNav && (
         <nav
-          aria-label="Main"
+          aria-label="Navigation principale"
           className={cn(
             "flex-1 overflow-y-auto pb-4 pt-4",
             collapsed ? "px-3" : "px-3",
@@ -229,9 +229,9 @@ function SidebarContent({
                 onClick={surprise}
                 disabled={surpriseLoading}
                 aria-label={
-                  collapsed ? "Surprise me: open a random album" : undefined
+                  collapsed ? "Au hasard : ouvrir un dossier" : undefined
                 }
-                title={collapsed ? "Surprise me" : "Open a random album"}
+                title="Ouvrir un dossier au hasard"
                 className={cn(
                   "group flex h-10 w-full items-center gap-3 rounded-md text-sm text-ink-soft transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:opacity-60",
                   collapsed ? "justify-center" : "px-3",
@@ -244,7 +244,7 @@ function SidebarContent({
                   )}
                   aria-hidden
                 />
-                {!collapsed && <span>Surprise me</span>}
+                {!collapsed && <span>Au hasard</span>}
               </button>
             </li>
           </ul>
@@ -309,20 +309,20 @@ function SidebarContent({
             href="https://github.com/sderosiaux/blaze-gallery"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Source code on GitHub"
-            title="Source code on GitHub"
+            aria-label="Code source sur GitHub"
+            title="Code source sur GitHub"
             className={cn(
               "flex h-9 items-center gap-2 rounded-md text-xs text-ink-muted transition-colors hover:text-ink",
               collapsed ? "w-9 justify-center" : "px-3",
             )}
           >
             <GitHubIcon size={16} />
-            {!collapsed && <span>Source</span>}
+            {!collapsed && <span>Code source</span>}
           </a>
           {onToggleCollapse && (
             <IconButton
               icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-              label={collapsed ? "Expand sidebar  [" : "Collapse sidebar  ["}
+              label={collapsed ? "Déplier la barre latérale  [" : "Replier la barre latérale  ["}
               size="sm"
               onClick={onToggleCollapse}
             />
@@ -377,14 +377,14 @@ function TopSearch() {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && inputRef.current?.blur()}
-        placeholder="Search the library"
-        aria-label="Search albums and photos"
+        placeholder="Rechercher"
+        aria-label="Rechercher des dossiers et des photos"
         className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
       {value ? (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label="Effacer la recherche"
           onClick={() => {
             setValue("");
             inputRef.current?.focus();
@@ -467,15 +467,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-toast focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:text-paper"
       >
-        Skip to content
+        Aller au contenu
       </a>
 
       {/* Desktop sidebar */}
       <aside
-        aria-label="Sidebar"
+        aria-label="Barre latérale"
         data-collapsed={sidebarCollapsed}
         className={cn(
-          "fixed inset-y-0 left-0 z-sidebar hidden border-r border-line bg-paper lg:block",
+          "fixed inset-y-0 left-0 z-sidebar hidden border-r border-line bg-sidebar lg:block",
           sidebarAnimated && "transition-[width] duration-200 ease-out-soft",
           sidebarCollapsed
             ? "w-[var(--sidebar-collapsed)]"
@@ -510,7 +510,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           aria-modal={mobileNavOpen || undefined}
           aria-label="Menu"
           className={cn(
-            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-paper transition-transform duration-200 ease-out-soft",
+            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-sidebar transition-transform duration-200 ease-out-soft",
             mobileNavOpen ? "translate-x-0 shadow-pop" : "-translate-x-full",
           )}
         >
@@ -544,13 +544,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         >
           <IconButton
             icon={Menu}
-            label="Open menu"
+            label="Ouvrir le menu"
             className="-ml-1 lg:hidden"
             onClick={() => setMobileNavOpen(true)}
           />
           <Link
             href="/"
-            aria-label="Blaze Gallery, home"
+            aria-label="Blaze Gallery, accueil"
             className="mr-1 shrink-0 rounded lg:hidden"
           >
             <BrandMark compact />

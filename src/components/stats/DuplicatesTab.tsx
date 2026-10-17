@@ -237,7 +237,7 @@ function GroupHeader({
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         {kicker && <div className="kicker mb-1 truncate">{kicker}</div>}
-        <h3 className="break-words font-display text-lg font-normal leading-snug text-ink">
+        <h3 className="break-words font-display text-lg font-semibold leading-snug text-ink">
           {title}
         </h3>
         <p className="tabular mt-0.5 text-sm text-ink-muted">{meta}</p>

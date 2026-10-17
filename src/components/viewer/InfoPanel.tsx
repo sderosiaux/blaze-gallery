@@ -92,7 +92,7 @@ export default function InfoPanel({
         />
       </div>
       <div className="overflow-y-auto px-5 pb-6">
-        <p className="mb-4 break-all font-display text-xl font-normal leading-snug text-ink">
+        <p className="mb-4 break-all font-display text-xl font-semibold leading-snug text-ink">
           {photo.filename}
         </p>
         <dl>

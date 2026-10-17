@@ -2,7 +2,8 @@ import type { Folder, Photo } from "@/types";
 
 // Folder names in the bucket carry their date in many shapes
 // ("2018-01-15 toulouse", "07-12-2008-disneyland", "20100416_Anni Dadou").
-// Pulling it out lets the date read as a kicker and the place or event as the title.
+// The date moves to the kicker; the rest of the name is shown exactly as it is
+// in the bucket, so a folder is always recognisable.
 
 export interface AlbumName {
   title: string;
@@ -47,15 +48,9 @@ function validDate(y: number, mo?: number, d?: number) {
   return true;
 }
 
+/** Drops only the separators left between the date and the rest of the name. */
 function tidy(title: string) {
-  let t = title
-    .replace(/_/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^[\s\-–—@.:]+/, "")
-    .trim();
-  // Slug-style names ("journée-plopsaland") read as words.
-  if (!/\s/.test(t) && /\p{L}-\p{L}/u.test(t)) t = t.replace(/-/g, " ");
-  return t ? t.charAt(0).toLocaleUpperCase("fr-FR") + t.slice(1) : t;
+  return title.replace(/^[\s\-–—_@.:]+/, "").trim();
 }
 
 export function parseAlbumName(name: string): AlbumName {
@@ -71,10 +66,10 @@ export function parseAlbumName(name: string): AlbumName {
     const title = tidy(rest);
     return { title: title || formatDay(iso, precision), date: iso, precision };
   }
-  return { title: tidy(name) || name };
+  return { title: name };
 }
 
-const LOCALE = "en-GB";
+export const LOCALE = "fr-FR";
 
 export function formatDay(
   iso: string,
@@ -89,7 +84,7 @@ export function formatDay(
   return new Date(iso).toLocaleDateString(LOCALE, opts);
 }
 
-/** "7 December 2008", "December 2008", "Jan – Mar 2018", "2016 – 2019". */
+/** "7 décembre 2008", "décembre 2008", "janv. – mars 2018", "2016 – 2019". */
 export function formatDateRange(
   from?: string | null,
   to?: string | null,
@@ -140,8 +135,13 @@ export function photoDateRange(photos: Photo[]): {
   return { from, to };
 }
 
+export function formatNumber(n: number): string {
+  return n.toLocaleString(LOCALE);
+}
+
+/** French plural: 0 and 1 take the singular. */
 export function formatCount(n: number, one: string, many = `${one}s`): string {
-  return `${n.toLocaleString(LOCALE)} ${n === 1 ? one : many}`;
+  return `${formatNumber(n)} ${n <= 1 ? one : many}`;
 }
 
 export function isVideo(photo: Pick<Photo, "mime_type">): boolean {

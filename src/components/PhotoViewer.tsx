@@ -728,7 +728,7 @@ export default function PhotoViewer({
                 <figcaption>
                   <p
                     id={titleId}
-                    className="truncate font-display text-lg font-light leading-tight text-ink sm:text-xl"
+                    className="truncate font-display text-lg font-semibold leading-tight text-ink sm:text-xl"
                   >
                     {captionTitle}
                   </p>
@@ -868,7 +868,7 @@ function Unviewable({
       className="absolute inset-0 flex items-center justify-center p-4"
     >
       <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
-        <h2 className="font-display text-display-sm font-normal text-ink">
+        <h2 className="font-display text-display-sm font-semibold text-ink">
           {onRetry
             ? "This photo didn't load"
             : "This photo can't be shown here"}

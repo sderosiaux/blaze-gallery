@@ -15,8 +15,8 @@ function countsLine(folder: Folder) {
   if (folder.photo_count > 0)
     parts.push(formatCount(Number(folder.photo_count), "photo"));
   if (folder.subfolder_count > 0)
-    parts.push(formatCount(Number(folder.subfolder_count), "album"));
-  return parts.join(" · ") || "Empty";
+    parts.push(formatCount(Number(folder.subfolder_count), "dossier"));
+  return parts.join(" · ") || "Vide";
 }
 
 interface AlbumCardProps {
@@ -79,7 +79,7 @@ export default function AlbumCard({
             aria-hidden
             className="absolute inset-0 flex items-center justify-center"
           >
-            <span className="select-none font-display text-[5rem] font-light italic leading-none text-ink-faint/70 transition-transform duration-700 ease-out-soft group-hover:scale-105">
+            <span className="select-none font-display text-[5rem] font-semibold leading-none text-ink-faint/70 transition-transform duration-700 ease-out-soft group-hover:scale-105">
               {title.charAt(0)}
             </span>
           </div>
@@ -93,7 +93,7 @@ export default function AlbumCard({
         {dateLabel && <div className="kicker mb-1 truncate">{dateLabel}</div>}
         <h3
           className={cn(
-            "line-clamp-2 font-display font-normal leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
+            "line-clamp-2 font-display font-semibold leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
             size === "lg" ? "text-xl" : "text-lg",
           )}
           title={folder.name}

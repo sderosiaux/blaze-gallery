@@ -29,7 +29,7 @@ export function EmptyState({
           <Icon className="h-6 w-6" aria-hidden />
         </div>
       )}
-      <h2 className="text-balance font-display text-display-sm font-normal text-ink">
+      <h2 className="text-balance font-display text-display-sm font-semibold text-ink">
         {title}
       </h2>
       {body && (

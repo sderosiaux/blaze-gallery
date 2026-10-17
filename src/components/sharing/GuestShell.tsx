@@ -58,7 +58,7 @@ export function GuestNotice({
         <Icon className="h-6 w-6" aria-hidden />
       </div>
       <div className="kicker mb-3">{kicker}</div>
-      <h1 className="text-balance font-display text-display-md font-light text-ink">
+      <h1 className="text-balance font-display text-display-md font-semibold text-ink">
         {title}
       </h1>
       <p className="mx-auto mt-4 max-w-sm text-pretty text-sm leading-relaxed text-ink-muted">

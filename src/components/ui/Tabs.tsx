@@ -68,7 +68,7 @@ export function Tabs<T extends string>({
             {tab.label}
             {tab.count !== undefined && (
               <span className="tabular rounded-full bg-surface-sunken px-1.5 text-xs text-ink-muted">
-                {tab.count.toLocaleString("en-GB")}
+                {tab.count.toLocaleString("fr-FR")}
               </span>
             )}
             <span

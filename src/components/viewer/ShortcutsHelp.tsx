@@ -43,7 +43,7 @@ export default function ShortcutsHelp({
       className="absolute right-3 top-14 z-20 w-[min(22rem,calc(100%-1.5rem))] animate-rise-in rounded-xl border border-line bg-surface p-5 shadow-pop"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-display text-xl font-normal text-ink">
+        <h2 className="font-display text-xl font-semibold text-ink">
           Keyboard shortcuts
         </h2>
         <IconButton

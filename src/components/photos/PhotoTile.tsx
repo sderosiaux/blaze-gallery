@@ -55,7 +55,7 @@ function PhotoTile({
   const video = isVideo(photo);
   const sources = photoSources(photo, shareToken);
   const taken = photo.metadata?.date_taken;
-  const label = `${video ? "Play video" : "Open photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}`;
+  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}`;
   const isRaw = RAW_EXTENSIONS.some((ext) =>
     photo.filename.toLowerCase().endsWith(ext),
   );
@@ -81,7 +81,7 @@ function PhotoTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3 text-center text-ink-muted">
           <ImageOff className="h-5 w-5" aria-hidden />
           <span className="text-xs font-medium">
-            {isRaw ? "RAW file" : "No preview"}
+            {isRaw ? "Fichier RAW" : "Pas d'aperçu"}
           </span>
           <span className="max-w-full truncate px-2 text-[11px]">
             {photo.filename}
@@ -118,8 +118,8 @@ function PhotoTile({
           onClick={() => onToggleFavorite(photo)}
           aria-label={
             photo.is_favorite
-              ? `Remove ${photo.filename} from favorites`
-              : `Add ${photo.filename} to favorites`
+              ? `Retirer ${photo.filename} des favoris`
+              : `Ajouter ${photo.filename} aux favoris`
           }
           aria-pressed={photo.is_favorite}
           className={cn(

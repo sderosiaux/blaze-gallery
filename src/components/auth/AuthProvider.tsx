@@ -110,7 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error("Login failed:", error);
       dispatch({
         type: "AUTH_ERROR",
-        error: error instanceof Error ? error.message : "Login failed",
+        error: error instanceof Error ? error.message : "La connexion a échoué.",
       });
     }
   };
@@ -193,26 +193,26 @@ export function useAuth() {
 function getErrorMessage(error: string, reason?: string | null): string {
   switch (error) {
     case "auth_disabled":
-      return "Authentication is currently disabled";
+      return "La connexion est désactivée.";
     case "oauth_access_denied":
-      return "Authentication was cancelled";
+      return "Connexion annulée.";
     case "oauth_invalid_request":
-      return "Invalid authentication request";
+      return "Demande de connexion invalide.";
     case "unauthorized":
-      return reason || "You are not authorized to access this application";
+      return reason || "not_authorized";
     case "rate_limit":
-      return "Too many authentication attempts. Please try again later.";
+      return "Trop de tentatives. Réessayez plus tard.";
     case "invalid_callback":
-      return "Invalid authentication response";
+      return "Réponse de connexion invalide.";
     case "missing_oauth_data":
-      return "Authentication data missing. Please try again.";
+      return "Données de connexion manquantes. Réessayez.";
     case "invalid_state":
-      return "Authentication security check failed. Please try again.";
+      return "Contrôle de sécurité échoué. Réessayez.";
     case "callback_failed":
-      return "Authentication failed. Please try again.";
+      return "La connexion a échoué. Réessayez.";
     case "id_token_verification_failed":
-      return "Failed to verify authentication token. Please try again.";
+      return "Jeton de connexion invalide. Réessayez.";
     default:
-      return "An error occurred during authentication";
+      return "Erreur pendant la connexion.";
   }
 }

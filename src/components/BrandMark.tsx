@@ -1,6 +1,6 @@
 import { cn } from "@/lib/cn";
 
-/** Serif wordmark; collapses to a monogram in the sidebar rail. */
+/** Wordmark; collapses to a monogram in the sidebar rail. */
 export default function BrandMark({
   compact = false,
   className,
@@ -13,20 +13,20 @@ export default function BrandMark({
       <span
         aria-label="Blaze Gallery"
         className={cn(
-          "inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink font-display text-lg italic text-paper",
+          "inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink text-base font-semibold text-paper",
           className,
         )}
       >
-        B<span className="text-accent">.</span>
+        B
       </span>
     );
   }
   return (
     <span className={cn("inline-flex items-baseline gap-1.5", className)}>
-      <span className="font-display text-[1.65rem] font-normal italic leading-none tracking-[-0.01em] text-ink">
-        Blaze<span className="text-accent">.</span>
+      <span className="text-xl font-semibold leading-none tracking-tight text-ink">
+        Blaze
       </span>
-      <span className="kicker text-[0.65rem]">Gallery</span>
+      <span className="text-sm leading-none text-ink-muted">Gallery</span>
     </span>
   );
 }

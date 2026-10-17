@@ -217,7 +217,7 @@ function IgnoredList({ data }: { data: IgnoredFiles }) {
         {data.breakdown.map((c) => (
           <li key={c.category} className={`${cell} min-w-0`}>
             <div className="text-sm text-ink">{c.label}</div>
-            <div className="tabular mt-1 font-display text-2xl font-light text-ink">
+            <div className="tabular mt-1 font-display text-2xl font-semibold text-ink">
               {formatNumber(c.count)}
             </div>
             <div className="tabular text-xs text-ink-muted">

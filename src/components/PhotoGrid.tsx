@@ -29,7 +29,7 @@ export function PhotoGridSkeleton({ count = 12 }: { count?: number }) {
   return (
     <div
       role="status"
-      aria-label="Loading photos"
+      aria-label="Chargement des photos"
       className="flex flex-wrap gap-1"
     >
       {Array.from({ length: count }).map((_, i) => (
@@ -107,7 +107,7 @@ export default function PhotoGrid({
           updateOne({ ...photo, is_favorite: data.is_favorite });
       } catch {
         updateOne(photo);
-        toast.show("Couldn't update favorites. Try again.", "error");
+        toast.show("Les favoris n'ont pas pu être mis à jour.", "error");
       }
     },
     [toast, updateOne],
