@@ -44,10 +44,6 @@ export function getConfig(): Config {
     thumbnail_max_age_days: parseInt(
       envOrDefault("THUMBNAIL_MAX_AGE_DAYS", "30"),
     ),
-    sync_interval_hours: parseInt(envOrDefault("SYNC_INTERVAL_HOURS", "24")),
-    auto_metadata_threshold_mb: parseInt(
-      envOrDefault("AUTO_METADATA_THRESHOLD_MB", "5"),
-    ),
     auto_thumbnail_threshold_mb: parseInt(
       envOrDefault("AUTO_THUMBNAIL_THRESHOLD_MB", "30"),
     ),
@@ -70,8 +66,6 @@ export function getConfig(): Config {
     THUMBNAIL_S3_SECRET_KEY: !!process.env.THUMBNAIL_S3_SECRET_KEY,
     THUMBNAIL_S3_PREFIX: !!process.env.THUMBNAIL_S3_PREFIX,
     THUMBNAIL_MAX_AGE_DAYS: !!process.env.THUMBNAIL_MAX_AGE_DAYS,
-    SYNC_INTERVAL_HOURS: !!process.env.SYNC_INTERVAL_HOURS,
-    AUTO_METADATA_THRESHOLD_MB: !!process.env.AUTO_METADATA_THRESHOLD_MB,
     AUTO_THUMBNAIL_THRESHOLD_MB: !!process.env.AUTO_THUMBNAIL_THRESHOLD_MB,
     SYNC_THROTTLE_SECONDS: !!process.env.SYNC_THROTTLE_SECONDS,
   };
@@ -204,10 +198,6 @@ export function validateConfig(config: Config): string[] {
 
   if (config.thumbnail_max_age_days < 1) {
     errors.push("Thumbnail max age must be at least 1 day");
-  }
-
-  if (config.sync_interval_hours < 1) {
-    errors.push("Sync interval must be at least 1 hour");
   }
 
   if (config.sync_throttle_seconds < 1) {

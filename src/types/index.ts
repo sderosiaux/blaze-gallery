@@ -90,8 +90,6 @@ export interface Config {
   thumbnail_s3_secret_key?: string;
   thumbnail_s3_prefix: string;
   thumbnail_max_age_days: number;
-  sync_interval_hours: number;
-  auto_metadata_threshold_mb: number;
   auto_thumbnail_threshold_mb: number;
   sync_throttle_seconds: number;
 }
