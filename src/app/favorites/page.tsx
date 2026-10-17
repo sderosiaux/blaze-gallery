@@ -8,7 +8,6 @@ import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { ButtonLink, EmptyState, MetaDot, PageHeader, PageSkeleton, Skeleton, useToast } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
-import { UndoMessage } from "@/components/find/UndoMessage";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import { formatCount, formatDateRange, photoDateRange } from "@/lib/albums";
@@ -78,10 +77,9 @@ function FavoritesContent() {
       try {
         await setFavorite(photo, true);
         restore(photo);
-        return true;
+        toast.show("Back in your favorites.", "success");
       } catch {
         toast.show("Couldn't put it back. Try again.", "error");
-        return false;
       }
     },
     [restore, toast],
@@ -99,9 +97,7 @@ function FavoritesContent() {
       } else {
         setPhotos((all) => all.filter((p) => !sameId(p, updated)));
       }
-      toast.show(
-        <UndoMessage text="Removed from favorites." doneText="Back in your favorites." onUndo={() => undo(updated)} />,
-      );
+      toast.show("Removed from favorites.", "info", { action: { label: "Undo", onClick: () => undo(updated) } });
     },
     [restore, toast, undo],
   );

@@ -222,9 +222,13 @@ function TimelineContent() {
   const changePhoto = (photo: Photo) => {
     setOpenId(String(photo.id));
     setPhotoParam(String(photo.id));
-    const index = feedRef.current.items.findIndex((p) => sameId(p, photo));
-    if (index >= feedRef.current.items.length - 6) loadMore();
   };
+
+  // The viewer walks every loaded photo: near the end of them, fetch the next page.
+  const selectedIndex = selected ? feed.items.indexOf(selected) : -1;
+  useEffect(() => {
+    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6) loadMore();
+  }, [selectedIndex, feed.items.length, feed.phase, loadMore]);
 
   const closePhoto = () => {
     setOpenId(null);
