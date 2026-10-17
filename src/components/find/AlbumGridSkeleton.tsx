@@ -5,7 +5,7 @@ export function AlbumGridSkeleton({ count = 4 }: { count?: number }) {
   return (
     <ul
       role="status"
-      aria-label="Loading albums"
+      aria-label="Chargement des dossiers"
       className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 2xl:grid-cols-5"
     >
       {Array.from({ length: count }).map((_, i) => (

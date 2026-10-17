@@ -9,13 +9,6 @@ export interface MonthCount {
 
 export interface TimelineSummary {
   months: MonthCount[];
-  /** Every row of the library, dated or not, when the API provides it */
-  total_photos?: number;
-}
-
-export interface YearCount {
-  year: number;
-  count: number;
 }
 
 export type TimelinePhoto = Photo & { folder_path: string };
@@ -32,19 +25,13 @@ export async function fetchTimelineSummary(
   const data = await response.json();
   if (!response.ok || !data.success)
     throw new Error(data.error ?? `HTTP ${response.status}`);
-  return { months: data.months ?? [], total_photos: data.total_photos };
+  return { months: data.months ?? [] };
 }
 
-/** Newest year first, like the months. */
-export function yearsOf(months: MonthCount[]): YearCount[] {
-  const byYear = new Map<number, number>();
-  for (const { month, count } of months) {
-    const year = Number(month.slice(0, 4));
-    byYear.set(year, (byYear.get(year) ?? 0) + count);
-  }
-  return Array.from(byYear, ([year, count]) => ({ year, count })).sort(
-    (a, b) => b.year - a.year,
-  );
+/** Years holding at least one dated photo, newest first like the months. */
+export function yearsOf(months: MonthCount[]): number[] {
+  const years = new Set(months.map(({ month }) => Number(month.slice(0, 4))));
+  return Array.from(years).sort((a, b) => b - a);
 }
 
 export function monthKey(photo: Photo): string | null {

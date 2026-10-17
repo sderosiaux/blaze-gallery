@@ -1,14 +1,7 @@
 "use client";
 
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { CalendarDays, Heart, Library } from "lucide-react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Heart, Library } from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
@@ -16,18 +9,13 @@ import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import {
   ButtonLink,
   EmptyState,
-  MetaDot,
   PageHeader,
   PageSkeleton,
-  Skeleton,
   useToast,
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
-import { formatCount, formatDateRange, photoDateRange } from "@/lib/albums";
-
-type FavoritePhoto = Photo & { folder_path?: string | null };
 
 /** Newest first; photos whose date hasn't been read yet come last, by name. */
 function newestFirst(a: Photo, b: Photo) {
@@ -48,7 +36,7 @@ function FavoritesContent() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const [photos, setPhotos] = useState<FavoritePhoto[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
 
   // Un-hearted while the viewer is open: they stay put until it closes, so
   // previous/next keep working on the list the viewer was opened with.
@@ -63,7 +51,7 @@ function FavoritesContent() {
       const response = await fetch("/api/favorites");
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error);
-      setPhotos([...(data.photos as FavoritePhoto[])].sort(newestFirst));
+      setPhotos([...(data.photos as Photo[])].sort(newestFirst));
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -83,7 +71,7 @@ function FavoritesContent() {
     );
   }, [viewerOpen]);
 
-  const restore = useCallback((photo: FavoritePhoto) => {
+  const restore = useCallback((photo: Photo) => {
     pending.current.delete(String(photo.id));
     setPhotos((all) =>
       all.some((p) => sameId(p, photo))
@@ -93,20 +81,22 @@ function FavoritesContent() {
   }, []);
 
   const undo = useCallback(
-    async (photo: FavoritePhoto) => {
+    async (photo: Photo) => {
       try {
         await setFavorite(photo, true);
         restore(photo);
-        toast.show("Back in your favorites.", "success");
       } catch {
-        toast.show("Couldn't put it back. Try again.", "error");
+        toast.show(
+          "La photo n'a pas pu être remise dans les favoris.",
+          "error",
+        );
       }
     },
     [restore, toast],
   );
 
   const onPhotoUpdated = useCallback(
-    (updated: FavoritePhoto) => {
+    (updated: Photo) => {
       if (updated.is_favorite) {
         restore(updated);
         return;
@@ -121,28 +111,23 @@ function FavoritesContent() {
       } else {
         setPhotos((all) => all.filter((p) => !sameId(p, updated)));
       }
-      toast.show("Removed from favorites.", "info", {
-        action: { label: "Undo", onClick: () => undo(updated) },
+      toast.show("Retiré des favoris", "info", {
+        action: { label: "Annuler", onClick: () => undo(updated) },
       });
     },
     [restore, toast, undo],
   );
 
-  const kept = useMemo(() => photos.filter((p) => p.is_favorite), [photos]);
-  const albumCount = useMemo(
-    () => new Set(kept.map((p) => p.folder_path ?? "")).size,
-    [kept],
-  );
-  const span = useMemo(() => {
-    const { from, to } = photoDateRange(kept);
-    return formatDateRange(from, to);
-  }, [kept]);
+  const header = <PageHeader title="Favoris" />;
 
   if (status === "error") {
     return (
       <>
-        <PageHeader title="Favorites" />
-        <LoadError title="Your favorites didn't load" onRetry={load} />
+        {header}
+        <LoadError
+          title="Les favoris n'ont pas pu être chargés"
+          onRetry={load}
+        />
       </>
     );
   }
@@ -150,10 +135,7 @@ function FavoritesContent() {
   if (status === "loading") {
     return (
       <>
-        <PageHeader
-          title="Favorites"
-          meta={<Skeleton className="h-4 w-48" />}
-        />
+        {header}
         <PhotoGridSkeleton />
       </>
     );
@@ -162,24 +144,15 @@ function FavoritesContent() {
   if (photos.length === 0) {
     return (
       <>
-        <PageHeader title="Favorites" />
+        {header}
         <EmptyState
           icon={Heart}
-          title="Nothing kept here yet"
-          body="Tap the heart on any photo, in an album or in the viewer, and it will wait for you here."
+          title="Aucun favori"
+          body="Touchez le cœur d'une photo pour la retrouver ici."
           action={
-            <>
-              <ButtonLink href="/" variant="primary" icon={Library}>
-                Open the library
-              </ButtonLink>
-              <ButtonLink
-                href="/timeline"
-                variant="secondary"
-                icon={CalendarDays}
-              >
-                Browse by date
-              </ButtonLink>
-            </>
+            <ButtonLink href="/" variant="secondary" icon={Library}>
+              Ouvrir la bibliothèque
+            </ButtonLink>
           }
           className="py-20"
         />
@@ -189,34 +162,7 @@ function FavoritesContent() {
 
   return (
     <>
-      <PageHeader
-        title="Favorites"
-        meta={
-          <>
-            <span className="tabular inline-flex items-center gap-1.5">
-              <Heart
-                className="h-3.5 w-3.5 fill-current text-favorite"
-                aria-hidden
-              />
-              {formatCount(kept.length, "photo")}
-            </span>
-            {albumCount > 0 && (
-              <>
-                <MetaDot />
-                <span className="tabular">
-                  from {formatCount(albumCount, "album")}
-                </span>
-              </>
-            )}
-            {span && (
-              <>
-                <MetaDot />
-                <span>{span}</span>
-              </>
-            )}
-          </>
-        }
-      />
+      {header}
       <PhotoGrid
         photos={photos}
         selectedPhotoId={selectedPhotoId}

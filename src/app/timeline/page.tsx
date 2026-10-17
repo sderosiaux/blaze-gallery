@@ -18,10 +18,8 @@ import {
   Button,
   ButtonLink,
   EmptyState,
-  MetaDot,
   PageHeader,
   PageSkeleton,
-  Skeleton,
   useToast,
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
@@ -33,11 +31,9 @@ import {
   endOfYearCursor,
   fetchTimelineSummary,
   groupByMonth,
-  monthKey,
   yearsOf,
   type MonthGroup,
   type TimelinePhoto,
-  type TimelineSummary,
 } from "@/components/find/timeline";
 
 const PAGE_SIZE = 200;
@@ -86,8 +82,7 @@ function TimelineContent() {
     yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
 
-  const [summary, setSummary] = useState<TimelineSummary | null>(null);
-  const [summaryFailed, setSummaryFailed] = useState(false);
+  const [years, setYears] = useState<number[]>([]);
   const [feed, setFeed] = useState<Feed>({
     items: [],
     cursor: null,
@@ -101,11 +96,10 @@ function TimelineContent() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setSummaryFailed(false);
     fetchTimelineSummary(controller.signal)
-      .then(setSummary)
-      // Counts and the year index are extras: the months still show without them.
-      .catch(() => !controller.signal.aborted && setSummaryFailed(true));
+      .then((summary) => setYears(yearsOf(summary.months)))
+      // The year index is an extra: the months still show without it.
+      .catch(() => {});
     return () => controller.abort();
   }, [attempt]);
 
@@ -180,19 +174,6 @@ function TimelineContent() {
     return next;
   }, [feed.items]);
 
-  const monthCounts = useMemo(
-    () => new Map(summary?.months.map((m) => [m.month, m.count])),
-    [summary],
-  );
-  const years = useMemo(
-    () => (summary ? yearsOf(summary.months) : []),
-    [summary],
-  );
-  const dated = useMemo(
-    () => summary?.months.reduce((n, m) => n + m.count, 0) ?? 0,
-    [summary],
-  );
-
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
   useEffect(() => {
     let frame = 0;
@@ -235,7 +216,7 @@ function TimelineContent() {
       window.history.replaceState(
         null,
         "",
-        years[0]?.year === year ? "/timeline" : `/timeline?year=${year}`,
+        years[0] === year ? "/timeline" : `/timeline?year=${year}`,
       );
     },
     [years],
@@ -257,7 +238,7 @@ function TimelineContent() {
         if (result !== wanted) patch(photo.id, { is_favorite: result });
       } catch {
         patch(photo.id, { is_favorite: photo.is_favorite });
-        toast.show("Couldn't update favorites. Try again.", "error");
+        toast.show("Les favoris n'ont pas pu être mis à jour.", "error");
       }
     },
     [patch, toast],
@@ -297,50 +278,16 @@ function TimelineContent() {
 
   const retryAll = () => setAttempt((n) => n + 1);
 
-  const header = (
-    <PageHeader
-      kicker="Timeline"
-      title="Month by month"
-      meta={
-        summary
-          ? dated > 0 && (
-              <>
-                <span className="tabular">
-                  {dated.toLocaleString("en-GB")} photos with a date
-                </span>
-                {years.length > 0 && (
-                  <>
-                    <MetaDot />
-                    <span className="tabular">
-                      {years.length > 1
-                        ? `${years[years.length - 1].year} – ${years[0].year}`
-                        : years[0].year}
-                    </span>
-                  </>
-                )}
-              </>
-            )
-          : !summaryFailed && <Skeleton className="h-4 w-52" />
-      }
-    >
-      {summary?.total_photos !== undefined &&
-        dated > 0 &&
-        dated < summary.total_photos && (
-          <p className="mt-3 max-w-2xl text-pretty text-sm leading-relaxed text-ink-muted">
-            So far {dated.toLocaleString("en-GB")} of{" "}
-            {summary.total_photos.toLocaleString("en-GB")} photos have a date.
-            The rest are still being read from their camera data and will join
-            the timeline on their own.
-          </p>
-        )}
-    </PageHeader>
-  );
+  const header = <PageHeader title="Chronologie" />;
 
   if (feed.phase === "error") {
     return (
       <>
         {header}
-        <LoadError title="The timeline didn't load" onRetry={retryAll} />
+        <LoadError
+          title="La chronologie n'a pas pu être chargée"
+          onRetry={retryAll}
+        />
       </>
     );
   }
@@ -349,7 +296,7 @@ function TimelineContent() {
     return (
       <>
         {header}
-        <div role="status" aria-label="Loading the timeline">
+        <div role="status" aria-label="Chargement de la chronologie">
           <MonthSkeleton first />
           <MonthSkeleton />
         </div>
@@ -365,21 +312,19 @@ function TimelineContent() {
           icon={CalendarDays}
           title={
             startYear
-              ? `Nothing dated in ${startYear} or before`
-              : "No dates read yet"
+              ? `Aucune photo datée en ${startYear} ou avant`
+              : "Aucune photo datée"
           }
-          body="The timeline is built from the date each camera wrote into its photos. As those dates are read from the library, months appear here on their own. Albums are always there in the meantime."
           action={
-            <>
-              <ButtonLink href="/" variant="primary" icon={Library}>
-                Open the library
+            startYear ? (
+              <ButtonLink href="/timeline" variant="secondary" icon={ArrowUp}>
+                Revenir au plus récent
               </ButtonLink>
-              {startYear && (
-                <ButtonLink href="/timeline" variant="secondary" icon={ArrowUp}>
-                  Back to the newest
-                </ButtonLink>
-              )}
-            </>
+            ) : (
+              <ButtonLink href="/" variant="secondary" icon={Library}>
+                Ouvrir la bibliothèque
+              </ButtonLink>
+            )
           }
           className="py-20"
         />
@@ -398,11 +343,10 @@ function TimelineContent() {
           {startYear && (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-y border-line py-2 text-sm text-ink-muted">
               <span>
-                Showing{" "}
                 <span className="tabular font-medium text-ink">
                   {startYear}
                 </span>{" "}
-                and earlier.
+                et avant
               </span>
               <ButtonLink
                 href="/timeline"
@@ -411,7 +355,7 @@ function TimelineContent() {
                 icon={ArrowUp}
                 className="-mr-3"
               >
-                Back to the newest
+                Revenir au plus récent
               </ButtonLink>
             </div>
           )}
@@ -424,7 +368,6 @@ function TimelineContent() {
               <TimelineMonth
                 key={group.key}
                 group={group}
-                total={monthCounts.get(group.key)}
                 yearAnchor={yearAnchor}
                 eagerCount={i === 0 ? 12 : 0}
                 onOpen={openPhoto}
@@ -436,30 +379,23 @@ function TimelineContent() {
           <div ref={sentinel} aria-hidden />
 
           {feed.phase === "more" && (
-            <div role="status" aria-label="Loading older photos">
+            <div role="status" aria-label="Chargement des mois précédents">
               <MonthSkeleton />
             </div>
           )}
 
           {feed.phase === "more-error" && (
             <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-ink-muted">
-              <p>The next months didn&apos;t load.</p>
+              <p>Les mois précédents n&apos;ont pas pu être chargés.</p>
               <Button
                 variant="secondary"
                 size="sm"
                 icon={RotateCw}
                 onClick={() => loadMore(true)}
               >
-                Try again
+                Réessayer
               </Button>
             </div>
-          )}
-
-          {feed.phase === "ready" && !feed.cursor && (
-            <p className="border-t border-line py-12 text-center text-sm text-ink-muted">
-              That is the oldest dated photo so far. Photos without a date are
-              still in their albums.
-            </p>
           )}
         </div>
 
