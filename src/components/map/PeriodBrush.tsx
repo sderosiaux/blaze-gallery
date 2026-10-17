@@ -274,7 +274,7 @@ export default function PeriodBrush({
                 height={height}
                 className={cn(
                   "transition-[fill] duration-150",
-                  i >= lo && i <= hi ? "fill-chart-1" : "fill-line-strong",
+                  i >= lo && i <= hi ? "fill-ink" : "fill-line-strong",
                 )}
               />
             );
@@ -283,7 +283,7 @@ export default function PeriodBrush({
         {narrowed && (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-y-0 bg-chart-1/10"
+            className="pointer-events-none absolute inset-y-0 bg-ink/5"
             style={{
               left: percent(lo, size),
               width: percent(hi - lo + 1, size),
