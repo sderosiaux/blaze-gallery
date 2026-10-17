@@ -1,45 +1,36 @@
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import type { Metadata, Viewport } from 'next'
+import { Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { asset } from '@/lib/asset'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const sans = Hanken_Grotesk({ subsets: ['latin'], variable: '--font-sans', display: 'swap' })
+const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
+
+const title = 'Blaze Gallery: the photos in your bucket, back in front of you'
+const description =
+  'A private, self-hosted gallery for the photos you already keep on Backblaze B2, S3 or R2. Your folders become albums. Nothing to import.'
 
 export const metadata: Metadata = {
-  title: 'Blaze Gallery - Your Photos, Your Cloud, Your Control',
-  description: 'Self-hosted photo gallery that connects to your Backblaze B2 storage. View, organize, and share your photos while maintaining complete control over your data.',
-  keywords: 'photo gallery, self-hosted, Backblaze B2, private photos, photo management, Docker',
-  authors: [{ name: 'Blaze Gallery Team' }],
-  creator: 'Blaze Gallery',
+  metadataBase: new URL('https://sderosiaux.github.io'),
+  title,
+  description,
+  icons: { icon: asset('favicon.svg') },
   openGraph: {
-    title: 'Blaze Gallery - Your Photos, Your Cloud, Your Control',
-    description: 'Self-hosted photo gallery that connects to your Backblaze B2 storage. Complete control over your photos.',
+    title,
+    description,
     type: 'website',
-    locale: 'en_US',
     siteName: 'Blaze Gallery',
+    images: [{ url: asset('og.jpg'), width: 1200, height: 630, alt: 'A Blaze album of Christmas photos' }],
   },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Blaze Gallery - Your Photos, Your Cloud, Your Control',
-    description: 'Self-hosted photo gallery that connects to your Backblaze B2 storage.',
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-    },
-  },
+  twitter: { card: 'summary_large_image', title, description, images: [asset('og.jpg')] },
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const viewport: Viewport = { themeColor: '#FFFFFF', colorScheme: 'light' }
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="scroll-smooth">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   )
 }

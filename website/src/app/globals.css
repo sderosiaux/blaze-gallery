@@ -2,18 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --paper: 255 255 255;
+  --sunken: 244 244 245;
+  --ink: 24 24 27;
+  --ink-soft: 63 63 70;
+  --ink-muted: 113 113 122;
+  --ink-faint: 161 161 170;
+  --line: 228 228 231;
+  --line-strong: 212 212 216;
+  color-scheme: light;
+}
+
 @layer base {
   html {
+    @apply bg-paper text-ink antialiased;
     scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
   }
-  
-  body {
-    font-feature-settings: "rlig" 1, "calt" 1;
+  ::selection {
+    @apply bg-ink text-paper;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--ink));
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+@layer components {
+  .kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted;
   }
+  /* The motif: a file name the way it sits in the bucket */
+  .filename {
+    @apply font-mono text-[0.6875rem] tracking-tight text-ink-faint;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+/* A file name shows on its photo, then lets the photo be */
+@keyframes name-fade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
