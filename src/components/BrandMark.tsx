@@ -1,6 +1,6 @@
 import { cn } from "@/lib/cn";
 
-/** Wordmark; collapses to a monogram in the sidebar rail. */
+/** Wordmark; a shorter one in the sidebar rail and the phone header. */
 export default function BrandMark({
   compact = false,
   className,
@@ -8,16 +8,16 @@ export default function BrandMark({
   compact?: boolean;
   className?: string;
 }) {
+  // A dark disc with a letter read as a user avatar: the word stays a word.
   if (compact) {
     return (
       <span
-        aria-label="Blaze Gallery"
         className={cn(
-          "inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink text-base font-semibold text-paper",
+          "text-base font-semibold leading-none tracking-tight text-ink",
           className,
         )}
       >
-        B
+        Blaze
       </span>
     );
   }

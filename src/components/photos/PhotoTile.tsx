@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Film, Heart, ImageOff } from "lucide-react";
 import type { Photo } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
@@ -53,6 +53,10 @@ function PhotoTile({
   onToggleFavorite,
 }: PhotoTileProps) {
   const [failed, setFailed] = useState(false);
+  // A thumbnail built later (folder warm-up) replaces the "no preview" state.
+  useEffect(() => {
+    if (photo.thumbnail_status === "generated") setFailed(false);
+  }, [photo.thumbnail_status]);
   const video = isVideo(photo);
   const sources = photoSources(photo, shareToken);
   const taken = photo.metadata?.date_taken;

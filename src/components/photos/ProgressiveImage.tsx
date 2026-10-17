@@ -69,7 +69,9 @@ export default function ProgressiveImage({
   const thumbJob = useRef<ImageRequest | null>(null);
 
   // A new photo in the same tile starts over.
-  const sourceKey = `${previewSrc}|${thumbSrc}|${thumbReady}`;
+  // thumbReady is not part of it: a thumbnail built while the tile shows its
+  // preview is fetched on top of it, without blanking the tile first.
+  const sourceKey = `${previewSrc}|${thumbSrc}`;
   const lastSourceKey = useRef(sourceKey);
   useEffect(() => {
     if (lastSourceKey.current === sourceKey) return;
@@ -104,6 +106,12 @@ export default function ProgressiveImage({
       clearTimeout(timer);
     };
   }, [visible, eager]);
+
+  // A thumbnail built after a failed attempt (e.g. by the folder warm-up)
+  // gets a fresh try.
+  useEffect(() => {
+    if (thumbReady) setThumbFailed(false);
+  }, [thumbReady]);
 
   // Keep queued work ordered as the tile moves in and out of view.
   useEffect(() => {

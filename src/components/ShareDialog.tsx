@@ -28,13 +28,16 @@ interface ShareDialogProps {
 type Expiry = "never" | "1" | "7" | "30" | "90" | "custom";
 
 const EXPIRY_OPTIONS: { value: Expiry; label: string }[] = [
-  { value: "never", label: "Jamais" },
   { value: "1", label: "Dans 1 jour" },
   { value: "7", label: "Dans 7 jours" },
   { value: "30", label: "Dans 30 jours" },
   { value: "90", label: "Dans 3 mois" },
   { value: "custom", label: "Choisir une date" },
+  { value: "never", label: "Jamais" },
 ];
+
+// A link nobody remembers sending should not expose the originals forever.
+const DEFAULT_EXPIRY: Expiry = "30";
 
 const NOTE_MAX = 500;
 const DAY = 24 * 60 * 60 * 1000;
@@ -77,7 +80,7 @@ export default function ShareDialog({
     onCloseRef.current();
   }, []);
 
-  const [expiry, setExpiry] = useState<Expiry>("never");
+  const [expiry, setExpiry] = useState<Expiry>(DEFAULT_EXPIRY);
   const [customDate, setCustomDate] = useState("");
   const [protect, setProtect] = useState(false);
   const [password, setPassword] = useState("");
@@ -111,7 +114,7 @@ export default function ShareDialog({
       void loadLinks();
       return;
     }
-    setExpiry("never");
+    setExpiry(DEFAULT_EXPIRY);
     setCustomDate("");
     setProtect(false);
     setPassword("");

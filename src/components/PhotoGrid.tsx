@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Photo } from "@/types";
 import PhotoViewer from "./PhotoViewer";
 import JustifiedGrid from "./photos/JustifiedGrid";
@@ -60,11 +60,23 @@ export default function PhotoGrid({
 }: PhotoGridProps) {
   const toast = useToast();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
-  const [items, setItems] = useState<Photo[]>(photos);
-
-  useEffect(() => {
-    setItems(photos);
-  }, [photos]);
+  // The page owns the list (it may refresh it, e.g. as thumbnails get built);
+  // what happens here — favourites toggled, photos deleted — is layered on top
+  // so a refreshed list never undoes it.
+  const [changes, setChanges] = useState<ReadonlyMap<string, Photo>>(
+    () => new Map(),
+  );
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
+  const items = useMemo(
+    () =>
+      photos
+        .filter((p) => !deleted.has(String(p.id)))
+        .map((p) => {
+          const local = changes.get(String(p.id));
+          return local ? { ...p, is_favorite: local.is_favorite } : p;
+        }),
+    [photos, changes, deleted],
+  );
 
   useEffect(() => {
     if (!selectedPhotoId) {
@@ -77,7 +89,7 @@ export default function PhotoGrid({
 
   const updateOne = useCallback(
     (updated: Photo) => {
-      setItems((all) => all.map((p) => (p.id === updated.id ? updated : p)));
+      setChanges((all) => new Map(all).set(String(updated.id), updated));
       onPhotoUpdated?.(updated);
     },
     [onPhotoUpdated],
@@ -158,9 +170,9 @@ export default function PhotoGrid({
           onDelete={
             isSharedView
               ? undefined
-              : (deleted) => {
-                  setItems((all) => all.filter((p) => p.id !== deleted.id));
-                  onPhotoDeleted?.(deleted);
+              : (removed) => {
+                  setDeleted((all) => new Set(all).add(String(removed.id)));
+                  onPhotoDeleted?.(removed);
                 }
           }
           isSharedView={isSharedView}

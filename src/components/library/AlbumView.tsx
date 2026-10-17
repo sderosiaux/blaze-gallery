@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { FolderOpen, FolderX, ImagePlus, Library, Share2 } from "lucide-react";
 import ShareDialog from "@/components/ShareDialog";
 import PhotoGrid from "@/components/PhotoGrid";
+import { useFolderWarmup } from "@/components/photos/useFolderWarmup";
 import { AlbumGrid, albumHref } from "@/components/photos/AlbumCard";
 import {
   Button,
@@ -97,6 +98,33 @@ export default function AlbumView({ path }: { path: string }) {
   }, [state.status, name, selectedPhotoId]);
 
   const photos = state.status === "ready" ? state.data.photos : null;
+
+  // Opening a folder builds its missing thumbnails once and for all; tiles
+  // sharpen as their thumbnail lands.
+  const missingThumbnails =
+    photos?.some(
+      (p) =>
+        p.mime_type.startsWith("image/") && p.thumbnail_status !== "generated",
+    ) ?? false;
+  const markGenerated = useCallback((ids: string[]) => {
+    const built = new Set(ids);
+    setState((current) =>
+      current.status === "ready"
+        ? {
+            ...current,
+            data: {
+              ...current.data,
+              photos: current.data.photos.map((p) =>
+                built.has(String(p.id))
+                  ? { ...p, thumbnail_status: "generated" as const }
+                  : p,
+              ),
+            },
+          }
+        : current,
+    );
+  }, []);
+  useFolderWarmup(path || null, missingThumbnails, markGenerated);
 
   // A `?photo=` that isn't in this folder would sit in the address bar with nothing open.
   useEffect(() => {
