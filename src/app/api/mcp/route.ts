@@ -20,6 +20,7 @@ import {
 } from "@/app/api/_lib/request";
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
+import { requireAuthOrApiKey } from "@/lib/auth/middleware";
 
 // pg delivers COUNT and SUM (bigint, numeric) as strings; the tools return them as such
 type PgBigint = string;
@@ -817,7 +818,10 @@ const SERVER_CAPABILITIES = {
   tools: {},
 };
 
-export async function POST(request: NextRequest) {
+// The whole library's metadata (paths, places, dates): the owner's, or a client holding the API key.
+export const POST = requireAuthOrApiKey(async function POST(
+  request: NextRequest,
+) {
   try {
     const body: unknown = await request.json();
     if (!isJsonObject(body)) {
@@ -981,4 +985,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

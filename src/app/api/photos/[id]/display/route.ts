@@ -11,10 +11,6 @@ import { asQuarterTurn } from "@/lib/rotation";
  * displayRendition). No rate limiter, like the preview: the shared one costs a
  * DB write per request, and the viewer asks for neighbours ahead of time.
  */
-// Downloads an original (tens of MB for a panorama) and resizes it: well past
-// a serverless platform's default timeout on a slow first render.
-export const maxDuration = 60;
-
 export const GET = requireAuth(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },

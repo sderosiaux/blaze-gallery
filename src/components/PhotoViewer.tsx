@@ -126,8 +126,8 @@ export default function PhotoViewer({
   const shared = isSharedView && shareToken ? shareToken : undefined;
   const session = shared ? sessionToken : undefined;
   const sources = useMemo(
-    () => viewerSources(current, shared),
-    [current, shared],
+    () => viewerSources(current, shared, allowDownload),
+    [current, shared, allowDownload],
   );
   const video = isVideo(current);
   const canFavorite = !isSharedView;
@@ -331,7 +331,7 @@ export default function PhotoViewer({
     const settled = video || full.status !== "loading";
     nav.neighbours.forEach((p, i) => {
       if (isVideo(p)) return;
-      const s = viewerSources(p, shared);
+      const s = viewerSources(p, shared, allowDownload);
       const layers = placeholderSources(p, s);
       [layers.preview, layers.thumb].forEach((src) => {
         if (!src) return;
@@ -353,6 +353,7 @@ export default function PhotoViewer({
     full.status,
     shared,
     session,
+    allowDownload,
   ]);
 
   // Closing cancels the originals still on their way: the grid needs the

@@ -5,10 +5,6 @@ import { warmFolderThumbnails } from "@/lib/folderWarmup";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
-// Downloads an original (tens of MB for a panorama) and resizes it: well past
-// a serverless platform's default timeout on a slow first render.
-export const maxDuration = 60;
-
 /**
  * POST /api/thumbnails/warm?folder=<path>[&after=<cursor>]
  * Builds the next batch of missing thumbnails of a folder (see folderWarmup).

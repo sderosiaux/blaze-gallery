@@ -62,6 +62,7 @@ export function canShowOriginal(
 export function viewerSources(
   photo: Photo,
   shareToken?: string,
+  allowDownload = true,
 ): ViewerSources {
   const id = String(photo.id);
   // Same URLs as the grid tiles, so whatever a tile already loaded is a cache hit here.
@@ -78,7 +79,13 @@ export function viewerSources(
       isVideo(photo) || (animated && !rotation)
         ? null
         : displayUrl(id, shareToken, rotation),
-    full: isVideo(photo) || canShowOriginal(photo) ? original : null,
+    // A shared link without downloads serves no original for images (see the
+    // view route): zoom stops at the rendition.
+    full:
+      isVideo(photo) ||
+      (canShowOriginal(photo) && (allowDownload || !shareToken || animated))
+        ? original
+        : null,
     download: shareToken
       ? `/api/shares/${shareToken}/download/${id}`
       : `/api/photos/${id}/download`,

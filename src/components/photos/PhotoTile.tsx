@@ -40,6 +40,8 @@ interface PhotoTileProps {
   /** Position in the grid: tiles load in reading order. */
   order?: number;
   shareToken?: string;
+  /** Password-protected shares: the guest's session, sent with every image. */
+  sessionToken?: string;
   onOpen: (photo: Photo) => void;
   onToggleFavorite?: (photo: Photo) => void;
 }
@@ -51,6 +53,7 @@ function PhotoTile({
   eager,
   order,
   shareToken,
+  sessionToken,
   onOpen,
   onToggleFavorite,
 }: PhotoTileProps) {
@@ -104,6 +107,7 @@ function PhotoTile({
           alt={photo.filename}
           eager={eager}
           order={order}
+          sessionToken={sessionToken}
           onFailed={() => {
             setFailed(true);
           }}

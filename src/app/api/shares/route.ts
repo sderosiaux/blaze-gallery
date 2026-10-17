@@ -8,8 +8,10 @@ import {
 import type { CreateShareData } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { optionalString, readJsonObject } from "@/app/api/_lib/request";
+import { requireAuth } from "@/lib/auth/middleware";
 
-export async function POST(request: NextRequest) {
+// Creating and listing links is the owner's: a link opens a folder to anyone who holds it.
+export const POST = requireAuth(async function POST(request: NextRequest) {
   try {
     const body = await readJsonObject(request);
 
@@ -90,9 +92,9 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});
 
-export async function GET() {
+export const GET = requireAuth(async function GET() {
   try {
     // Get all shared folders for management interface
     const shares = await getAllSharedFolders();
@@ -114,4 +116,4 @@ export async function GET() {
       { status: 500 },
     );
   }
-}
+});

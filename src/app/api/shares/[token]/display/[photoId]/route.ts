@@ -7,10 +7,6 @@ import { displayHeaders, getDisplayRendition } from "@/lib/displayRendition";
 import { asQuarterTurn } from "@/lib/rotation";
 
 export const dynamic = "force-dynamic";
-// Downloads an original (tens of MB for a panorama) and resizes it: well past
-// a serverless platform's default timeout on a slow first render.
-export const maxDuration = 60;
-
 interface RouteParams {
   params: { token: string; photoId: string };
 }

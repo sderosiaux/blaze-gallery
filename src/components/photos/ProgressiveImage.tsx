@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
   observeVisibility,
@@ -25,6 +25,8 @@ interface ProgressiveImageProps {
   /** Reading order on the page: lower loads first among tiles of equal visibility. */
   order?: number;
   className?: string;
+  /** Password-protected shares: every image needs the guest's session. */
+  sessionToken?: string;
   onFailed?: () => void;
 }
 
@@ -46,9 +48,14 @@ export default function ProgressiveImage({
   eager = false,
   order = 0,
   className,
+  sessionToken,
   onFailed,
 }: ProgressiveImageProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const headers = useMemo(
+    () => (sessionToken ? { "x-share-session": sessionToken } : undefined),
+    [sessionToken],
+  );
   const [near, setNear] = useState(eager);
   const [visible, setVisible] = useState(eager);
   const [dwelled, setDwelled] = useState(eager);
@@ -138,7 +145,13 @@ export default function ProgressiveImage({
       !previewSrc
     )
       return;
-    const job = requestImage(previewSrc, "fast", priorityRef.current, order);
+    const job = requestImage(
+      previewSrc,
+      "fast",
+      priorityRef.current,
+      order,
+      headers,
+    );
     previewJob.current = job;
     let active = true;
     // The job promise only resolves (failures are results); fire-and-forget.
@@ -155,12 +168,26 @@ export default function ProgressiveImage({
       job.cancel();
       previewJob.current = null;
     };
-  }, [near, wantsPreview, previewSrc, previewObjectUrl, previewMissing, order]);
+  }, [
+    near,
+    wantsPreview,
+    previewSrc,
+    previewObjectUrl,
+    previewMissing,
+    order,
+    headers,
+  ]);
 
   useEffect(() => {
     if (!mayLoadThumb || !needsThumb || thumbObjectUrl !== null || thumbFailed)
       return;
-    const job = requestImage(thumbSrc, thumbLane, priorityRef.current, order);
+    const job = requestImage(
+      thumbSrc,
+      thumbLane,
+      priorityRef.current,
+      order,
+      headers,
+    );
     thumbJob.current = job;
     let active = true;
     // The job promise only resolves (failures are results); fire-and-forget.
@@ -185,6 +212,7 @@ export default function ProgressiveImage({
     thumbObjectUrl,
     thumbFailed,
     order,
+    headers,
   ]);
 
   // Object URLs hold the blobs: release them with the tile.

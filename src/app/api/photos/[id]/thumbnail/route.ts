@@ -75,7 +75,7 @@ export const GET = requireAuth(async function GET(
         status: 304,
         headers: {
           ETag: etag,
-          "Cache-Control": "public, max-age=31536000, immutable",
+          "Cache-Control": "private, max-age=31536000, immutable",
         },
       });
     }

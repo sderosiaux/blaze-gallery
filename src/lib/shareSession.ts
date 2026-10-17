@@ -1,71 +1,62 @@
 import crypto from "crypto";
+import type { SharedFolder } from "./database";
+import { logger } from "./logger";
 
-interface ShareSession {
-  token: string;
-  shareToken: string;
-  createdAt: number;
-  expiresAt: number;
-}
+/**
+ * What a guest holds once past the password of a shared link: an expiry and
+ * an HMAC of the share token, that expiry and the password hash the access
+ * was granted under. Nothing is stored, so a session holds across server
+ * instances and restarts (serverless), and changing a link's password ends
+ * every session handed out before.
+ */
 
-// Persistent session store that survives hot reloads in development
-// Using global to avoid losing sessions during development server reloads
-const globalForSessions = globalThis as unknown as {
-  sessions: Map<string, ShareSession> | undefined;
-};
-
-const sessions: Map<string, ShareSession> =
-  globalForSessions.sessions ??
-  (globalForSessions.sessions = new Map<string, ShareSession>());
-
-// Session duration: 24 hours
 const SESSION_DURATION = 24 * 60 * 60 * 1000;
 
-export function createShareSession(shareToken: string): string {
-  const sessionToken = crypto.randomUUID();
-  const now = Date.now();
+type SessionShare = Pick<SharedFolder, "share_token" | "password_hash">;
 
-  const session: ShareSession = {
-    token: sessionToken,
-    shareToken,
-    createdAt: now,
-    expiresAt: now + SESSION_DURATION,
-  };
+const globalForSecret = globalThis as unknown as {
+  shareSessionSecret: Buffer | undefined;
+};
 
-  sessions.set(sessionToken, session);
-
-  // Clean up expired sessions periodically
-  cleanupExpiredSessions();
-
-  return sessionToken;
-}
-
-export function validateShareSession(sessionToken: string): string | null {
-  const session = sessions.get(sessionToken);
-
-  if (!session) {
-    return null;
+function secret(): Buffer {
+  const configured = process.env.AUTH_SESSION_SECRET;
+  // The documented placeholders start with "your": a secret anyone can read
+  // in the repo would let anyone sign a session.
+  if (configured && configured.length >= 32 && !/^your/i.test(configured)) {
+    return Buffer.from(configured);
   }
-
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(sessionToken);
-    return null;
+  if (!globalForSecret.shareSessionSecret) {
+    logger.warn(
+      "AUTH_SESSION_SECRET is not set: shared-link sessions only last as long as this server process",
+    );
+    globalForSecret.shareSessionSecret = crypto.randomBytes(32);
   }
-
-  return session.shareToken;
+  return globalForSecret.shareSessionSecret;
 }
 
-export function revokeShareSession(sessionToken: string): void {
-  sessions.delete(sessionToken);
+function sign(share: SessionShare, expiresAt: number): string {
+  return crypto
+    .createHmac("sha256", secret())
+    .update(`${share.share_token}.${expiresAt}.${share.password_hash ?? ""}`)
+    .digest("base64url");
 }
 
-function cleanupExpiredSessions(): void {
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (now > session.expiresAt) {
-      sessions.delete(token);
-    }
-  }
+export function createShareSession(share: SessionShare): string {
+  const expiresAt = Date.now() + SESSION_DURATION;
+  return `${expiresAt}.${sign(share, expiresAt)}`;
 }
 
-// Cleanup expired sessions every hour
-setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+export function isValidShareSession(
+  sessionToken: string,
+  share: SessionShare,
+): boolean {
+  const [expiry, signature, extra] = sessionToken.split(".");
+  if (!expiry || !signature || extra !== undefined) return false;
+  const expiresAt = Number(expiry);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt < Date.now()) return false;
+  const expected = Buffer.from(sign(share, expiresAt));
+  const given = Buffer.from(signature);
+  return (
+    given.length === expected.length && crypto.timingSafeEqual(given, expected)
+  );
+}

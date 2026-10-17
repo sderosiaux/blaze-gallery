@@ -762,7 +762,8 @@ export class ThumbnailService {
           buffer: thumbnailBuffer,
           headers: {
             "Content-Type": "image/jpeg",
-            "Cache-Control": "public, max-age=31536000, immutable",
+            // Private: a shared cache must never hand a library thumbnail to someone else
+            "Cache-Control": "private, max-age=31536000, immutable",
             "Content-Length": thumbnailBuffer.length.toString(),
           },
         };
@@ -835,7 +836,7 @@ export class ThumbnailService {
       buffer: thumbnailBuffer,
       headers: {
         "Content-Type": "image/jpeg",
-        "Cache-Control": "public, max-age=31536000, immutable",
+        "Cache-Control": "private, max-age=31536000, immutable",
         "Content-Length": thumbnailBuffer.length.toString(),
       },
     };

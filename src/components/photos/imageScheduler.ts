@@ -22,6 +22,8 @@ let runningAhead = 0;
 
 interface Job {
   url: string;
+  /** Password-protected shares send their session (`x-share-session`). */
+  headers?: Record<string, string>;
   lane: Lane;
   priority: Priority;
   order: number;
@@ -85,7 +87,10 @@ async function start(job: Job) {
   const ahead = job.lane === "slow" && job.priority === 1;
   if (ahead) runningAhead++;
   try {
-    const response = await fetch(job.url, { signal: job.controller.signal });
+    const response = await fetch(job.url, {
+      signal: job.controller.signal,
+      headers: job.headers,
+    });
     if (!response.ok) {
       job.settle({ ok: false, status: response.status });
       return;
@@ -110,6 +115,7 @@ export function requestImage(
   lane: Lane,
   priority: Priority,
   order: number,
+  headers?: Record<string, string>,
 ): ImageRequest {
   let settle!: (result: LoadResult) => void;
   const promise = new Promise<LoadResult>((resolve) => {
@@ -117,6 +123,7 @@ export function requestImage(
   });
   const job: Job = {
     url,
+    headers,
     lane,
     priority,
     order,

@@ -16,13 +16,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
 
-    // Validate shared photo access (no download permission required for viewing)
     const validation = await validateSharedPhotoAccess(request, token, photoId);
     if (validation.error) {
       return validation.error;
     }
 
     const { share, photo } = validation;
+
+    // The original file is a download in all but name. Without download
+    // rights, guests see photos through their 2048 px rendition; videos and
+    // GIFs have none, so they still play from the original.
+    const type = photo.mime_type.toLowerCase();
+    if (
+      !share.allow_download &&
+      !type.startsWith("video/") &&
+      type !== "image/gif"
+    ) {
+      return NextResponse.json(
+        { error: "Downloads not allowed for this share" },
+        { status: 403 },
+      );
+    }
 
     // Log view access (not download)
     const ctx = getRequestContext(request);
@@ -33,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       success: true,
     });
 
-    // Get the photo from S3 for viewing (always allowed) - S3 client auto-initializes
+    // S3 client auto-initializes
     try {
       const stream = await getObjectStreamAuto(photo.s3_key, request);
 

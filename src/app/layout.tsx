@@ -30,7 +30,8 @@ export const metadata: Metadata = {
   authors: [{ name: "Blaze Gallery Team" }],
   creator: "Blaze Gallery",
   publisher: "Blaze Gallery",
-  robots: "index, follow",
+  // A private library and its share links stay out of search engines.
+  robots: { index: false, follow: false },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
