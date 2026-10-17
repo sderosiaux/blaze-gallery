@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -25,6 +25,12 @@ import AuthButton from "@/components/auth/AuthButton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useLayout } from "@/contexts/LayoutContext";
 import { IconButton, useToast } from "@/components/ui";
+import {
+  FolderSuggestionList,
+  suggestionOptionId,
+  useFolderSuggestions,
+} from "@/components/find/FolderSuggestions";
+import { albumHref } from "@/components/photos/AlbumCard";
 import { isRecord, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
 
@@ -357,11 +363,23 @@ function TopSearch() {
   const query = useSearchParams().get("q") ?? "";
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
+  // What the user typed: suggestions follow it, not the value synced from the URL.
+  const [typed, setTyped] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const suggestions = useFolderSuggestions(typed);
+  const listId = useId();
+  const expanded = open && suggestions.length > 0;
 
   // Follows Back/Forward and in-app links between /search?q= values.
   useEffect(() => {
     if (pathname === "/search") setValue(query);
   }, [pathname, query]);
+
+  // A new list starts with nothing highlighted: Enter runs the full search.
+  useEffect(() => {
+    setActive(-1);
+  }, [suggestions]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -378,48 +396,120 @@ function TopSearch() {
     };
   }, []);
 
+  const close = () => {
+    setOpen(false);
+    setActive(-1);
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
+    close();
     router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
     inputRef.current?.blur();
   };
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const count = suggestions.length;
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
+      e.preventDefault();
+      const down = e.key === "ArrowDown";
+      if (!expanded) {
+        setOpen(true);
+        setActive(down ? 0 : count - 1);
+        return;
+      }
+      // -1 is the field itself, between the last option and the first.
+      setActive((i) =>
+        down
+          ? ((i + 2) % (count + 1)) - 1
+          : ((i + count + 1) % (count + 1)) - 1,
+      );
+    } else if (e.key === "Enter") {
+      const folder = expanded ? suggestions[active] : undefined;
+      if (!folder) return; // the form submits: the full search
+      e.preventDefault();
+      close();
+      router.push(albumHref(folder.path));
+      inputRef.current?.blur();
+    } else if (e.key === "Escape") {
+      if (expanded) {
+        // Only closes the list; the field keeps its text.
+        e.preventDefault();
+        close();
+      } else {
+        inputRef.current?.blur();
+      }
+    }
+  };
+
   return (
-    <form role="search" onSubmit={submit} className="relative w-full max-w-xl">
-      <Search
-        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-        aria-hidden
-      />
-      <input
-        ref={inputRef}
-        type="search"
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-        }}
-        onKeyDown={(e) => e.key === "Escape" && inputRef.current?.blur()}
-        placeholder="Rechercher"
-        aria-label="Rechercher des dossiers et des photos"
-        className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
-      />
-      {value ? (
-        <button
-          type="button"
-          aria-label="Effacer la recherche"
-          onClick={() => {
-            setValue("");
-            inputRef.current?.focus();
+    <form
+      role="search"
+      onSubmit={submit}
+      className="w-full max-w-xl sm:relative"
+    >
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
+          aria-hidden
+        />
+        <input
+          ref={inputRef}
+          type="search"
+          role="combobox"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            expanded && active >= 0
+              ? suggestionOptionId(listId, active)
+              : undefined
+          }
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setTyped(e.target.value);
+            setOpen(true);
           }}
-          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : (
-        <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
-          ⌘K
-        </kbd>
-      )}
+          onFocus={() => {
+            setOpen(true);
+          }}
+          onBlur={close}
+          onKeyDown={onKeyDown}
+          placeholder="Rechercher"
+          aria-label="Rechercher des dossiers et des photos"
+          className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
+        />
+        {value ? (
+          <button
+            type="button"
+            aria-label="Effacer la recherche"
+            onClick={() => {
+              setValue("");
+              setTyped("");
+              inputRef.current?.focus();
+            }}
+            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : (
+          <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
+            ⌘K
+          </kbd>
+        )}
+      </div>
+      <FolderSuggestionList
+        id={listId}
+        folders={suggestions}
+        open={open}
+        active={active}
+        onActiveChange={setActive}
+        onPick={close}
+      />
     </form>
   );
 }

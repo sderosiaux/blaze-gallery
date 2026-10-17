@@ -5,6 +5,7 @@ import * as crypto from "crypto";
 import { compare, hash } from "bcrypt";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
+import { normalizeTextForSearch } from "./textUtils";
 import type {
   CreatePhotoData,
   CreateFolderData,
@@ -388,16 +389,224 @@ export async function getRecentlyVisitedFolders(
   );
 }
 
-/** Folders whose name or path matches an ILIKE pattern, first 20 by name, with listing fields */
-export async function searchFolders(pattern: string): Promise<Folder[]> {
-  return listFolders(
+// ---- search ---------------------------------------------------------------
+
+/** The query as every search SQL below takes it: $1 is `like`, $2 (suggestions) is `regex`. */
+interface SearchTerms {
+  /** Normalized query with LIKE wildcards escaped, so "_" in "IMG_01" is literal */
+  like: string;
+  /** Normalized query with regex metacharacters escaped */
+  regex: string;
+}
+
+function searchTerms(q: string): SearchTerms {
+  const text = normalizeTextForSearch(q);
+  return {
+    like: text.replace(/[\\%_]/g, "\\$&"),
+    regex: text.replace(/[\\^$.|?*+()[\]{}]/g, "\\$&"),
+  };
+}
+
+/**
+ * `column` without its accents, the way normalizeTextForSearch strips them
+ * from the query (NFD, combining marks dropped), so "soiree" finds "Soirée".
+ * ASCII values, nearly all of them, skip the work; ILIKE handles case.
+ */
+function unaccented(column: string): string {
+  return `(CASE WHEN octet_length(${column}) = char_length(${column}) THEN ${column}
+    ELSE regexp_replace(normalize(${column}, NFD), '[\\u0300-\\u036f]', '', 'g') END)`;
+}
+
+function containsSql(column: string, likeParam: string): string {
+  return `${unaccented(column)} ILIKE '%' || ${likeParam} || '%'`;
+}
+
+/** Folders worth opening: the empty ones lead nowhere. */
+const HAS_CONTENT = "(f.photo_count > 0 OR f.subfolder_count > 0)";
+
+/** 0 when the folder's own name matches, 1 when only a parent folder's does */
+function nameRankSql(name: string): string {
+  return `(CASE WHEN ${containsSql(name, "$1")} THEN 0 ELSE 1 END)`;
+}
+
+export interface FolderSearchCursor {
+  name: string;
+  path: string;
+}
+
+export interface PhotoSearchCursor {
+  folderPath: string;
+  filename: string;
+  id: string;
+}
+
+export interface SearchPage<T, C> {
+  items: T[];
+  /** Where the next page starts; null on the last page */
+  next: C | null;
+}
+
+/**
+ * Non-empty folders whose path matches (their own name or a parent's), named
+ * matches first, then by name; keyset-paginated on (rank, name, path). The
+ * rank is a function of the name, so the cursor only carries name and path.
+ */
+export async function searchFolders(
+  q: string,
+  after: FolderSearchCursor | null,
+  limit: number,
+): Promise<SearchPage<Folder, FolderSearchCursor>> {
+  const params: unknown[] = [searchTerms(q).like, limit + 1];
+  let seek = "";
+  if (after) {
+    params.push(after.name, after.path);
+    seek = `AND (${nameRankSql("f.name")}, f.name, f.path)
+                > (${nameRankSql("$3::text")}, $3::text, $4::text)`;
+  }
+  const rows = await listFolders(
     `SELECT f.* FROM folders f
-     WHERE f.name ILIKE $1 OR f.path ILIKE $1
-     ORDER BY f.name
-     LIMIT 20`,
-    "s.name",
-    [pattern],
+     WHERE ${containsSql("f.path", "$1")} AND ${HAS_CONTENT}
+       ${seek}
+     ORDER BY ${nameRankSql("f.name")}, f.name, f.path
+     LIMIT $2`,
+    `${nameRankSql("s.name")}, s.name, s.path`,
+    params,
   );
+  const items = rows.slice(0, limit);
+  const last = items[items.length - 1];
+  return {
+    items,
+    next:
+      rows.length > limit && last ? { name: last.name, path: last.path } : null,
+  };
+}
+
+/** Photos whose filename or folder path matches, as (id, folder_id, filename) */
+const PHOTO_HITS = `hits AS (
+  SELECT p.id, p.folder_id, p.filename FROM photos p
+  WHERE p.folder_id IN (
+    SELECT f.id FROM folders f WHERE ${containsSql("f.path", "$1")}
+  )
+  UNION
+  SELECT p.id, p.folder_id, p.filename FROM photos p
+  WHERE ${containsSql("p.filename", "$1")}
+)`;
+
+export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
+
+/**
+ * Photos whose filename or folder path matches, folder by folder (path, then
+ * filename); keyset-paginated on (folder path, filename, id). The page is
+ * picked on narrow rows and only its photos are read in full.
+ */
+export async function searchPhotos(
+  q: string,
+  after: PhotoSearchCursor | null,
+  limit: number,
+): Promise<SearchPage<SearchPhoto, PhotoSearchCursor>> {
+  const params: unknown[] = [searchTerms(q).like, limit + 1];
+  let seek = "";
+  if (after) {
+    params.push(after.folderPath, after.filename, after.id);
+    seek =
+      "WHERE (f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)";
+  }
+  const result = await query<
+    DatabasePhoto & { folder_name: string; folder_path: string }
+  >(
+    `WITH ${PHOTO_HITS},
+     page AS (
+       SELECT h.id, f.path, h.filename
+       FROM hits h JOIN folders f ON f.id = h.folder_id
+       ${seek}
+       ORDER BY f.path, h.filename, h.id
+       LIMIT $2
+     )
+     SELECT p.*, f.name AS folder_name, f.path AS folder_path
+     FROM page
+     JOIN photos p ON p.id = page.id
+     JOIN folders f ON f.id = p.folder_id
+     ORDER BY page.path, page.filename, page.id`,
+    params,
+  );
+  const items = result.rows.slice(0, limit).map((row) => ({
+    ...normalizePhoto(row),
+    folder_name: row.folder_name,
+    folder_path: row.folder_path,
+  }));
+  const last = items[items.length - 1];
+  return {
+    items,
+    next:
+      result.rows.length > limit && last
+        ? {
+            folderPath: last.folder_path,
+            filename: last.filename,
+            id: String(last.id),
+          }
+        : null,
+  };
+}
+
+/** How many photos and folders searchPhotos and searchFolders page through */
+export async function countSearchMatches(
+  q: string,
+): Promise<{ photos: number; folders: number }> {
+  const result = await query<{ photos: number; folders: number }>(
+    `WITH ${PHOTO_HITS}
+     SELECT
+       (SELECT COUNT(*) FROM hits)::int AS photos,
+       (SELECT COUNT(*) FROM folders f
+        WHERE ${containsSql("f.path", "$1")} AND ${HAS_CONTENT})::int AS folders`,
+    [searchTerms(q).like],
+  );
+  return requireRow(result, "Search count");
+}
+
+export interface FolderSuggestion {
+  id: number;
+  name: string;
+  path: string;
+  cover_photo_id: number | null;
+}
+
+/** 0 the name is the query, 1 starts with it, 2 one of its words does, 3 contains it */
+function suggestRankSql(name: string): string {
+  const plain = unaccented(name);
+  return `(CASE
+    WHEN ${plain} ILIKE $1 THEN 0
+    WHEN ${plain} ILIKE $1 || '%' THEN 1
+    WHEN ${plain} ~* ('(^|[^[:alnum:]])' || $2) THEN 2
+    ELSE 3 END)`;
+}
+
+function depthSql(path: string): string {
+  return `(length(${path}) - length(replace(${path}, '/', '')))`;
+}
+
+/**
+ * Non-empty folders whose own name matches, best match first, then the
+ * shallowest, then by name: where typing a few letters should lead.
+ */
+export async function suggestFolders(
+  q: string,
+  limit: number,
+): Promise<FolderSuggestion[]> {
+  const { like, regex } = searchTerms(q);
+  const folders = await listFolders(
+    `SELECT f.* FROM folders f
+     WHERE ${containsSql("f.name", "$1")} AND f.path <> '' AND ${HAS_CONTENT}
+     ORDER BY ${suggestRankSql("f.name")}, ${depthSql("f.path")}, f.name, f.path
+     LIMIT $3`,
+    `${suggestRankSql("s.name")}, ${depthSql("s.path")}, s.name, s.path`,
+    [like, regex, limit],
+  );
+  return folders.map(({ id, name, path, cover_photo_id }) => ({
+    id,
+    name,
+    path,
+    cover_photo_id,
+  }));
 }
 
 export interface LibrarySummary {
