@@ -283,9 +283,23 @@ function TopSearch() {
         aria-label="Search albums and photos"
         className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
-      <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
-        ⌘K
-      </kbd>
+      {value ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            setValue("");
+            inputRef.current?.focus();
+          }}
+          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : (
+        <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
+          ⌘K
+        </kbd>
+      )}
     </form>
   );
 }

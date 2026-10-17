@@ -81,6 +81,12 @@
     cursor: not-allowed;
   }
 
+  /* The native clear control ignores the palette; inputs draw their own. */
+  input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

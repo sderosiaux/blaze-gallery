@@ -24,11 +24,12 @@ interface PhotoGridProps {
 }
 
 export function PhotoGridSkeleton({ count = 12 }: { count?: number }) {
-  const widths = [280, 190, 240, 320, 210, 260, 180, 300, 230, 250, 200, 270];
+  // Percentages, so a phone shows three or four tiles a row like the real grid.
+  const widths = [22, 16, 19, 26, 17, 21, 15, 24, 19, 20, 16, 23];
   return (
     <div role="status" aria-label="Loading photos" className="flex flex-wrap gap-1">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} aria-hidden className="skeleton h-[170px] flex-grow rounded-sm lg:h-[220px]" style={{ flexBasis: widths[i % widths.length] }} />
+        <div key={i} aria-hidden className="skeleton h-[110px] flex-grow rounded-sm sm:h-[170px] lg:h-[220px]" style={{ flexBasis: `${widths[i % widths.length]}%` }} />
       ))}
     </div>
   );

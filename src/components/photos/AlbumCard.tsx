@@ -32,7 +32,9 @@ export default function AlbumCard({ folder, eager, showPath, shareToken, href, s
   const { title } = parseAlbumName(folder.name);
   const dateLabel = albumDateLabel(folder);
   const coverId = folder.cover_photo_id;
-  const parent = folder.path.split("/").slice(0, -1).join(" / ");
+  // The nearest parents say the most; deep paths keep only the last two.
+  const ancestors = folder.path.split("/").slice(0, -1).map((name) => parseAlbumName(name).title);
+  const parent = (ancestors.length > 2 ? ["…", ...ancestors.slice(-2)] : ancestors).join(" / ");
 
   return (
     <Link
@@ -63,7 +65,7 @@ export default function AlbumCard({ folder, eager, showPath, shareToken, href, s
         {dateLabel && <div className="kicker mb-1 truncate">{dateLabel}</div>}
         <h3
           className={cn(
-            "line-clamp-2 font-display font-normal leading-snug text-ink transition-colors group-hover:text-accent-strong",
+            "line-clamp-2 font-display font-normal leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
             size === "lg" ? "text-xl" : "text-lg",
           )}
           title={folder.name}
