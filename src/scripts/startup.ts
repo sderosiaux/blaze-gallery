@@ -81,7 +81,11 @@ async function performStartup(): Promise<void> {
     // Mark startup as complete
     isStartupComplete = true;
   } catch (error) {
-    logger.error("Startup failed", error as Error);
+    logger.error(
+      "Startup failed",
+      undefined,
+      error instanceof Error ? error : new Error(String(error)),
+    );
     // In server environment, exit on startup failure
     if (typeof window === "undefined") {
       process.exit(1);
@@ -91,7 +95,8 @@ async function performStartup(): Promise<void> {
 }
 
 if (require.main === module) {
-  startup();
+  // Fire-and-forget entry point: performStartup logs the failure and exits
+  void startup();
 }
 
 // Utility function to check if startup is complete

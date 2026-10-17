@@ -5,6 +5,7 @@ import type { Folder } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
 import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
 import { cn } from "@/lib/cn";
+import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
 
 export function albumHref(path: string) {
   return `/folder/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -15,8 +16,8 @@ function countsLine(folder: Folder) {
   if (folder.photo_count > 0)
     parts.push(formatCount(Number(folder.photo_count), "photo"));
   if (folder.subfolder_count > 0)
-    parts.push(formatCount(Number(folder.subfolder_count), "album"));
-  return parts.join(" · ") || "Empty";
+    parts.push(formatCount(Number(folder.subfolder_count), "dossier"));
+  return parts.join(" · ") || "Vide";
 }
 
 interface AlbumCardProps {
@@ -28,6 +29,8 @@ interface AlbumCardProps {
   /** Defaults to the library route; the public share page passes its own. */
   href?: string;
   size?: "md" | "lg";
+  /** Position in the grid: covers load in reading order. */
+  order?: number;
 }
 
 export default function AlbumCard({
@@ -37,15 +40,14 @@ export default function AlbumCard({
   shareToken,
   href,
   size = "md",
+  order,
 }: AlbumCardProps) {
   const { title } = parseAlbumName(folder.name);
   const dateLabel = albumDateLabel(folder);
   const coverId = folder.cover_photo_id;
   // The nearest parents say the most; deep paths keep only the last two.
-  const ancestors = folder.path
-    .split("/")
-    .slice(0, -1)
-    .map((name) => parseAlbumName(name).title);
+  // Parents are shown exactly as in the bucket: they locate the folder.
+  const ancestors = folder.path.split("/").slice(0, -1);
   const parent = (
     ancestors.length > 2 ? ["…", ...ancestors.slice(-2)] : ancestors
   ).join(" / ");
@@ -59,17 +61,10 @@ export default function AlbumCard({
       <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-surface-sunken">
         {coverId ? (
           <ProgressiveImage
-            previewSrc={
-              shareToken
-                ? `/api/shares/${shareToken}/preview/${coverId}`
-                : `/api/photos/${coverId}/preview`
-            }
-            thumbSrc={
-              shareToken
-                ? `/api/shares/${shareToken}/thumbnail/${coverId}`
-                : `/api/photos/${coverId}/thumbnail`
-            }
+            previewSrc={previewUrl(coverId, shareToken)}
+            thumbSrc={thumbnailUrl(coverId, shareToken)}
             displayWidth={size === "lg" ? 480 : 340}
+            order={order}
             alt=""
             eager={eager}
             className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.035]"
@@ -79,7 +74,7 @@ export default function AlbumCard({
             aria-hidden
             className="absolute inset-0 flex items-center justify-center"
           >
-            <span className="select-none font-display text-[5rem] font-light italic leading-none text-ink-faint/70 transition-transform duration-700 ease-out-soft group-hover:scale-105">
+            <span className="select-none font-display text-[5rem] font-semibold leading-none text-ink-faint/70 transition-transform duration-700 ease-out-soft group-hover:scale-105">
               {title.charAt(0)}
             </span>
           </div>
@@ -90,10 +85,11 @@ export default function AlbumCard({
         />
       </div>
       <div className="pt-3">
-        {dateLabel && <div className="kicker mb-1 truncate">{dateLabel}</div>}
+        {/* The kicker line is always there so titles align across a row */}
+        <div className="kicker mb-1 min-h-4 truncate">{dateLabel}</div>
         <h3
           className={cn(
-            "line-clamp-2 font-display font-normal leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
+            "line-clamp-2 font-display font-semibold leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
             size === "lg" ? "text-xl" : "text-lg",
           )}
           title={folder.name}
@@ -140,6 +136,7 @@ export function AlbumGrid({
             showPath={showPath}
             shareToken={shareToken}
             href={hrefFor?.(folder)}
+            order={i}
           />
         </li>
       ))}

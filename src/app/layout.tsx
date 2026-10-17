@@ -1,18 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Newsreader, Hanken_Grotesk } from "next/font/google";
+import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import StartupManager from "@/components/StartupManager";
 import { LayoutProvider } from "@/contexts/LayoutContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ToastProvider } from "@/components/ui/Toast";
-
-const display = Newsreader({
-  subsets: ["latin", "latin-ext"],
-  style: ["normal", "italic"],
-  axes: ["opsz"],
-  variable: "--font-display",
-  display: "swap",
-});
 
 const sans = Hanken_Grotesk({
   subsets: ["latin", "latin-ext"],
@@ -20,13 +12,14 @@ const sans = Hanken_Grotesk({
   display: "swap",
 });
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+
 export const metadata: Metadata = {
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    appUrl !== undefined && appUrl !== "" ? appUrl : "http://localhost:3000",
   ),
   title: "Blaze Gallery",
-  description:
-    "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+  description: "Vos photos, depuis votre propre stockage.",
   keywords: [
     "photo gallery",
     "backblaze b2",
@@ -37,7 +30,8 @@ export const metadata: Metadata = {
   authors: [{ name: "Blaze Gallery Team" }],
   creator: "Blaze Gallery",
   publisher: "Blaze Gallery",
-  robots: "index, follow",
+  // A private library and its share links stay out of search engines.
+  robots: { index: false, follow: false },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -63,9 +57,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Blaze Gallery",
-    title: "Blaze Gallery - Your Backblaze Photos, Beautifully Browsable",
-    description:
-      "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+    title: "Blaze Gallery",
+    description: "Vos photos, depuis votre propre stockage.",
     images: [
       {
         url: "/icon.svg",
@@ -78,8 +71,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary",
     title: "Blaze Gallery",
-    description:
-      "Lightning-fast photo gallery for your Backblaze B2 cloud storage",
+    description: "Vos photos, depuis votre propre stockage.",
     images: ["/icon.svg"],
   },
 };
@@ -88,7 +80,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#F8F6F1",
+  themeColor: "#FFFFFF",
   colorScheme: "light",
 };
 
@@ -98,7 +90,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+    <html lang="fr" className={sans.variable}>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
       </head>

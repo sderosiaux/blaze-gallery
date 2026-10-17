@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 
-export async function GET() {
+export function GET() {
   try {
     const config = getConfig();
 

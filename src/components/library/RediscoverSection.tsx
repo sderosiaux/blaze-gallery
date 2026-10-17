@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ImageOff, Shuffle } from "lucide-react";
+import { ImageOff, RotateCw, Shuffle } from "lucide-react";
 import type { Photo } from "@/types";
+import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
 import PhotoGrid from "@/components/PhotoGrid";
 import { Button, EmptyState, Section } from "@/components/ui";
 import { LoadError } from "./LoadError";
@@ -35,9 +36,9 @@ function remembered(): Photo[] | null {
 }
 
 /**
- * A random handful from the whole library. The pick is kept for the session,
- * so coming back from an album, or reloading with `?photo=`, finds the same
- * photos instead of a new draw; Shuffle is the only thing that redraws.
+ * A random handful from the whole bucket. The pick is kept for the session,
+ * so coming back from a folder, or reloading with `?photo=`, finds the same
+ * photos instead of a new draw; "Mélanger" is the only thing that redraws.
  */
 export default function RediscoverSection() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -54,9 +55,10 @@ export default function RediscoverSection() {
       const response = await fetch(`/api/photos/random?limit=${ASKED}`, {
         signal: controller.signal,
       });
-      const body = await response.json();
-      if (!response.ok || !body.success) throw new Error(body.error);
-      const photos = (body.photos as Photo[])
+      const body = await readJsonObject(response);
+      if (!response.ok || body.success !== true)
+        throw new Error(asString(body.error));
+      const photos = (asArray(body.photos) as Photo[])
         .filter(isPhotograph)
         .slice(0, SHOWN);
       try {
@@ -76,7 +78,7 @@ export default function RediscoverSection() {
   useEffect(() => {
     const kept = remembered();
     if (kept) setState({ status: "ready", photos: kept });
-    else draw();
+    else void draw();
     return () => request.current?.abort();
   }, [draw]);
 
@@ -92,26 +94,25 @@ export default function RediscoverSection() {
 
   return (
     <Section
-      title="Rediscover"
-      description="Photographs drawn at random from every album."
+      title="Redécouvrir"
       action={
         <Button
           variant="ghost"
           size="sm"
           icon={Shuffle}
           loading={shuffling && state.status === "ready"}
-          onClick={draw}
+          onClick={() => void draw()}
           disabled={state.status === "loading"}
         >
-          Shuffle
+          Mélanger
         </Button>
       }
     >
       {state.status === "loading" && <JustifiedSkeleton count={12} />}
       {state.status === "error" && (
         <LoadError
-          title="The photos didn't come through"
-          onRetry={draw}
+          title="Les photos n'ont pas pu être chargées"
+          onRetry={() => void draw()}
           className="py-10"
         />
       )}
@@ -119,8 +120,16 @@ export default function RediscoverSection() {
         (photos.length === 0 ? (
           <EmptyState
             icon={ImageOff}
-            title="No photographs to show yet"
-            body="Once albums with photos have been synced from the bucket, a few of them will turn up here."
+            title="Aucune photo pour l'instant"
+            action={
+              <Button
+                variant="secondary"
+                icon={RotateCw}
+                onClick={() => void draw()}
+              >
+                Réessayer
+              </Button>
+            }
             className="py-10"
           />
         ) : (

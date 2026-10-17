@@ -5,10 +5,10 @@ import { useState } from "react";
 import { CheckCircle2, Copy, CornerDownRight } from "lucide-react";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { Badge, EmptyState, Section, Skeleton, Stat } from "@/components/ui";
-import { formatDay, parseAlbumName } from "@/lib/albums";
+import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
 import { ShowMore } from "./charts";
-import { formatNumber, formatSize } from "./format";
-import { SectionTitleSkeleton, TabError } from "./TabState";
+import { formatNumber, formatSeconds, formatSize } from "./format";
+import { TabError } from "./TabState";
 import type { DuplicateFiles, DuplicateFolders } from "./types";
 import {
   useElapsed,
@@ -45,55 +45,57 @@ export default function DuplicatesTab({
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 pt-8 sm:pt-10 lg:grid-cols-4">
         <PendingStat
           ready={!!f}
-          label="Albums stored twice"
+          label="Dossiers en double"
           value={f && formatNumber(f.total_duplicate_folder_groups)}
           hint={
-            f && `${formatNumber(f.total_duplicate_folders)} folders in all`
+            f && `${formatCount(f.total_duplicate_folders, "dossier")} en tout`
           }
         />
         <PendingStat
           ready={!!f}
-          label="Space in album copies"
+          label="Espace des dossiers copiés"
           value={f && formatSize(f.potential_space_saved_bytes)}
-          hint="Freed by keeping one of each"
+          hint="Libéré en gardant un exemplaire"
         />
         <PendingStat
           ready={!!d}
-          label="Files with a copy"
+          label="Fichiers en double"
           value={d && formatNumber(d.total_duplicate_filenames)}
-          hint={d && `${formatNumber(d.total_duplicate_photos)} files in all`}
+          hint={
+            d && `${formatCount(d.total_duplicate_photos, "fichier")} en tout`
+          }
         />
         <PendingStat
           ready={!!d}
-          label="Space in file copies"
+          label="Espace des fichiers copiés"
           value={d && formatSize(d.potential_space_saved_bytes)}
-          hint="Includes the album copies"
+          hint="Dossiers copiés compris"
         />
       </div>
 
       <Section
-        title="Albums that appear more than once"
-        description="Same files, same sizes, in different places. Open both to decide which one to keep."
+        title="Dossiers en double"
+        description="Mêmes fichiers, mêmes tailles, à plusieurs endroits"
       >
         <Analysis
           resource={folders.state}
           onRetry={folders.retry}
-          what="Comparing the contents of every album"
-          failTitle="The album comparison didn't finish"
+          what="Comparaison du contenu des dossiers"
+          failTitle="La comparaison des dossiers n’a pas abouti"
         >
           {(data) => <FolderGroups data={data} />}
         </Analysis>
       </Section>
 
       <Section
-        title="Files that appear more than once"
-        description={`Same name and same size${libraryFiles ? `, across ${formatNumber(libraryFiles)} files` : ""}. Sorted by the space a cleanup would free.`}
+        title="Fichiers en double"
+        description={`Même nom, même taille${libraryFiles ? `, sur ${formatCount(libraryFiles, "fichier")}` : ""}`}
       >
         <Analysis
           resource={files.state}
           onRetry={files.retry}
-          what="Matching files by name and size"
-          failTitle="The file comparison didn't finish"
+          what="Comparaison des fichiers par nom et taille"
+          failTitle="La comparaison des fichiers n’a pas abouti"
         >
           {(data) => <FileGroups data={data} />}
         </Analysis>
@@ -157,7 +159,7 @@ function Analysis<T>({
       <div className="animate-fade-in">
         {children(resource.data)}
         <p className="tabular mt-4 text-xs text-ink-faint">
-          Analysed in {(resource.tookMs / 1000).toFixed(1)} s
+          Analysé en {formatSeconds(resource.tookMs)}
         </p>
       </div>
     );
@@ -185,7 +187,7 @@ function Analysis<T>({
   );
 }
 
-/** "pc-fixe / photos tel a trier / chats", the album itself in ink. */
+/** "pc-fixe / photos tel a trier / chats", the folder itself in ink. */
 function Location({
   href,
   path,
@@ -196,7 +198,8 @@ function Location({
   note?: string;
 }) {
   const parts = path.split("/");
-  const name = parts.pop() || "Library";
+  const popped = parts.pop();
+  const name = popped !== undefined && popped !== "" ? popped : path;
   return (
     <li>
       <Link
@@ -237,49 +240,45 @@ function GroupHeader({
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         {kicker && <div className="kicker mb-1 truncate">{kicker}</div>}
-        <h3 className="break-words font-display text-lg font-normal leading-snug text-ink">
+        <h3 className="break-words font-display text-lg font-semibold leading-snug text-ink">
           {title}
         </h3>
         <p className="tabular mt-0.5 text-sm text-ink-muted">{meta}</p>
       </div>
       <Badge tone="neutral" icon={Copy} className="mt-0.5 shrink-0">
-        {copies} copies
+        {formatCount(copies, "copie")}
       </Badge>
     </div>
   );
 }
 
 function NoneFound({ what }: { what: string }) {
-  return (
-    <EmptyState
-      icon={CheckCircle2}
-      title={`No ${what} found`}
-      body="Nothing is stored twice. Checked again each time this page loads."
-      className="py-8"
-    />
-  );
+  return <EmptyState icon={CheckCircle2} title={what} className="py-8" />;
 }
 
 function FolderGroups({ data }: { data: DuplicateFolders }) {
   const initial = 6;
   const [visible, setVisible] = useState(initial);
   if (data.duplicates.length === 0)
-    return <NoneFound what="duplicate albums" />;
+    return <NoneFound what="Aucun dossier en double" />;
   return (
     <>
       <ol className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
         {data.duplicates.slice(0, visible).map((g) => {
           const first = g.folders[0];
-          const { title, date, precision } = parseAlbumName(first?.name ?? "");
+          const name = first?.name ?? "";
+          const { title } = parseAlbumName(name);
           return (
             <li key={g.folder_signature} className="min-w-0">
               <GroupHeader
-                kicker={
-                  date && precision ? formatDay(date, precision) : undefined
-                }
-                title={title || "Untitled album"}
+                kicker={albumDateLabel({
+                  name,
+                  date_from: null,
+                  date_to: null,
+                })}
+                title={title}
                 copies={g.count}
-                meta={`${formatNumber(g.file_count)} files · ${formatSize(g.total_size_bytes)} each · frees ${formatSize(g.total_size_bytes * (g.count - 1))}`}
+                meta={`${formatCount(g.file_count, "fichier")} · ${formatSize(g.total_size_bytes)} chacun · libère\u00A0${formatSize(g.total_size_bytes * (g.count - 1))}`}
               />
               <ul className="mt-2">
                 {g.folders.map((folder) => (
@@ -299,13 +298,12 @@ function FolderGroups({ data }: { data: DuplicateFolders }) {
         visible={visible}
         initial={initial}
         step={8}
-        noun="more albums"
         onChange={setVisible}
       />
       <Cap
         shown={data.duplicates.length}
         total={data.summary.total_duplicate_folder_groups}
-        noun="albums"
+        noun="dossiers"
       />
     </>
   );
@@ -314,7 +312,8 @@ function FolderGroups({ data }: { data: DuplicateFolders }) {
 function FileGroups({ data }: { data: DuplicateFiles }) {
   const initial = 6;
   const [visible, setVisible] = useState(initial);
-  if (data.duplicates.length === 0) return <NoneFound what="duplicate files" />;
+  if (data.duplicates.length === 0)
+    return <NoneFound what="Aucun fichier en double" />;
   return (
     <>
       <ol className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
@@ -325,7 +324,7 @@ function FileGroups({ data }: { data: DuplicateFiles }) {
               <GroupHeader
                 title={g.filename}
                 copies={g.count}
-                meta={`${formatSize(g.size)} each · frees ${formatSize(g.size * (g.count - 1))}`}
+                meta={`${formatSize(g.size)} chacun · libère\u00A0${formatSize(g.size * (g.count - 1))}`}
               />
               <ul className="mt-2">
                 {g.photos.map((p) => (
@@ -338,8 +337,12 @@ function FileGroups({ data }: { data: DuplicateFiles }) {
               </ul>
               {hidden > 0 && (
                 <p className="mt-1 pl-5 text-xs text-ink-muted">
-                  and {formatNumber(hidden)} more{" "}
-                  {hidden === 1 ? "place" : "places"}
+                  et{" "}
+                  {formatCount(
+                    hidden,
+                    "autre emplacement",
+                    "autres emplacements",
+                  )}
                 </p>
               )}
             </li>
@@ -351,13 +354,12 @@ function FileGroups({ data }: { data: DuplicateFiles }) {
         visible={visible}
         initial={initial}
         step={8}
-        noun="more files"
         onChange={setVisible}
       />
       <Cap
         shown={data.duplicates.length}
         total={data.summary.total_duplicate_filenames}
-        noun="files"
+        noun="fichiers"
       />
     </>
   );
@@ -375,8 +377,8 @@ function Cap({
   if (total <= shown) return null;
   return (
     <p className="tabular mt-3 text-xs text-ink-muted">
-      Listing the {formatNumber(shown)} {noun} that free the most space, of{" "}
-      {formatNumber(total)}.
+      Les {formatNumber(shown)} {noun} qui libèrent le plus d’espace, sur{" "}
+      {formatNumber(total)}
     </p>
   );
 }

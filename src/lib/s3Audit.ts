@@ -1,5 +1,6 @@
-import { query, runTransaction } from "./database";
-import {
+import { query } from "./database";
+import { nonEmpty } from "./narrow";
+import type {
   S3AuditLog,
   S3AuditStats,
   S3AuditQuery,
@@ -9,10 +10,62 @@ import {
   OperationAnalysis,
 } from "@/types/audit";
 
-export class S3AuditLogger {
-  private static instance: S3AuditLogger;
+/** Same rule for optional numeric columns: 0 is stored as NULL */
+function nonZeroOrNull(value: number | undefined): number | null {
+  return value === undefined || value === 0 ? null : value;
+}
 
-  private constructor() {}
+/** Fallback when the value is missing or empty (a literal union stays typed) */
+function stringOr<T extends string>(value: T | undefined, fallback: T): T {
+  return value !== undefined && value !== "" ? value : fallback;
+}
+
+function numberOr(value: number | undefined, fallback: number): number {
+  return value === undefined || value === 0 ? fallback : value;
+}
+
+/** Row of s3_audit_logs as pg returns it */
+type S3AuditRow = Omit<S3AuditLog, "timestamp" | "created_at" | "cache_hit"> & {
+  timestamp: string | Date;
+  created_at: string | Date;
+  cache_hit: boolean | null;
+};
+
+// Aggregates (COUNT/AVG/SUM) are read as numbers here and passed through as pg
+// delivers them, exactly as before.
+interface BasicStatsRow {
+  total_requests: number | null;
+  avg_duration_ms: number | null;
+  total_bytes_transferred: number | null;
+  error_count: number | null;
+  cache_hits: number | null;
+  estimated_total_cost_usd: number | null;
+}
+
+interface PerformanceRow {
+  time_period: string;
+  avg_response_time: number | null;
+  request_count: number;
+  error_count: number;
+  bytes_transferred: number | null;
+}
+
+interface OperationRow {
+  operation: S3Operation;
+  count: number;
+  avg_duration_ms: number | null;
+  max_duration_ms: number | null;
+  min_duration_ms: number | null;
+  success_count: number;
+  total_bytes: number | null;
+}
+
+export class S3AuditLogger {
+  private static instance: S3AuditLogger | undefined;
+
+  private constructor() {
+    // Singleton: use getInstance()
+  }
 
   static getInstance(): S3AuditLogger {
     if (!S3AuditLogger.instance) {
@@ -27,7 +80,7 @@ export class S3AuditLogger {
   async logOperation(
     log: Omit<S3AuditLog, "id" | "created_at">,
   ): Promise<string> {
-    const result = await query(
+    const result = await query<{ id: string }>(
       `
       INSERT INTO s3_audit_logs (
         timestamp, operation, method, endpoint, bucket, key,
@@ -43,21 +96,23 @@ export class S3AuditLogger {
         log.method,
         log.endpoint,
         log.bucket,
-        log.key || null,
+        nonEmpty(log.key) ?? null,
         log.duration_ms,
         log.status_code,
-        log.bytes_transferred || null,
-        log.user_agent || null,
-        log.ip_address || null,
-        log.session_id || null,
-        log.user_id || null,
-        log.error_message || null,
-        log.cache_hit || false,
-        log.estimated_cost_usd || null,
+        nonZeroOrNull(log.bytes_transferred),
+        nonEmpty(log.user_agent) ?? null,
+        nonEmpty(log.ip_address) ?? null,
+        nonEmpty(log.session_id) ?? null,
+        nonEmpty(log.user_id) ?? null,
+        nonEmpty(log.error_message) ?? null,
+        log.cache_hit ?? false,
+        nonZeroOrNull(log.estimated_cost_usd),
       ],
     );
 
-    return result.rows[0].id;
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("Audit log insert returned no row");
+    return row.id;
   }
 
   /**
@@ -66,7 +121,7 @@ export class S3AuditLogger {
   async queryLogs(auditQuery: S3AuditQuery): Promise<S3AuditResponse> {
     // Build the WHERE clause
     const conditions: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     let paramIndex = 1;
 
     if (auditQuery.start_date) {
@@ -115,24 +170,26 @@ export class S3AuditLogger {
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     // Build ORDER BY clause
-    const sortBy = auditQuery.sort_by || "timestamp";
-    const sortOrder = auditQuery.sort_order || "desc";
+    const sortBy = stringOr(auditQuery.sort_by, "timestamp");
+    const sortOrder = stringOr(auditQuery.sort_order, "desc");
     const orderByClause = `ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
 
     // Build LIMIT and OFFSET
-    const limit = auditQuery.limit || 50;
-    const offset = auditQuery.offset || 0;
+    const limit = numberOr(auditQuery.limit, 50);
+    const offset = numberOr(auditQuery.offset, 0);
     const limitClause = `LIMIT ${limit} OFFSET ${offset}`;
 
     // Get total count
-    const countResult = await query(
+    const countResult = await query<{ count: number }>(
       `SELECT COUNT(*) as count FROM s3_audit_logs ${whereClause}`,
       params,
     );
-    const totalCount = countResult.rows[0].count;
+    const countRow = countResult.rows[0];
+    if (countRow === undefined) throw new Error("Count query returned no row");
+    const totalCount = countRow.count;
 
     // Get the logs
-    const logsResult = await query(
+    const logsResult = await query<S3AuditRow>(
       `
       SELECT * FROM s3_audit_logs
       ${whereClause}
@@ -142,12 +199,14 @@ export class S3AuditLogger {
       params,
     );
 
-    const logs = logsResult.rows.map((row: any) => ({
-      ...row,
-      timestamp: new Date(row.timestamp),
-      created_at: new Date(row.created_at),
-      cache_hit: Boolean(row.cache_hit),
-    })) as S3AuditLog[];
+    const logs = logsResult.rows.map(
+      (row): S3AuditLog => ({
+        ...row,
+        timestamp: new Date(row.timestamp),
+        created_at: new Date(row.created_at),
+        cache_hit: Boolean(row.cache_hit),
+      }),
+    );
 
     // Calculate stats
     const stats = await this.calculateStats(auditQuery);
@@ -166,7 +225,7 @@ export class S3AuditLogger {
   async calculateStats(auditQuery: S3AuditQuery): Promise<S3AuditStats> {
     // Build the WHERE clause (same as queryLogs)
     const conditions: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (auditQuery.start_date) {
       conditions.push("timestamp >= $" + (params.length + 1));
@@ -197,7 +256,7 @@ export class S3AuditLogger {
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     // Basic stats
-    const basicStatsResult = await query(
+    const basicStatsResult = await query<BasicStatsRow>(
       `
       SELECT
         COUNT(*) as total_requests,
@@ -211,10 +270,12 @@ export class S3AuditLogger {
       params,
     );
 
-    const basicStats = basicStatsResult.rows[0] as any;
+    const basicStats = basicStatsResult.rows[0];
+    if (basicStats === undefined)
+      throw new Error("Stats query returned no row");
 
     // Status code distribution
-    const statusResult = await query(
+    const statusResult = await query<{ status_code: number; count: number }>(
       `
       SELECT status_code, COUNT(*) as count
       FROM s3_audit_logs ${whereClause}
@@ -223,17 +284,17 @@ export class S3AuditLogger {
       params,
     );
 
-    const statusRows = statusResult.rows as {
-      status_code: number;
-      count: number;
-    }[];
+    const statusRows = statusResult.rows;
     const requests_by_status: Record<number, number> = {};
     for (const row of statusRows) {
       requests_by_status[row.status_code] = row.count;
     }
 
     // Operation distribution
-    const operationResult = await query(
+    const operationResult = await query<{
+      operation: S3Operation;
+      count: number;
+    }>(
       `
       SELECT operation, COUNT(*) as count
       FROM s3_audit_logs ${whereClause}
@@ -242,30 +303,30 @@ export class S3AuditLogger {
       params,
     );
 
-    const operationRows = operationResult.rows as {
-      operation: S3Operation;
-      count: number;
-    }[];
-    const requests_by_operation: Record<S3Operation, number> = {} as any;
+    const operationRows = operationResult.rows;
+    const requests_by_operation = {} as Record<S3Operation, number>;
     for (const row of operationRows) {
       requests_by_operation[row.operation] = row.count;
     }
 
-    const total_requests = basicStats.total_requests || 0;
-    const error_count = basicStats.error_count || 0;
-    const cache_hits = basicStats.cache_hits || 0;
+    const total_requests = basicStats.total_requests ?? 0;
+    const error_count = basicStats.error_count ?? 0;
+    const cache_hits = basicStats.cache_hits ?? 0;
 
     return {
       total_requests,
-      avg_duration_ms: basicStats.avg_duration_ms || 0,
-      total_bytes_transferred: basicStats.total_bytes_transferred || 0,
+      avg_duration_ms: basicStats.avg_duration_ms ?? 0,
+      total_bytes_transferred: basicStats.total_bytes_transferred ?? 0,
       requests_by_status,
       requests_by_operation,
       error_rate: total_requests > 0 ? error_count / total_requests : 0,
       cache_hit_rate:
         total_requests > 0 ? cache_hits / total_requests : undefined,
       estimated_total_cost_usd:
-        basicStats.estimated_total_cost_usd || undefined,
+        basicStats.estimated_total_cost_usd === null ||
+        basicStats.estimated_total_cost_usd === 0
+          ? undefined
+          : basicStats.estimated_total_cost_usd,
     };
   }
 
@@ -288,7 +349,7 @@ export class S3AuditLogger {
       timeFormat = "DATE_TRUNC('day', timestamp)";
     }
 
-    const result = await query(
+    const result = await query<PerformanceRow>(
       `
       SELECT
         ${timeFormat} as time_period,
@@ -304,17 +365,17 @@ export class S3AuditLogger {
       [startDate, endDate],
     );
 
-    const rows = result.rows as any[];
+    const rows = result.rows;
 
     // Calculate percentiles (simplified - would need more complex query for true percentiles)
     return rows.map((row) => ({
       time_period: row.time_period,
-      avg_response_time: row.avg_response_time || 0,
-      p95_response_time: row.avg_response_time * 1.5 || 0, // Approximation
-      p99_response_time: row.avg_response_time * 2 || 0, // Approximation
+      avg_response_time: row.avg_response_time ?? 0,
+      p95_response_time: (row.avg_response_time ?? 0) * 1.5, // Approximation
+      p99_response_time: (row.avg_response_time ?? 0) * 2, // Approximation
       request_count: row.request_count,
       error_count: row.error_count,
-      bytes_transferred: row.bytes_transferred || 0,
+      bytes_transferred: row.bytes_transferred ?? 0,
     }));
   }
 
@@ -326,7 +387,7 @@ export class S3AuditLogger {
     endDate: string,
   ): Promise<OperationAnalysis[]> {
     // First get basic stats for each operation
-    const basicResult = await query(
+    const basicResult = await query<OperationRow>(
       `
       SELECT
         operation,
@@ -344,14 +405,14 @@ export class S3AuditLogger {
       [startDate, endDate],
     );
 
-    const basicRows = basicResult.rows as any[];
+    const basicRows = basicResult.rows;
 
     // Calculate P95 for each operation
     const results: OperationAnalysis[] = [];
 
     for (const row of basicRows) {
       // Get P95 using PostgreSQL percentile functions
-      const p95Result = await query(
+      const p95Result = await query<{ duration_ms: number | null }>(
         `
         SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as duration_ms
         FROM s3_audit_logs
@@ -360,18 +421,21 @@ export class S3AuditLogger {
         [startDate, endDate, row.operation],
       );
 
-      const p95Row = p95Result.rows[0] as { duration_ms: number } | undefined;
-      const p95_duration_ms = p95Row?.duration_ms || row.avg_duration_ms || 0;
+      const p95 = p95Result.rows[0]?.duration_ms;
+      const p95_duration_ms =
+        p95 !== undefined && p95 !== null && p95 !== 0
+          ? p95
+          : (row.avg_duration_ms ?? 0);
 
       results.push({
         operation: row.operation,
         count: row.count,
-        avg_duration_ms: row.avg_duration_ms || 0,
-        max_duration_ms: row.max_duration_ms || 0,
-        min_duration_ms: row.min_duration_ms || 0,
+        avg_duration_ms: row.avg_duration_ms ?? 0,
+        max_duration_ms: row.max_duration_ms ?? 0,
+        min_duration_ms: row.min_duration_ms ?? 0,
         p95_duration_ms,
         success_rate: row.count > 0 ? row.success_count / row.count : 0,
-        total_bytes: row.total_bytes || 0,
+        total_bytes: row.total_bytes ?? 0,
       });
     }
 
@@ -390,7 +454,7 @@ export class S3AuditLogger {
       [retentionDays],
     );
 
-    return result.rowCount || 0;
+    return result.rowCount ?? 0;
   }
 }
 
@@ -418,13 +482,13 @@ export function createS3AuditMiddleware() {
       const duration_ms = Date.now() - data.startTime;
 
       // Extract request context if available
-      const userAgent = data.request?.headers.get("user-agent") || undefined;
+      const userAgent = nonEmpty(data.request?.headers.get("user-agent"));
       const forwarded = data.request?.headers.get("x-forwarded-for");
       const realIp = data.request?.headers.get("x-real-ip");
-      const ip_address = forwarded?.split(",")[0] || realIp || undefined;
+      const ip_address = nonEmpty(forwarded?.split(",")[0]) ?? nonEmpty(realIp);
 
       // Extract actual request URL if available
-      let endpoint = data.endpoint || "system";
+      let endpoint = nonEmpty(data.endpoint) ?? "system";
       if (data.request && "url" in data.request) {
         try {
           const url = new URL(data.request.url);
@@ -449,7 +513,7 @@ export function createS3AuditMiddleware() {
         session_id: undefined, // Could be extracted from cookies/headers
         user_id: undefined, // Could be extracted from auth
         error_message: data.error,
-        cache_hit: data.cacheHit || false,
+        cache_hit: data.cacheHit ?? false,
         estimated_cost_usd: undefined, // Could be calculated based on operation
       });
     },

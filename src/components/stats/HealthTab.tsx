@@ -2,14 +2,9 @@
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Badge, Section, Skeleton, Stat } from "@/components/ui";
+import { formatCount, formatDay } from "@/lib/albums";
 import { Meter } from "./charts";
-import {
-  formatDate,
-  formatNumber,
-  formatPercent,
-  formatSize,
-  timeAgo,
-} from "./format";
+import { formatNumber, formatPercent, formatSize, timeAgo } from "./format";
 import {
   BarsSkeleton,
   SectionTitleSkeleton,
@@ -20,6 +15,14 @@ import type { HealthStats, IgnoredFiles } from "./types";
 import { useStatsResource } from "./useStatsResource";
 
 const cell = "border-t border-line pt-4";
+
+// The API names its categories in English; the ids are stable.
+const IGNORED_LABELS: Record<string, string> = {
+  synology_thumbnails: "Miniatures Synology",
+  system_files: "Fichiers système et cachés",
+  eadir_folders: "Fichiers des dossiers @eaDir",
+  small_files: "Fichiers de moins de 10 Ko",
+};
 
 export default function HealthTab({ active }: { active: boolean }) {
   const health = useStatsResource<HealthStats>("/api/stats/health", active);
@@ -32,7 +35,7 @@ export default function HealthTab({ active }: { active: boolean }) {
     <div>
       {health.state.status === "error" ? (
         <TabError
-          title="Health figures didn't load"
+          title="Les chiffres de santé n’ont pas chargé"
           error={health.state.error}
           onRetry={health.retry}
           className="py-6"
@@ -40,7 +43,7 @@ export default function HealthTab({ active }: { active: boolean }) {
       ) : health.state.status !== "ready" ? (
         <div
           role="status"
-          aria-label="Loading health"
+          aria-label="Chargement de la santé"
           className="grid gap-x-12 lg:grid-cols-2"
         >
           {[0, 1].map((i) => (
@@ -58,19 +61,19 @@ export default function HealthTab({ active }: { active: boolean }) {
       )}
 
       <Section
-        title="Ignored files"
-        description="Left out of duplicate detection: system files, thumbnails other apps made, and files too small to be photos."
+        title="Fichiers ignorés"
+        description="Exclus de la recherche de doublons"
       >
         {ignored.state.status === "error" ? (
           <TabError
-            title="The ignored files didn't load"
+            title="Les fichiers ignorés n’ont pas chargé"
             error={ignored.state.error}
             onRetry={ignored.retry}
           />
         ) : ignored.state.status !== "ready" ? (
           <div
             role="status"
-            aria-label="Loading ignored files"
+            aria-label="Chargement des fichiers ignorés"
             className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"
           >
             {Array.from({ length: 4 }).map((_, i) => (
@@ -91,15 +94,15 @@ export default function HealthTab({ active }: { active: boolean }) {
 
 function MetadataSection({ data }: { data: HealthStats["metadata"] }) {
   const rows = [
-    { label: "Size", value: data.with_dimensions },
-    { label: "Date taken", value: data.with_date },
-    { label: "Camera", value: data.with_camera },
-    { label: "Location", value: data.with_location },
+    { label: "Dimensions", value: data.with_dimensions },
+    { label: "Date de prise de vue", value: data.with_date },
+    { label: "Appareil", value: data.with_camera },
+    { label: "Lieu", value: data.with_location },
   ];
   return (
     <Section
-      title="Metadata"
-      description="Read from each photo's header. The ones still to read are picked up by the metadata backfill, so these numbers grow: reload to see where it is."
+      title="Métadonnées"
+      description="Lues dans l’en-tête de chaque photo"
     >
       <ul className="space-y-4">
         {rows.map((r) => (
@@ -117,7 +120,7 @@ function MetadataSection({ data }: { data: HealthStats["metadata"] }) {
             <Meter
               value={r.value}
               total={data.images}
-              label={`${r.label}: ${formatNumber(r.value)} of ${formatNumber(data.images)} photos`}
+              label={`${r.label} : ${formatNumber(r.value)} photos sur ${formatNumber(data.images)}`}
             />
           </li>
         ))}
@@ -125,20 +128,20 @@ function MetadataSection({ data }: { data: HealthStats["metadata"] }) {
       <div className="mt-8 grid grid-cols-3 gap-x-6">
         <Stat
           className={cell}
-          label="Still to read"
+          label="À lire"
           value={formatNumber(data.pending)}
         />
         <Stat
           className={cell}
-          label="Unreadable"
+          label="Illisibles"
           value={formatNumber(data.failed)}
-          hint="No usable header"
+          hint="En-tête inutilisable"
         />
         <Stat
           className={cell}
-          label="Videos"
+          label="Vidéos"
           value={formatNumber(data.videos)}
-          hint="Not read for now"
+          hint="Non lues pour l’instant"
         />
       </div>
     </Section>
@@ -149,47 +152,47 @@ function SyncSection({ data }: { data: HealthStats["sync"] }) {
   const outOfDate = data.stale + data.never_synced > 0;
   return (
     <Section
-      title="Sync"
-      description="A sync compares the library with the bucket, and picks up files added or removed there."
+      title="Synchronisation"
+      description="Avec le bucket"
       action={
         outOfDate ? (
           <Badge tone="warning" icon={AlertTriangle}>
-            Out of date
+            En retard
           </Badge>
         ) : (
           <Badge tone="success" icon={CheckCircle2}>
-            Up to date
+            À jour
           </Badge>
         )
       }
     >
       <div className="grid grid-cols-2 gap-x-6 gap-y-8">
         <Stat
-          label="Last sync"
-          value={data.last_synced ? timeAgo(data.last_synced) : "Never"}
-          hint={data.last_synced ? formatDate(data.last_synced) : undefined}
+          label="Dernière synchro"
+          value={data.last_synced ? timeAgo(data.last_synced) : "Jamais"}
+          hint={data.last_synced ? formatDay(data.last_synced) : undefined}
         />
-        <Stat label="Folders" value={formatNumber(data.total_folders)} />
+        <Stat label="Dossiers" value={formatNumber(data.total_folders)} />
         <Stat
-          label="Checked this week"
+          label="Vérifiés cette semaine"
           value={formatNumber(data.synced_last_week)}
-          hint={`${formatNumber(data.synced_last_day)} today`}
+          hint={`${formatNumber(data.synced_last_day)} aujourd’hui`}
         />
         <Stat
-          label="Out of date"
+          label="En retard"
           value={formatNumber(data.stale + data.never_synced)}
           hint={
             data.never_synced > 0
-              ? `Not checked for a week, ${formatNumber(data.never_synced)} never`
-              : "Not checked for a week"
+              ? `Non vérifiés depuis une semaine, ${formatNumber(data.never_synced)} jamais`
+              : "Non vérifiés depuis une semaine"
           }
         />
       </div>
       {outOfDate && (
         <p className="mt-6 max-w-xl text-pretty text-sm text-ink-soft">
           {data.last_synced
-            ? `Photos added to the bucket after ${formatDate(data.last_synced)} won't appear until the next sync. Run a full sync to catch up.`
-            : "Run a full sync to bring the library in line with the bucket."}
+            ? `Les photos ajoutées au bucket après le ${formatDay(data.last_synced)} n’apparaissent pas.`
+            : "Lancer une synchronisation complète."}
         </p>
       )}
     </Section>
@@ -201,23 +204,24 @@ function IgnoredList({ data }: { data: IgnoredFiles }) {
     return (
       <p className="flex items-center gap-2 text-sm text-ink-soft">
         <Badge tone="success" icon={CheckCircle2}>
-          None
+          Aucun
         </Badge>
-        Every file in the library is taken into account.
       </p>
     );
   }
   return (
     <div className="animate-fade-in">
       <p className="tabular mb-5 text-sm text-ink-soft">
-        {formatNumber(data.summary.total_ignored_files)} files,{" "}
-        {formatSize(data.summary.total_ignored_size_bytes)} in all.
+        {formatCount(data.summary.total_ignored_files, "fichier")},{" "}
+        {formatSize(data.summary.total_ignored_size_bytes)} en tout
       </p>
       <ul className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         {data.breakdown.map((c) => (
           <li key={c.category} className={`${cell} min-w-0`}>
-            <div className="text-sm text-ink">{c.label}</div>
-            <div className="tabular mt-1 font-display text-2xl font-light text-ink">
+            <div className="text-sm text-ink">
+              {IGNORED_LABELS[c.category] ?? c.label}
+            </div>
+            <div className="tabular mt-1 font-display text-2xl font-semibold text-ink">
               {formatNumber(c.count)}
             </div>
             <div className="tabular text-xs text-ink-muted">

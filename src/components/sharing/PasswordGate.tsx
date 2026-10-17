@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
 import { Button, IconButton, Input } from "@/components/ui";
-import { parseAlbumName } from "@/lib/albums";
+import { albumDateLabel, parseAlbumName } from "@/lib/albums";
 import { unlockShare, type GuestResult } from "@/lib/shareClient";
 import { cn } from "@/lib/cn";
 
@@ -13,10 +13,6 @@ interface PasswordGateProps {
   albumName?: string;
   onResult: (result: GuestResult) => void;
 }
-
-const HINT = "Not sure what it is? Ask the person who sent you the link.";
-const WRONG =
-  "That password doesn't match. Check it with the person who sent you the link.";
 
 export default function PasswordGate({
   token,
@@ -29,6 +25,13 @@ export default function PasswordGate({
   const [wrong, setWrong] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const title = albumName ? parseAlbumName(albumName).title : undefined;
+  const dateLabel = albumName
+    ? albumDateLabel({ name: albumName, date_from: null, date_to: null })
+    : undefined;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,22 +54,26 @@ export default function PasswordGate({
       <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full border border-line bg-surface text-ink-muted">
         <Lock className="h-6 w-6" aria-hidden />
       </div>
-      <div className="kicker mb-3">A private album</div>
-      <h1 className="text-balance break-words font-display text-display-md font-light text-ink">
-        {title ?? "Someone shared photos with you"}
+      {dateLabel && <div className="kicker mb-2">{dateLabel}</div>}
+      <h1 className="text-balance break-words text-display-sm font-semibold text-ink">
+        {title ?? "Dossier protégé"}
       </h1>
-      <p className="mx-auto mt-4 max-w-xs text-pretty text-sm leading-relaxed text-ink-muted">
-        They added a password to this album. Enter it to see the photos.
+      <p
+        id="share-password-message"
+        role={wrong ? "alert" : undefined}
+        className={cn("mt-2 text-sm", wrong ? "text-danger" : "text-ink-muted")}
+      >
+        {wrong
+          ? "Ce mot de passe ne correspond pas."
+          : "Ce dossier est protégé par un mot de passe."}
       </p>
 
-      <form onSubmit={submit} className="mt-8 text-left" noValidate>
-        <label
-          htmlFor="share-password"
-          className="block text-sm font-medium text-ink"
-        >
-          Password
-        </label>
-        <div className="relative mt-1.5">
+      <form
+        onSubmit={(e) => void submit(e)}
+        className="mt-8 space-y-3"
+        noValidate
+      >
+        <div className="relative">
           <Input
             ref={inputRef}
             id="share-password"
@@ -76,8 +83,9 @@ export default function PasswordGate({
               setPassword(e.target.value);
               if (wrong) setWrong(false);
             }}
+            placeholder="Mot de passe"
+            aria-label="Mot de passe"
             autoComplete="current-password"
-            autoFocus
             aria-invalid={wrong || undefined}
             aria-describedby="share-password-message"
             className={cn(
@@ -87,32 +95,25 @@ export default function PasswordGate({
           />
           <IconButton
             icon={reveal ? EyeOff : Eye}
-            label={reveal ? "Hide password" : "Show password"}
+            label={
+              reveal ? "Masquer le mot de passe" : "Afficher le mot de passe"
+            }
             size="sm"
-            onClick={() => setReveal((r) => !r)}
+            onClick={() => {
+              setReveal((r) => !r);
+            }}
             className="absolute right-2 top-1/2 -translate-y-1/2"
           />
         </div>
-        {/* Two lines reserved, so the error replaces the hint without moving the button. */}
-        <p
-          id="share-password-message"
-          role={wrong ? "alert" : undefined}
-          className={cn(
-            "mt-2 min-h-[2.5rem] text-xs leading-5",
-            wrong ? "text-danger" : "text-ink-muted",
-          )}
-        >
-          {wrong ? WRONG : HINT}
-        </p>
         <Button
           type="submit"
           variant="primary"
           size="lg"
-          className="mt-3 w-full"
+          className="w-full"
           loading={busy}
           disabled={!password.trim()}
         >
-          Open album
+          Ouvrir
         </Button>
       </form>
     </div>

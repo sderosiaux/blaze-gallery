@@ -31,3 +31,6 @@ website/
 # Development
 .DS_Store
 migrations/
+
+# Local agent worktrees
+.claude/

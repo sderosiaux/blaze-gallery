@@ -41,12 +41,15 @@ const listeners = new Map<string, Set<() => void>>();
 let clock = 0;
 
 function notify(entry: Entry) {
-  listeners.get(entry.key)?.forEach((fn) => fn());
+  listeners.get(entry.key)?.forEach((fn) => {
+    fn();
+  });
 }
 
 function settle(entry: Entry, img: HTMLImageElement) {
   // decode() can reject for very large images that still display fine.
-  img
+  // Fire-and-forget: the entry settles through the callback below.
+  void img
     .decode()
     .catch(() => undefined)
     .then(() => {
@@ -69,8 +72,12 @@ function startImage(entry: Entry, src: string, priority: "high" | "low") {
   const img = new Image();
   img.decoding = "async";
   img.fetchPriority = priority;
-  img.onload = () => settle(entry, img);
-  img.onerror = () => fail(entry);
+  img.onload = () => {
+    settle(entry, img);
+  };
+  img.onerror = () => {
+    fail(entry);
+  };
   entry.img = img;
   entry.src = src;
   img.src = src;

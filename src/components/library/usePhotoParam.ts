@@ -17,7 +17,7 @@ export function usePhotoParam(): [
   string | null,
   (photoId: string | null) => void,
 ] {
-  const selected = useSearchParams()?.get("photo") ?? null;
+  const selected = useSearchParams().get("photo") ?? null;
   const pushed = useRef(false);
 
   const setPhoto = useCallback((photoId: string | null) => {
@@ -33,7 +33,7 @@ export function usePhotoParam(): [
     } else if (!photoId && wasOpen && pushed.current) {
       pushed.current = false;
       window.history.back();
-    } else if (photoId || wasOpen) {
+    } else if ((photoId !== null && photoId !== "") || wasOpen) {
       window.history.replaceState(null, "", href);
     }
   }, []);

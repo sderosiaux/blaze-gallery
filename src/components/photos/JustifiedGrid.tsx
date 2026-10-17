@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+// Measures before the first paint in the browser; useLayoutEffect warns on the server.
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 import type { Photo } from "@/types";
 import { aspectRatio } from "@/lib/albums";
 
 interface Row {
   height: number;
-  items: Array<{ photo: Photo; width: number; index: number }>;
+  items: { photo: Photo; width: number; index: number }[];
 }
 
 /**
@@ -60,11 +64,14 @@ export function layoutRows(
         leftover > 0 && widths.length;
         i = (i + 1) % widths.length, leftover--
       )
-        widths[i] += 1;
+        widths[i] = (widths[i] ?? 0) + 1;
     }
     return {
       height: Math.round(row.height),
-      items: row.items.map((it, i) => ({ ...it, width: widths[i] })),
+      items: row.items.map((it, i) => ({
+        ...it,
+        width: widths[i] ?? Math.floor(it.width),
+      })),
     };
   });
 }
@@ -96,15 +103,21 @@ export default function JustifiedGrid({
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
+  // The first width is read before paint, so rows exist on the first frame
+  // instead of collapsing to zero height and pushing the page down.
+  useIsomorphicLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    setWidth(Math.floor(el.getBoundingClientRect().width));
     const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
       const next = Math.floor(entry.contentRect.width);
       setWidth((prev) => (Math.abs(prev - next) >= 1 ? next : prev));
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, []);
 
   const rows = useMemo(

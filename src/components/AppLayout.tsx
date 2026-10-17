@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -25,6 +25,13 @@ import AuthButton from "@/components/auth/AuthButton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useLayout } from "@/contexts/LayoutContext";
 import { IconButton, useToast } from "@/components/ui";
+import {
+  FolderSuggestionList,
+  suggestionOptionId,
+  useFolderSuggestions,
+} from "@/components/find/FolderSuggestions";
+import { albumHref } from "@/components/photos/AlbumCard";
+import { isRecord, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
 
 interface NavLinkItem {
@@ -37,25 +44,25 @@ interface NavLinkItem {
 const PRIMARY_NAV: NavLinkItem[] = [
   {
     href: "/",
-    label: "Library",
+    label: "Bibliothèque",
     icon: Library,
     match: (p) => p === "/" || p.startsWith("/folder"),
   },
   {
     href: "/timeline",
-    label: "Timeline",
+    label: "Chronologie",
     icon: CalendarDays,
     match: (p) => p.startsWith("/timeline"),
   },
   {
     href: "/favorites",
-    label: "Favorites",
+    label: "Favoris",
     icon: Heart,
     match: (p) => p.startsWith("/favorites"),
   },
   {
     href: "/admin/shares",
-    label: "Shared links",
+    label: "Liens partagés",
     icon: Share2,
     match: (p) => p.startsWith("/admin/shares"),
   },
@@ -64,17 +71,20 @@ const PRIMARY_NAV: NavLinkItem[] = [
 const ADMIN_NAV: NavLinkItem[] = [
   {
     href: "/stats",
-    label: "Statistics",
+    label: "Statistiques",
     icon: BarChart3,
     match: (p) => p.startsWith("/stats"),
   },
   {
     href: "/audit",
-    label: "Storage audit",
+    label: "Audit stockage",
     icon: Gauge,
     match: (p) => p.startsWith("/audit"),
   },
 ];
+
+/** Set once the shell has rendered a first page in this tab. */
+let shellHasRendered = false;
 
 const ADMIN_OPEN_KEY = "blaze:admin-nav-open";
 
@@ -147,7 +157,9 @@ function SidebarContent({
   onToggleCollapse?: () => void;
   onClose?: () => void;
 }) {
-  const pathname = usePathname() ?? "/";
+  // Null outside the app router (e.g. a pages-router fallback render).
+  const currentPath = usePathname() as string | null;
+  const pathname = currentPath ?? "/";
   const router = useRouter();
   const toast = useToast();
   const [surpriseLoading, setSurpriseLoading] = useState(false);
@@ -169,15 +181,18 @@ function SidebarContent({
     setSurpriseLoading(true);
     try {
       const response = await fetch("/api/stats/random-folder");
-      const data = await response.json();
+      const data = await readJsonObject(response);
       if (data.success) {
+        const folder = data.data;
+        if (!isRecord(folder) || typeof folder.path !== "string")
+          throw new Error("invalid_folder");
         onNavigate?.();
-        router.push(data.data.path === "" ? "/" : `/folder/${data.data.path}`);
+        router.push(folder.path === "" ? "/" : `/folder/${folder.path}`);
       } else {
-        toast.show("No album with photos was found.", "error");
+        toast.show("Aucun dossier ne contient de photos.", "error");
       }
     } catch {
-      toast.show("Couldn't pick a random album. Try again.", "error");
+      toast.show("Impossible de choisir un dossier au hasard.", "error");
     } finally {
       setSurpriseLoading(false);
     }
@@ -194,19 +209,24 @@ function SidebarContent({
         <Link
           href="/"
           onClick={onNavigate}
-          aria-label="Blaze Gallery, home"
+          aria-label="Blaze Gallery, accueil"
           className="rounded"
         >
           <BrandMark compact={collapsed} />
         </Link>
         {onClose && (
-          <IconButton icon={X} label="Close menu" size="sm" onClick={onClose} />
+          <IconButton
+            icon={X}
+            label="Fermer le menu"
+            size="sm"
+            onClick={onClose}
+          />
         )}
       </div>
 
       {showNav && (
         <nav
-          aria-label="Main"
+          aria-label="Navigation principale"
           className={cn(
             "flex-1 overflow-y-auto pb-4 pt-4",
             collapsed ? "px-3" : "px-3",
@@ -226,12 +246,12 @@ function SidebarContent({
             <li>
               <button
                 type="button"
-                onClick={surprise}
+                onClick={() => void surprise()}
                 disabled={surpriseLoading}
                 aria-label={
-                  collapsed ? "Surprise me: open a random album" : undefined
+                  collapsed ? "Au hasard : ouvrir un dossier" : undefined
                 }
-                title={collapsed ? "Surprise me" : "Open a random album"}
+                title="Ouvrir un dossier au hasard"
                 className={cn(
                   "group flex h-10 w-full items-center gap-3 rounded-md text-sm text-ink-soft transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:opacity-60",
                   collapsed ? "justify-center" : "px-3",
@@ -244,7 +264,7 @@ function SidebarContent({
                   )}
                   aria-hidden
                 />
-                {!collapsed && <span>Surprise me</span>}
+                {!collapsed && <span>Au hasard</span>}
               </button>
             </li>
           </ul>
@@ -309,20 +329,24 @@ function SidebarContent({
             href="https://github.com/sderosiaux/blaze-gallery"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Source code on GitHub"
-            title="Source code on GitHub"
+            aria-label="Code source sur GitHub"
+            title="Code source sur GitHub"
             className={cn(
               "flex h-9 items-center gap-2 rounded-md text-xs text-ink-muted transition-colors hover:text-ink",
               collapsed ? "w-9 justify-center" : "px-3",
             )}
           >
             <GitHubIcon size={16} />
-            {!collapsed && <span>Source</span>}
+            {!collapsed && <span>Code source</span>}
           </a>
           {onToggleCollapse && (
             <IconButton
               icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-              label={collapsed ? "Expand sidebar  [" : "Collapse sidebar  ["}
+              label={
+                collapsed
+                  ? "Déplier la barre latérale  ["
+                  : "Replier la barre latérale  ["
+              }
               size="sm"
               onClick={onToggleCollapse}
             />
@@ -336,14 +360,26 @@ function SidebarContent({
 function TopSearch() {
   const router = useRouter();
   const pathname = usePathname();
-  const query = useSearchParams()?.get("q") ?? "";
+  const query = useSearchParams().get("q") ?? "";
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
+  // What the user typed: suggestions follow it, not the value synced from the URL.
+  const [typed, setTyped] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const suggestions = useFolderSuggestions(typed);
+  const listId = useId();
+  const expanded = open && suggestions.length > 0;
 
   // Follows Back/Forward and in-app links between /search?q= values.
   useEffect(() => {
     if (pathname === "/search") setValue(query);
   }, [pathname, query]);
+
+  // A new list starts with nothing highlighted: Enter runs the full search.
+  useEffect(() => {
+    setActive(-1);
+  }, [suggestions]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -355,49 +391,125 @@ function TopSearch() {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
+
+  const close = () => {
+    setOpen(false);
+    setActive(-1);
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
+    close();
     router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
     inputRef.current?.blur();
   };
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const count = suggestions.length;
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
+      e.preventDefault();
+      const down = e.key === "ArrowDown";
+      if (!expanded) {
+        setOpen(true);
+        setActive(down ? 0 : count - 1);
+        return;
+      }
+      // -1 is the field itself, between the last option and the first.
+      setActive((i) =>
+        down
+          ? ((i + 2) % (count + 1)) - 1
+          : ((i + count + 1) % (count + 1)) - 1,
+      );
+    } else if (e.key === "Enter") {
+      const folder = expanded ? suggestions[active] : undefined;
+      if (!folder) return; // the form submits: the full search
+      e.preventDefault();
+      close();
+      router.push(albumHref(folder.path));
+      inputRef.current?.blur();
+    } else if (e.key === "Escape") {
+      if (expanded) {
+        // Only closes the list; the field keeps its text.
+        e.preventDefault();
+        close();
+      } else {
+        inputRef.current?.blur();
+      }
+    }
+  };
+
   return (
-    <form role="search" onSubmit={submit} className="relative w-full max-w-xl">
-      <Search
-        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-        aria-hidden
-      />
-      <input
-        ref={inputRef}
-        type="search"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && inputRef.current?.blur()}
-        placeholder="Search the library"
-        aria-label="Search albums and photos"
-        className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
-      />
-      {value ? (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => {
-            setValue("");
-            inputRef.current?.focus();
+    <form
+      role="search"
+      onSubmit={submit}
+      className="w-full max-w-xl sm:relative"
+    >
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
+          aria-hidden
+        />
+        <input
+          ref={inputRef}
+          type="search"
+          role="combobox"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            expanded && active >= 0
+              ? suggestionOptionId(listId, active)
+              : undefined
+          }
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setTyped(e.target.value);
+            setOpen(true);
           }}
-          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : (
-        <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
-          ⌘K
-        </kbd>
-      )}
+          onFocus={() => {
+            setOpen(true);
+          }}
+          onBlur={close}
+          onKeyDown={onKeyDown}
+          placeholder="Rechercher"
+          aria-label="Rechercher des dossiers et des photos"
+          className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
+        />
+        {value ? (
+          <button
+            type="button"
+            aria-label="Effacer la recherche"
+            onClick={() => {
+              setValue("");
+              setTyped("");
+              inputRef.current?.focus();
+            }}
+            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : (
+          <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
+            ⌘K
+          </kbd>
+        )}
+      </div>
+      <FolderSuggestionList
+        id={listId}
+        folders={suggestions}
+        open={open}
+        active={active}
+        onActiveChange={setActive}
+        onPick={close}
+      />
     </form>
   );
 }
@@ -420,20 +532,39 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setMounted(true);
     fetch("/api/auth/config")
       .then((r) => (r.ok ? r.json() : { enabled: false }))
-      .then(({ enabled }) => setAuthEnabled(Boolean(enabled)))
-      .catch(() => setAuthEnabled(false));
+      .then(({ enabled }) => {
+        setAuthEnabled(Boolean(enabled));
+      })
+      .catch(() => {
+        setAuthEnabled(false);
+      });
   }, []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 4);
+    };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname, setMobileNavOpen]);
+
+  // A client-side navigation leaves focus on <body>: move it to the new
+  // content so Tab continues from there, not from the skip link and sidebar.
+  // Each page renders its own AppLayout, so "not the first page" is tracked
+  // at module level; the first load keeps the browser's default focus.
+  useEffect(() => {
+    if (shellHasRendered) {
+      document.getElementById("main")?.focus({ preventScroll: true });
+    }
+    shellHasRendered = true;
+  }, [pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -448,15 +579,56 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
   }, [toggleSidebar]);
 
+  // The drawer is a modal: focus goes in, stays in, and returns to the menu
+  // button when it closes.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!mobileNavOpen) return;
-    const onKey = (e: KeyboardEvent) =>
-      e.key === "Escape" && setMobileNavOpen(false);
+    const panel = drawerRef.current;
+    const focusables = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    const frame = requestAnimationFrame(() => {
+      panel?.querySelector<HTMLElement>("nav a[href]")?.focus();
+    });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMobileNavOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    const menuButton = menuButtonRef.current;
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKey);
+      // After a navigation the new page already has focus; otherwise
+      // (Escape, close button, scrim) it goes back to the menu button.
+      const active = document.activeElement;
+      if (active === document.body || (active && panel?.contains(active)))
+        menuButton?.focus({ preventScroll: true });
+    };
   }, [mobileNavOpen, setMobileNavOpen]);
 
   const showNav = mounted && !authLoading && (!authEnabled || isAuthenticated);
@@ -467,15 +639,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-toast focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:text-paper"
       >
-        Skip to content
+        Aller au contenu
       </a>
 
       {/* Desktop sidebar */}
       <aside
-        aria-label="Sidebar"
+        aria-label="Barre latérale"
         data-collapsed={sidebarCollapsed}
         className={cn(
-          "fixed inset-y-0 left-0 z-sidebar hidden border-r border-line bg-paper lg:block",
+          "fixed inset-y-0 left-0 z-sidebar hidden border-r border-line bg-sidebar lg:block",
           sidebarAnimated && "transition-[width] duration-200 ease-out-soft",
           sidebarCollapsed
             ? "w-[var(--sidebar-collapsed)]"
@@ -498,19 +670,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
         aria-hidden={!mobileNavOpen}
       >
-        <div
-          onClick={() => setMobileNavOpen(false)}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Fermer le menu"
+          onClick={() => {
+            setMobileNavOpen(false);
+          }}
           className={cn(
             "absolute inset-0 bg-scrim/40 transition-opacity duration-200",
             mobileNavOpen ? "opacity-100" : "opacity-0",
           )}
         />
         <div
+          ref={drawerRef}
           role="dialog"
           aria-modal={mobileNavOpen || undefined}
           aria-label="Menu"
           className={cn(
-            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-paper transition-transform duration-200 ease-out-soft",
+            "absolute inset-y-0 left-0 w-[min(18rem,85vw)] bg-sidebar transition-transform duration-200 ease-out-soft",
             mobileNavOpen ? "translate-x-0 shadow-pop" : "-translate-x-full",
           )}
         >
@@ -519,8 +697,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               collapsed={false}
               showNav={showNav}
               authEnabled={mounted && authEnabled}
-              onNavigate={() => setMobileNavOpen(false)}
-              onClose={() => setMobileNavOpen(false)}
+              onNavigate={() => {
+                setMobileNavOpen(false);
+              }}
+              onClose={() => {
+                setMobileNavOpen(false);
+              }}
             />
           )}
         </div>
@@ -543,14 +725,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         >
           <IconButton
+            ref={menuButtonRef}
             icon={Menu}
-            label="Open menu"
+            label="Ouvrir le menu"
             className="-ml-1 lg:hidden"
-            onClick={() => setMobileNavOpen(true)}
+            onClick={() => {
+              setMobileNavOpen(true);
+            }}
           />
           <Link
             href="/"
-            aria-label="Blaze Gallery, home"
+            aria-label="Blaze Gallery, accueil"
             className="mr-1 shrink-0 rounded lg:hidden"
           >
             <BrandMark compact />

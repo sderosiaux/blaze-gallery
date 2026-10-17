@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getTimelinePhotos, TimelineCursor } from "@/lib/database";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import type { TimelineCursor } from "@/lib/database";
+import { getTimelinePhotos } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 
@@ -60,6 +62,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
 function parseCursor(value: string): TimelineCursor | null {
   const [datePart, idPart] = value.split("|");
+  if (datePart === undefined) return null;
   const date = new Date(datePart);
   if (Number.isNaN(date.getTime())) return null;
   const dateTaken = date.toISOString();

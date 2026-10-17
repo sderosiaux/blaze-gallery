@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Photo } from "@/types";
 import { cn } from "@/lib/cn";
 import { useImageLoading } from "@/hooks/useImageLoading";
+import { userRotation } from "@/lib/rotation";
 import CachedImage from "./CachedImage";
 import { fitBox, useElementSize } from "./useElementSize";
 import { photoRatio, placeholderSources, type ViewerSources } from "./sources";
@@ -22,9 +23,9 @@ interface ViewerPhotoProps {
   sessionToken?: string;
   zoomed: boolean;
   onZoomedChange: (zoomed: boolean) => void;
-  /** Where the original stands, and whether anything is on screen meanwhile. */
+  /** Where the sharp image stands, and whether anything is on screen meanwhile. */
   onStatus: (status: FullStatus, placeholder: PlaceholderState) => void;
-  /** Bump to retry a failed original. */
+  /** Bump to retry a failed sharp image. */
   retryKey: number;
 }
 
@@ -45,9 +46,10 @@ function softness(layer: Layer, boxWidth: number): number {
 
 /**
  * One photo on the stage. Whatever is already in the browser (EXIF preview,
- * the tile's thumbnail) shows at once at full size, softened; the original
- * fades in on top once it is decoded. Zoom swaps the fitted box for the
- * original at pixel size inside a scroller.
+ * the tile's thumbnail) shows at once at full size, softened; the 2048 px
+ * rendition fades in on top once it is decoded (the original instead when
+ * there is no rendition). Zoom swaps the fitted box for a scroller, and
+ * fetches the original only when it has more pixels than the rendition.
  */
 export default function ViewerPhoto({
   photo,
@@ -68,20 +70,35 @@ export default function ViewerPhoto({
   const [thumb, setThumb] = useState<Layer>(null);
   const [thumbFallback, setThumbFallback] = useState(false);
 
-  const full = useImageLoading(sources.full, { sessionToken });
-  const [readyAtOpen] = useState(() => full.status === "ready");
-  const fullReady = Boolean(
-    sources.full && full.status === "ready" && full.element,
+  // The stage shows the rendition; when there is none or it failed, the
+  // original stands in, if a browser can display it. Not for a photo turned
+  // by hand: the original's pixels aren't turned, only the rendition's.
+  const turned = userRotation(photo.metadata) !== 0;
+  const originalSrc = turned ? null : sources.full;
+  const display = useImageLoading(sources.display, { sessionToken });
+  const displayFailed = !sources.display || display.status === "error";
+  const fallback = useImageLoading(displayFailed ? originalSrc : null, {
+    sessionToken,
+  });
+  const stageSrc = displayFailed ? originalSrc : sources.display;
+  const stage = displayFailed ? fallback : display;
+  const [readyAtOpen] = useState(() => stage.status === "ready");
+  const stageReady = Boolean(
+    stageSrc && stage.status === "ready" && stage.element,
   );
 
-  // Once the original has faded in, the soft layers go: a transparent PNG
+  // Once the sharp image has faded in, the soft layers go: a transparent PNG
   // must not show a blurred copy of itself underneath.
   const [settled, setSettled] = useState(readyAtOpen);
   useEffect(() => {
-    if (!fullReady) return;
-    const timer = setTimeout(() => setSettled(true), 400);
-    return () => clearTimeout(timer);
-  }, [fullReady]);
+    if (!stageReady) return;
+    const timer = setTimeout(() => {
+      setSettled(true);
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [stageReady]);
 
   const thumbSrc = layers.thumb ?? (thumbFallback ? sources.thumb : undefined);
   const previewShown =
@@ -95,12 +112,18 @@ export default function ViewerPhoto({
     if (
       !layers.thumb &&
       (!layers.preview || preview === "failed") &&
-      !fullReady
+      !stageReady
     )
       setThumbFallback(true);
-  }, [layers, preview, fullReady]);
+  }, [layers, preview, stageReady]);
 
-  const status: FullStatus = !sources.full ? "unavailable" : full.status;
+  // A turned photo whose rendition failed could be shown: that's a retry,
+  // not a format the browser can't display.
+  const status: FullStatus = stageSrc
+    ? stage.status
+    : turned && sources.full
+      ? "error"
+      : "unavailable";
   const previewGone = !layers.preview || preview === "failed";
   const thumbGone = thumbSrc
     ? thumb === "failed"
@@ -110,38 +133,66 @@ export default function ViewerPhoto({
     : previewGone && thumbGone
       ? "none"
       : "pending";
-  useEffect(
-    () => onStatus(status, placeholder),
-    [status, placeholder, onStatus],
-  );
-
-  const { retry } = full;
   useEffect(() => {
-    if (retryKey > 0) retry();
-  }, [retryKey, retry]);
+    onStatus(status, placeholder);
+  }, [status, placeholder, onStatus]);
+
+  // A retry asks for the rendition again, then the original if it fails anew.
+  const { retry: retryDisplay } = display;
+  const { retry: retryFallback } = fallback;
+  useEffect(() => {
+    if (retryKey === 0) return;
+    retryDisplay();
+    retryFallback();
+  }, [retryKey, retryDisplay, retryFallback]);
+
+  // Asked for on the first zoom that goes past the rendition, then kept.
+  const [originalWanted, setOriginalWanted] = useState(false);
+  const original = useImageLoading(originalWanted ? originalSrc : null, {
+    sessionToken,
+  });
+  const originalShown = Boolean(
+    originalWanted && original.status === "ready" && original.element,
+  );
 
   const dims = photo.metadata?.dimensions;
   const ratio =
-    (full.width && full.height ? full.width / full.height : undefined) ??
+    (stage.width && stage.height ? stage.width / stage.height : undefined) ??
     photoRatio(photo) ??
     ratioOf(thumb) ??
     ratioOf(preview) ??
     4 / 3;
-  const naturalWidth = full.width ?? dims?.width;
-  // Small originals stop at twice their size rather than turning to mush.
-  const box = fitBox(area, ratio, naturalWidth ? naturalWidth * 2 : Infinity);
+  const originalWidth =
+    original.width ?? (displayFailed ? stage.width : undefined) ?? dims?.width;
+  // The most pixels zoom can show: the original's when a browser displays
+  // it, the rendition's otherwise (RAW, HEIC, a photo turned by hand).
+  const zoomableWidth = originalSrc
+    ? (originalWidth ?? stage.width)
+    : stage.width;
+  // Small photos stop at twice their size rather than turning to mush.
+  const box = fitBox(area, ratio, zoomableWidth ? zoomableWidth * 2 : Infinity);
 
-  // Zoom: the original at its own pixels, at least twice the fitted size.
+  // Zoom: the photo at its own pixels, at least twice the fitted size.
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const zoomWidth = Math.round(
     Math.min(
-      Math.max((full.width ?? box.width) / dpr, box.width * 2),
+      Math.max((zoomableWidth ?? box.width) / dpr, box.width * 2),
       box.width * 4,
     ),
   );
   const zoomHeight = Math.round(zoomWidth / ratio);
   const zoomOrigin = useRef<{ x: number; y: number } | null>(null);
-  const isZoomed = zoomed && fullReady;
+  const isZoomed = zoomed && stageReady;
+
+  const renditionShort =
+    !displayFailed &&
+    Boolean(originalSrc) &&
+    display.width !== undefined &&
+    display.width < zoomWidth * dpr &&
+    (originalWidth === undefined || display.width < originalWidth);
+  if (isZoomed && renditionShort && !originalWanted) setOriginalWanted(true);
+  const zoomSize = useRef({ width: zoomWidth, height: zoomHeight });
+  zoomSize.current = { width: zoomWidth, height: zoomHeight };
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -151,10 +202,9 @@ export default function ViewerPhoto({
     // Bring the double-clicked point to the centre; from the keyboard, start centred.
     const fx = origin ? origin.x : 0.5;
     const fy = origin ? origin.y : 0.5;
-    el.scrollLeft = fx * zoomWidth - el.clientWidth / 2;
-    el.scrollTop = fy * zoomHeight - el.clientHeight / 2;
+    el.scrollLeft = fx * zoomSize.current.width - el.clientWidth / 2;
+    el.scrollTop = fy * zoomSize.current.height - el.clientHeight / 2;
     // Only on entering zoom: panning is the user's afterwards.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZoomed]);
 
   const toggleZoomAt = (
@@ -162,7 +212,7 @@ export default function ViewerPhoto({
     clientY: number,
     target: HTMLElement,
   ) => {
-    if (!fullReady) return;
+    if (!stageReady) return;
     if (!zoomed) {
       const rect = target.getBoundingClientRect();
       zoomOrigin.current = {
@@ -229,30 +279,47 @@ export default function ViewerPhoto({
     onPointerUp(e);
   };
 
-  const zoomHint = fullReady ? (zoomed ? "zoom-out" : "zoom-in") : undefined;
+  const zoomHint = stageReady ? (zoomed ? "zoom-out" : "zoom-in") : undefined;
 
   return (
     <div ref={areaRef} data-backdrop className="absolute inset-0">
-      {isZoomed && full.element ? (
+      {isZoomed && stage.element ? (
         <div
           ref={scrollRef}
+          role="presentation"
           className="scrollbar-none absolute inset-0 cursor-grab overflow-auto overscroll-contain active:cursor-grabbing"
-          onDoubleClick={(e) =>
-            toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
-          }
+          onDoubleClick={(e) => {
+            toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
+          }}
           onPointerDown={onPanStart}
           onPointerMove={onPanMove}
           onPointerUp={onPanEnd}
-          onPointerCancel={() => (drag.current = null)}
+          onPointerCancel={() => {
+            drag.current = null;
+          }}
         >
           <div className="flex h-max min-h-full w-max min-w-full items-center justify-center">
-            <CachedImage
-              element={full.element}
-              alt={photo.filename}
-              className="max-w-none select-none"
-              width={zoomWidth}
-              height={zoomHeight}
-            />
+            <div
+              className="relative shrink-0"
+              style={{ width: zoomWidth, height: zoomHeight }}
+            >
+              <CachedImage
+                element={stage.element}
+                alt={originalShown ? "" : photo.filename}
+                className="max-w-none select-none"
+                width={zoomWidth}
+                height={zoomHeight}
+              />
+              {originalShown && original.element && (
+                <CachedImage
+                  element={original.element}
+                  alt={photo.filename}
+                  className="absolute inset-0 max-w-none animate-fade-in select-none"
+                  width={zoomWidth}
+                  height={zoomHeight}
+                />
+              )}
+            </div>
           </div>
         </div>
       ) : (
@@ -263,17 +330,18 @@ export default function ViewerPhoto({
           {/* Nothing displayable is coming: the viewer shows its own explanation instead. */}
           {placeholder === "none" &&
           status !== "loading" &&
-          !fullReady ? null : (
+          !stageReady ? null : (
             <div
               className={cn(
                 "relative overflow-hidden shadow-lift sm:rounded-sm",
                 !settled && "bg-surface-sunken",
-                !hasPlaceholder && !fullReady && "skeleton",
+                !hasPlaceholder && !stageReady && "skeleton",
               )}
+              role="presentation"
               style={{ width: box.width, height: box.height, cursor: zoomHint }}
-              onDoubleClick={(e) =>
-                toggleZoomAt(e.clientX, e.clientY, e.currentTarget)
-              }
+              onDoubleClick={(e) => {
+                toggleZoomAt(e.clientX, e.clientY, e.currentTarget);
+              }}
               onPointerDown={onPointerDown}
               onPointerUp={onPointerUp}
             >
@@ -283,13 +351,15 @@ export default function ViewerPhoto({
                   alt=""
                   draggable={false}
                   decoding="async"
-                  onLoad={(e) =>
+                  onLoad={(e) => {
                     setPreview({
                       width: e.currentTarget.naturalWidth,
                       height: e.currentTarget.naturalHeight,
-                    })
-                  }
-                  onError={() => setPreview("failed")}
+                    });
+                  }}
+                  onError={() => {
+                    setPreview("failed");
+                  }}
                   className={cn(
                     "absolute inset-0 h-full w-full select-none object-cover",
                     softness(preview, box.width) > 0 && "scale-[1.04]",
@@ -303,13 +373,15 @@ export default function ViewerPhoto({
                   alt=""
                   draggable={false}
                   decoding="async"
-                  onLoad={(e) =>
+                  onLoad={(e) => {
                     setThumb({
                       width: e.currentTarget.naturalWidth,
                       height: e.currentTarget.naturalHeight,
-                    })
-                  }
-                  onError={() => setThumb("failed")}
+                    });
+                  }}
+                  onError={() => {
+                    setThumb("failed");
+                  }}
                   className={cn(
                     "absolute inset-0 h-full w-full select-none object-cover",
                     softness(thumb, box.width) > 0 && "scale-[1.02]",
@@ -317,9 +389,9 @@ export default function ViewerPhoto({
                   style={{ filter: `blur(${softness(thumb, box.width)}px)` }}
                 />
               )}
-              {fullReady && full.element && (
+              {stageReady && stage.element && (
                 <CachedImage
-                  element={full.element}
+                  element={stage.element}
                   alt={photo.filename}
                   className={cn(
                     "absolute inset-0 h-full w-full select-none object-contain",

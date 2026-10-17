@@ -20,6 +20,7 @@ import { Pool } from "pg";
 import * as dotenv from "dotenv";
 import { probeWithReader } from "../src/lib/imageProbe";
 import type { PhotoMetadata } from "../src/types";
+import { out, requireEnv } from "./cli";
 
 dotenv.config({ quiet: true });
 
@@ -58,10 +59,18 @@ function parseArgs(argv: string[]): Options {
   return options;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
+/** HTTP status the AWS SDK attached to a failure, when it did */
+function httpStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("$metadata" in error)) {
+    return undefined;
+  }
+  const meta = error.$metadata;
+  return typeof meta === "object" &&
+    meta !== null &&
+    "httpStatusCode" in meta &&
+    typeof meta.httpStatusCode === "number"
+    ? meta.httpStatusCode
+    : undefined;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -70,13 +79,12 @@ async function mapWithConcurrency<T, R>(
   fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
-  let next = 0;
+  const queue = items.entries();
   const workers = Array.from(
     { length: Math.min(concurrency, items.length) },
     async () => {
-      while (next < items.length) {
-        const index = next++;
-        results[index] = await fn(items[index]);
+      for (const [index, item] of queue) {
+        results[index] = await fn(item);
       }
     },
   );
@@ -110,52 +118,77 @@ async function main() {
   const readRange = (key: string) => async (start: number, end: number) => {
     try {
       const response = await s3.send(
-        new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${start}-${end}` }),
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Range: `bytes=${start}-${end}`,
+        }),
       );
       return response.Body
         ? Buffer.from(await response.Body.transformToByteArray())
         : Buffer.alloc(0);
-    } catch (error: any) {
+    } catch (error) {
       // Empty object: nothing to read
-      if (error?.$metadata?.httpStatusCode === 416) return Buffer.alloc(0);
+      if (httpStatus(error) === 416) return Buffer.alloc(0);
       throw error;
     }
   };
 
-  const probe = async (row: { id: string; s3_key: string }): Promise<Outcome> => {
+  const probe = async (row: {
+    id: string;
+    s3_key: string;
+  }): Promise<Outcome> => {
     try {
       const result = await probeWithReader(readRange(row.s3_key));
       return result.metadata
-        ? { id: row.id, kind: "metadata", metadata: result.metadata, preview: Boolean(result.preview) }
+        ? {
+            id: row.id,
+            kind: "metadata",
+            metadata: result.metadata,
+            preview: Boolean(result.preview),
+          }
         : { id: row.id, kind: "empty" };
     } catch (error) {
-      return { id: row.id, kind: "error", message: error instanceof Error ? error.message : String(error) };
+      return {
+        id: row.id,
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   };
 
-  let stopping = false;
+  // Set from the SIGINT handler: an object, so the loop below sees it change
+  const signal = { stopping: false };
   process.on("SIGINT", () => {
-    if (stopping) process.exit(130);
-    stopping = true;
-    console.log("\nStopping after the current batch (Ctrl-C again to abort now)");
+    if (signal.stopping) process.exit(130);
+    signal.stopping = true;
+    out("\nStopping after the current batch (Ctrl-C again to abort now)");
   });
 
-  const { rows: [{ remaining }] } = await pool.query(
+  const { rows: countRows } = await pool.query<{ remaining: number }>(
     `SELECT COUNT(*)::int AS remaining FROM photos
      WHERE metadata IS NULL AND metadata_status <> 'failed' AND mime_type LIKE 'image/%'`,
   );
+  const remaining = countRows[0]?.remaining ?? 0;
   const target = Math.min(remaining, options.limit);
-  console.log(
+  out(
     `${remaining} images without metadata; processing ${target}` +
       ` (concurrency ${options.concurrency}${options.dryRun ? ", dry run" : ""})`,
   );
 
-  const counts: Counts = { processed: 0, withDimensions: 0, withDate: 0, withPreview: 0, empty: 0, errors: 0 };
+  const counts: Counts = {
+    processed: 0,
+    withDimensions: 0,
+    withDate: 0,
+    withPreview: 0,
+    empty: 0,
+    errors: 0,
+  };
   const batchSize = Math.max(options.concurrency * 8, 100);
   const started = Date.now();
   let lastId = "0";
 
-  while (!stopping && counts.processed < target) {
+  while (!signal.stopping && counts.processed < target) {
     const { rows } = await pool.query<{ id: string; s3_key: string }>(
       `SELECT id, s3_key FROM photos
        WHERE metadata IS NULL AND metadata_status <> 'failed'
@@ -164,13 +197,18 @@ async function main() {
        LIMIT $2`,
       [lastId, Math.min(batchSize, target - counts.processed)],
     );
-    if (rows.length === 0) break;
-    lastId = rows[rows.length - 1].id;
+    const lastRow = rows[rows.length - 1];
+    if (lastRow === undefined) break;
+    lastId = lastRow.id;
 
     const outcomes = await mapWithConcurrency(rows, options.concurrency, probe);
-    const found = outcomes.filter((o): o is Extract<Outcome, { kind: "metadata" }> => o.kind === "metadata");
+    const found = outcomes.filter(
+      (o): o is Extract<Outcome, { kind: "metadata" }> => o.kind === "metadata",
+    );
     const empty = outcomes.filter((o) => o.kind === "empty").map((o) => o.id);
-    const errors = outcomes.filter((o): o is Extract<Outcome, { kind: "error" }> => o.kind === "error");
+    const errors = outcomes.filter(
+      (o): o is Extract<Outcome, { kind: "error" }> => o.kind === "error",
+    );
 
     if (!options.dryRun) {
       if (found.length > 0) {
@@ -179,7 +217,10 @@ async function main() {
            SET metadata = v.metadata, metadata_status = 'extracted'
            FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::jsonb[]) AS metadata) v
            WHERE p.id = v.id AND p.metadata IS NULL`,
-          [found.map((o) => o.id), found.map((o) => JSON.stringify(o.metadata))],
+          [
+            found.map((o) => o.id),
+            found.map((o) => JSON.stringify(o.metadata)),
+          ],
         );
       }
       if (empty.length > 0) {
@@ -198,13 +239,14 @@ async function main() {
     counts.empty += empty.length;
     counts.errors += errors.length;
     for (const error of errors.slice(0, 3)) {
-      console.log(`  error on photo ${error.id}: ${error.message}`);
+      out(`  error on photo ${error.id}: ${error.message}`);
     }
 
     const elapsed = (Date.now() - started) / 1000;
     const rate = counts.processed / elapsed;
-    const eta = rate > 0 ? Math.round((target - counts.processed) / rate / 60) : 0;
-    console.log(
+    const eta =
+      rate > 0 ? Math.round((target - counts.processed) / rate / 60) : 0;
+    out(
       `${new Date().toISOString()} ${counts.processed}/${target}` +
         ` | dims ${counts.withDimensions} date ${counts.withDate} preview ${counts.withPreview}` +
         ` | empty ${counts.empty} errors ${counts.errors}` +
@@ -212,7 +254,7 @@ async function main() {
     );
   }
 
-  console.log(
+  out(
     `Done${options.dryRun ? " (dry run, nothing written)" : ""}: processed ${counts.processed},` +
       ` with dims ${counts.withDimensions}, with date ${counts.withDate},` +
       ` with preview ${counts.withPreview}, marked failed ${options.dryRun ? 0 : counts.empty}` +
@@ -224,6 +266,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("Backfill failed:", error instanceof Error ? error.message : error);
+  console.error(
+    "Backfill failed:",
+    error instanceof Error ? error.message : error,
+  );
   process.exit(1);
 });

@@ -1,3 +1,10 @@
+import type {
+  MetadataStatus,
+  SyncJobStatus,
+  SyncJobType,
+  ThumbnailStatus,
+} from "./common";
+
 export interface Folder {
   id: number;
   name: string;
@@ -30,8 +37,8 @@ export interface Photo {
   thumbnail_url: string;
   thumbnail_path?: string;
   metadata?: PhotoMetadata;
-  metadata_status: import("./common").MetadataStatus;
-  thumbnail_status: import("./common").ThumbnailStatus;
+  metadata_status: MetadataStatus;
+  thumbnail_status: ThumbnailStatus;
   is_favorite: boolean;
 }
 
@@ -53,12 +60,14 @@ export interface PhotoMetadata {
   };
   /** Raw EXIF orientation (1-8) */
   orientation?: number;
+  /** Clockwise quarter turns the owner applied by hand (see src/lib/rotation.ts) */
+  user_rotation?: 0 | 90 | 180 | 270;
 }
 
 export interface SyncJob {
   id: number;
-  type: import("./common").SyncJobType;
-  status: import("./common").SyncJobStatus;
+  type: SyncJobType;
+  status: SyncJobStatus;
   folder_path?: string;
   started_at?: string;
   completed_at?: string;

@@ -39,7 +39,9 @@ export function useImageLoading(
     () => "loading" as const,
   );
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const retry = useCallback(() => {
+    setAttempt((n) => n + 1);
+  }, []);
   const entry = src ? peekImage(src) : undefined;
 
   return {

@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import { SyncJobType, SyncJobResponse } from "@/types/common";
-import { validateInput, CommonValidators } from "@/lib/validation";
+import type { SyncJobType, SyncJobResponse } from "@/types/common";
+import { validateInput } from "@/lib/validation";
 import { authenticateRequest } from "@/lib/auth";
+import { optionalString, readJsonObject } from "@/app/api/_lib/request";
 
 export const POST = requireAuth(async function POST(request: NextRequest) {
   // Authentication check for sync operations
@@ -12,26 +14,24 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
   if (!authResult.isAuthenticated) {
     const errorResponse: SyncJobResponse = {
       success: false,
-      error: authResult.error || "Authentication required",
+      error: authResult.error ? authResult.error : "Authentication required",
     };
     return NextResponse.json(errorResponse, { status: 401 });
   }
 
   try {
-    let body: any;
+    let body: Record<string, unknown>;
 
     // Parse JSON with error handling
     try {
-      body = await request.json();
-    } catch (error) {
+      body = await readJsonObject(request);
+    } catch {
       const errorResponse: SyncJobResponse = {
         success: false,
         error: "Invalid JSON in request body",
       };
       return NextResponse.json(errorResponse, { status: 400 });
     }
-
-    const { folderPath, type } = body;
 
     // Comprehensive input validation
     const validation = validateInput(body, [
@@ -72,7 +72,10 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse, { status: 400 });
     }
 
-    const syncType = type || "metadata_scan";
+    // validateInput guarantees folderPath is a string and type, when present, an allowed value
+    const folderPath = optionalString(body.folderPath) ?? "";
+    const syncType: SyncJobType =
+      body.type === "folder_scan" ? "folder_scan" : "metadata_scan";
 
     logger.apiRequest("Creating folder sync job", {
       method: "POST",
@@ -80,7 +83,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     });
 
     const job = await createSyncJob({
-      type: syncType as SyncJobType,
+      type: syncType,
       folder_path: folderPath,
     });
 

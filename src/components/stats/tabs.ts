@@ -1,8 +1,8 @@
 export const STATS_TABS = [
-  { id: "storage", label: "Storage" },
-  { id: "videos", label: "Videos" },
-  { id: "duplicates", label: "Duplicates" },
-  { id: "health", label: "Health" },
+  { id: "storage", label: "Stockage" },
+  { id: "videos", label: "Vidéos" },
+  { id: "duplicates", label: "Doublons" },
+  { id: "health", label: "Santé" },
 ] as const;
 
 export type StatsTab = (typeof STATS_TABS)[number]["id"];

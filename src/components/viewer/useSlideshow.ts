@@ -31,19 +31,24 @@ export function useSlideshow({
 
   useEffect(() => {
     if (!playing || ready) return;
-    const timer = setTimeout(() => setStalled(photoKey), MAX_WAIT_MS);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setStalled(photoKey);
+    }, MAX_WAIT_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [playing, ready, photoKey]);
 
   const running = playing && !waitForEnd && (ready || stalled === photoKey);
 
   useEffect(() => {
     if (!running) return;
-    const timer = setTimeout(
-      () => (hasNext ? onNext() : onEnd()),
-      SLIDESHOW_INTERVAL_MS,
-    );
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      hasNext ? onNext() : onEnd();
+    }, SLIDESHOW_INTERVAL_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [running, photoKey, hasNext, onNext, onEnd]);
 
   return running;

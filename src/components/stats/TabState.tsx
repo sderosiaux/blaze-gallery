@@ -22,13 +22,9 @@ export function TabError({
         icon={CloudOff}
         title={title}
         body={
-          <>
-            The rest of the page still works, and nothing in the library
-            changed. Try again in a moment.
-            <span className="mt-2 block font-mono text-xs text-ink-faint">
-              {error}
-            </span>
-          </>
+          <span className="block font-mono text-xs text-ink-faint">
+            {error}
+          </span>
         }
         action={
           <Button
@@ -37,7 +33,7 @@ export function TabError({
             icon={RotateCw}
             onClick={onRetry}
           >
-            Try again
+            Réessayer
           </Button>
         }
         className="py-6"

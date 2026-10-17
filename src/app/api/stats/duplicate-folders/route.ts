@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import type { DuplicateFolders } from "@/components/stats/types";
+import type {
+  DuplicateFolderGroup,
+  DuplicateFolders,
+} from "@/components/stats/types";
+
+interface DuplicateFoldersRow {
+  total_groups: number;
+  total_folders: number;
+  reclaimable_bytes: number;
+  groups: DuplicateFolderGroup[];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +24,7 @@ const GROUP_LIMIT = 50;
 // brought this from ~30 s to under a second.
 export const GET = requireAuth(async function GET() {
   try {
-    const result = await query(
+    const result = await query<DuplicateFoldersRow>(
       `
       WITH signatures AS MATERIALIZED (
         SELECT
@@ -69,7 +79,7 @@ export const GET = requireAuth(async function GET() {
       [GROUP_LIMIT],
     );
 
-    const row = result.rows[0];
+    const row = requireRow(result, "Duplicate folders");
     const data: DuplicateFolders = {
       summary: {
         total_duplicate_folder_groups: row.total_groups,

@@ -50,7 +50,7 @@ function Avatar({
     <span
       className={cn(
         box,
-        "inline-flex items-center justify-center rounded-full bg-ink font-display italic text-paper",
+        "inline-flex items-center justify-center rounded-full bg-ink font-display text-paper",
       )}
     >
       {name.charAt(0).toUpperCase()}
@@ -65,7 +65,9 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +75,9 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node))
         setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -104,10 +108,12 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
       <div className="relative w-full" ref={menuRef}>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen((v) => !v);
+          }}
           aria-expanded={open}
           aria-haspopup="menu"
-          title={`Signed in as ${user.name}`}
+          title={`Connecté : ${user.name}`}
           className={cn(
             "flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors hover:bg-surface-sunken",
             compact ? "justify-center px-0" : "px-2",
@@ -150,12 +156,12 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                logout();
+                void logout();
               }}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-sunken hover:text-ink"
             >
               <LogOut className="h-4 w-4 text-ink-muted" aria-hidden />
-              Sign out
+              Se déconnecter
             </button>
           </div>
         )}
@@ -167,10 +173,10 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
     return (
       <button
         type="button"
-        onClick={handleLogin}
+        onClick={() => void handleLogin()}
         disabled={isLoggingIn}
-        aria-label="Sign in with Google"
-        title="Sign in with Google"
+        aria-label="Se connecter avec Google"
+        title="Se connecter avec Google"
         className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-soft hover:text-ink"
       >
         <GoogleGlyph />
@@ -180,13 +186,13 @@ export default function AuthButton({ compact = false }: { compact?: boolean }) {
 
   return (
     <Button
-      onClick={handleLogin}
+      onClick={() => void handleLogin()}
       loading={isLoggingIn}
       variant="secondary"
       className="w-full"
     >
       {!isLoggingIn && <GoogleGlyph />}
-      {isLoggingIn ? "Signing in…" : "Sign in with Google"}
+      {isLoggingIn ? "Connexion…" : "Se connecter avec Google"}
     </Button>
   );
 }

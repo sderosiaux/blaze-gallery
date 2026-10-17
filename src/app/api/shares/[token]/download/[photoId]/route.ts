@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { logShareAccess } from "@/lib/database";
 import { getObjectStreamAuto } from "@/lib/s3";
 import { validateSharedPhotoAccess } from "@/lib/shareHelpers";
@@ -44,14 +45,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const stream = await getObjectStreamAuto(photo.s3_key, request);
 
       // Convert the stream to buffer using the same pattern as existing code
-      const chunks: Uint8Array[] = [];
-      const readableStream = stream as any;
-
-      for await (const chunk of readableStream) {
-        chunks.push(chunk);
+      if (!stream) {
+        throw new Error("Empty S3 response body");
       }
-
-      const buffer = Buffer.concat(chunks);
+      const buffer = Buffer.from(await stream.transformToByteArray());
       const response = new NextResponse(buffer);
 
       // Set appropriate headers

@@ -1,7 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import type { AuditSummary } from "@/components/audit/types";
+import { isInvalidDateParam } from "@/app/api/_lib/request";
+
+interface SummaryRow {
+  total_requests: number;
+  error_count: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  total_bytes: number;
+  estimated_cost_usd: number | null;
+  first_request_at: Date | null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +25,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const startDate = searchParams.get("start_date");
     const endDate = searchParams.get("end_date");
 
-    if (
-      (startDate && isNaN(Date.parse(startDate))) ||
-      (endDate && isNaN(Date.parse(endDate)))
-    ) {
+    if (isInvalidDateParam(startDate) || isInvalidDateParam(endDate)) {
       return NextResponse.json(
         {
           success: false,
@@ -42,7 +51,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
 
-    const result = await query(
+    const result = await query<SummaryRow>(
       `
       SELECT
         COUNT(*)::int AS total_requests,
@@ -50,13 +59,14 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         AVG(duration_ms)::float8 AS avg_duration_ms,
         PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_duration_ms,
         COALESCE(SUM(bytes_transferred), 0)::float8 AS total_bytes,
-        SUM(estimated_cost_usd)::float8 AS estimated_cost_usd
+        SUM(estimated_cost_usd)::float8 AS estimated_cost_usd,
+        MIN(timestamp) AS first_request_at
       FROM s3_audit_logs ${whereClause}
     `,
       params,
     );
 
-    const row = result.rows[0];
+    const row = requireRow(result, "Audit summary");
     const summary: AuditSummary = {
       total_requests: row.total_requests,
       error_count: row.error_count,
@@ -66,6 +76,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       p95_duration_ms: row.p95_duration_ms,
       total_bytes: row.total_bytes,
       estimated_cost_usd: row.estimated_cost_usd,
+      first_request_at: row.first_request_at?.toISOString() ?? null,
     };
 
     return NextResponse.json({ success: true, data: summary });

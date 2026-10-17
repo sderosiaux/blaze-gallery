@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { validateUserSession } from "@/lib/auth/userSession";
 import { authConfig } from "@/lib/auth/config";
 

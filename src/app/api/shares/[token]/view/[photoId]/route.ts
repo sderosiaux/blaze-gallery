@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { logShareAccess } from "@/lib/database";
 import { getObjectStreamAuto } from "@/lib/s3";
 import { validateSharedPhotoAccess } from "@/lib/shareHelpers";
@@ -15,13 +16,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token, photoId } = params;
 
-    // Validate shared photo access (no download permission required for viewing)
     const validation = await validateSharedPhotoAccess(request, token, photoId);
     if (validation.error) {
       return validation.error;
     }
 
     const { share, photo } = validation;
+
+    // The original file is a download in all but name. Without download
+    // rights, guests see photos through their 2048 px rendition; videos and
+    // GIFs have none, so they still play from the original.
+    const type = photo.mime_type.toLowerCase();
+    if (
+      !share.allow_download &&
+      !type.startsWith("video/") &&
+      type !== "image/gif"
+    ) {
+      return NextResponse.json(
+        { error: "Downloads not allowed for this share" },
+        { status: 403 },
+      );
+    }
 
     // Log view access (not download)
     const ctx = getRequestContext(request);
@@ -32,19 +47,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       success: true,
     });
 
-    // Get the photo from S3 for viewing (always allowed) - S3 client auto-initializes
+    // S3 client auto-initializes
     try {
       const stream = await getObjectStreamAuto(photo.s3_key, request);
 
       // Convert the stream to buffer
-      const chunks: Uint8Array[] = [];
-      const readableStream = stream as any;
-
-      for await (const chunk of readableStream) {
-        chunks.push(chunk);
+      if (!stream) {
+        throw new Error("Empty S3 response body");
       }
-
-      const buffer = Buffer.concat(chunks);
+      const buffer = Buffer.from(await stream.transformToByteArray());
       const response = new NextResponse(buffer);
 
       // Set headers for viewing (not downloading)

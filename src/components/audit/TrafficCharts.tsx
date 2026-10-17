@@ -14,12 +14,12 @@ import {
 import { Activity } from "lucide-react";
 import { EmptyState, Section, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatBytes } from "@/lib/format";
 import type { AuditBucket, AuditSeries } from "./types";
 import {
   axisTicks,
   byteAxisFormatter,
   formatBucket,
+  formatBytes,
   formatCompact,
   formatCount,
   formatDuration,
@@ -109,7 +109,7 @@ function ChartTooltip({
   bucketSeconds,
 }: {
   active?: boolean;
-  payload?: ReadonlyArray<{ payload?: Row }>;
+  payload?: readonly { payload?: Row }[];
   label?: number | string;
   series: SeriesSpec[];
   formatValue: (n: number) => string;
@@ -132,7 +132,7 @@ function ChartTooltip({
                 className={cn("h-0.5 w-3 shrink-0 rounded-full", s.swatch)}
               />
               <span className="tabular font-semibold text-ink">
-                {value == null ? "No requests" : formatValue(value)}
+                {value == null ? "Aucune requête" : formatValue(value)}
               </span>
               <span className="text-ink-muted">{s.label}</span>
             </li>
@@ -171,7 +171,10 @@ function TimeChart({
   // Non-breaking spaces: Recharts wraps tick text at spaces when it runs out of room.
   const yLabel = (n: number) =>
     n === 0 ? "0" : axisFormat(n).replace(/ /g, "\u00A0");
-  const pointCount = rows.filter((r) => r[series[0].key] != null).length;
+  const firstKey = series[0]?.key;
+  const pointCount = rows.filter(
+    (r) => firstKey !== undefined && r[firstKey] != null,
+  ).length;
   const axisTick = { fill: paint("ink-muted"), fontSize: 11 };
 
   return (
@@ -197,9 +200,11 @@ function TimeChart({
         <span className="tabular text-sm text-ink-muted">{headline}</span>
       </figcaption>
       {/* Clip x: on the first hover frame Recharts places the tooltip before it
-          has measured it, which can poke past the page edge for a frame. */}
+          has measured it, which can poke past the page edge for a frame. The
+          focusable plot keeps the browser's blue ring after a mouse click;
+          keyboard focus still gets the ink ring. */}
       <div
-        className="tabular relative overflow-x-clip"
+        className="tabular relative overflow-x-clip [&_.recharts-surface:focus:not(:focus-visible)]:outline-none"
         style={{ height: PLOT_HEIGHT }}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -223,7 +228,7 @@ function TimeChart({
             <YAxis
               width="auto"
               ticks={yTicks}
-              domain={[0, yTicks[yTicks.length - 1]]}
+              domain={[0, yTicks[yTicks.length - 1] ?? "auto"]}
               interval={0}
               tickFormatter={yLabel}
               tick={axisTick}
@@ -241,9 +246,7 @@ function TimeChart({
                 <ChartTooltip
                   active={props.active}
                   payload={
-                    props.payload as
-                      | ReadonlyArray<{ payload?: Row }>
-                      | undefined
+                    props.payload as readonly { payload?: Row }[] | undefined
                   }
                   label={props.label}
                   series={series}
@@ -310,7 +313,7 @@ function ChartsSkeleton() {
   return (
     <div
       role="status"
-      aria-label="Loading charts"
+      aria-label="Chargement des graphiques"
       className="grid gap-x-12 gap-y-10 lg:grid-cols-2"
     >
       {Array.from({ length: 4 }).map((_, i) => (
@@ -388,13 +391,13 @@ export function TrafficCharts({
   const bucketLabel =
     bucketSeconds === range.bucketSeconds
       ? range.bucketLabel
-      : `${Math.round(bucketSeconds / 60)} minutes`;
+      : `${formatCount(Math.round(bucketSeconds / 60))} minutes`;
 
   let body: React.ReactNode;
   if (error) {
     body = (
       <SectionError
-        title="The traffic charts did not load"
+        title="Les graphiques de trafic n’ont pas chargé"
         error={error}
         onRetry={onRetry}
       />
@@ -405,8 +408,8 @@ export function TrafficCharts({
     body = (
       <EmptyState
         icon={Activity}
-        title="No storage requests in this period"
-        body="Nothing touched B2 or R2 here. Pick a longer time range, or open an album to see traffic arrive."
+        title="Aucune requête de stockage sur cette période"
+        body="Choisir une période plus longue."
         className="py-10"
       />
     );
@@ -422,17 +425,17 @@ export function TrafficCharts({
       >
         <TimeChart
           {...common}
-          title="Requests"
+          title="Requêtes"
           headline={
             totals.busiest
-              ? `${formatCount(totals.requests)} total · peak ${formatCount(totals.busiest.request_count)} per ${bucketLabel}`
+              ? `${formatCount(totals.requests)} au total · pic de ${formatCount(totals.busiest.request_count)} par ${bucketLabel}`
               : formatCount(totals.requests)
           }
           kind="bar"
           series={[
             {
               key: "request_count",
-              label: "requests",
+              label: "requêtes",
               token: "chart-5",
               swatch: "bg-chart-5",
             },
@@ -443,17 +446,17 @@ export function TrafficCharts({
         />
         <TimeChart
           {...common}
-          title="Latency"
+          title="Latence"
           headline={
             totals.slowest
-              ? `worst p95 ${formatDuration(totals.slowest.p95_duration_ms)}`
+              ? `pire p95 ${formatDuration(totals.slowest.p95_duration_ms)}`
               : "–"
           }
           kind="line"
           series={[
             {
               key: "avg_duration_ms",
-              label: "Average",
+              label: "Moyenne",
               token: "chart-5",
               swatch: "bg-chart-5",
             },
@@ -470,13 +473,13 @@ export function TrafficCharts({
         />
         <TimeChart
           {...common}
-          title="Data transferred"
-          headline={`${formatBytes(totals.bytes)} total`}
+          title="Données transférées"
+          headline={`${formatBytes(totals.bytes)} au total`}
           kind="bar"
           series={[
             {
               key: "bytes_transferred",
-              label: "transferred",
+              label: "transférés",
               token: "chart-5",
               swatch: "bg-chart-5",
             },
@@ -487,13 +490,13 @@ export function TrafficCharts({
         />
         <TimeChart
           {...common}
-          title="Failed requests"
-          headline={`${formatCount(totals.errors)} failed`}
+          title="Requêtes en échec"
+          headline={`${formatCount(totals.errors)} en échec`}
           kind="bar"
           series={[
             {
               key: "error_count",
-              label: "failed",
+              label: "en échec",
               token: "danger",
               swatch: "bg-danger",
             },
@@ -501,7 +504,7 @@ export function TrafficCharts({
           formatAxis={formatCompact}
           formatValue={formatCount}
           scale="count"
-          emptyNote="No failed requests in this period"
+          emptyNote="Aucun échec sur cette période"
         />
       </div>
     );
@@ -510,8 +513,8 @@ export function TrafficCharts({
   return (
     <Section
       id="traffic"
-      title="Traffic over time"
-      description={`Counted per ${bucketLabel}, in your time zone. Hover a chart for the exact figures.`}
+      title="Trafic"
+      description={`Par ${bucketLabel}, heure locale`}
     >
       {body}
     </Section>

@@ -56,10 +56,10 @@ export function Dialog({
       const last = items[items.length - 1];
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
-        last.focus();
+        last?.focus();
       } else if (!e.shiftKey && document.activeElement === last) {
         e.preventDefault();
-        first.focus();
+        first?.focus();
       }
     };
 
@@ -69,7 +69,7 @@ export function Dialog({
     return () => {
       document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = overflow;
-      previouslyFocused?.focus?.();
+      previouslyFocused?.focus();
     };
   }, [open, onClose]);
 
@@ -97,7 +97,7 @@ export function Dialog({
           <div className="min-w-0">
             <h2
               id={titleId}
-              className="font-display text-display-sm font-normal text-ink"
+              className="font-display text-display-sm font-semibold text-ink"
             >
               {title}
             </h2>
@@ -109,7 +109,7 @@ export function Dialog({
           </div>
           <IconButton
             icon={X}
-            label="Close"
+            label="Fermer"
             size="sm"
             onClick={onClose}
             className="-mr-2 -mt-1"

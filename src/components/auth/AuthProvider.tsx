@@ -1,13 +1,9 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useReducer,
-  useEffect,
-  ReactNode,
-} from "react";
-import { AuthState, AuthAction } from "@/lib/auth/types";
+import type { ReactNode } from "react";
+import { createContext, useContext, useReducer, useEffect } from "react";
+import { asString, isRecord } from "@/hooks/apiJson";
+import type { AuthState, AuthAction, UserSession } from "@/lib/auth/types";
 
 interface AuthContextType extends AuthState {
   login: () => Promise<void>;
@@ -52,6 +48,18 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
   }
 }
 
+/**
+ * The session endpoint returns only some UserSession fields (auth-disabled
+ * mode sends just name and email), so the UI contract is those two strings.
+ */
+function isUserSession(value: unknown): value is UserSession {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.email === "string"
+  );
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
@@ -74,9 +82,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw new Error("Failed to get session");
       }
 
-      const { isAuthenticated, user } = await response.json();
+      const body: unknown = await response.json();
+      const isAuthenticated = isRecord(body) && body.isAuthenticated;
+      const user = isRecord(body) ? body.user : undefined;
 
-      if (isAuthenticated && user) {
+      if (isAuthenticated && isUserSession(user)) {
         dispatch({ type: "AUTH_SUCCESS", user });
       } else {
         dispatch({ type: "AUTH_LOGOUT" });
@@ -98,11 +108,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to initiate login");
+        const error: unknown = await response.json();
+        const message = isRecord(error) ? asString(error.error) : undefined;
+        throw new Error(
+          message !== undefined && message !== ""
+            ? message
+            : "Failed to initiate login",
+        );
       }
 
-      const { authUrl } = await response.json();
+      const body: unknown = await response.json();
+      const authUrl = isRecord(body) ? asString(body.authUrl) : undefined;
+      if (authUrl === undefined) throw new Error("Failed to initiate login");
 
       // Redirect to Google OAuth
       window.location.href = authUrl;
@@ -110,7 +127,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error("Login failed:", error);
       dispatch({
         type: "AUTH_ERROR",
-        error: error instanceof Error ? error.message : "Login failed",
+        error:
+          error instanceof Error ? error.message : "La connexion a échoué.",
       });
     }
   };
@@ -152,7 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (authSuccess === "success") {
       // Remove URL parameters and refresh session
       window.history.replaceState({}, document.title, window.location.pathname);
-      refreshSession();
+      void refreshSession();
     } else if (authError) {
       // Handle OAuth errors
       const errorMessage = getErrorMessage(authError, reason);
@@ -168,7 +186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }, 100);
     } else {
       // Regular session check
-      refreshSession();
+      void refreshSession();
     }
   }, []);
 
@@ -193,26 +211,28 @@ export function useAuth() {
 function getErrorMessage(error: string, reason?: string | null): string {
   switch (error) {
     case "auth_disabled":
-      return "Authentication is currently disabled";
+      return "La connexion est désactivée.";
     case "oauth_access_denied":
-      return "Authentication was cancelled";
+      return "Connexion annulée.";
     case "oauth_invalid_request":
-      return "Invalid authentication request";
+      return "Demande de connexion invalide.";
     case "unauthorized":
-      return reason || "You are not authorized to access this application";
+      return reason !== null && reason !== undefined && reason !== ""
+        ? reason
+        : "not_authorized";
     case "rate_limit":
-      return "Too many authentication attempts. Please try again later.";
+      return "Trop de tentatives. Réessayez plus tard.";
     case "invalid_callback":
-      return "Invalid authentication response";
+      return "Réponse de connexion invalide.";
     case "missing_oauth_data":
-      return "Authentication data missing. Please try again.";
+      return "Données de connexion manquantes. Réessayez.";
     case "invalid_state":
-      return "Authentication security check failed. Please try again.";
+      return "Contrôle de sécurité échoué. Réessayez.";
     case "callback_failed":
-      return "Authentication failed. Please try again.";
+      return "La connexion a échoué. Réessayez.";
     case "id_token_verification_failed":
-      return "Failed to verify authentication token. Please try again.";
+      return "Jeton de connexion invalide. Réessayez.";
     default:
-      return "An error occurred during authentication";
+      return "Erreur pendant la connexion.";
   }
 }

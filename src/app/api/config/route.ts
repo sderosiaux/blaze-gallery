@@ -1,14 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { authenticateRequest } from "@/lib/auth";
 
-export async function GET(request: NextRequest) {
+export function GET(request: NextRequest) {
   // Authentication check for sensitive config data
   const authResult = authenticateRequest(request, { apiKeyRequired: true });
   if (!authResult.isAuthenticated) {
     return NextResponse.json(
-      { success: false, error: authResult.error || "Authentication required" },
+      {
+        success: false,
+        error: authResult.error ? authResult.error : "Authentication required",
+      },
       { status: 401 },
     );
   }

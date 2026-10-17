@@ -16,7 +16,7 @@ export function usePhotoParam(): [
   string | null,
   (photoId: string | null) => void,
 ] {
-  const selected = useSearchParams()?.get("photo") ?? null;
+  const selected = useSearchParams().get("photo") ?? null;
   const pushed = useRef(false);
 
   const setPhoto = useCallback((photoId: string | null) => {

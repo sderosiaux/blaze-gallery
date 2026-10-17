@@ -1,11 +1,10 @@
+import type { S3Object } from "./s3";
 import {
   listObjectsAuto,
-  isImageFile,
   isMediaFile,
   getMimeType,
   getFolderFromKey,
   getFilenameFromKey,
-  S3Object,
 } from "./s3";
 import {
   createSyncJob,
@@ -17,7 +16,6 @@ import {
   updateFolderCounts,
   updatePhotoStatus,
   updatePhotoMetadata,
-  bulkCreateOrUpdateFolders,
   bulkCreateOrUpdatePhotos,
   bulkUpdateFolderCounts,
   bulkUpdateFoldersLastSynced,
@@ -27,8 +25,23 @@ import {
 import type { SyncJob } from "./database";
 import { getConfig } from "./config";
 import { logger } from "./logger";
-import { PhotoMetadata, Photo } from "@/types";
+import type { PhotoMetadata, Photo, Folder } from "@/types";
 import type { MetadataStatus, ThumbnailStatus } from "@/types/common";
+
+type ListPage = Awaited<ReturnType<typeof listObjectsAuto>>;
+
+/** DB columns can hold NULL even where the row type says otherwise */
+function isUnset(value: string | null | undefined): value is null | undefined {
+  return value === undefined || value === null;
+}
+
+function orZero(value: number | null | undefined): number {
+  return value ?? 0;
+}
+
+function nonZero(value: number | undefined): number | undefined {
+  return value === 0 ? undefined : value;
+}
 
 /**
  * Progress tracking for sync operations
@@ -76,7 +89,7 @@ async function updateJobProgress(
       jobId,
       ...(logOptions.folderPath && { folderPath: logOptions.folderPath }),
       progress: { processed, total: total ?? 0 },
-      ...(logOptions.extra || {}),
+      ...(logOptions.extra ?? {}),
     });
   }
 }
@@ -154,7 +167,8 @@ async function processScanObject(
   if (folderPath === "") {
     folderId = await ctx.ensureRootFolder();
   } else {
-    if (!ctx.folderMap.has(folderPath)) {
+    const cachedFolderId = ctx.folderMap.get(folderPath);
+    if (cachedFolderId === undefined) {
       folderId = await ctx.ensureFolderExists(
         folderPath,
         ctx.seenFolders,
@@ -162,7 +176,7 @@ async function processScanObject(
       );
       ctx.folderMap.set(folderPath, folderId);
     } else {
-      folderId = ctx.folderMap.get(folderPath)!;
+      folderId = cachedFolderId;
     }
   }
 
@@ -199,6 +213,13 @@ async function processScanObject(
   };
 }
 
+function logQueueFailure(error: unknown): void {
+  logger.syncError(
+    "Sync queue stopped unexpectedly",
+    error instanceof Error ? error : new Error(String(error)),
+  );
+}
+
 export class SyncService {
   private isRunning = false;
   private currentJob: SyncJob | null = null;
@@ -216,7 +237,8 @@ export class SyncService {
     // Auto-create initial full sync job if no active jobs exist
     await this.ensureInitialSync();
 
-    this.processQueue();
+    // Long-running loop that handles its own errors; the catch is a last resort
+    this.processQueue().catch(logQueueFailure);
   }
 
   private async ensureInitialSync() {
@@ -235,15 +257,15 @@ export class SyncService {
           component: "SyncService",
           jobId: existingFullScan.id,
           progress: {
-            processed: existingFullScan.processed_items ?? 0,
-            total: existingFullScan.total_items ?? 0,
+            processed: orZero(existingFullScan.processed_items),
+            total: orZero(existingFullScan.total_items),
           },
         });
         return; // Don't create a new one, let existing job continue
       }
 
       // Check if we recently completed a full scan (within last hour)
-      const recentCompleted = await query(
+      const recentCompleted = await query<SyncJob>(
         `
         SELECT * FROM sync_jobs
         WHERE type = 'full_scan' AND status = 'completed'
@@ -253,12 +275,13 @@ export class SyncService {
         [],
       );
 
-      if (recentCompleted.rows.length > 0) {
+      const [lastCompleted] = recentCompleted.rows;
+      if (lastCompleted !== undefined) {
         logger.syncOperation(
           "Full scan completed recently, skipping startup scan",
           {
             component: "SyncService",
-            lastCompletedAt: recentCompleted.rows[0].completed_at,
+            lastCompletedAt: lastCompleted.completed_at,
           },
         );
         return;
@@ -310,7 +333,7 @@ export class SyncService {
       try {
         const { getFolderByPath } = await import("@/lib/database");
         const folder = await getFolderByPath(folderPath);
-        if (folder && folder.last_synced) {
+        if (folder?.last_synced) {
           const lastSyncTime = new Date(folder.last_synced).getTime();
           if (now - lastSyncTime < throttleMs) {
             const secondsAgo = Math.round((now - lastSyncTime) / 1000);
@@ -339,7 +362,8 @@ export class SyncService {
 
       // Start the sync service if not running
       if (!this.isRunning) {
-        this.start();
+        // start() returns once the queue loop is launched; failures are logged
+        this.start().catch(logQueueFailure);
       }
 
       // Wait for this specific job to complete
@@ -372,7 +396,7 @@ export class SyncService {
 
   private async waitForJobCompletion(jobId: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      const checkInterval = setInterval(async () => {
+      const check = async () => {
         try {
           const { getSyncJob } = await import("@/lib/database");
           const job = await getSyncJob(jobId);
@@ -393,8 +417,11 @@ export class SyncService {
           // Continue waiting if status is 'pending' or 'running'
         } catch (error) {
           clearInterval(checkInterval);
-          reject(error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
+      };
+      const checkInterval = setInterval(() => {
+        void check();
       }, 100); // Check every 100ms
 
       // Timeout after 30 seconds
@@ -405,9 +432,10 @@ export class SyncService {
     });
   }
 
-  async stop() {
+  stop(): Promise<void> {
     this.isRunning = false;
     logger.syncOperation("Stopping sync service");
+    return Promise.resolve();
   }
 
   private async processQueue() {
@@ -508,8 +536,11 @@ export class SyncService {
         case "cleanup":
           await this.performCleanup(job);
           break;
-        default:
-          throw new Error(`Unknown job type: ${job.type}`);
+        default: {
+          // job.type is `never` here by type, but rows come from the database
+          const unknownType: string = job.type;
+          throw new Error(`Unknown job type: ${unknownType}`);
+        }
       }
 
       await updateSyncJob(job.id, {
@@ -568,7 +599,7 @@ export class SyncService {
     };
 
     // Pipeline S3 fetching with database processing
-    let nextPagePromise: Promise<any> | null = null;
+    let nextPagePromise: Promise<ListPage> | null = null;
     const pagination: PaginationState = {
       continuationToken: undefined,
       hasMorePages: true,
@@ -668,14 +699,14 @@ export class SyncService {
   }
 
   private async performFolderScan(job: SyncJob) {
-    if (job.folder_path === undefined || job.folder_path === null) {
+    if (isUnset(job.folder_path)) {
       throw new Error("Folder scan job missing folder_path");
     }
 
     const config = getConfig();
     // S3 client auto-initializes with config
 
-    let folder = null;
+    let folder: Folder | null = null;
 
     // For root folder sync, we don't need a folder record - we're just discovering top-level folders
     if (job.folder_path !== "") {
@@ -694,7 +725,7 @@ export class SyncService {
     const prefix = job.folder_path === "" ? "" : `${job.folder_path}/`;
 
     // Handle pagination to get all objects in the folder
-    let allObjects: any[] = [];
+    const allObjects: S3Object[] = [];
     let continuationToken: string | undefined;
     let isTruncated = true;
     let pageNumber = 1;
@@ -743,8 +774,7 @@ export class SyncService {
 
       // For root-level subfolders, parent_id should be null
       // For nested subfolders, parent_id should be the current folder's id
-      const parentId =
-        job.folder_path === "" ? undefined : folder?.id || undefined;
+      const parentId = job.folder_path === "" ? undefined : nonZero(folder?.id);
 
       try {
         await createOrUpdateFolder({
@@ -803,7 +833,7 @@ export class SyncService {
         );
 
         await createOrUpdatePhoto({
-          folder_id: folder?.id || 0, // Use 0 for root-level photos
+          folder_id: folder?.id ?? 0, // Use 0 for root-level photos
           filename: filename,
           s3_key: object.key,
           size: object.size,
@@ -864,7 +894,7 @@ export class SyncService {
     });
 
     // Get photos in this folder that need metadata extraction
-    const result = await query(
+    const result = await query<Photo>(
       `
       SELECT * FROM photos
       WHERE folder_id = $1
@@ -876,7 +906,7 @@ export class SyncService {
       [folder.id],
     );
 
-    const photosToProcess = result.rows as Photo[];
+    const photosToProcess = result.rows;
 
     let processedCount = 0;
 
@@ -949,7 +979,6 @@ export class SyncService {
     const config = getConfig();
     const { deleteOldThumbnails } = await import("./database");
     const fs = await import("fs");
-    const path = await import("path");
 
     logger.syncOperation("Starting cleanup process");
 
@@ -1012,17 +1041,20 @@ export class SyncService {
     folderMap: Map<string, number>,
   ): Promise<number> {
     if (seenFolders.has(folderPath)) {
-      return folderMap.get(folderPath)!;
+      return this.requireFolderId(folderMap, folderPath);
     }
 
     const pathParts = folderPath.split("/");
-    const foldersToCreate: any[] = [];
+    const foldersToCreate: {
+      path: string;
+      name: string;
+      parent_path: string;
+    }[] = [];
     let currentPath = "";
     let parentId: number | undefined;
 
     // First pass: identify which folders need to be created
-    for (let i = 0; i < pathParts.length; i++) {
-      const part = pathParts[i];
+    for (const [i, part] of pathParts.entries()) {
       currentPath = i === 0 ? part : `${currentPath}/${part}`;
 
       if (!seenFolders.has(currentPath) && !folderMap.has(currentPath)) {
@@ -1051,8 +1083,7 @@ export class SyncService {
     }
 
     // Second pass: create folders that don't exist, ensuring proper parent relationships
-    for (let i = 0; i < pathParts.length; i++) {
-      const part = pathParts[i];
+    for (const [i, part] of pathParts.entries()) {
       currentPath = i === 0 ? part : `${currentPath}/${part}`;
 
       if (!seenFolders.has(currentPath)) {
@@ -1074,19 +1105,34 @@ export class SyncService {
         seenFolders.add(currentPath);
         parentId = folder.id;
       } else {
-        parentId = folderMap.get(currentPath)!;
+        parentId = this.requireFolderId(folderMap, currentPath);
       }
     }
 
-    return parentId!;
+    if (parentId === undefined) {
+      throw new Error(`No folder resolved for path: ${folderPath}`);
+    }
+    return parentId;
   }
 
-  private async getFoldersByPaths(paths: string[]): Promise<any[]> {
+  /** Folders in seenFolders are always added to folderMap alongside */
+  private requireFolderId(
+    folderMap: Map<string, number>,
+    folderPath: string,
+  ): number {
+    const id = folderMap.get(folderPath);
+    if (id === undefined) {
+      throw new Error(`Folder id missing from cache: ${folderPath}`);
+    }
+    return id;
+  }
+
+  private async getFoldersByPaths(paths: string[]): Promise<Folder[]> {
     if (paths.length === 0) return [];
 
     // Use IN clause to get multiple folders in one query
     const placeholders = paths.map((_, index) => `$${index + 1}`).join(",");
-    const result = await query(
+    const result = await query<Folder>(
       `SELECT * FROM folders WHERE path IN (${placeholders})`,
       paths,
     );

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
 
-export const POST = requireAuth(async function POST(request: NextRequest) {
+export const POST = requireAuth(async function POST() {
   try {
     const job = await createSyncJob({
       type: "cleanup",
@@ -12,7 +12,13 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     });
 
     if (!syncService.isServiceRunning()) {
-      syncService.start();
+      syncService.start().catch((startError: unknown) => {
+        logger.error(
+          "Failed to start sync service",
+          undefined,
+          startError instanceof Error ? startError : undefined,
+        );
+      });
     }
 
     return NextResponse.json({

@@ -30,9 +30,10 @@ interface ViewerVideoProps {
 }
 
 function extensionOf(filename: string) {
-  return filename.includes(".")
-    ? filename.split(".").pop()!.toUpperCase()
-    : "these";
+  const extension = filename.includes(".")
+    ? filename.split(".").pop()
+    : undefined;
+  return extension?.toUpperCase() ?? null;
 }
 
 export default function ViewerVideo({
@@ -59,6 +60,7 @@ export default function ViewerVideo({
   const box = fitBox(area, ratio);
 
   if (failed || media.status === "error") {
+    const ext = extensionOf(photo.filename);
     return (
       <div
         ref={areaRef}
@@ -69,18 +71,12 @@ export default function ViewerVideo({
           <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-sunken text-ink-soft">
             <Film className="h-5 w-5" aria-hidden />
           </span>
-          <h2 className="font-display text-display-sm font-normal text-ink">
-            This video can&rsquo;t play here
+          <h2 className="text-pretty text-display-sm font-semibold text-ink">
+            {`Cette vidéo${ext ? ` ${ext}` : ""} ne se lit pas dans un navigateur`}
           </h2>
-          <p className="mt-2 text-pretty text-sm text-ink-muted">
-            {`Browsers don’t play ${extensionOf(photo.filename)} files. `}
-            {allowDownload
-              ? "Download it and open it on your computer."
-              : "Ask the person who shared this album for a copy."}
-          </p>
           {allowDownload && (
             <Button icon={Download} className="mt-6" onClick={onDownload}>
-              Download video
+              Télécharger la vidéo
             </Button>
           )}
         </div>
@@ -116,10 +112,16 @@ export default function ViewerVideo({
               if (v.videoWidth && v.videoHeight)
                 setNatural(v.videoWidth / v.videoHeight);
             }}
-            onPlaying={() => onSettled("playing")}
-            onEnded={() => onSettled("ended")}
-            onError={() => setFailed(true)}
-          />
+            onPlaying={() => {
+              onSettled("playing");
+            }}
+            onEnded={() => {
+              onSettled("ended");
+            }}
+            onError={() => {
+              setFailed(true);
+            }}
+          ></video>
         )}
       </div>
     </div>

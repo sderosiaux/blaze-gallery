@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import type { Photo } from "@/types";
 import {
   getFolders,
   getPhotosInFolder,
   updateFolderLastVisited,
 } from "@/lib/database";
-import { syncService } from "@/lib/sync";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 
@@ -15,9 +16,9 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const parentPath = searchParams.get("parent");
 
-    const folders = await getFolders(parentPath || undefined);
+    const folders = await getFolders(parentPath ? parentPath : undefined);
 
-    let photos: any[] = [];
+    let photos: Photo[] = [];
     if (!parentPath) {
       const rootFolders = folders.filter((f) => !f.parent_id);
       if (rootFolders.length === 0) {

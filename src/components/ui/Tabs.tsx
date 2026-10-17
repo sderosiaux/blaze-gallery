@@ -32,6 +32,7 @@ export function Tabs<T extends string>({
     const i = tabs.findIndex((t) => t.id === value);
     const next =
       tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    if (!next) return;
     onChange(next.id);
     listRef.current
       ?.querySelector<HTMLButtonElement>(`[data-tab="${next.id}"]`)
@@ -42,6 +43,7 @@ export function Tabs<T extends string>({
     <div
       ref={listRef}
       role="tablist"
+      tabIndex={-1}
       aria-label={label}
       onKeyDown={onKeyDown}
       className={cn(
@@ -59,7 +61,9 @@ export function Tabs<T extends string>({
             data-tab={tab.id}
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(tab.id)}
+            onClick={() => {
+              onChange(tab.id);
+            }}
             className={cn(
               "touch-target relative flex shrink-0 items-center gap-2 pb-3 pt-1 text-sm font-medium transition-colors duration-150",
               selected ? "text-ink" : "text-ink-muted hover:text-ink-soft",
@@ -68,7 +72,7 @@ export function Tabs<T extends string>({
             {tab.label}
             {tab.count !== undefined && (
               <span className="tabular rounded-full bg-surface-sunken px-1.5 text-xs text-ink-muted">
-                {tab.count.toLocaleString("en-GB")}
+                {tab.count.toLocaleString("fr-FR")}
               </span>
             )}
             <span

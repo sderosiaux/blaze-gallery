@@ -7,27 +7,32 @@ import JustifiedGrid from "@/components/photos/JustifiedGrid";
 import PhotoTile from "@/components/photos/PhotoTile";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { Skeleton } from "@/components/ui";
-import { formatCount, parseAlbumName } from "@/lib/albums";
+import { formatCount, LOCALE, parseAlbumName } from "@/lib/albums";
 import { monthLabel, type MonthGroup } from "./timeline";
 
-const ALBUMS_SHOWN = 2;
+const FOLDERS_SHOWN = 2;
+
+function lastSegment(path: string): string {
+  const last = path.split("/").pop();
+  return last !== undefined && last !== "" ? last : path;
+}
 
 /**
- * Albums this month's photos come from, the biggest share first. The library
- * holds copies of the same album under different folders: one title, one link.
+ * Folders this month's photos come from, the biggest share first. The bucket
+ * holds copies of the same folder under different parents: one title, one link.
  */
-function albumsOf(group: MonthGroup) {
+function foldersOf(group: MonthGroup) {
   const counts = new Map<string, number>();
   for (const p of group.photos)
     counts.set(p.folder_path, (counts.get(p.folder_path) ?? 0) + 1);
-  const albums = Array.from(counts, ([path, count]) => ({
+  const folders = Array.from(counts, ([path, count]) => ({
     path,
     count,
-    title: parseAlbumName(path.split("/").pop() || path).title,
+    title: parseAlbumName(lastSegment(path)).title,
   })).sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
   const titles = new Set<string>();
-  return albums.filter((album) => {
-    const key = album.title.toLocaleLowerCase("fr-FR");
+  return folders.filter((folder) => {
+    const key = folder.title.toLocaleLowerCase(LOCALE);
     if (titles.has(key)) return false;
     titles.add(key);
     return true;
@@ -36,8 +41,6 @@ function albumsOf(group: MonthGroup) {
 
 interface TimelineMonthProps {
   group: MonthGroup;
-  /** Photos taken that month in the whole library, from the summary */
-  total?: number;
   /** First month of its year in the list: carries the year anchor */
   yearAnchor?: number;
   eagerCount?: number;
@@ -47,19 +50,14 @@ interface TimelineMonthProps {
 
 function TimelineMonth({
   group,
-  total,
   yearAnchor,
   eagerCount = 0,
   onOpen,
   onToggleFavorite,
 }: TimelineMonthProps) {
-  const albums = useMemo(() => albumsOf(group), [group]);
-  const shown = albums.slice(0, ALBUMS_SHOWN);
-  const more = albums.length - shown.length;
-  const label = monthLabel(group.key);
-  // The summary is read once; the backfill may have dated more photos since.
-  const count =
-    total === undefined ? undefined : Math.max(total, group.photos.length);
+  const folders = useMemo(() => foldersOf(group), [group]);
+  const shown = folders.slice(0, FOLDERS_SHOWN);
+  const more = folders.length - shown.length;
   const headingId = `month-${group.key}`;
 
   return (
@@ -72,39 +70,29 @@ function TimelineMonth({
       <header className="mb-4 flex flex-col gap-1 border-b border-line pb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
         <h2
           id={headingId}
-          className="shrink-0 font-display text-display-sm font-normal text-ink"
+          className="shrink-0 font-display text-display-sm font-semibold text-ink"
         >
-          {label}
+          {monthLabel(group.key)}
         </h2>
-        <p className="min-w-0 text-sm text-ink-muted sm:text-right">
-          {count !== undefined && (
-            <span className="tabular">{formatCount(count, "photo")}</span>
-          )}
-          {shown.length > 0 && (
-            <>
-              {count !== undefined && (
-                <span aria-hidden className="px-1.5 text-ink-faint">
-                  ·
-                </span>
-              )}
-              from{" "}
-              {shown.map((album, i) => (
-                <span key={album.path}>
-                  {i > 0 &&
-                    (i === shown.length - 1 && more === 0 ? " and " : ", ")}
-                  <Link
-                    href={albumHref(album.path)}
-                    title={album.path}
-                    className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors duration-150 hover:text-ink hover:decoration-accent"
-                  >
-                    {album.title}
-                  </Link>
-                </span>
-              ))}
-              {more > 0 && ` and ${formatCount(more, "other album")}`}
-            </>
-          )}
-        </p>
+        {shown.length > 0 && (
+          <p className="min-w-0 text-sm text-ink-muted sm:text-right">
+            {shown.map((folder, i) => (
+              <span key={folder.path}>
+                {i > 0 &&
+                  (i === shown.length - 1 && more === 0 ? " et " : ", ")}
+                <Link
+                  href={albumHref(folder.path)}
+                  title={folder.path}
+                  className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors duration-150 hover:text-ink hover:decoration-accent"
+                >
+                  {folder.title}
+                </Link>
+              </span>
+            ))}
+            {more > 0 &&
+              ` et ${formatCount(more, "autre dossier", "autres dossiers")}`}
+          </p>
+        )}
       </header>
       <JustifiedGrid
         photos={group.photos}
@@ -125,7 +113,7 @@ function TimelineMonth({
 
 export default memo(TimelineMonth);
 
-/** Placeholder month: heading, meta line and two rows of tiles. */
+/** Placeholder month: heading, folder line and two rows of tiles. */
 export function MonthSkeleton({ first = false }: { first?: boolean }) {
   const widths = [260, 180, 300, 220, 240, 200, 280, 190];
   return (

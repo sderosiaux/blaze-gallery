@@ -1,3 +1,4 @@
+import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import type { Photo } from "@/types";
 import { formatDay } from "@/lib/albums";
 
@@ -7,15 +8,16 @@ export interface MonthCount {
   count: number;
 }
 
-export interface TimelineSummary {
-  months: MonthCount[];
-  /** Every row of the library, dated or not, when the API provides it */
-  total_photos?: number;
+function isMonthCount(value: unknown): value is MonthCount {
+  return (
+    isRecord(value) &&
+    typeof value.month === "string" &&
+    typeof value.count === "number"
+  );
 }
 
-export interface YearCount {
-  year: number;
-  count: number;
+export interface TimelineSummary {
+  months: MonthCount[];
 }
 
 export type TimelinePhoto = Photo & { folder_path: string };
@@ -29,22 +31,16 @@ export async function fetchTimelineSummary(
   signal?: AbortSignal,
 ): Promise<TimelineSummary> {
   const response = await fetch("/api/timeline/summary", { signal });
-  const data = await response.json();
+  const data = await readJsonObject(response);
   if (!response.ok || !data.success)
-    throw new Error(data.error ?? `HTTP ${response.status}`);
-  return { months: data.months ?? [], total_photos: data.total_photos };
+    throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
+  return { months: asArray(data.months).filter(isMonthCount) };
 }
 
-/** Newest year first, like the months. */
-export function yearsOf(months: MonthCount[]): YearCount[] {
-  const byYear = new Map<number, number>();
-  for (const { month, count } of months) {
-    const year = Number(month.slice(0, 4));
-    byYear.set(year, (byYear.get(year) ?? 0) + count);
-  }
-  return Array.from(byYear, ([year, count]) => ({ year, count })).sort(
-    (a, b) => b.year - a.year,
-  );
+/** Years holding at least one dated photo, newest first like the months. */
+export function yearsOf(months: MonthCount[]): number[] {
+  const years = new Set(months.map(({ month }) => Number(month.slice(0, 4))));
+  return Array.from(years).sort((a, b) => b - a);
 }
 
 export function monthKey(photo: Photo): string | null {
@@ -53,6 +49,40 @@ export function monthKey(photo: Photo): string | null {
 
 export function monthLabel(key: string): string {
   return formatDay(`${key}-01T00:00:00.000Z`, "month");
+}
+
+/** Cursor for "everything taken before this month ends" ("YYYY-MM"). */
+export function endOfMonthCursor(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y ?? 1970, m ?? 12, 1)).toISOString();
+}
+
+/** Photos per year ("2019") and per month ("2019-07"), for the index beside the timeline. */
+export function countsOf(months: MonthCount[]): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const { month, count } of months) {
+    const year = month.slice(0, 4);
+    counts.set(month, count);
+    counts.set(year, (counts.get(year) ?? 0) + count);
+  }
+  return counts;
+}
+
+/** Months with photos in one year, newest first like the timeline. */
+export function monthsOfYear(months: MonthCount[], year: number): string[] {
+  const prefix = `${year}-`;
+  return months
+    .map(({ month }) => month)
+    .filter((month) => month.startsWith(prefix))
+    .sort((a, b) => b.localeCompare(a));
+}
+
+/** "juil." — short enough for the rail under its year. */
+export function shortMonthLabel(key: string): string {
+  return new Date(`${key}-01T00:00:00.000Z`).toLocaleDateString("fr-FR", {
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 /** Cursor for "everything taken before this year ends", accepted by `before`. */

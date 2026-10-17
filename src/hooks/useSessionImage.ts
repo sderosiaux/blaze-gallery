@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 
-type State = { status: "loading" | "ready" | "error"; src?: string };
+interface State {
+  status: "loading" | "ready" | "error";
+  src?: string;
+}
 
 /**
  * A password-protected share only serves originals with the `x-share-session`

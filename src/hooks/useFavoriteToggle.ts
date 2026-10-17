@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { Photo } from "@/types";
+import { asString, readJsonObject } from "./apiJson";
 
 interface Options {
   /** Shared views can't favourite. */
@@ -41,9 +42,9 @@ export function useFavoriteToggle(
           const response = await fetch(`/api/photos/${key}/favorite`, {
             method: "POST",
           });
-          const data = await response.json();
+          const data = await readJsonObject(response);
           if (!response.ok || !data.success)
-            throw new Error(data.error ?? `HTTP ${response.status}`);
+            throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
           server = Boolean(data.is_favorite);
         }
       } catch {

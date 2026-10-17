@@ -1,4 +1,5 @@
 import type { PhotoMetadata } from "@/types";
+import { prop } from "./narrow";
 
 /**
  * Reads what a photo says about itself from its first bytes: EXIF metadata
@@ -63,7 +64,7 @@ export async function parseImageHead(buffer: Buffer): Promise<ParsedImageHead> {
 
   const truncatedExif = isJpeg(buffer) && jpegExifSegmentTruncated(buffer);
 
-  let tags: any;
+  let tags: unknown;
   try {
     const ExifReader = await import("exifreader");
     tags = ExifReader.load(buffer, { expanded: true });
@@ -85,36 +86,40 @@ export async function parseImageHead(buffer: Buffer): Promise<ParsedImageHead> {
 }
 
 export function hasContent(probe: ImageHeadProbe): boolean {
-  return Boolean(probe.metadata || probe.preview);
+  return probe.metadata !== undefined || probe.preview !== undefined;
 }
 
 function buildMetadata(
-  tags: any,
+  tags: unknown,
   orientation: number | undefined,
 ): PhotoMetadata | undefined {
   const metadata: PhotoMetadata = {};
 
+  const exif = prop(tags, "exif");
   const dateTaken =
-    parseExifDate(tags.exif?.DateTimeOriginal) ??
-    parseExifDate(tags.exif?.DateTimeDigitized) ??
-    parseExifDate(tags.exif?.DateTime);
+    parseExifDate(prop(exif, "DateTimeOriginal")) ??
+    parseExifDate(prop(exif, "DateTimeDigitized")) ??
+    parseExifDate(prop(exif, "DateTime"));
   if (dateTaken) metadata.date_taken = dateTaken;
 
   const dimensions = readDimensions(tags, orientation);
   if (dimensions) metadata.dimensions = dimensions;
 
-  const make = cleanString(tags.exif?.Make);
-  const model = cleanString(tags.exif?.Model);
-  if (make || model) {
+  const make = cleanString(prop(exif, "Make"));
+  const model = cleanString(prop(exif, "Model"));
+  if (make !== undefined || model !== undefined) {
     metadata.camera = {
       ...(make ? { make } : {}),
       ...(model ? { model } : {}),
     };
   }
 
-  const latitude = tags.gps?.Latitude;
-  const longitude = tags.gps?.Longitude;
+  const gps = prop(tags, "gps");
+  const latitude = prop(gps, "Latitude");
+  const longitude = prop(gps, "Longitude");
   if (
+    typeof latitude === "number" &&
+    typeof longitude === "number" &&
     Number.isFinite(latitude) &&
     Number.isFinite(longitude) &&
     !(latitude === 0 && longitude === 0)
@@ -131,16 +136,21 @@ function buildMetadata(
  * EXIF dates are wall-clock "YYYY:MM:DD HH:MM:SS" without a zone. They are kept
  * as wall clock and serialized with a Z suffix (format with timeZone "UTC").
  */
-function parseExifDate(tag: any): string | undefined {
+function parseExifDate(tag: unknown): string | undefined {
   const raw = cleanString(tag);
   if (!raw) return undefined;
   const match = raw.match(
     /^(\d{4})[:\-](\d{2})[:\-](\d{2})[ T](\d{2}):(\d{2}):(\d{2})/,
   );
   if (!match) return undefined;
-  const [year, month, day, hour, minute, second] = match
-    .slice(1)
-    .map((part) => parseInt(part, 10));
+  const [
+    year = NaN,
+    month = NaN,
+    day = NaN,
+    hour = NaN,
+    minute = NaN,
+    second = NaN,
+  ] = match.slice(1).map((part) => parseInt(part, 10));
   if (year < 1900 || year > new Date().getUTCFullYear() + 1) return undefined;
   if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
   if (hour > 23 || minute > 59 || second > 60) return undefined;
@@ -152,27 +162,29 @@ function parseExifDate(tag: any): string | undefined {
   return date.toISOString();
 }
 
-function readOrientation(tags: any): number | undefined {
-  const value = tags.exif?.Orientation?.value;
-  return Number.isInteger(value) && value >= 1 && value <= 8
+function readOrientation(tags: unknown): number | undefined {
+  const value = prop(prop(prop(tags, "exif"), "Orientation"), "value");
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= 8
     ? value
     : undefined;
 }
 
 function readDimensions(
-  tags: any,
+  tags: unknown,
   orientation: number | undefined,
 ): PhotoMetadata["dimensions"] {
   // The SOF marker (file group) describes the pixels actually stored; EXIF
   // PixelX/YDimension can be stale after an edit, so it is only a fallback.
+  const value = (group: string, field: string): unknown =>
+    prop(prop(prop(tags, group), field), "value");
   const candidates: [unknown, unknown][] = [
-    [tags.file?.["Image Width"]?.value, tags.file?.["Image Height"]?.value],
-    [
-      tags.pngFile?.["Image Width"]?.value,
-      tags.pngFile?.["Image Height"]?.value,
-    ],
-    [tags.exif?.PixelXDimension?.value, tags.exif?.PixelYDimension?.value],
-    [tags.exif?.ImageWidth?.value, tags.exif?.ImageLength?.value],
+    [value("file", "Image Width"), value("file", "Image Height")],
+    [value("pngFile", "Image Width"), value("pngFile", "Image Height")],
+    [value("exif", "PixelXDimension"), value("exif", "PixelYDimension")],
+    [value("exif", "ImageWidth"), value("exif", "ImageLength")],
   ];
   for (const [w, h] of candidates) {
     const width = Number(w);
@@ -192,12 +204,21 @@ function readDimensions(
 }
 
 async function extractPreview(
-  tags: any,
+  tags: unknown,
   orientation: number | undefined,
 ): Promise<Buffer | undefined> {
-  const image = tags.Thumbnail?.image;
-  if (!image || tags.Thumbnail?.type !== "image/jpeg") return undefined;
-  const source = Buffer.isBuffer(image) ? image : Buffer.from(image);
+  const thumbnail = prop(tags, "Thumbnail");
+  const image = prop(thumbnail, "image");
+  if (!image || prop(thumbnail, "type") !== "image/jpeg") return undefined;
+  // exifreader hands back a Buffer or an ArrayBuffer depending on the runtime
+  const source = Buffer.isBuffer(image)
+    ? image
+    : image instanceof ArrayBuffer
+      ? Buffer.from(image)
+      : image instanceof Uint8Array
+        ? Buffer.concat([image])
+        : undefined;
+  if (!source) return undefined;
   if (source.length < 128 || !isJpeg(source)) return undefined;
 
   try {
@@ -253,7 +274,7 @@ function jpegExifSegmentTruncated(buffer: Buffer): boolean {
   let offset = 2;
   while (offset + 4 <= buffer.length) {
     if (buffer[offset] !== 0xff) return false;
-    const marker = buffer[offset + 1];
+    const marker = buffer[offset + 1] ?? 0;
     // Start of scan or SOF: the metadata segments are behind us
     const isStartOfFrame =
       marker >= 0xc0 &&
@@ -278,8 +299,8 @@ function jpegExifSegmentTruncated(buffer: Buffer): boolean {
   return true;
 }
 
-function cleanString(tag: any): string | undefined {
-  const value = tag?.description ?? tag?.value;
+function cleanString(tag: unknown): string | undefined {
+  const value = prop(tag, "description") ?? prop(tag, "value");
   const text = Array.isArray(value) ? value.join(" ") : value;
   if (typeof text !== "string") return undefined;
   const cleaned = text.replace(/\0/g, "").trim();

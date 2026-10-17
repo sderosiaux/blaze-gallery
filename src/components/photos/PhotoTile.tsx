@@ -1,12 +1,14 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Film, Heart, ImageOff } from "lucide-react";
 import type { Photo } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
 import { formatDay, isVideo } from "@/lib/albums";
 import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
+import { userRotation } from "@/lib/rotation";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -23,13 +25,11 @@ const RAW_EXTENSIONS = [
 ];
 
 export function photoSources(photo: Photo, shareToken?: string) {
-  const id = String(photo.id);
-  return shareToken
-    ? {
-        preview: `/api/shares/${shareToken}/preview/${id}`,
-        thumb: `/api/shares/${shareToken}/thumbnail/${id}`,
-      }
-    : { preview: `/api/photos/${id}/preview`, thumb: photo.thumbnail_url };
+  const rotation = userRotation(photo.metadata);
+  return {
+    preview: previewUrl(photo.id, shareToken, rotation),
+    thumb: thumbnailUrl(photo.id, shareToken, rotation),
+  };
 }
 
 interface PhotoTileProps {
@@ -37,7 +37,11 @@ interface PhotoTileProps {
   width: number;
   height: number;
   eager?: boolean;
+  /** Position in the grid: tiles load in reading order. */
+  order?: number;
   shareToken?: string;
+  /** Password-protected shares: the guest's session, sent with every image. */
+  sessionToken?: string;
   onOpen: (photo: Photo) => void;
   onToggleFavorite?: (photo: Photo) => void;
 }
@@ -47,15 +51,21 @@ function PhotoTile({
   width,
   height,
   eager,
+  order,
   shareToken,
+  sessionToken,
   onOpen,
   onToggleFavorite,
 }: PhotoTileProps) {
   const [failed, setFailed] = useState(false);
+  // A thumbnail built later (folder warm-up) replaces the "no preview" state.
+  useEffect(() => {
+    if (photo.thumbnail_status === "generated") setFailed(false);
+  }, [photo.thumbnail_status]);
   const video = isVideo(photo);
   const sources = photoSources(photo, shareToken);
   const taken = photo.metadata?.date_taken;
-  const label = `${video ? "Play video" : "Open photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}`;
+  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}`;
   const isRaw = RAW_EXTENSIONS.some((ext) =>
     photo.filename.toLowerCase().endsWith(ext),
   );
@@ -81,7 +91,7 @@ function PhotoTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3 text-center text-ink-muted">
           <ImageOff className="h-5 w-5" aria-hidden />
           <span className="text-xs font-medium">
-            {isRaw ? "RAW file" : "No preview"}
+            {isRaw ? "Fichier RAW" : "Pas d'aperçu"}
           </span>
           <span className="max-w-full truncate px-2 text-[11px]">
             {photo.filename}
@@ -89,13 +99,18 @@ function PhotoTile({
         </div>
       ) : (
         <ProgressiveImage
-          previewSrc={sources.preview}
+          // RAW files carry no EXIF preview: asking for one only costs a round trip
+          previewSrc={isRaw ? undefined : sources.preview}
           thumbSrc={sources.thumb}
           thumbReady={photo.thumbnail_status === "generated"}
           displayWidth={width}
           alt={photo.filename}
           eager={eager}
-          onFailed={() => setFailed(true)}
+          order={order}
+          sessionToken={sessionToken}
+          onFailed={() => {
+            setFailed(true);
+          }}
           className="transition-transform duration-700 ease-out-soft group-hover:scale-[1.025]"
         />
       )}
@@ -107,19 +122,24 @@ function PhotoTile({
 
       <button
         type="button"
-        onClick={() => onOpen(photo)}
+        onClick={() => {
+          onOpen(photo);
+        }}
         aria-label={label}
+        data-photo-id={String(photo.id)}
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
 
       {onToggleFavorite && (
         <button
           type="button"
-          onClick={() => onToggleFavorite(photo)}
+          onClick={() => {
+            onToggleFavorite(photo);
+          }}
           aria-label={
             photo.is_favorite
-              ? `Remove ${photo.filename} from favorites`
-              : `Add ${photo.filename} to favorites`
+              ? `Retirer ${photo.filename} des favoris`
+              : `Ajouter ${photo.filename} aux favoris`
           }
           aria-pressed={photo.is_favorite}
           className={cn(

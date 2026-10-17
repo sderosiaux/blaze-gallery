@@ -3,24 +3,26 @@
 @tailwind utilities;
 
 /* Design tokens. RGB channels so Tailwind can apply alpha (bg-ink/40). Light
-   theme only: the photographs bring the colour, the interface stays paper and
-   ink, with one warm accent used sparingly. */
+   theme only: photos sit on white, the interface stays neutral grey and ink.
+   No brand accent: interactive emphasis uses ink, colour is left to the photos
+   and to status. */
 :root {
-  --paper: 248 246 241;
+  --paper: 255 255 255;
   --surface: 255 255 255;
-  --surface-sunken: 239 235 227;
+  --surface-sunken: 244 244 245;
+  --sidebar: 248 248 249;
 
-  --ink: 28 25 21;
-  --ink-soft: 74 69 61;
-  --ink-muted: 113 106 95;
-  --ink-faint: 168 161 150;
+  --ink: 24 24 27;
+  --ink-soft: 63 63 70;
+  --ink-muted: 113 113 122;
+  --ink-faint: 161 161 170;
 
-  --line: 230 225 216;
-  --line-strong: 208 201 189;
+  --line: 228 228 231;
+  --line-strong: 212 212 216;
 
-  --accent: 194 65 12;
-  --accent-strong: 154 52 18;
-  --accent-soft: 252 237 226;
+  --accent: 24 24 27;
+  --accent-strong: 9 9 11;
+  --accent-soft: 244 244 245;
 
   --favorite: 225 29 72;
   --success: 21 128 61;
@@ -32,12 +34,12 @@
   --info: 37 82 186;
   --info-soft: 228 235 250;
 
-  --scrim: 20 18 15;
+  --scrim: 9 9 11;
   --on-photo: 255 255 255;
 
   --chart-1: 194 65 12;
   --chart-2: 15 118 110;
-  --chart-3: 74 69 61;
+  --chart-3: 82 82 91;
   --chart-4: 202 138 4;
   --chart-5: 59 91 168;
   --chart-6: 157 23 77;

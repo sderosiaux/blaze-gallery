@@ -1,8 +1,10 @@
 import type { Folder, Photo } from "@/types";
+import { rotatedSize, userRotation } from "./rotation";
 
 // Folder names in the bucket carry their date in many shapes
 // ("2018-01-15 toulouse", "07-12-2008-disneyland", "20100416_Anni Dadou").
-// Pulling it out lets the date read as a kicker and the place or event as the title.
+// The date moves to the kicker; the rest of the name is shown exactly as it is
+// in the bucket, so a folder is always recognisable.
 
 export interface AlbumName {
   title: string;
@@ -13,30 +15,30 @@ export interface AlbumName {
 }
 
 const SEP = String.raw`[\s_\-.@]*`;
-const PATTERNS: Array<{
+const PATTERNS: {
   re: RegExp;
   pick: (m: RegExpMatchArray) => [number, number?, number?];
-}> = [
+}[] = [
   // A "00" day means the month is known but not the day.
   {
     re: new RegExp(
       String.raw`^(\d{4})-(\d{2})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`,
     ),
-    pick: (m) => [+m[1], +m[2], +m[3] || undefined],
+    pick: (m) => [Number(m[1]), Number(m[2]), Number(m[3]) || undefined],
   },
   {
     re: new RegExp(
       String.raw`^(\d{2})-(\d{2})-(\d{4})(?=\b|_|\s|$)${SEP}(.*)$`,
     ),
-    pick: (m) => [+m[3], +m[2], +m[1]],
+    pick: (m) => [Number(m[3]), Number(m[2]), Number(m[1])],
   },
   {
     re: new RegExp(String.raw`^(\d{4})(\d{2})(\d{2})(?=_|\s|-|$)${SEP}(.*)$`),
-    pick: (m) => [+m[1], +m[2], +m[3]],
+    pick: (m) => [Number(m[1]), Number(m[2]), Number(m[3])],
   },
   {
     re: new RegExp(String.raw`^(\d{4})-(\d{2})(?=\b|_|\s|$)${SEP}(.*)$`),
-    pick: (m) => [+m[1], +m[2]],
+    pick: (m) => [Number(m[1]), Number(m[2])],
   },
 ];
 
@@ -47,15 +49,9 @@ function validDate(y: number, mo?: number, d?: number) {
   return true;
 }
 
+/** Drops only the separators left between the date and the rest of the name. */
 function tidy(title: string) {
-  let t = title
-    .replace(/_/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^[\s\-–—@.:]+/, "")
-    .trim();
-  // Slug-style names ("journée-plopsaland") read as words.
-  if (!/\s/.test(t) && /\p{L}-\p{L}/u.test(t)) t = t.replace(/-/g, " ");
-  return t ? t.charAt(0).toLocaleUpperCase("fr-FR") + t.slice(1) : t;
+  return title.replace(/^[\s\-–—_@.:]+/, "").trim();
 }
 
 export function parseAlbumName(name: string): AlbumName {
@@ -71,10 +67,10 @@ export function parseAlbumName(name: string): AlbumName {
     const title = tidy(rest);
     return { title: title || formatDay(iso, precision), date: iso, precision };
   }
-  return { title: tidy(name) || name };
+  return { title: name };
 }
 
-const LOCALE = "en-GB";
+export const LOCALE = "fr-FR";
 
 export function formatDay(
   iso: string,
@@ -89,14 +85,14 @@ export function formatDay(
   return new Date(iso).toLocaleDateString(LOCALE, opts);
 }
 
-/** "7 December 2008", "December 2008", "Jan – Mar 2018", "2016 – 2019". */
+/** "7 décembre 2008", "décembre 2008", "janv. – mars 2018", "2016 – 2019". */
 export function formatDateRange(
   from?: string | null,
   to?: string | null,
 ): string | undefined {
   if (!from && !to) return undefined;
-  const a = new Date(from ?? to!);
-  const b = new Date(to ?? from!);
+  const a = new Date(from ?? to ?? "");
+  const b = new Date(to ?? from ?? "");
   const sameYear = a.getUTCFullYear() === b.getUTCFullYear();
   const sameMonth = sameYear && a.getUTCMonth() === b.getUTCMonth();
   const sameDay = sameMonth && a.getUTCDate() === b.getUTCDate();
@@ -140,8 +136,13 @@ export function photoDateRange(photos: Photo[]): {
   return { from, to };
 }
 
+export function formatNumber(n: number): string {
+  return n.toLocaleString(LOCALE);
+}
+
+/** French plural: 0 and 1 take the singular. */
 export function formatCount(n: number, one: string, many = `${one}s`): string {
-  return `${n.toLocaleString(LOCALE)} ${n === 1 ? one : many}`;
+  return `${formatNumber(n)} ${n <= 1 ? one : many}`;
 }
 
 export function isVideo(photo: Pick<Photo, "mime_type">): boolean {
@@ -150,8 +151,9 @@ export function isVideo(photo: Pick<Photo, "mime_type">): boolean {
 
 /** Width / height, clamped so panoramas and slivers don't wreck a row. */
 export function aspectRatio(photo: Photo): number {
-  const dims = photo.metadata?.dimensions;
-  if (dims && dims.width > 0 && dims.height > 0) {
+  const stored = photo.metadata?.dimensions;
+  if (stored && stored.width > 0 && stored.height > 0) {
+    const dims = rotatedSize(stored, userRotation(photo.metadata));
     return Math.min(3, Math.max(0.5, dims.width / dims.height));
   }
   return isVideo(photo) ? 16 / 9 : 4 / 3;

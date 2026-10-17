@@ -34,6 +34,10 @@ function periodQuery({ start, end }: Period) {
   return `start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
 }
 
+function isRangeId(value: string | null): value is RangeId {
+  return RANGES.some((r) => r.id === value);
+}
+
 export function StorageAudit() {
   const [rangeId, setRangeId] = useState<RangeId>("24h");
   const [pageSize, setPageSize] = useState<PageSize>(20);
@@ -41,7 +45,13 @@ export function StorageAudit() {
   // Pinned when the range is picked or the page refreshed, so every section
   // describes the same slice of time. Set after mount: "now" differs on the server.
   const [period, setPeriod] = useState<Period | null>(null);
-  useEffect(() => setPeriod(periodFor("24h")), []);
+  // The range lives in the URL (?range=), like the stats tabs, so a view can be linked.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("range");
+    const initial: RangeId = isRangeId(fromUrl) ? fromUrl : "24h";
+    setRangeId(initial);
+    setPeriod(periodFor(initial));
+  }, []);
 
   const range = rangeById(rangeId);
   const q = period && periodQuery(period);
@@ -63,7 +73,26 @@ export function StorageAudit() {
   const changeRange = (id: RangeId) => {
     setRangeId(id);
     setPeriod(periodFor(id));
+    const url = new URL(window.location.href);
+    url.searchParams.set("range", id);
+    window.history.replaceState(null, "", url);
   };
+
+  // The log may not reach back to the start of the range: say so, and
+  // average over what it covers.
+  const firstLogged = summary.data?.first_request_at
+    ? Date.parse(summary.data.first_request_at)
+    : null;
+  const periodStart = period ? Date.parse(period.start) : null;
+  const periodEnd = period ? Date.parse(period.end) : null;
+  const partial =
+    firstLogged !== null &&
+    periodStart !== null &&
+    firstLogged - periodStart > range.ms * 0.05;
+  const coveredMs =
+    periodEnd !== null && periodStart !== null
+      ? periodEnd - (partial ? firstLogged : periodStart)
+      : range.ms;
   const refresh = () => {
     setPeriod(periodFor(rangeId));
     setRefreshes((n) => n + 1);
@@ -72,8 +101,7 @@ export function StorageAudit() {
   return (
     <>
       <PageHeader
-        kicker="Admin"
-        title="Storage audit"
+        title="Audit stockage"
         meta={
           <>
             <span>{range.label}</span>
@@ -81,22 +109,32 @@ export function StorageAudit() {
               <>
                 <MetaDot />
                 <span className="tabular">
-                  {formatMoment(Date.parse(period.start))} to{" "}
+                  {formatMoment(Date.parse(period.start))} –{" "}
                   {formatMoment(Date.parse(period.end))}
+                </span>
+              </>
+            )}
+            {partial && (
+              <>
+                <MetaDot />
+                <span className="tabular">
+                  Données depuis {formatMoment(firstLogged)}
                 </span>
               </>
             )}
           </>
         }
         actions={
-          <>
+          <div className="flex items-center gap-2">
             <label htmlFor="audit-range" className="sr-only">
-              Time range
+              Période
             </label>
             <Select
               id="audit-range"
               value={rangeId}
-              onChange={(e) => changeRange(e.target.value as RangeId)}
+              onChange={(e) => {
+                changeRange(e.target.value as RangeId);
+              }}
               className="w-auto min-w-[11rem]"
             >
               {RANGES.map((r) => (
@@ -107,12 +145,12 @@ export function StorageAudit() {
             </Select>
             <IconButton
               icon={RefreshCw}
-              label="Refresh"
+              label="Actualiser"
               variant="secondary"
               loading={anyLoading && period !== null}
               onClick={refresh}
             />
-          </>
+          </div>
         }
       />
 
@@ -122,6 +160,7 @@ export function StorageAudit() {
         error={summary.error}
         onRetry={summary.retry}
         range={range}
+        coveredMs={coveredMs}
       />
 
       <TrafficCharts

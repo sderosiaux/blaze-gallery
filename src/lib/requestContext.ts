@@ -1,4 +1,5 @@
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+import { nonEmptyOr } from "./textUtils";
 
 /**
  * Context extracted from incoming requests
@@ -15,9 +16,9 @@ export interface RequestContext {
  */
 export function getRequestContext(request: NextRequest): RequestContext {
   return {
-    ip: request.ip || request.headers.get("x-forwarded-for") || "unknown",
-    userAgent: request.headers.get("user-agent") || "unknown",
-    referer: request.headers.get("referer") || undefined,
+    ip: getClientIP(request),
+    userAgent: nonEmptyOr(request.headers.get("user-agent"), "unknown"),
+    referer: nonEmptyOr(request.headers.get("referer"), undefined),
   };
 }
 
@@ -26,5 +27,8 @@ export function getRequestContext(request: NextRequest): RequestContext {
  * Shorthand for when only IP is needed
  */
 export function getClientIP(request: NextRequest): string {
-  return request.ip || request.headers.get("x-forwarded-for") || "unknown";
+  return nonEmptyOr(
+    request.ip,
+    nonEmptyOr(request.headers.get("x-forwarded-for"), "unknown"),
+  );
 }

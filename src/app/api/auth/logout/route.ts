@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { revokeUserSession } from "@/lib/auth/userSession";
 import { revokeGoogleTokens } from "@/lib/auth/googleOAuth";
 import { validateOrigin } from "@/lib/auth/validators";
+import { optionalString, readJsonObject } from "@/app/api/_lib/request";
 
 // Force dynamic rendering for auth routes
 export const dynamic = "force-dynamic";
@@ -23,9 +25,10 @@ export async function POST(request: NextRequest) {
 
     // Parse request body for Google token revocation (optional)
     try {
-      const body = await request.json();
-      if (body.accessToken) {
-        await revokeGoogleTokens(body.accessToken);
+      const body = await readJsonObject(request);
+      const accessToken = optionalString(body.accessToken);
+      if (accessToken) {
+        await revokeGoogleTokens(accessToken);
       }
     } catch {
       // Ignore JSON parsing errors - token revocation is optional

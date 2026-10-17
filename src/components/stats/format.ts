@@ -1,41 +1,54 @@
-import { formatDay, parseAlbumName } from "@/lib/albums";
+import {
+  LOCALE,
+  albumDateLabel,
+  formatDay,
+  formatNumber,
+  parseAlbumName,
+} from "@/lib/albums";
 
-const LOCALE = "en-GB";
-const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
+export { formatNumber };
 
-/** Three significant digits ("1.04 TB", "954 GB", "26.2 GB"): `formatBytes`
- *  keeps one decimal, which rounds a 1.04 TB library down to "1 TB". */
+// French byte units (octets). The number and its unit never split across lines.
+export const BYTE_UNITS = ["o", "Ko", "Mo", "Go", "To", "Po"];
+const NBSP = "\u00A0";
+
+const withDigits = (digits: number) =>
+  new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+const decimals = [withDigits(0), withDigits(1), withDigits(2)] as const;
+
+/** Three significant digits ("1,04 To", "954 Go", "26,2 Go"), so a 1.04 TB
+ *  library never rounds down to "1 To". */
 export function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return `0${NBSP}o`;
   const i = Math.min(
-    UNITS.length - 1,
+    BYTE_UNITS.length - 1,
     Math.floor(Math.log(bytes) / Math.log(1024)),
   );
   const v = bytes / 1024 ** i;
   const digits = i === 0 ? 0 : v < 10 ? 2 : v < 100 ? 1 : 0;
-  return `${v.toFixed(digits)} ${UNITS[i]}`;
+  return `${decimals[digits].format(v)}${NBSP}${BYTE_UNITS[i] ?? "o"}`;
 }
 
-export function formatNumber(n: number): string {
-  return n.toLocaleString(LOCALE);
-}
+const percent = new Intl.NumberFormat(LOCALE, {
+  style: "percent",
+  maximumFractionDigits: 0,
+});
 
-/** Whole percent, with "<1%" so a small non-zero share never reads as nothing. */
+/** Whole percent, with "< 1 %" so a small non-zero share never reads as nothing. */
 export function formatPercent(part: number, whole: number): string {
   if (whole <= 0) return "–";
-  const p = (part / whole) * 100;
-  if (p > 0 && p < 1) return "<1%";
-  if (p < 100 && p > 99) return ">99%";
-  return `${Math.round(p)}%`;
+  const p = part / whole;
+  if (p > 0 && p < 0.01) return `<${NBSP}${percent.format(0.01)}`;
+  if (p < 1 && p > 0.99) return `>${NBSP}${percent.format(0.99)}`;
+  return percent.format(p);
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(LOCALE, {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+/** Elapsed time with one decimal: "4,2 s". */
+export function formatSeconds(ms: number): string {
+  return `${decimals[1].format(ms / 1000)}${NBSP}s`;
 }
 
 export function formatTime(iso: string): string {
@@ -45,10 +58,12 @@ export function formatTime(iso: string): string {
   });
 }
 
-/** "just now", "3 hours ago", "10 months ago". */
+const relative = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
+
+/** "à l’instant", "il y a 3 heures", "il y a 10 mois". */
 export function timeAgo(iso: string, now = Date.now()): string {
   const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
-  const steps: Array<[number, string]> = [
+  const steps: [number, Intl.RelativeTimeFormatUnit][] = [
     [60, "second"],
     [60, "minute"],
     [24, "hour"],
@@ -59,37 +74,30 @@ export function timeAgo(iso: string, now = Date.now()): string {
   let value = s;
   for (const [size, unit] of steps) {
     if (value < size) {
-      const n = Math.floor(value);
-      if (unit === "second") return "just now";
-      return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+      if (unit === "second") return "à l’instant";
+      return relative.format(-Math.floor(value), unit);
     }
     value /= size;
   }
   return "";
 }
 
-/** Extension as shown to people: "jpg" → "JPG", missing → "No extension". */
+/** Extension as shown to people: "jpg" → "JPG", missing → "Sans extension". */
 export function formatExtension(ext: string): string {
-  return ext === "none" ? "No extension" : ext.toUpperCase();
+  return ext === "none" ? "Sans extension" : ext.toUpperCase();
 }
 
-/** Where the album sits ("Quebec · 2019"): generic names like "Reflex" or
- *  "105D7200" only make sense next to their parent album. */
-export function albumKicker(
-  path: string,
-  albumDate?: string,
-): string | undefined {
+/** The kicker over a folder name: its own date when the name carries one (as
+ *  on folder cards), otherwise where it sits ("Quebec · 2019"), because
+ *  generic names like "Reflex" or "105D7200" only make sense next to their
+ *  parent. Names keep their bucket spelling; only a leading date moves out. */
+export function folderKicker(path: string, name: string): string | undefined {
+  // Admin rows carry no EXIF range, so only a date in the name counts.
+  const ownDate = albumDateLabel({ name, date_from: null, date_to: null });
+  if (ownDate) return ownDate;
   const parent = path.split("/").slice(0, -1).pop();
-  if (!parent) return albumDate;
+  if (!parent) return undefined;
   const p = parseAlbumName(parent);
-  const date =
-    albumDate ??
-    (p.date ? new Date(p.date).getUTCFullYear().toString() : undefined);
-  return [p.title, date].filter(Boolean).join(" · ");
-}
-
-/** The date carried by an album's own name, formatted at its precision. */
-export function ownDate(name: string): string | undefined {
-  const { date, precision } = parseAlbumName(name);
-  return date && precision ? formatDay(date, precision) : undefined;
+  const year = p.date ? formatDay(p.date, "year") : undefined;
+  return [p.title, year].filter(Boolean).join(" · ");
 }

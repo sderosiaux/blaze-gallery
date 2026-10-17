@@ -11,6 +11,7 @@ interface Shortcut {
 interface ShortcutsHelpProps {
   id: string;
   canFavorite: boolean;
+  canRotate: boolean;
   canDelete: boolean;
   onClose: () => void;
 }
@@ -18,37 +19,42 @@ interface ShortcutsHelpProps {
 export default function ShortcutsHelp({
   id,
   canFavorite,
+  canRotate,
   canDelete,
   onClose,
 }: ShortcutsHelpProps) {
   const shortcuts: Shortcut[] = [
-    { keys: ["←", "→"], label: "Previous or next photo" },
-    { keys: ["Space"], label: "Start or pause the slideshow" },
+    { keys: ["←", "→"], label: "Photo précédente ou suivante" },
+    { keys: ["Espace"], label: "Lancer ou mettre en pause le diaporama" },
     ...(canFavorite
-      ? [{ keys: ["F"], label: "Add to or remove from favorites" }]
+      ? [{ keys: ["F"], label: "Ajouter aux favoris ou en retirer" }]
       : []),
-    { keys: ["I"], label: "Show or hide details" },
-    { keys: ["Z"], label: "Zoom in or out. Double-click works too" },
+    { keys: ["I"], label: "Afficher ou masquer les infos" },
+    { keys: ["Z"], label: "Zoomer ou dézoomer (double-clic aussi)" },
+    ...(canRotate
+      ? [
+          { keys: ["R"], label: "Pivoter d’un quart de tour à droite" },
+          { keys: ["Maj", "R"], label: "Pivoter d’un quart de tour à gauche" },
+        ]
+      : []),
     ...(canDelete
-      ? [{ keys: ["Delete"], label: "Delete the photo, after you confirm" }]
+      ? [{ keys: ["Suppr"], label: "Supprimer la photo, après confirmation" }]
       : []),
-    { keys: ["Esc"], label: "Close the photo" },
-    { keys: ["?"], label: "Show or hide these shortcuts" },
+    { keys: ["Échap"], label: "Fermer la photo" },
+    { keys: ["?"], label: "Afficher ou masquer ces raccourcis" },
   ];
 
   return (
     <section
       id={id}
-      aria-label="Keyboard shortcuts"
-      className="absolute right-3 top-14 z-20 w-[min(22rem,calc(100%-1.5rem))] animate-rise-in rounded-xl border border-line bg-surface p-5 shadow-pop"
+      aria-label="Raccourcis clavier"
+      className="absolute right-3 top-14 z-20 w-[min(26rem,calc(100%-1.5rem))] animate-rise-in rounded-xl border border-line bg-surface p-5 shadow-pop"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-display text-xl font-normal text-ink">
-          Keyboard shortcuts
-        </h2>
+        <h2 className="text-xl font-semibold text-ink">Raccourcis clavier</h2>
         <IconButton
           icon={X}
-          label="Close shortcuts"
+          label="Fermer les raccourcis"
           size="sm"
           onClick={onClose}
           className="-mr-2"

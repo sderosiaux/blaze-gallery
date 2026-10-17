@@ -6,7 +6,7 @@ import GuestAlbum, {
 
 // A share link is private by intent: keep it out of search engines even if it leaks.
 export const metadata: Metadata = {
-  title: "A shared album",
+  title: "Dossier partagé",
   robots: { index: false, follow: false },
 };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { readJsonObject } from "@/hooks/apiJson";
 
 export default function StartupManager() {
   const hasStarted = useRef(false);
@@ -18,7 +19,6 @@ export default function StartupManager() {
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 
     if (lastStartup && parseInt(lastStartup) > fiveMinutesAgo) {
-      console.debug("Startup completed recently, skipping...");
       return;
     }
 
@@ -34,7 +34,7 @@ export default function StartupManager() {
           return;
         }
 
-        const result = await response.json();
+        const result = await readJsonObject(response);
         if (result.success) {
           // Store successful startup timestamp
           localStorage.setItem(
@@ -49,7 +49,7 @@ export default function StartupManager() {
     };
 
     // Run startup asynchronously without blocking the UI
-    initializeApp();
+    void initializeApp();
   }, []);
 
   // This component renders nothing

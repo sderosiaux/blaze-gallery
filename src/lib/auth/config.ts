@@ -1,4 +1,5 @@
-import { AuthConfig } from "./types";
+import { nonEmptyOr } from "../textUtils";
+import type { AuthConfig } from "./types";
 
 /**
  * Auth rate limiting constants
@@ -22,16 +23,20 @@ function getAuthConfig(): AuthConfig {
     enabled,
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    googleRedirectUri:
-      process.env.GOOGLE_REDIRECT_URI ||
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/auth/google/callback`,
+    googleRedirectUri: nonEmptyOr(
+      process.env.GOOGLE_REDIRECT_URI,
+      `${nonEmptyOr(process.env.NEXT_PUBLIC_APP_URL, "http://localhost:3000")}/api/auth/google/callback`,
+    ),
     emailWhitelist: process.env.AUTH_EMAIL_WHITELIST
       ? process.env.AUTH_EMAIL_WHITELIST.split(",").map((email) =>
           email.trim().toLowerCase(),
         )
       : [],
     sessionSecret: process.env.AUTH_SESSION_SECRET,
-    sessionDuration: parseInt(process.env.AUTH_SESSION_DURATION || "86400", 10), // 24 hours default
+    sessionDuration: parseInt(
+      nonEmptyOr(process.env.AUTH_SESSION_DURATION, "86400"),
+      10,
+    ), // 24 hours default
   };
 }
 

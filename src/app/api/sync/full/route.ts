@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { createSyncJob } from "@/lib/database";
 import { syncService } from "@/lib/sync";
@@ -11,7 +12,10 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
   const authResult = authenticateRequest(request, { apiKeyRequired: true });
   if (!authResult.isAuthenticated) {
     return NextResponse.json(
-      { success: false, error: authResult.error || "Authentication required" },
+      {
+        success: false,
+        error: authResult.error ? authResult.error : "Authentication required",
+      },
       { status: 401 },
     );
   }
@@ -35,7 +39,13 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     });
 
     if (!syncService.isServiceRunning()) {
-      syncService.start();
+      syncService.start().catch((startError: unknown) => {
+        logger.error(
+          "Failed to start sync service",
+          undefined,
+          startError instanceof Error ? startError : undefined,
+        );
+      });
     }
 
     return NextResponse.json({

@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { authConfig, AUTH_RATE_LIMITS } from "./config";
-import { GoogleUserInfo } from "./types";
+import type { GoogleUserInfo } from "./types";
 
 /**
  * Validate if an email is in the whitelist

@@ -1,6 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { validateUserSession } from "./userSession";
 import { authConfig } from "./config";
+import { authenticateRequest } from "@/lib/auth";
+
+/**
+ * Without sign-in, whoever reaches the server can browse, share and delete.
+ * Fine on a laptop or behind a VPN; in production it has to be a choice, not
+ * a forgotten variable.
+ */
+function openAccessRefused(): NextResponse | null {
+  if (
+    process.env.NODE_ENV !== "production" ||
+    process.env.ALLOW_PUBLIC_ACCESS === "true"
+  ) {
+    return null;
+  }
+  return NextResponse.json(
+    {
+      error:
+        "Sign-in is not configured. Set GOOGLE_AUTH_ENABLED=true, or ALLOW_PUBLIC_ACCESS=true to run without it.",
+    },
+    { status: 503 },
+  );
+}
 
 export interface AuthenticatedRequest extends NextRequest {
   user?: {
@@ -23,9 +46,9 @@ export function withAuth(
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
     try {
-      // If authentication is disabled, allow all requests
       if (!authConfig.enabled) {
-        return handler(request as AuthenticatedRequest);
+        const refused = options.required ? openAccessRefused() : null;
+        return refused ?? handler(request as AuthenticatedRequest);
       }
 
       // Get session cookie
@@ -119,7 +142,7 @@ export async function checkAuth(request: NextRequest): Promise<{
 /**
  * Require authentication for an API route
  */
-export function requireAuth<T extends any[]>(
+export function requireAuth<T extends unknown[]>(
   handler: (
     req: AuthenticatedRequest,
     ...args: T
@@ -136,7 +159,7 @@ export function requireAuth<T extends any[]>(
 /**
  * Optional authentication for an API route
  */
-export function optionalAuth<T extends any[]>(
+export function optionalAuth<T extends unknown[]>(
   handler: (
     req: AuthenticatedRequest,
     ...args: T
@@ -147,5 +170,32 @@ export function optionalAuth<T extends any[]>(
       (authReq: AuthenticatedRequest) => handler(authReq, ...args),
       { required: false },
     )(req);
+  };
+}
+
+/**
+ * For machine clients (MCP): an API key (`Authorization: Bearer <API_KEY>` or
+ * `X-API-Key`) when one is sent, the owner's session otherwise.
+ */
+export function requireAuthOrApiKey<T extends unknown[]>(
+  handler: (
+    req: AuthenticatedRequest,
+    ...args: T
+  ) => Promise<NextResponse> | NextResponse,
+) {
+  const withSession = requireAuth(handler);
+  return (req: NextRequest, ...args: T) => {
+    const sendsKey =
+      req.headers.has("x-api-key") ||
+      Boolean(req.headers.get("authorization")?.startsWith("Bearer "));
+    if (!sendsKey) return withSession(req, ...args);
+    const result = authenticateRequest(req, { apiKeyRequired: true });
+    if (!result.isAuthenticated) {
+      return NextResponse.json(
+        { error: result.error ?? "Invalid API key" },
+        { status: 401 },
+      );
+    }
+    return handler(req as AuthenticatedRequest, ...args);
   };
 }

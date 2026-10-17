@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { putObject, getMimeType, isMediaFile } from "@/lib/s3";
-import { createOrUpdatePhoto, getFolderByPath, createOrUpdateFolder } from "@/lib/database";
+import {
+  createOrUpdatePhoto,
+  getFolderByPath,
+  createOrUpdateFolder,
+} from "@/lib/database";
 import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
@@ -9,8 +14,10 @@ import { logger } from "@/lib/logger";
 export const POST = requireAuth(async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const folderPath = (formData.get("folder") as string) || "";
+    const fileEntry = formData.get("file");
+    const file = fileEntry instanceof File ? fileEntry : null;
+    const folderEntry = formData.get("folder");
+    const folderPath = typeof folderEntry === "string" ? folderEntry : "";
 
     if (!file) {
       return NextResponse.json(
@@ -21,7 +28,10 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
 
     if (!isMediaFile(file.name)) {
       return NextResponse.json(
-        { success: false, error: "Invalid file type. Only images and videos are allowed." },
+        {
+          success: false,
+          error: "Invalid file type. Only images and videos are allowed.",
+        },
         { status: 400 },
       );
     }
@@ -36,7 +46,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     let folder = await getFolderByPath(folderPath || "/");
     if (!folder) {
       // Create folder if it doesn't exist
-      const folderName = folderPath.split("/").pop() || "Root";
+      const folderName = (folderPath.split("/").pop() ?? "") || "Root";
       folder = await createOrUpdateFolder({
         path: folderPath || "/",
         name: folderName,
@@ -77,8 +87,12 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
         photoId: photo.id,
         request,
       })
-      .catch((err) => {
-        logger.error(`Failed to generate thumbnail for photo ${photo.id}:`, err);
+      .catch((err: unknown) => {
+        logger.error(
+          `Failed to generate thumbnail for photo ${photo.id}:`,
+          undefined,
+          err instanceof Error ? err : undefined,
+        );
       });
 
     return NextResponse.json({

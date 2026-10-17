@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { query } from "@/lib/database";
 import { logger } from "@/lib/logger";
+import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
+import { withThumbnailUrl } from "@/app/api/_lib/db";
 
 // Force dynamic rendering for routes using auth
 export const dynamic = "force-dynamic";
 
-export const GET = requireAuth(async function GET(request: NextRequest) {
+export const GET = requireAuth(async function GET() {
   try {
-    const result = await query(`
+    const result = await query<PhotoWithFolderRow>(`
       SELECT
         p.*,
         f.name as folder_name,
@@ -19,15 +21,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       ORDER BY p.filename
     `);
 
-    const favoritePhotos = result.rows;
-
     // Add thumbnail URLs
-    const photosWithThumbnails = favoritePhotos.map((photo: any) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-    }));
+    const photosWithThumbnails = result.rows.map(withThumbnailUrl);
 
     return NextResponse.json({
       success: true,

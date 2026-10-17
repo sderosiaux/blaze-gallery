@@ -7,6 +7,7 @@ import {
   Keyboard,
   Pause,
   Play,
+  RotateCw,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -19,6 +20,8 @@ interface PhotoViewerControlsProps {
   zoom?: { active: boolean; available: boolean; onToggle: () => void };
   favorite?: { active: boolean; onToggle: () => void };
   info: { open: boolean; panelId: string; onToggle: () => void };
+  /** Absent in shared views and for videos. */
+  onRotate?: () => void;
   /** Absent when downloads aren't allowed. */
   onDownload?: () => void;
   /** Absent in shared views and when the parent can't delete. */
@@ -32,6 +35,7 @@ export default function PhotoViewerControls({
   zoom,
   favorite,
   info,
+  onRotate,
   onDownload,
   onDelete,
   help,
@@ -43,8 +47,8 @@ export default function PhotoViewerControls({
           icon={slideshow.playing ? Pause : Play}
           label={
             slideshow.playing
-              ? "Pause slideshow (Space)"
-              : "Play slideshow (Space)"
+              ? "Mettre le diaporama en pause (Espace)"
+              : "Lancer le diaporama (Espace)"
           }
           aria-keyshortcuts="Space"
           active={slideshow.playing}
@@ -57,10 +61,10 @@ export default function PhotoViewerControls({
           icon={zoom.active ? ZoomOut : ZoomIn}
           label={
             zoom.active
-              ? "Zoom out (Z)"
+              ? "Dézoomer (Z)"
               : zoom.available
-                ? "Zoom in (Z)"
-                : "Zoom in (Z), once the full photo has loaded"
+                ? "Zoomer (Z)"
+                : "Zoomer (Z), une fois la photo chargée"
           }
           aria-keyshortcuts="Z"
           active={zoom.active}
@@ -75,8 +79,8 @@ export default function PhotoViewerControls({
           icon={Heart}
           label={
             favorite.active
-              ? "Remove from favorites (F)"
-              : "Add to favorites (F)"
+              ? "Retirer des favoris (F)"
+              : "Ajouter aux favoris (F)"
           }
           aria-keyshortcuts="F"
           active={favorite.active}
@@ -89,24 +93,32 @@ export default function PhotoViewerControls({
       )}
       <IconButton
         icon={Info}
-        label={info.open ? "Hide details (I)" : "Show details (I)"}
+        label={info.open ? "Masquer les infos (I)" : "Afficher les infos (I)"}
         aria-keyshortcuts="I"
         aria-expanded={info.open}
         aria-controls={info.open ? info.panelId : undefined}
         active={info.open}
         onClick={info.onToggle}
       />
+      {onRotate && (
+        <IconButton
+          icon={RotateCw}
+          label="Pivoter à droite (R)"
+          aria-keyshortcuts="R Shift+R"
+          onClick={onRotate}
+        />
+      )}
       {onDownload && (
         <IconButton
           icon={Download}
-          label="Download original"
+          label="Télécharger l’original"
           onClick={onDownload}
         />
       )}
       {onDelete && (
         <IconButton
           icon={Trash2}
-          label="Delete photo (Delete)"
+          label="Supprimer la photo (Suppr)"
           aria-keyshortcuts="Delete"
           onClick={onDelete}
           className="hover:bg-danger-soft hover:text-danger"
@@ -114,7 +126,7 @@ export default function PhotoViewerControls({
       )}
       <IconButton
         icon={Keyboard}
-        label="Keyboard shortcuts (?)"
+        label="Raccourcis clavier (?)"
         aria-keyshortcuts="?"
         aria-expanded={help.open}
         aria-controls={help.open ? help.panelId : undefined}

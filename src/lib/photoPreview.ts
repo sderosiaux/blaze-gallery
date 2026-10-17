@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import sharp from "sharp";
+import { userRotation } from "./rotation";
 import type { Photo } from "@/types";
 import { fillPhotoMetadataIfMissing } from "./database";
 import { probeImageHead } from "./imageProbe";
@@ -21,7 +23,8 @@ function cacheGet(key: string): Buffer | null | undefined {
 function cacheSet(key: string, value: Buffer | null): void {
   previewCache.set(key, value);
   if (previewCache.size > CACHE_LIMIT) {
-    previewCache.delete(previewCache.keys().next().value!);
+    const oldest = previewCache.keys().next();
+    if (oldest.done !== true) previewCache.delete(oldest.value);
   }
 }
 
@@ -40,7 +43,8 @@ export async function servePhotoPreview(
     return noPreview(options.cacheControl);
   }
 
-  const etag = `"preview-${photo.id}-${new Date(photo.modified_at).getTime()}"`;
+  const rotation = userRotation(photo.metadata);
+  const etag = `"preview-${photo.id}-${new Date(photo.modified_at).getTime()}-r${rotation}"`;
   if (request.headers.get("if-none-match") === etag) {
     return new NextResponse(null, {
       status: 304,
@@ -66,7 +70,13 @@ export async function servePhotoPreview(
       }
     }
 
-    preview = probe.preview ?? null;
+    preview =
+      probe.preview && rotation
+        ? await sharp(probe.preview)
+            .rotate(rotation)
+            .jpeg({ quality: 82 })
+            .toBuffer()
+        : (probe.preview ?? null);
     cacheSet(cacheKey, preview);
   }
 

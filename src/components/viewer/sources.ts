@@ -2,6 +2,8 @@ import type { Photo } from "@/types";
 import { photoSources } from "@/components/photos/PhotoTile";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { isVideo, parseAlbumName } from "@/lib/albums";
+import { displayUrl } from "@/lib/photoUrls";
+import { rotatedSize, userRotation } from "@/lib/rotation";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -31,7 +33,13 @@ export interface ViewerSources {
   /** EXIF preview, a few KB. Absent for videos. */
   preview?: string;
   thumb: string;
-  /** What the stage shows at full size: the original, or null when a browser can't display it. */
+  /**
+   * What the stage shows: the 2048 px rendition made by the server, RAW
+   * included, turned by hand if the photo was. Null for videos, and for GIFs
+   * that would lose their animation (unless turned: the turn wins).
+   */
+  display: string | null;
+  /** The original, or null when a browser can't display it: zoom past the rendition, or stand in when it fails. */
   full: string | null;
   /** Shared views: the download route needs the permission; the library redirects to storage. */
   download: string;
@@ -54,6 +62,7 @@ export function canShowOriginal(
 export function viewerSources(
   photo: Photo,
   shareToken?: string,
+  allowDownload = true,
 ): ViewerSources {
   const id = String(photo.id);
   // Same URLs as the grid tiles, so whatever a tile already loaded is a cache hit here.
@@ -61,23 +70,43 @@ export function viewerSources(
   const original = shareToken
     ? `/api/shares/${shareToken}/view/${id}`
     : `/api/photos/${id}/download`;
+  const rotation = userRotation(photo.metadata);
+  const animated = photo.mime_type.toLowerCase() === "image/gif";
   return {
     preview: isVideo(photo) ? undefined : preview,
     thumb,
-    full: isVideo(photo) || canShowOriginal(photo) ? original : null,
+    display:
+      isVideo(photo) || (animated && !rotation)
+        ? null
+        : displayUrl(id, shareToken, rotation),
+    // A shared link without downloads serves no original for images (see the
+    // view route): zoom stops at the rendition.
+    full:
+      isVideo(photo) ||
+      (canShowOriginal(photo) && (allowDownload || !shareToken || animated))
+        ? original
+        : null,
     download: shareToken
       ? `/api/shares/${shareToken}/download/${id}`
       : `/api/photos/${id}/download`,
   };
 }
 
-/** True when an <img> on the page already holds this URL, decoded. */
-export function isOnPage(src: string): boolean {
-  if (typeof document === "undefined") return false;
+/**
+ * What an <img> already on the page uses for this URL, once decoded. Grid
+ * tiles load through the image scheduler: their src is a blob URL and the URL
+ * they stand for is on `data-src`. Reusing that src paints at once, where the
+ * URL itself would go back to the network.
+ */
+export function decodedOnPage(url: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const escaped = CSS.escape(url);
   const img = document.querySelector<HTMLImageElement>(
-    `img[src="${CSS.escape(src)}"]`,
+    `img[data-src="${escaped}"], img[src="${escaped}"]`,
   );
-  return Boolean(img?.complete && img.naturalWidth > 0);
+  return img?.complete && img.naturalWidth > 0
+    ? img.currentSrc || img.src
+    : undefined;
 }
 
 /**
@@ -90,12 +119,13 @@ export function placeholderSources(
   sources: ViewerSources,
 ): { preview?: string; thumb?: string } {
   if (isVideo(photo)) return {};
-  const thumbCheap =
-    photo.thumbnail_status === "generated" || isOnPage(sources.thumb);
-  return {
-    preview: sources.preview,
-    thumb: thumbCheap ? sources.thumb : undefined,
-  };
+  const preview = sources.preview
+    ? (decodedOnPage(sources.preview) ?? sources.preview)
+    : undefined;
+  const thumb =
+    decodedOnPage(sources.thumb) ??
+    (photo.thumbnail_status === "generated" ? sources.thumb : undefined);
+  return { preview, thumb };
 }
 
 export interface AlbumCrumb {
@@ -123,9 +153,10 @@ export function albumOf(
     : null;
 }
 
+/** Width / height as shown, hand rotation included. */
 export function photoRatio(photo: Photo): number | undefined {
-  const dims = photo.metadata?.dimensions;
-  return dims && dims.width > 0 && dims.height > 0
-    ? dims.width / dims.height
-    : undefined;
+  const stored = photo.metadata?.dimensions;
+  if (!stored || stored.width <= 0 || stored.height <= 0) return undefined;
+  const dims = rotatedSize(stored, userRotation(photo.metadata));
+  return dims.width / dims.height;
 }

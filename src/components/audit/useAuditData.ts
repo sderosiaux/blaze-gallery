@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 
 interface State<T> {
   data: T | null;
@@ -45,12 +46,14 @@ export function useAuditData<T>(
     setState((s) => ({ ...s, loading: true, error: null }));
     fetch(url, { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body?.success) {
+        const body = await readJsonObject(res);
+        if (!res.ok || !body.success) {
+          const details = asString(body.details);
+          const error = asString(body.error);
           throw new Error(
-            body?.details ||
-              body?.error ||
-              `The server answered ${res.status}.`,
+            (details !== undefined && details !== "" ? details : undefined) ??
+              (error !== undefined && error !== "" ? error : undefined) ??
+              `Le serveur a répondu ${res.status}.`,
           );
         }
         setState({ data: body.data as T, error: null, loading: false });
@@ -58,13 +61,15 @@ export function useAuditData<T>(
       .catch((err: unknown) => {
         if (controller.signal.aborted && !timedOut) return;
         const message = timedOut
-          ? `No answer after ${Math.round((timeoutMs ?? 0) / 1000)} seconds.`
+          ? `Pas de réponse après ${Math.round((timeoutMs ?? 0) / 1000)} secondes.`
           : err instanceof Error && err.message !== "Failed to fetch"
             ? err.message
-            : "The server could not be reached.";
+            : "Le serveur est injoignable.";
         setState({ data: null, error: message, loading: false });
       })
-      .finally(() => clearTimeout(timer));
+      .finally(() => {
+        clearTimeout(timer);
+      });
 
     return () => {
       clearTimeout(timer);
@@ -72,6 +77,8 @@ export function useAuditData<T>(
     };
   }, [url, reloadKey, attempt, timeoutMs]);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const retry = useCallback(() => {
+    setAttempt((n) => n + 1);
+  }, []);
   return { ...state, retry };
 }

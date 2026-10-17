@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { VideoStats } from "@/components/stats/types";
 
@@ -12,7 +12,7 @@ export const GET = requireAuth(async function GET() {
   try {
     const [summaryResult, formatsResult, largestResult, albumsResult] =
       await Promise.all([
-        query(`
+        query<VideoStats["summary"]>(`
         SELECT
           COUNT(*)::int AS total_videos,
           COALESCE(SUM(size), 0)::float8 AS total_size_bytes,
@@ -22,7 +22,7 @@ export const GET = requireAuth(async function GET() {
         FROM photos
         WHERE mime_type LIKE 'video/%'
       `),
-        query(`
+        query<VideoStats["formats"][number]>(`
         SELECT
           CASE WHEN strpos(filename, '.') > 0 THEN LOWER(split_part(filename, '.', -1)) ELSE 'none' END AS format,
           COUNT(*)::int AS count,
@@ -32,7 +32,7 @@ export const GET = requireAuth(async function GET() {
         GROUP BY 1
         ORDER BY count DESC
       `),
-        query(
+        query<VideoStats["largest"][number]>(
           `
         SELECT
           p.id::int AS id,
@@ -49,7 +49,7 @@ export const GET = requireAuth(async function GET() {
         `,
           [LIMIT],
         ),
-        query(
+        query<VideoStats["albums"][number]>(
           `
         SELECT
           f.id::int AS id,
@@ -73,7 +73,7 @@ export const GET = requireAuth(async function GET() {
       ]);
 
     const data: VideoStats = {
-      summary: summaryResult.rows[0],
+      summary: requireRow(summaryResult, "Video summary"),
       formats: formatsResult.rows,
       largest: largestResult.rows,
       albums: albumsResult.rows,

@@ -1,15 +1,12 @@
 import sharp from "sharp";
 import path from "path";
 import fs from "fs";
+import type { S3Object } from "./s3";
 import {
-  deleteObject,
-  getObjectMetadata,
   getObjectStream,
-  listObjects,
-  putObject,
   getThumbnailS3Client,
+  toS3Objects,
   getThumbnailBucketName,
-  S3Object,
 } from "./s3";
 import {
   ListObjectsV2Command,
@@ -18,15 +15,44 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import { updatePhotoThumbnail } from "./database";
+import { setPhotoDimensions, updatePhotoThumbnail } from "./database";
+import { orientJpeg } from "./imageProbe";
+import { extractEmbeddedJpeg, isRawKey } from "./rawPreview";
+import { userRotation } from "./rotation";
 import { getConfig } from "./config";
+import { nonEmpty, prop } from "./narrow";
 import { logger } from "./logger";
-import { ThumbnailOptions, ThumbnailStats } from "@/types/common";
+import type { ThumbnailOptions, ThumbnailStats } from "@/types/common";
+import type { Photo } from "@/types";
+
+/** Reads a streaming S3 body to the end; the SDK hands back Node streams here */
+function isEventStream(value: unknown): value is NodeJS.ReadableStream {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "on" in value &&
+    typeof value.on === "function"
+  );
+}
+
+function collectStream(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  return new Promise<Buffer>((resolve, reject) => {
+    stream.on("data", (chunk: Buffer) => {
+      chunks.push(Buffer.from(chunk));
+    });
+    stream.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+    stream.on("error", (error: Error) => {
+      reject(error);
+    });
+  });
+}
 
 export function getThumbnailsPath(customPath?: string): string {
   return (
-    customPath ||
-    process.env.THUMBNAILS_PATH ||
+    nonEmpty(customPath, process.env.THUMBNAILS_PATH) ??
     path.join(process.cwd(), "data", "thumbnails")
   );
 }
@@ -48,6 +74,8 @@ export interface GenerateThumbnailParams {
   options?: ThumbnailOptions;
   bypassSizeCheck?: boolean;
   request?: Request;
+  /** Clockwise quarter turns the owner applied by hand, on top of EXIF orientation */
+  rotation?: number;
 }
 
 export function normalizeThumbnailS3Prefix(prefix?: string): string {
@@ -85,8 +113,7 @@ export function getThumbnailStorageInfo(): ThumbnailStorageInfo {
 
 export function getDatabasePath(customPath?: string): string {
   return (
-    customPath ||
-    process.env.DATABASE_PATH ||
+    nonEmpty(customPath, process.env.DATABASE_PATH) ??
     path.join(process.cwd(), "data", "database", "gallery.db")
   );
 }
@@ -111,7 +138,7 @@ export class ThumbnailService {
     this.bucket = getThumbnailBucketName();
     this.s3Prefix = normalizeThumbnailS3Prefix(config.thumbnail_s3_prefix);
     this.s3ListPrefix = this.s3Prefix ? `${this.s3Prefix}/` : "";
-    this.thumbnailsDir = thumbnailsDir || getThumbnailsPath();
+    this.thumbnailsDir = nonEmpty(thumbnailsDir) ?? getThumbnailsPath();
 
     this.ensureThumbnailsDirectory();
   }
@@ -168,13 +195,13 @@ export class ThumbnailService {
       return false;
     }
 
-    const metadata = (error as any).$metadata;
-    if (metadata?.httpStatusCode === 404) {
+    if (prop(prop(error, "$metadata"), "httpStatusCode") === 404) {
       return true;
     }
 
-    const name = (error as any).name;
-    const code = (error as any).Code || (error as any).code;
+    const name = prop(error, "name");
+    const upperCode = prop(error, "Code");
+    const code = upperCode ? upperCode : prop(error, "code");
     return name === "NotFound" || code === "NotFound";
   }
 
@@ -239,12 +266,7 @@ export class ThumbnailService {
 
       const response = await client.send(command);
 
-      const objects: S3Object[] = (response.Contents || []).map((obj) => ({
-        key: obj.Key!,
-        lastModified: obj.LastModified!,
-        size: obj.Size!,
-        etag: obj.ETag!.replace(/"/g, ""),
-      }));
+      const objects = toS3Objects(response.Contents);
 
       allObjects.push(...objects);
       continuationToken = response.NextContinuationToken;
@@ -257,6 +279,18 @@ export class ThumbnailService {
     return allObjects;
   }
 
+  private async downloadOriginal(
+    bucket: string,
+    s3Key: string,
+    request?: Request,
+  ): Promise<Buffer> {
+    const stream = await getObjectStream(bucket, s3Key, request);
+    if (!isEventStream(stream)) {
+      throw new Error("Failed to get object stream from S3");
+    }
+    return collectStream(stream);
+  }
+
   async generateThumbnail(params: GenerateThumbnailParams): Promise<string> {
     const {
       bucket,
@@ -265,6 +299,7 @@ export class ThumbnailService {
       options = {},
       bypassSizeCheck = false,
       request,
+      rotation = 0,
     } = params;
     const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
     const thumbnailPath = this.getThumbnailPath(photoId, opts.format, s3Key);
@@ -286,8 +321,40 @@ export class ThumbnailService {
       // Continue with generation attempt after logging
     }
 
+    // RAW files are read through their embedded JPEG, which costs ~1 MB
+    // whatever the file size, so the size threshold does not apply to them.
+    const raw = isRawKey(s3Key);
+    let rawInput: Buffer | undefined;
+    if (raw) {
+      try {
+        const { getObjectRange } = await import("./s3");
+        const embedded = await extractEmbeddedJpeg((start, end) =>
+          getObjectRange(bucket, s3Key, start, end, request),
+        );
+        if (embedded) {
+          rawInput = await orientJpeg(embedded.jpeg, embedded.orientation);
+          if (embedded.width && embedded.height) {
+            const swap = (embedded.orientation ?? 1) >= 5;
+            await setPhotoDimensions(photoId, {
+              width: swap ? embedded.height : embedded.width,
+              height: swap ? embedded.width : embedded.height,
+            });
+          }
+        }
+      } catch (error) {
+        logger.thumbnailError(
+          "Embedded RAW preview unreadable",
+          error as Error,
+          {
+            photoId,
+            s3Key,
+          },
+        );
+      }
+    }
+
     // Check size threshold unless bypassed
-    if (!bypassSizeCheck) {
+    if (!bypassSizeCheck && !rawInput) {
       const { getPhoto } = await import("./database");
 
       const config = getConfig();
@@ -319,43 +386,31 @@ export class ThumbnailService {
     }
 
     try {
-      const filename = s3Key.split("/").pop() || s3Key;
+      const filename = nonEmpty(s3Key.split("/").pop()) ?? s3Key;
       logger.debug(
         `[THUMBNAIL] Generating thumbnail for ${filename} (ID: ${photoId})`,
       );
 
-      const stream = await getObjectStream(bucket, s3Key, request);
-      if (!stream) {
-        throw new Error("Failed to get object stream from S3");
-      }
+      const inputBuffer =
+        rawInput ?? (await this.downloadOriginal(bucket, s3Key, request));
 
-      const chunks: Buffer[] = [];
-
-      await new Promise<void>((resolve, reject) => {
-        if (stream && typeof stream === "object" && "on" in stream) {
-          (stream as any).on("data", (chunk: Buffer) => {
-            chunks.push(Buffer.from(chunk));
-          });
-          (stream as any).on("end", () => {
-            resolve();
-          });
-          (stream as any).on("error", (error: Error) => {
-            reject(error);
-          });
-        } else {
-          reject(new Error("Invalid stream type from S3"));
-        }
-      });
-
-      const inputBuffer = Buffer.concat(chunks);
-
-      const thumbnailBuffer = await sharp(inputBuffer)
+      // rotate() applies EXIF orientation; without it portrait photos came out lying down
+      const oriented = await sharp(inputBuffer)
+        .rotate()
         .resize(opts.width, opts.height, {
           fit: "inside",
           withoutEnlargement: true,
         })
         .jpeg({ quality: opts.quality })
         .toBuffer();
+      // The owner's own correction, for files whose EXIF lies. A second pass:
+      // sharp 0.33 ignores a rotate(angle) that follows the EXIF rotate().
+      const thumbnailBuffer = rotation
+        ? await sharp(oriented)
+            .rotate(rotation)
+            .jpeg({ quality: opts.quality })
+            .toBuffer()
+        : oriented;
 
       await this.writeThumbnail(thumbnailPath, thumbnailBuffer);
       await updatePhotoThumbnail(photoId, thumbnailPath);
@@ -398,7 +453,8 @@ export class ThumbnailService {
         errorMessage.includes("unsupported image format") ||
         errorMessage.includes("Input buffer contains unsupported image format")
       ) {
-        const fileExt = s3Key.toLowerCase().split(".").pop() || "unknown";
+        const fileExt =
+          nonEmpty(s3Key.toLowerCase().split(".").pop()) ?? "unknown";
 
         logger.thumbnailOperation(
           `Thumbnail generation skipped - unsupported format: ${fileExt}`,
@@ -432,7 +488,7 @@ export class ThumbnailService {
 
   async getThumbnailBuffer(
     thumbnailPath: string,
-    request?: Request,
+    _request?: Request,
   ): Promise<Buffer | null> {
     try {
       if (!this.isS3Storage()) {
@@ -456,20 +512,10 @@ export class ThumbnailService {
         return null;
       }
 
-      const chunks: Buffer[] = [];
-      await new Promise<void>((resolve, reject) => {
-        if (stream && typeof stream === "object" && "on" in stream) {
-          (stream as any).on("data", (chunk: Buffer) => {
-            chunks.push(Buffer.from(chunk));
-          });
-          (stream as any).on("end", () => resolve());
-          (stream as any).on("error", (error: Error) => reject(error));
-        } else {
-          reject(new Error("Invalid stream type from S3"));
-        }
-      });
-
-      return Buffer.concat(chunks);
+      if (!isEventStream(stream)) {
+        throw new Error("Invalid stream type from S3");
+      }
+      return await collectStream(stream);
     } catch (error) {
       logger.thumbnailError("Error reading thumbnail file", error as Error, {
         thumbnailPath,
@@ -480,7 +526,7 @@ export class ThumbnailService {
 
   getThumbnailPath(
     photoId: number,
-    format: string = "jpeg",
+    format = "jpeg",
     originalKey?: string,
   ): string {
     if (this.isS3Storage()) {
@@ -530,7 +576,7 @@ export class ThumbnailService {
     try {
       logger.thumbnailOperation("Checking for photos without thumbnails");
 
-      const result = await query(`
+      const result = await query<{ id: number; s3_key: string }>(`
         SELECT id, s3_key FROM photos
         WHERE thumbnail_path IS NULL OR thumbnail_path = ''
         ORDER BY id
@@ -695,9 +741,11 @@ export class ThumbnailService {
   }
 
   async serveThumbnail(
-    photo: any,
+    photo: Pick<Photo, "id" | "s3_key" | "size" | "metadata"> & {
+      thumbnail_path?: string | null;
+    },
     request?: Request,
-    forceGenerate: boolean = false,
+    forceGenerate = false,
   ): Promise<
     | { buffer: Buffer; headers: Record<string, string> }
     | { error: string; status: number }
@@ -714,7 +762,8 @@ export class ThumbnailService {
           buffer: thumbnailBuffer,
           headers: {
             "Content-Type": "image/jpeg",
-            "Cache-Control": "public, max-age=31536000, immutable",
+            // Private: a shared cache must never hand a library thumbnail to someone else
+            "Cache-Control": "private, max-age=31536000, immutable",
             "Content-Length": thumbnailBuffer.length.toString(),
           },
         };
@@ -729,6 +778,7 @@ export class ThumbnailService {
         photoId: photo.id,
         bypassSizeCheck: forceGenerate,
         request,
+        rotation: userRotation(photo.metadata),
       });
     } catch (error) {
       if (
@@ -737,7 +787,7 @@ export class ThumbnailService {
       ) {
         logger.thumbnailOperation(
           `Thumbnail request for unsupported format: ${
-            photo.s3_key.toLowerCase().split(".").pop() || "unknown"
+            nonEmpty(photo.s3_key.toLowerCase().split(".").pop()) ?? "unknown"
           }`,
           {
             photoId: photo.id,
@@ -786,7 +836,7 @@ export class ThumbnailService {
       buffer: thumbnailBuffer,
       headers: {
         "Content-Type": "image/jpeg",
-        "Cache-Control": "public, max-age=31536000, immutable",
+        "Cache-Control": "private, max-age=31536000, immutable",
         "Content-Length": thumbnailBuffer.length.toString(),
       },
     };

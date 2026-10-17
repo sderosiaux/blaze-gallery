@@ -16,6 +16,7 @@ module.exports = {
       transparent: 'transparent',
       current: 'currentColor',
       paper: token('paper'),
+      sidebar: token('sidebar'),
       surface: {
         DEFAULT: token('surface'),
         sunken: token('surface-sunken'),
@@ -53,7 +54,8 @@ module.exports = {
     },
     extend: {
       fontFamily: {
-        display: ['var(--font-display)', 'Georgia', 'serif'],
+        // One family: titles differ from body by weight and size, not by face.
+        display: ['var(--font-sans)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
       },
       fontSize: {

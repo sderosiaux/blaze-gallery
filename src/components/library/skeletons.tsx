@@ -5,7 +5,7 @@ export function AlbumGridSkeleton({ count = 8 }: { count?: number }) {
   return (
     <ul
       role="status"
-      aria-label="Loading albums"
+      aria-label="Chargement des dossiers"
       className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 2xl:grid-cols-5"
     >
       {Array.from({ length: count }).map((_, i) => (
@@ -44,7 +44,7 @@ export function JustifiedSkeleton({ count = 15 }: { count?: number }) {
   return (
     <div
       role="status"
-      aria-label="Loading photos"
+      aria-label="Chargement des photos"
       className="flex flex-wrap gap-1"
     >
       {Array.from({ length: count }).map((_, i) => (
@@ -78,7 +78,7 @@ function SectionHeadSkeleton() {
   );
 }
 
-/** An album before its contents arrive (the breadcrumb is already real): header, then covers or photos. */
+/** A folder before its contents arrive (the breadcrumb is already real): header, then covers or photos. */
 export function AlbumSkeleton({
   shape = "photos",
 }: {

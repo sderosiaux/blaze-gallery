@@ -1,63 +1,83 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query, searchFolders } from "@/lib/database";
+import type { FolderSearchCursor, PhotoSearchCursor } from "@/lib/database";
+import {
+  countSearchMatches,
+  searchFolders,
+  searchPhotos,
+} from "@/lib/database";
 import { logger } from "@/lib/logger";
-import { normalizeTextForSearch } from "@/lib/textUtils";
+import { isRecord } from "@/hooks/apiJson";
 
 export const dynamic = "force-dynamic";
 
-export const GET = requireAuth(async function GET(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams;
-    const searchQuery = searchParams.get("q");
+const PHOTO_PAGE = 100;
+const FOLDER_PAGE = 20;
 
-    if (!searchQuery || searchQuery.trim() === "") {
+/**
+ * Folders and photos matching `q`, accent- and case-insensitively.
+ * Without a cursor: the first page of each, their totals and the cursors
+ * (`next_photos`, `next_folders`; null on the last page). With
+ * `photos_after` or `folders_after` set to one of those opaque cursors:
+ * only the next page of that list and its following cursor.
+ */
+export const GET = requireAuth(async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const q = (searchParams.get("q") ?? "").trim();
+  const photosAfter = searchParams.get("photos_after");
+  const foldersAfter = searchParams.get("folders_after");
+
+  if (q === "") {
+    return NextResponse.json({
+      success: true,
+      photos: [],
+      photo_total: 0,
+      next_photos: null,
+      folders: [],
+      folder_total: 0,
+      next_folders: null,
+    });
+  }
+
+  try {
+    if (photosAfter !== null) {
+      const after = decodeCursor(photosAfter, toPhotoCursor);
+      if (!after) return badCursor("photos_after");
+      const page = await searchPhotos(q, after, PHOTO_PAGE);
       return NextResponse.json({
         success: true,
-        photos: [],
-        photo_total: 0,
-        folders: [],
+        photos: page.items,
+        next_photos: encodeCursor(page.next),
       });
     }
 
-    const normalizedQuery = normalizeTextForSearch(searchQuery);
-    const searchTerm = `%${normalizedQuery}%`;
+    if (foldersAfter !== null) {
+      const after = decodeCursor(foldersAfter, toFolderCursor);
+      if (!after) return badCursor("folders_after");
+      const page = await searchFolders(q, after, FOLDER_PAGE);
+      return NextResponse.json({
+        success: true,
+        folders: page.items,
+        next_folders: encodeCursor(page.next),
+      });
+    }
 
-    // Photos match on their filename or on their folder; photo_total counts
-    // every match so the UI can say how many the 50 shown are taken from
-    const photoWhere = `
-      FROM photos p
-      LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE p.filename ILIKE $1
-         OR f.name ILIKE $1
-         OR f.path ILIKE $1`;
-
-    const [photoResult, photoCount, folders] = await Promise.all([
-      query(
-        `SELECT p.*, f.name as folder_name, f.path as folder_path
-         ${photoWhere}
-         ORDER BY p.filename
-         LIMIT 50`,
-        [searchTerm],
-      ),
-      query(`SELECT COUNT(*)::int AS total ${photoWhere}`, [searchTerm]),
-      searchFolders(searchTerm),
+    const [photos, folders, totals] = await Promise.all([
+      searchPhotos(q, null, PHOTO_PAGE),
+      searchFolders(q, null, FOLDER_PAGE),
+      countSearchMatches(q),
     ]);
-
-    // Process photos with thumbnails and proper types
-    const photosWithThumbnails = photoResult.rows.map((photo: any) => ({
-      ...photo,
-      is_favorite: Boolean(photo.is_favorite),
-      thumbnail_url: `/api/photos/${photo.id}/thumbnail`,
-      metadata: photo.metadata, // PostgreSQL JSONB is already parsed
-    }));
 
     return NextResponse.json({
       success: true,
-      photos: photosWithThumbnails,
-      photo_total: photoCount.rows[0].total,
-      folders,
-      query: searchQuery,
+      query: q,
+      photos: photos.items,
+      photo_total: totals.photos,
+      next_photos: encodeCursor(photos.next),
+      folders: folders.items,
+      folder_total: totals.folders,
+      next_folders: encodeCursor(folders.next),
     });
   } catch (error) {
     logger.apiError("Error performing search", error as Error, {
@@ -74,3 +94,46 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     );
   }
 });
+
+function badCursor(param: string) {
+  return NextResponse.json(
+    { success: false, error: `${param} must be a cursor from this API` },
+    { status: 400 },
+  );
+}
+
+function encodeCursor(cursor: object | null): string | null {
+  return cursor
+    ? Buffer.from(JSON.stringify(cursor)).toString("base64url")
+    : null;
+}
+
+function decodeCursor<C>(
+  value: string,
+  read: (parsed: unknown) => C | null,
+): C | null {
+  try {
+    return read(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+  } catch {
+    return null;
+  }
+}
+
+function toPhotoCursor(value: unknown): PhotoSearchCursor | null {
+  if (!isRecord(value)) return null;
+  const { folderPath, filename, id } = value;
+  return typeof folderPath === "string" &&
+    typeof filename === "string" &&
+    typeof id === "string" &&
+    /^\d+$/.test(id)
+    ? { folderPath, filename, id }
+    : null;
+}
+
+function toFolderCursor(value: unknown): FolderSearchCursor | null {
+  if (!isRecord(value)) return null;
+  const { name, path } = value;
+  return typeof name === "string" && typeof path === "string"
+    ? { name, path }
+    : null;
+}

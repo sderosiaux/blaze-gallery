@@ -29,16 +29,16 @@ export function usePhotoNavigation(
   const [currentId, setCurrentId] = useState(String(photo.id));
   const lastIndex = useRef(0);
 
-  useEffect(() => setCurrentId(String(photo.id)), [photo.id]);
+  useEffect(() => {
+    setCurrentId(String(photo.id));
+  }, [photo.id]);
 
   const found = list.findIndex((p) => String(p.id) === currentId);
   if (found !== -1) lastIndex.current = found;
   const current =
-    found !== -1
-      ? list[found]
-      : String(photo.id) === currentId
-        ? photo
-        : (list[lastIndex.current] ?? photo);
+    (found !== -1 ? list[found] : undefined) ??
+    (String(photo.id) === currentId ? photo : list[lastIndex.current]) ??
+    photo;
   const index = found;
   // When the current photo vanished, its old slot is where "next" now lives.
   const base = found !== -1 ? found : lastIndex.current - 0.5;

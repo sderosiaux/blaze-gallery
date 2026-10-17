@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 
 export type Resource<T> =
   | { status: "idle" }
@@ -29,9 +30,14 @@ export function useStatsResource<T>(url: string, enabled: boolean) {
           cache: "no-store",
           signal: ctrl.signal,
         });
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body?.success) {
-          throw new Error(body?.error || `The server answered ${res.status}`);
+        const body = await readJsonObject(res);
+        if (!res.ok || !body.success) {
+          const message = asString(body.error);
+          throw new Error(
+            message !== undefined && message !== ""
+              ? message
+              : `Le serveur a répondu ${res.status}`,
+          );
         }
         setState({
           status: "ready",
@@ -43,16 +49,21 @@ export function useStatsResource<T>(url: string, enabled: boolean) {
         if (ctrl.signal.aborted || silent) return;
         setState({
           status: "error",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: error instanceof Error ? error.message : "Erreur inconnue",
         });
       }
     },
     [url],
   );
 
-  const load = useCallback(() => fetchInto(false), [fetchInto]);
+  const load = useCallback(() => {
+    // fetchInto reports its own failures through state and never rejects.
+    void fetchInto(false);
+  }, [fetchInto]);
   /** Refetch while keeping the current render: no skeleton flash. */
-  const refresh = useCallback(() => fetchInto(true), [fetchInto]);
+  const refresh = useCallback(() => {
+    void fetchInto(true);
+  }, [fetchInto]);
 
   // A ref, not the state, guards the first load: Strict Mode runs the effect
   // twice before the "loading" state lands, and the server keeps running a
@@ -73,8 +84,12 @@ export function useElapsed(startedAt: number | undefined) {
   const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (startedAt === undefined) return;
-    const id = window.setInterval(() => setNow(performance.now()), 500);
-    return () => window.clearInterval(id);
+    const id = window.setInterval(() => {
+      setNow(performance.now());
+    }, 500);
+    return () => {
+      window.clearInterval(id);
+    };
   }, [startedAt]);
   return startedAt === undefined
     ? 0

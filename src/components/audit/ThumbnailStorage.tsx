@@ -11,9 +11,9 @@ import {
   FileStack,
 } from "lucide-react";
 import { Badge, Button, Section, Skeleton, Stat } from "@/components/ui";
-import { formatBytes } from "@/lib/format";
 import type { ThumbnailCoverage, ThumbnailStorageScan } from "./types";
 import {
+  formatBytes,
   formatCount,
   formatDuration,
   formatFullDay,
@@ -28,9 +28,9 @@ const SCAN_TIMEOUT_MS = 180_000;
 
 function countedAgo(iso: string) {
   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  return `at ${formatTime(Date.parse(iso))}`;
+  if (minutes < 1) return "à l’instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  return `à ${formatTime(Date.parse(iso))}`;
 }
 
 function SampleList({ items, total }: { items: string[]; total: number }) {
@@ -39,8 +39,10 @@ function SampleList({ items, total }: { items: string[]; total: number }) {
     <details className="group mt-2">
       <summary className="inline-flex min-h-[32px] items-center text-sm text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink">
         {total > items.length
-          ? `Show the first ${items.length}`
-          : `Show ${items.length === 1 ? "it" : `all ${items.length}`}`}
+          ? `Afficher les ${formatCount(items.length)} premiers`
+          : items.length === 1
+            ? "Afficher"
+            : `Afficher les ${formatCount(items.length)}`}
       </summary>
       <ul className="mt-2 space-y-1">
         {items.map((item) => (
@@ -63,7 +65,7 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
   if (missing.count === 0 && orphaned.count === 0) {
     return (
       <Badge tone="success" icon={CircleCheck}>
-        Every photo record has its file, and every file has its record
+        Chaque photo a sa miniature, chaque miniature a sa photo
       </Badge>
     );
   }
@@ -72,13 +74,13 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
       {missing.count > 0 && (
         <div className="min-w-0">
           <Badge tone="warning" icon={TriangleAlert}>
-            {formatCount(missing.count)} missing
+            {formatCount(missing.count)}{" "}
+            {missing.count > 1 ? "manquantes" : "manquante"}
           </Badge>
           <p className="mt-2 text-sm text-ink-soft">
-            {missing.count === 1
-              ? "A photo record points"
-              : `${formatCount(missing.count)} photo records point`}{" "}
-            to a thumbnail that is not in storage.
+            {missing.count > 1
+              ? "Photos dont la miniature n’est pas dans le stockage"
+              : "Photo dont la miniature n’est pas dans le stockage"}
           </p>
           <SampleList items={missing.sample} total={missing.count} />
         </div>
@@ -86,13 +88,13 @@ function Integrity({ scan }: { scan: ThumbnailStorageScan }) {
       {orphaned.count > 0 && (
         <div className="min-w-0">
           <Badge tone="info" icon={Info}>
-            {formatCount(orphaned.count)} unused
+            {formatCount(orphaned.count)}{" "}
+            {orphaned.count > 1 ? "inutilisées" : "inutilisée"}
           </Badge>
           <p className="mt-2 text-sm text-ink-soft">
-            {orphaned.count === 1
-              ? "A file in storage is"
-              : `${formatCount(orphaned.count)} files in storage are`}{" "}
-            not referenced by any photo.
+            {orphaned.count > 1
+              ? "Miniatures stockées sans photo correspondante"
+              : "Miniature stockée sans photo correspondante"}
           </p>
           <SampleList items={orphaned.sample} total={orphaned.count} />
         </div>
@@ -125,21 +127,23 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
       <Stat
         className={dim}
         icon={HardDrive}
-        label="Stored"
+        label="Stockées"
         value={formatBytes(s.total_bytes)}
         hint={
-          s.mode === "s3" ? "In the thumbnail bucket" : "On the server disk"
+          s.mode === "s3"
+            ? "Dans le bucket des miniatures"
+            : "Sur le disque du serveur"
         }
       />
       <Stat
         className={dim}
         icon={FileStack}
-        label="Files"
+        label="Fichiers"
         value={formatCount(s.file_count)}
         hint={
           s.file_count > 0
-            ? `${formatBytes(s.total_bytes / s.file_count)} each on average`
-            : "No files yet"
+            ? `${formatBytes(s.total_bytes / s.file_count)} en moyenne`
+            : "Aucun fichier"
         }
       />
     </>
@@ -158,8 +162,7 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
   return (
     <Section
       id="thumbnails"
-      title="Thumbnail storage"
-      description="The small copies the grids load first, kept apart from the originals."
+      title="Miniatures"
       action={
         s && (
           <Button
@@ -167,9 +170,11 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
             variant="ghost"
             icon={RefreshCw}
             loading={scan.loading}
-            onClick={() => setRecount((n) => n + 1)}
+            onClick={() => {
+              setRecount((n) => n + 1);
+            }}
           >
-            Count again
+            Recompter
           </Button>
         )
       }
@@ -178,7 +183,7 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
         {coverage.error ? (
           <div className="col-span-2">
             <SectionError
-              title="Thumbnail coverage did not load"
+              title="La couverture des miniatures n’a pas chargé"
               error={coverage.error}
               onRetry={coverage.retry}
             />
@@ -187,32 +192,32 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
           <>
             <Stat
               icon={Images}
-              label="With a thumbnail"
+              label="Avec miniature"
               value={formatShare(share)}
               hint={
                 <>
                   <span
                     role="meter"
-                    aria-label="Photos with a thumbnail"
+                    aria-label="Photos avec miniature"
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(share * 1000) / 10}
-                    className="mb-2 mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-accent-soft"
+                    className="mb-2 mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-chart-5/15"
                   >
                     <span
-                      className="block h-full rounded-full bg-accent"
+                      className="block h-full rounded-full bg-chart-5"
                       style={{ width: `${Math.max(share * 100, 0.5)}%` }}
                     />
                   </span>
-                  {formatCount(cov.with_thumbnail)} of{" "}
-                  {formatCount(cov.total_photos)} photos
+                  {formatCount(cov.with_thumbnail)} photos sur{" "}
+                  {formatCount(cov.total_photos)}
                 </>
               }
             />
             <Stat
-              label="Without a thumbnail"
+              label="Sans miniature"
               value={formatCount(cov.without_thumbnail)}
-              hint="Not generated yet"
+              hint="Pas encore générées"
             />
           </>
         ) : (
@@ -230,7 +235,7 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
       <div className="mt-8 border-t border-line pt-6">
         {scan.error ? (
           <SectionError
-            title="Counting the stored files did not finish"
+            title="Le comptage des fichiers stockés n’a pas abouti"
             error={scan.error}
             onRetry={scan.retry}
           />
@@ -245,19 +250,19 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
               </span>
               {s.oldest && s.newest && (
                 <span>
-                  Written between {formatFullDay(Date.parse(s.oldest))} and{" "}
+                  Écrites du {formatFullDay(Date.parse(s.oldest))} au{" "}
                   {formatFullDay(Date.parse(s.newest))}
                 </span>
               )}
               <span role="status">
                 {scan.loading
-                  ? "Counting again, this takes up to a minute"
-                  : `Counted ${countedAgo(s.scanned_at)}, in ${formatDuration(s.scan_ms)}`}
+                  ? "Nouveau comptage, jusqu’à une minute"
+                  : `Compté ${countedAgo(s.scanned_at)} en ${formatDuration(s.scan_ms)}`}
               </span>
             </p>
             {!s.directory_exists ? (
               <p className="mt-4 text-sm text-danger">
-                The thumbnail folder does not exist on the server.
+                Le dossier des miniatures n’existe pas sur le serveur.
               </p>
             ) : (
               <div className="mt-5">
@@ -267,11 +272,7 @@ export function ThumbnailStorage({ reloadKey }: { reloadKey: number }) {
           </div>
         ) : (
           <p role="status" className="text-sm text-ink-muted">
-            Counting the files in storage. This lists every thumbnail
-            {cov
-              ? `, about ${formatCount(cov.with_thumbnail)} of them,`
-              : ""}{" "}
-            and takes up to a minute.
+            Comptage des fichiers stockés, jusqu’à une minute…
           </p>
         )}
       </div>

@@ -11,6 +11,8 @@ export interface AuditSummary {
   total_bytes: number;
   /** Null when no request in the range carries a cost estimate. */
   estimated_cost_usd: number | null;
+  /** Oldest logged request in the range: later than the range start when the log does not reach that far back. */
+  first_request_at: string | null;
 }
 
 export interface AuditBucket {

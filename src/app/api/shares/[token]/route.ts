@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import {
   getSharedFolder,
   validateSharePassword,
@@ -7,11 +8,18 @@ import {
   getPhotosInFolder,
   getFolderByPath,
 } from "@/lib/database";
-import { shouldCountViewAsync } from "@/lib/shareHelpers";
+import { mayTryPassword, shouldCountViewAsync } from "@/lib/shareHelpers";
+import { requireAuth } from "@/lib/auth/middleware";
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic";
-import { createShareSession, validateShareSession } from "@/lib/shareSession";
+import { createShareSession, isValidShareSession } from "@/lib/shareSession";
+import {
+  clientIp,
+  clientUserAgent,
+  optionalString,
+  readJsonObject,
+} from "@/app/api/_lib/request";
 
 interface RouteParams {
   params: { token: string };
@@ -20,8 +28,6 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { token } = params;
-    const searchParams = request.nextUrl.searchParams;
-    const password = searchParams.get("password");
 
     // Get the shared folder
     const share = await getSharedFolder(token);
@@ -33,37 +39,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Check password if required
+    // Behind a password, only the name: the photos come with the session
+    // (POST validate_password / validate_session), never through this GET,
+    // which would put the password in URLs and logs.
     if (share.password_hash) {
-      if (!password) {
-        // The album name lets the gate greet the guest; the link holder was
-        // given it by the sender, the photos stay behind the password.
-        return NextResponse.json(
-          {
-            error: "Password required",
-            requires_password: true,
-            folder: { name: share.folder_path.split("/").pop() },
-          },
-          { status: 401 },
-        );
-      }
-
-      const isValidPassword = await validateSharePassword(token, password);
-      if (!isValidPassword) {
-        // Log failed password attempt
-        await logShareAccess(share.id, {
-          ip_address:
-            request.ip || request.headers.get("x-forwarded-for") || "unknown",
-          user_agent: request.headers.get("user-agent") || "unknown",
-          access_type: "password_attempt",
-          success: false,
-        });
-
-        return NextResponse.json(
-          { error: "Invalid password" },
-          { status: 401 },
-        );
-      }
+      // The album name lets the gate greet the guest; the link holder was
+      // given it by the sender, the photos stay behind the password.
+      return NextResponse.json(
+        {
+          error: "Password required",
+          requires_password: true,
+          folder: { name: share.folder_path.split("/").pop() },
+        },
+        { status: 401 },
+      );
     }
 
     // Get folder and photos
@@ -82,9 +71,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       await incrementShareViewCount(token);
     }
     await logShareAccess(share.id, {
-      ip_address:
-        request.ip || request.headers.get("x-forwarded-for") || "unknown",
-      user_agent: request.headers.get("user-agent") || "unknown",
+      ip_address: clientIp(request),
+      user_agent: clientUserAgent(request),
       access_type: "view",
       success: true,
     });
@@ -119,8 +107,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { token } = params;
-    const body = await request.json();
-    const { action, password } = body;
+    const body = await readJsonObject(request);
+    const action = optionalString(body.action);
+    const password = optionalString(body.password) ?? "";
 
     if (action === "validate_password") {
       const share = await getSharedFolder(token);
@@ -139,20 +128,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
 
+      if (!(await mayTryPassword(request, token))) {
+        return NextResponse.json(
+          { success: false, error: "Too many attempts, try again later" },
+          { status: 429 },
+        );
+      }
+
       const isValid = await validateSharePassword(token, password);
 
       // Log password attempt
       await logShareAccess(share.id, {
-        ip_address:
-          request.ip || request.headers.get("x-forwarded-for") || "unknown",
-        user_agent: request.headers.get("user-agent") || "unknown",
+        ip_address: clientIp(request),
+        user_agent: clientUserAgent(request),
         access_type: "password_attempt",
         success: isValid,
       });
 
       if (isValid) {
         // Create session token for authenticated access
-        const sessionToken = createShareSession(token);
+        const sessionToken = createShareSession(share);
 
         // Get folder and photos for authenticated access
         const folder = await getFolderByPath(share.folder_path);
@@ -205,20 +200,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
 
-      const validatedShareToken = validateShareSession(sessionToken);
-      if (!validatedShareToken || validatedShareToken !== token) {
-        return NextResponse.json(
-          { error: "Invalid or expired session" },
-          { status: 401 },
-        );
-      }
-
-      // Session is valid, return share data
       const share = await getSharedFolder(token);
       if (!share) {
         return NextResponse.json(
           { error: "Share not found or expired" },
           { status: 404 },
+        );
+      }
+      if (!isValidShareSession(sessionToken, share)) {
+        return NextResponse.json(
+          { error: "Invalid or expired session" },
+          { status: 401 },
         );
       }
 
@@ -261,7 +253,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+// Revoking is the owner's: a guest holding the link must not be able to end it.
+export const DELETE = requireAuth(async function DELETE(
+  _request: NextRequest,
+  { params }: RouteParams,
+) {
   try {
     const { token } = params;
 
@@ -286,4 +282,4 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       { status: 500 },
     );
   }
-}
+});

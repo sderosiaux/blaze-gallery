@@ -1,12 +1,13 @@
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import type { Photo } from "@/types";
 
 async function toggle(photoId: string): Promise<boolean> {
   const response = await fetch(`/api/photos/${photoId}/favorite`, {
     method: "POST",
   });
-  const data = await response.json();
+  const data = await readJsonObject(response);
   if (!response.ok || !data.success)
-    throw new Error(data.error ?? `HTTP ${response.status}`);
+    throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
   return Boolean(data.is_favorite);
 }
 

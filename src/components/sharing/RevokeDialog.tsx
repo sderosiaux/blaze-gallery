@@ -2,9 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Button, Dialog } from "@/components/ui";
-import { formatCount, parseAlbumName } from "@/lib/albums";
+import { parseAlbumName } from "@/lib/albums";
 import { folderNameOf, revokeShare, type ShareLink } from "@/lib/shareClient";
-import { formatInstant } from "./shareFormat";
+import { cn } from "@/lib/cn";
 
 interface RevokeDialogProps {
   share: ShareLink | null;
@@ -18,9 +18,11 @@ export default function RevokeDialog({
   onRevoked,
 }: RevokeDialogProps) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const title = share
-    ? parseAlbumName(share.folder_name || folderNameOf(share.folder_path)).title
+    ? parseAlbumName(
+        share.folder_name ? share.folder_name : folderNameOf(share.folder_path),
+      ).title
     : "";
 
   // Stable, so Dialog keeps focus where it is while the request runs.
@@ -29,7 +31,7 @@ export default function RevokeDialog({
   onCloseRef.current = onClose;
   const close = useCallback(() => {
     if (busyRef.current) return;
-    setError(null);
+    setFailed(false);
     onCloseRef.current();
   }, []);
 
@@ -37,13 +39,13 @@ export default function RevokeDialog({
     if (!share) return;
     busyRef.current = true;
     setBusy(true);
-    setError(null);
+    setFailed(false);
     try {
       await revokeShare(share.share_token);
       busyRef.current = false;
       onRevoked(share);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+    } catch {
+      setFailed(true);
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -55,12 +57,8 @@ export default function RevokeDialog({
       open={share !== null}
       onClose={close}
       size="sm"
-      title="Revoke this link?"
-      description={
-        share
-          ? `${title} · link created ${formatInstant(share.created_at)}`
-          : undefined
-      }
+      title={"Révoquer ce lien\u00a0?"}
+      description={title}
       footer={
         <>
           <Button
@@ -69,30 +67,29 @@ export default function RevokeDialog({
             data-autofocus
             disabled={busy}
           >
-            Keep link
+            Annuler
           </Button>
-          <Button variant="danger" onClick={confirm} loading={busy}>
-            Revoke link
+          <Button
+            variant="danger"
+            onClick={() => void confirm()}
+            loading={busy}
+          >
+            Révoquer
           </Button>
         </>
       }
     >
-      <p className="text-sm leading-relaxed text-ink-soft">
-        Anyone who opens it will see that the album is no longer shared.
-        {share && share.view_count > 0 && (
-          <> It has been opened {formatCount(share.view_count, "time")}.</>
-        )}{" "}
-        This can&apos;t be undone, but you can always create a new link from the
-        album.
+      <p
+        role={failed ? "alert" : undefined}
+        className={cn(
+          "text-sm leading-relaxed",
+          failed ? "text-danger" : "text-ink-soft",
+        )}
+      >
+        {failed
+          ? "Le lien n'a pas pu être révoqué."
+          : "Le dossier ne s'ouvrira plus avec ce lien."}
       </p>
-      {error && (
-        <p
-          role="alert"
-          className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
-        >
-          The link is still active. {error}
-        </p>
-      )}
     </Dialog>
   );
 }

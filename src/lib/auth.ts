@@ -2,9 +2,11 @@
  * Authentication middleware and utilities
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { logger } from "./logger";
 import crypto from "crypto";
+import { nonEmptyOr } from "./textUtils";
 
 export interface AuthConfig {
   apiKeyRequired?: boolean;
@@ -130,8 +132,11 @@ export function authenticateRequest(
 /**
  * Middleware wrapper for API routes
  */
-export function withAuth(handler: Function, config: AuthConfig = {}) {
-  return async (request: NextRequest, context?: any) => {
+export function withAuth<C extends { auth?: AuthResult }>(
+  handler: (request: NextRequest, context?: C) => unknown,
+  config: AuthConfig = {},
+) {
+  return async (request: NextRequest, context?: C) => {
     const authResult = authenticateRequest(request, config);
 
     if (!authResult.isAuthenticated) {
@@ -147,7 +152,7 @@ export function withAuth(handler: Function, config: AuthConfig = {}) {
       return NextResponse.json(
         {
           success: false,
-          error: authResult.error || "Authentication required",
+          error: nonEmptyOr(authResult.error, "Authentication required"),
         },
         {
           status: 401,
@@ -163,8 +168,8 @@ export function withAuth(handler: Function, config: AuthConfig = {}) {
       component: "Auth",
       method: request.method,
       url: request.url,
-      userRole: authResult.userRole || "unknown",
-      identifier: authResult.identifier || "unknown",
+      userRole: authResult.userRole ?? "unknown",
+      identifier: nonEmptyOr(authResult.identifier, "unknown"),
     });
 
     // Add auth context to request if needed
@@ -172,7 +177,7 @@ export function withAuth(handler: Function, config: AuthConfig = {}) {
       context.auth = authResult;
     }
 
-    return handler(request, context);
+    return await handler(request, context);
   };
 }
 
@@ -183,8 +188,8 @@ const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
 export function checkRateLimit(
   identifier: string,
-  maxRequests: number = 100,
-  windowMs: number = 60000,
+  maxRequests = 100,
+  windowMs = 60000,
 ): boolean {
   const now = Date.now();
   const key = identifier;
@@ -212,7 +217,7 @@ export function getClientIP(request: NextRequest): string {
   const realIp = request.headers.get("x-real-ip");
 
   if (forwarded) {
-    return forwarded.split(",")[0].trim();
+    return (forwarded.split(",")[0] ?? "").trim();
   }
 
   if (realIp) {
@@ -226,7 +231,7 @@ export function getClientIP(request: NextRequest): string {
 /**
  * Generate secure API key
  */
-export function generateApiKey(length: number = 32): string {
+export function generateApiKey(length = 32): string {
   return crypto.randomBytes(length).toString("hex");
 }
 

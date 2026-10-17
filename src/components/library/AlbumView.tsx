@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { FolderOpen, FolderX, ImagePlus, Library, Share2 } from "lucide-react";
 import ShareDialog from "@/components/ShareDialog";
 import PhotoGrid from "@/components/PhotoGrid";
+import { useFolderWarmup } from "@/components/photos/useFolderWarmup";
 import { AlbumGrid, albumHref } from "@/components/photos/AlbumCard";
 import {
   Button,
@@ -28,11 +29,10 @@ import {
   type AlbumData,
   type LoadResult,
   albumKey,
-  albumSpan,
-  albumTitle,
   cached,
+  folderName,
   loadAlbum,
-  spanLabel,
+  photosSpan,
 } from "./albumData";
 
 type State = LoadResult<AlbumData> | { status: "loading" };
@@ -55,7 +55,7 @@ function MetaLine({ parts }: { parts: string[] }) {
   );
 }
 
-/** One album as a chapter: where it sits, when it happened, its sub-albums, then its photos. */
+/** One folder of the bucket: where it sits, when it happened, its sub-folders, then its photos. */
 export default function AlbumView({ path }: { path: string }) {
   const [state, setState] = useState<State>(() => initialState(path));
   const [shareOpen, setShareOpen] = useState(false);
@@ -64,9 +64,7 @@ export default function AlbumView({ path }: { path: string }) {
   const request = useRef<AbortController | null>(null);
 
   const name =
-    state.status === "ready"
-      ? state.data.folder.name
-      : (path.split("/").pop() ?? path);
+    state.status === "ready" ? state.data.folder.name : folderName(path);
   const title = parseAlbumName(name).title || name;
   const parentPath = path.split("/").slice(0, -1).join("/");
 
@@ -89,20 +87,46 @@ export default function AlbumView({ path }: { path: string }) {
   );
 
   useEffect(() => {
-    load(state.status === "ready");
+    // The page keys this view by path: `load` only changes on a new mount.
+    void load(initialState(path).status === "ready");
     return () => request.current?.abort();
-    // Only on mount: the page keys this view by path.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load, path]);
 
   // Also on `?photo=` changes: Next puts the layout's title back when Back pops the viewer entry.
   useEffect(() => {
-    document.title = `${state.status === "missing" ? "Album not found" : title} · Blaze`;
-  }, [state.status, title, selectedPhotoId]);
+    document.title = `${state.status === "missing" ? "Dossier introuvable" : name} · Blaze`;
+  }, [state.status, name, selectedPhotoId]);
 
   const photos = state.status === "ready" ? state.data.photos : null;
 
-  // A `?photo=` that isn't in this album would sit in the address bar with nothing open.
+  // Opening a folder builds its missing thumbnails once and for all; tiles
+  // sharpen as their thumbnail lands.
+  const missingThumbnails =
+    photos?.some(
+      (p) =>
+        p.mime_type.startsWith("image/") && p.thumbnail_status !== "generated",
+    ) ?? false;
+  const markGenerated = useCallback((ids: string[]) => {
+    const built = new Set(ids);
+    setState((current) =>
+      current.status === "ready"
+        ? {
+            ...current,
+            data: {
+              ...current.data,
+              photos: current.data.photos.map((p) =>
+                built.has(String(p.id))
+                  ? { ...p, thumbnail_status: "generated" as const }
+                  : p,
+              ),
+            },
+          }
+        : current,
+    );
+  }, []);
+  useFolderWarmup(path || null, missingThumbnails, markGenerated);
+
+  // A `?photo=` that isn't in this folder would sit in the address bar with nothing open.
   useEffect(() => {
     if (!photos || !selectedPhotoId) return;
     if (!photos.some((p) => String(p.id) === selectedPhotoId))
@@ -115,7 +139,7 @@ export default function AlbumView({ path }: { path: string }) {
     <AlbumDropZone
       ref={dropZone}
       target={state.status === "ready" ? { path, title } : null}
-      onUploaded={() => load(true)}
+      onUploaded={() => void load(true)}
     >
       <AlbumBreadcrumb path={path} />
 
@@ -126,19 +150,21 @@ export default function AlbumView({ path }: { path: string }) {
       {state.status === "missing" && (
         <EmptyState
           icon={FolderX}
-          title="This album isn't here"
-          body={`Nothing is stored under “${path}”. It may have been renamed or moved since the library was last synced.`}
+          title="Ce dossier est introuvable"
           action={
-            <>
-              <ButtonLink href="/" variant="primary" icon={Library}>
-                Back to the library
+            parentPath ? (
+              <ButtonLink
+                href={albumHref(parentPath)}
+                variant="primary"
+                icon={FolderOpen}
+              >
+                Ouvrir {folderName(parentPath)}
               </ButtonLink>
-              {parentPath && (
-                <ButtonLink href={albumHref(parentPath)} variant="secondary">
-                  Open {albumTitle(parentPath)}
-                </ButtonLink>
-              )}
-            </>
+            ) : (
+              <ButtonLink href="/" variant="primary" icon={Library}>
+                Ouvrir la Bibliothèque
+              </ButtonLink>
+            )
           }
           className="py-24"
         />
@@ -146,14 +172,10 @@ export default function AlbumView({ path }: { path: string }) {
 
       {state.status === "error" && (
         <LoadError
-          title="This album didn't open"
-          onRetry={() => load(false)}
+          title="Ce dossier n'a pas pu être chargé"
+          onRetry={() => void load(false)}
           className="py-24"
-        >
-          <ButtonLink href="/" variant="ghost">
-            Back to the library
-          </ButtonLink>
-        </LoadError>
+        />
       )}
 
       {state.status === "ready" && (
@@ -162,21 +184,21 @@ export default function AlbumView({ path }: { path: string }) {
           title={title}
           selectedPhotoId={selectedPhotoId}
           onPhotoUrlChange={setPhotoParam}
-          onShare={() => setShareOpen(true)}
+          onShare={() => {
+            setShareOpen(true);
+          }}
           onAddPhotos={openPicker}
         />
       )}
 
-      {/* The raw name: the dialog reads the date out of it. The count is the album's own
-          media, which is what a guest sees (sub-albums aren't shared). */}
+      {/* The raw name: the dialog reads the date out of it. */}
       <ShareDialog
         isOpen={shareOpen}
-        onClose={() => setShareOpen(false)}
+        onClose={() => {
+          setShareOpen(false);
+        }}
         folderPath={path}
         folderName={name}
-        photoCount={
-          state.status === "ready" ? state.data.photos.length : undefined
-        }
       />
     </AlbumDropZone>
   );
@@ -201,19 +223,18 @@ function AlbumContents({
 }: AlbumContentsProps) {
   const { folder, subfolders, photos } = data;
   const videos = photos.filter(isVideo).length;
-  const span = albumSpan(photos, subfolders);
+  const span = photosSpan(photos);
+  // The date in the name wins; without one, when its photos were taken.
   const kicker = albumDateLabel({
     name: folder.name,
     date_from: span.from ?? null,
     date_to: span.to ?? null,
   });
-  const range = spanLabel(span);
-
+  // One date per folder: the kicker. A second range under it read as noise.
   const meta = [
+    subfolders.length > 0 && formatCount(subfolders.length, "dossier"),
     photos.length - videos > 0 && formatCount(photos.length - videos, "photo"),
-    videos > 0 && formatCount(videos, "video"),
-    subfolders.length > 0 && formatCount(subfolders.length, "album"),
-    range && range !== kicker && range,
+    videos > 0 && formatCount(videos, "vidéo"),
   ].filter((p): p is string => Boolean(p));
 
   const empty = photos.length === 0 && subfolders.length === 0;
@@ -221,16 +242,16 @@ function AlbumContents({
   return (
     <>
       <PageHeader
-        kicker={kicker ?? "Album"}
+        kicker={kicker}
         title={title}
-        meta={meta.length > 0 ? <MetaLine parts={meta} /> : "Empty for now"}
+        meta={meta.length > 0 && <MetaLine parts={meta} />}
         actions={
           <>
             <Button variant="secondary" icon={Share2} onClick={onShare}>
-              Share
+              Partager
             </Button>
             <Button variant="ghost" icon={ImagePlus} onClick={onAddPhotos}>
-              Add photos
+              Ajouter des photos
             </Button>
           </>
         }
@@ -240,15 +261,14 @@ function AlbumContents({
         <div className="border-t border-line">
           <EmptyState
             icon={FolderOpen}
-            title="Nothing in this album yet"
-            body="Drag photos and videos anywhere onto this page, or pick them from your computer."
+            title="Ce dossier est vide"
             action={
               <Button
                 variant="secondary"
                 icon={ImagePlus}
                 onClick={onAddPhotos}
               >
-                Add photos
+                Ajouter des photos
               </Button>
             }
             className="py-20"
@@ -257,7 +277,7 @@ function AlbumContents({
       )}
 
       {subfolders.length > 0 && (
-        <Section title="Albums">
+        <Section title="Dossiers">
           <AlbumGrid folders={subfolders} />
         </Section>
       )}

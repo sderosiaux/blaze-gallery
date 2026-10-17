@@ -1,11 +1,11 @@
 {
   "name": "Blaze Gallery",
   "short_name": "Blaze",
-  "description": "A quiet home for your family photos, straight from your own storage.",
+  "description": "Vos photos, depuis votre propre stockage.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F8F6F1",
-  "theme_color": "#F8F6F1",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "icons": [
     {
       "src": "/favicon.svg",
@@ -31,7 +31,7 @@
     "multimedia",
     "utilities"
   ],
-  "lang": "en",
+  "lang": "fr",
   "orientation": "any",
   "scope": "/",
   "id": "blaze-gallery"

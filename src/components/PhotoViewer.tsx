@@ -14,9 +14,13 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Photo } from "@/types";
 import PhotoViewerControls from "./PhotoViewerControls";
 import { Button, Dialog, IconButton, useToast } from "@/components/ui";
+import { asString, readJsonObject } from "@/hooks/apiJson";
 import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
-import { isVideo } from "@/lib/albums";
+import { usePhotoRotation } from "@/hooks/usePhotoRotation";
+import { formatNumber, isVideo } from "@/lib/albums";
+import type { PhotoPatch } from "@/lib/photoPatch";
+import { userRotation } from "@/lib/rotation";
 import { cn } from "@/lib/cn";
 import ViewerPhoto, {
   type FullStatus,
@@ -32,7 +36,7 @@ import {
   placeholderSources,
   viewerSources,
 } from "./viewer/sources";
-import { formatTaken } from "./viewer/format";
+import { formatTakenDay } from "./viewer/format";
 import { useAutoHide } from "./viewer/useAutoHide";
 import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
 import { useSwipe } from "./viewer/useSwipe";
@@ -42,8 +46,10 @@ interface PhotoViewerProps {
   /** The album, in order: arrows, swipe and the slideshow walk through it. */
   photos?: Photo[];
   onClose: () => void;
-  /** Called with the photo as the server now has it after a favourite toggle. */
-  onFavoriteToggle?: (photo: Photo) => void;
+  /** How many photos the list holds when only part of it is loaded (search): the counter shows it. */
+  total?: number;
+  /** What the server now has after a favourite toggle or a hand rotation. */
+  onPhotoUpdate?: (id: Photo["id"], patch: PhotoPatch) => void;
   onPhotoChange?: (photo: Photo) => void;
   /** Called once the photo is deleted from storage. Without it, delete is not offered. */
   onDelete?: (photo: Photo) => void;
@@ -54,7 +60,10 @@ interface PhotoViewerProps {
   sessionToken?: string;
 }
 
-type Keyed<T> = { id: string; value: T };
+interface Keyed<T> {
+  id: string;
+  value: T;
+}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
@@ -72,16 +81,17 @@ function triggerDownload(href: string, filename: string, newTab = false) {
 }
 
 /**
- * Looking at one photo. A paper stage, the photo as large as the window
- * allows, a quiet caption; controls fade away while you look and come back
- * when the mouse moves. Rendered in a portal so no page stacking context can
- * clip it.
+ * Looking at one photo. A white stage, the photo as large as the window
+ * allows, under it only its day, its folder and its place in the folder;
+ * controls fade away while you look and come back when the mouse moves.
+ * Rendered in a portal so no page stacking context can clip it.
  */
 export default function PhotoViewer({
   photo,
   photos,
   onClose,
-  onFavoriteToggle,
+  total,
+  onPhotoUpdate,
   onPhotoChange,
   onDelete,
   isSharedView = false,
@@ -91,22 +101,37 @@ export default function PhotoViewer({
 }: PhotoViewerProps) {
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
   const infoId = useId();
   const helpId = useId();
   const [mounted, setMounted] = useState(false);
 
   const nav = usePhotoNavigation(photo, photos, onPhotoChange);
-  const current = nav.current;
+  // The photo as shown: a hand rotation the server has stored shows at once,
+  // whether or not the parent passes the change back down.
+  const turning = usePhotoRotation(nav.current, {
+    enabled: !isSharedView && !isVideo(nav.current),
+    onChange: (turned) => {
+      onPhotoUpdate?.(turned.id, {
+        user_rotation: userRotation(turned.metadata),
+      });
+    },
+    onError: () => {
+      toast.show("La rotation n’a pas été enregistrée", "error");
+    },
+  });
+  const current = turning.photo;
   const currentId = String(current.id);
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
   const shared = isSharedView && shareToken ? shareToken : undefined;
   const session = shared ? sessionToken : undefined;
   const sources = useMemo(
-    () => viewerSources(current, shared),
-    [current, shared],
+    () => viewerSources(current, shared, allowDownload),
+    [current, shared, allowDownload],
   );
   const video = isVideo(current);
   const canFavorite = !isSharedView;
+  const canRotate = !isSharedView && !video;
   const canDelete = !isSharedView && Boolean(onDelete);
 
   const [infoOpen, setInfoOpen] = useState(false);
@@ -137,23 +162,45 @@ export default function PhotoViewer({
   const videoOutcome = videoState?.id === currentId ? videoState.value : null;
   const retryKey = retry?.id === currentId ? retry.value : 0;
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // ---- favourites, download, delete -------------------------------------
 
   const favorite = useFavoriteToggle(current, {
     enabled: canFavorite,
-    onChange: onFavoriteToggle,
-    onError: () => toast.show("Couldn't update favorites. Try again.", "error"),
+    onChange: (updated) => {
+      onPhotoUpdate?.(updated.id, { is_favorite: updated.is_favorite });
+    },
+    onError: () => {
+      toast.show("Le favori n’a pas été enregistré", "error");
+    },
   });
 
   const toggleFavorite = useCallback(() => {
     if (!canFavorite) return;
     setAnnouncement(
-      favorite.isFavorite ? "Removed from favorites" : "Added to favorites",
+      favorite.isFavorite ? "Retirée des favoris" : "Ajoutée aux favoris",
     );
     favorite.toggle();
   }, [canFavorite, favorite]);
+
+  const { rotate: turnPhoto } = turning;
+  const rotate = useCallback(
+    (direction: "cw" | "ccw") => {
+      if (!canRotate) return;
+      // The rotated photo is a new image: zoom starts over on it
+      setZoomedId(null);
+      setAnnouncement(
+        direction === "cw"
+          ? "Pivotée vers la droite"
+          : "Pivotée vers la gauche",
+      );
+      turnPhoto(direction);
+    },
+    [canRotate, turnPhoto],
+  );
 
   const download = useCallback(async () => {
     if (!allowDownload) return;
@@ -175,9 +222,11 @@ export default function PhotoViewer({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const url = URL.createObjectURL(await response.blob());
       triggerDownload(url, current.filename);
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 10_000);
     } catch {
-      toast.show("The download didn't start. Try again.", "error");
+      toast.show("Le téléchargement n’a pas démarré", "error");
     }
   }, [
     allowDownload,
@@ -188,20 +237,26 @@ export default function PhotoViewer({
     toast,
   ]);
 
+  const startDownload = useCallback(() => {
+    // Failures are reported by download() itself, through a toast.
+    void download();
+  }, [download]);
+
   const confirmDelete = useCallback(async () => {
     setDeleting(true);
     try {
       const response = await fetch(`/api/photos/${currentId}`, {
         method: "DELETE",
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) throw new Error(data.error);
+      const data = await readJsonObject(response);
+      if (!response.ok || data.success === false)
+        throw new Error(asString(data.error));
       onDelete?.(current);
-      toast.show("Photo deleted.", "success");
+      toast.show("Photo supprimée", "success");
       setConfirmOpen(false);
       onClose();
     } catch {
-      toast.show("Couldn't delete the photo. Try again.", "error");
+      toast.show("La photo n’a pas été supprimée", "error");
     } finally {
       setDeleting(false);
     }
@@ -210,7 +265,9 @@ export default function PhotoViewer({
   // ---- navigation, slideshow, zoom --------------------------------------
 
   const { goToPrevious: previous, goToNext: next, goTo } = nav;
-  const stopSlideshow = useCallback(() => setPlaying(false), []);
+  const stopSlideshow = useCallback(() => {
+    setPlaying(false);
+  }, []);
   const toggleSlideshow = useCallback(() => {
     if (nav.total < 2) return;
     setPlaying((p) => !p);
@@ -222,17 +279,21 @@ export default function PhotoViewer({
   }, [video, full.status, currentId]);
 
   const onZoomedChange = useCallback(
-    (z: boolean) => setZoomedId(z ? currentId : null),
+    (z: boolean) => {
+      setZoomedId(z ? currentId : null);
+    },
     [currentId],
   );
   const onStatus = useCallback(
-    (status: FullStatus, placeholder: PlaceholderState) =>
-      setFullState({ id: currentId, value: { status, placeholder } }),
+    (status: FullStatus, placeholder: PlaceholderState) => {
+      setFullState({ id: currentId, value: { status, placeholder } });
+    },
     [currentId],
   );
   const onVideoSettled = useCallback(
-    (outcome: "playing" | "ended" | "failed") =>
-      setVideoState({ id: currentId, value: outcome }),
+    (outcome: "playing" | "ended" | "failed") => {
+      setVideoState({ id: currentId, value: outcome });
+    },
     [currentId],
   );
 
@@ -257,50 +318,75 @@ export default function PhotoViewer({
     hasNext: nav.hasNext,
   });
 
-  // Neighbours: their cheap layers right away, their originals once this
-  // photo's original is in (they would only slow it down before).
+  // Neighbours: their cheap layers right away, their renditions once this
+  // photo's sharp image is in (they would only slow it down before). The
+  // first look at a neighbour also makes its rendition on the server.
   useEffect(() => {
     const keep: string[] = [];
-    if (sources.full && !video) keep.push(sources.full);
+    if (!video) {
+      [sources.display, sources.full].forEach((src) => {
+        if (src) keep.push(src);
+      });
+    }
     const settled = video || full.status !== "loading";
     nav.neighbours.forEach((p, i) => {
       if (isVideo(p)) return;
-      const s = viewerSources(p, shared);
+      const s = viewerSources(p, shared, allowDownload);
       const layers = placeholderSources(p, s);
       [layers.preview, layers.thumb].forEach((src) => {
         if (!src) return;
         loadImage(src);
         keep.push(src);
       });
-      if (s.full && settled && i < 2) {
-        loadImage(s.full, { sessionToken: session });
-        keep.push(s.full);
+      const sharpSrc = s.display ?? s.full;
+      if (sharpSrc && settled && i < 2) {
+        loadImage(sharpSrc, { sessionToken: session });
+        keep.push(sharpSrc);
       }
     });
     retainImages(keep);
-  }, [nav.neighbours, sources.full, video, full.status, shared, session]);
+  }, [
+    nav.neighbours,
+    sources.display,
+    sources.full,
+    video,
+    full.status,
+    shared,
+    session,
+    allowDownload,
+  ]);
 
   // Closing cancels the originals still on their way: the grid needs the
   // bandwidth. Deferred so the stage has unsubscribed from its own first.
-  useEffect(() => () => void setTimeout(() => retainImages([]), 0), []);
+  useEffect(
+    () => () =>
+      void setTimeout(() => {
+        retainImages([]);
+      }, 0),
+    [],
+  );
 
   // ---- caption ----------------------------------------------------------
 
-  const taken = current.metadata?.date_taken
-    ? formatTaken(current.metadata.date_taken)
+  const day = current.metadata?.date_taken
+    ? formatTakenDay(current.metadata.date_taken)
     : null;
   const album = isSharedView ? null : albumOf(current);
-  const position =
-    nav.index >= 0 && nav.total > 1 ? `${nav.index + 1} / ${nav.total}` : null;
-  const captionTitle = taken?.day ?? current.filename;
+  const listSize = Math.max(total ?? 0, nav.total);
+  const inList = nav.index >= 0 && listSize > 1;
+  const position = inList
+    ? `${formatNumber(nav.index + 1)} / ${formatNumber(listSize)}`
+    : null;
+  // An undated photo shows no title; assistive tech still gets its name.
+  const name = day ?? current.filename;
 
   useEffect(() => {
     setAnnouncement(
-      [position && `Photo ${position.replace(" / ", " of ")}`, captionTitle]
+      [inList && `Photo ${nav.index + 1} sur ${listSize}`, name]
         .filter(Boolean)
         .join(", "),
     );
-  }, [currentId, position, captionTitle]);
+  }, [currentId, inList, nav.index, listSize, name]);
 
   // ---- focus, keyboard, scroll lock -------------------------------------
 
@@ -331,8 +417,25 @@ export default function PhotoViewer({
     return () => {
       document.removeEventListener("focusin", onFocusIn);
       document.body.style.overflow = overflow;
-      if (opener?.isConnected && opener !== document.body)
-        opener.focus({ preventScroll: true });
+      // Back on the photo that was being looked at, not the one that opened
+      // the viewer: it may be screens further down the grid. Deferred two
+      // frames so it lands after the history traversal restored the scroll.
+      const shownId = currentIdRef.current;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const tile = document.querySelector<HTMLElement>(
+            `[data-photo-id="${CSS.escape(shownId)}"]`,
+          );
+          if (tile) {
+            const box = tile.getBoundingClientRect();
+            if (box.bottom < 0 || box.top > window.innerHeight)
+              tile.scrollIntoView({ block: "center" });
+            tile.focus({ preventScroll: true });
+          } else if (opener?.isConnected && opener !== document.body) {
+            opener.focus({ preventScroll: true });
+          }
+        }),
+      );
     };
   }, [mounted]);
 
@@ -351,9 +454,12 @@ export default function PhotoViewer({
       const items = Array.from(
         root.querySelectorAll<HTMLElement>(FOCUSABLE),
       ).filter((el) => el.offsetParent !== null);
-      if (items.length === 0) return handled();
       const first = items[0];
       const last = items[items.length - 1];
+      if (!first || !last) {
+        handled();
+        return;
+      }
       const inside = target && root.contains(target) && target !== root;
       if (e.shiftKey && (!inside || target === first)) {
         handled();
@@ -425,6 +531,12 @@ export default function PhotoViewer({
         handled();
         toggleFavorite();
         break;
+      case "r":
+      case "R":
+        if (!canRotate) return;
+        handled();
+        rotate(e.shiftKey ? "ccw" : "cw");
+        break;
       case "i":
       case "I":
         handled();
@@ -455,9 +567,13 @@ export default function PhotoViewer({
 
   useEffect(() => {
     // Capture phase: runs before the page's own shortcuts, which it can then stop.
-    const listener = (e: KeyboardEvent) => onKeyRef.current(e);
+    const listener = (e: KeyboardEvent) => {
+      onKeyRef.current(e);
+    };
     document.addEventListener("keydown", listener, true);
-    return () => document.removeEventListener("keydown", listener, true);
+    return () => {
+      document.removeEventListener("keydown", listener, true);
+    };
   }, []);
 
   const chromeVisible = useAutoHide(
@@ -483,49 +599,50 @@ export default function PhotoViewer({
 
   if (!mounted) return null;
 
+  // Only what changes what you can do: a preview standing in for a file the
+  // browser can't show, a RAW seen through its rendition (zoom stops at its
+  // pixels, the file itself is a download away), or an original that didn't come.
   const note = (() => {
     if (video) return null;
-    if (full.status === "unavailable") {
-      const kind = isRawFile(current)
-        ? `${current.filename.split(".").pop()?.toUpperCase()} RAW files`
-        : "Files of this type";
-      return full.placeholder === "shown" ? (
-        <>
-          This is a preview. {kind} can&rsquo;t be shown at full size in a
-          browser.
-          {allowDownload && (
-            <button
-              type="button"
-              onClick={download}
-              className="ml-1 text-accent-strong underline-offset-2 hover:underline"
-            >
-              Download the original
-            </button>
-          )}
-        </>
-      ) : null;
-    }
-    if (full.status === "error") {
+    if (full.status === "ready" && isRawFile(current)) {
+      const extension = current.filename.split(".").pop()?.toUpperCase();
       return (
         <>
-          The full-size photo didn&rsquo;t load.
-          <button
-            type="button"
-            onClick={() => setRetry({ id: currentId, value: retryKey + 1 })}
-            className="ml-1 text-accent-strong underline-offset-2 hover:underline"
-          >
-            Try again
-          </button>
+          {extension ? `Fichier RAW (${extension}).` : "Fichier RAW."}
+          {allowDownload && (
+            <NoteAction onClick={startDownload}>
+              Télécharger l’original
+            </NoteAction>
+          )}
         </>
       );
     }
-    if (full.status === "loading") {
+    if (full.status === "unavailable" && full.placeholder === "shown") {
       return (
-        <span className="animate-fade-in [animation-delay:1200ms]">
-          {full.placeholder === "shown"
-            ? "Loading full size…"
-            : "Loading the photo…"}
-        </span>
+        <>
+          {isRawFile(current)
+            ? "Aperçu du fichier RAW."
+            : "Aperçu, ce format ne s’affiche pas en grand."}
+          {allowDownload && (
+            <NoteAction onClick={startDownload}>
+              Télécharger l’original
+            </NoteAction>
+          )}
+        </>
+      );
+    }
+    if (full.status === "error" && full.placeholder === "shown") {
+      return (
+        <>
+          L’original n’a pas chargé.
+          <NoteAction
+            onClick={() => {
+              setRetry({ id: currentId, value: retryKey + 1 });
+            }}
+          >
+            Réessayer
+          </NoteAction>
+        </>
       );
     }
     return null;
@@ -543,12 +660,13 @@ export default function PhotoViewer({
       sources={sources}
       sessionToken={session}
       allowDownload={allowDownload}
-      onDownload={download}
+      onDownload={startDownload}
       onSettled={onVideoSettled}
     />
   ) : (
     <ViewerPhoto
-      key={currentId}
+      // A turn is new pixels everywhere (preview, rendition, ratio): start clean
+      key={`${currentId}-r${turning.rotation}`}
       photo={current}
       sources={sources}
       sessionToken={session}
@@ -565,7 +683,7 @@ export default function PhotoViewer({
         ref={rootRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={name}
         tabIndex={-1}
         className={cn(
           "fixed inset-0 z-viewer flex animate-fade-in flex-col bg-paper text-ink outline-none",
@@ -583,7 +701,7 @@ export default function PhotoViewer({
         >
           <IconButton
             icon={X}
-            label="Close (Esc)"
+            label="Fermer (Échap)"
             aria-keyshortcuts="Escape"
             onClick={onClose}
           />
@@ -608,14 +726,31 @@ export default function PhotoViewer({
             info={{
               open: infoOpen,
               panelId: infoId,
-              onToggle: () => setInfoOpen((v) => !v),
+              onToggle: () => {
+                setInfoOpen((v) => !v);
+              },
             }}
-            onDownload={allowDownload ? download : undefined}
-            onDelete={canDelete ? () => setConfirmOpen(true) : undefined}
+            onRotate={
+              canRotate
+                ? () => {
+                    rotate("cw");
+                  }
+                : undefined
+            }
+            onDownload={allowDownload ? startDownload : undefined}
+            onDelete={
+              canDelete
+                ? () => {
+                    setConfirmOpen(true);
+                  }
+                : undefined
+            }
             help={{
               open: helpOpen,
               panelId: helpId,
-              onToggle: () => setHelpOpen((v) => !v),
+              onToggle: () => {
+                setHelpOpen((v) => !v);
+              },
             }}
           />
         </header>
@@ -638,6 +773,7 @@ export default function PhotoViewer({
               className="relative min-h-0 flex-1"
               style={{ touchAction: zoomed ? "auto" : "pan-y pinch-zoom" }}
               data-backdrop
+              role="presentation"
               onClick={onStageClick}
               {...swipe.handlers}
             >
@@ -660,11 +796,12 @@ export default function PhotoViewer({
                     <Unviewable
                       photo={current}
                       allowDownload={allowDownload}
-                      onDownload={download}
+                      onDownload={startDownload}
                       onRetry={
                         full.status === "error"
-                          ? () =>
-                              setRetry({ id: currentId, value: retryKey + 1 })
+                          ? () => {
+                              setRetry({ id: currentId, value: retryKey + 1 });
+                            }
                           : undefined
                       }
                     />
@@ -683,7 +820,7 @@ export default function PhotoViewer({
                   >
                     <IconButton
                       icon={ChevronLeft}
-                      label="Previous photo (←)"
+                      label="Photo précédente (←)"
                       aria-keyshortcuts="ArrowLeft"
                       variant="secondary"
                       size="lg"
@@ -701,7 +838,7 @@ export default function PhotoViewer({
                   >
                     <IconButton
                       icon={ChevronRight}
-                      label="Next photo (→)"
+                      label="Photo suivante (→)"
                       aria-keyshortcuts="ArrowRight"
                       variant="secondary"
                       size="lg"
@@ -714,11 +851,11 @@ export default function PhotoViewer({
               )}
             </div>
 
-            <div className="flex h-[5.75rem] shrink-0 items-center gap-1 px-1 sm:px-6">
+            <div className="flex h-20 shrink-0 items-center gap-1 px-1 sm:px-6">
               {nav.total > 1 && (
                 <IconButton
                   icon={ChevronLeft}
-                  label="Previous photo"
+                  label="Photo précédente"
                   disabled={!nav.hasPrevious}
                   onClick={previous}
                   className="md:hidden"
@@ -726,39 +863,43 @@ export default function PhotoViewer({
               )}
               <figure className="min-w-0 flex-1 text-center">
                 <figcaption>
-                  <p
-                    id={titleId}
-                    className="truncate font-display text-lg font-light leading-tight text-ink sm:text-xl"
-                  >
-                    {captionTitle}
-                  </p>
-                  <p className="mt-1 flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted">
-                    {taken?.time && (
-                      <span className="tabular">{taken.time}</span>
-                    )}
-                    {taken?.time && (album || position) && <Dot />}
-                    {album && (
-                      <Link
-                        href={album.href}
-                        className="truncate text-ink-soft underline-offset-2 transition-colors hover:text-accent-strong hover:underline"
-                      >
-                        {album.title}
-                      </Link>
-                    )}
-                    {album && position && <Dot />}
-                    {position && (
-                      <span className="tabular shrink-0">{position}</span>
-                    )}
-                  </p>
-                  <p className="mt-1 h-4 truncate text-xs text-ink-faint">
-                    {note}
-                  </p>
+                  {day && (
+                    <p className="truncate text-lg font-semibold leading-tight text-ink sm:text-xl">
+                      {day}
+                    </p>
+                  )}
+                  {(Boolean(album) || Boolean(position)) && (
+                    <p
+                      className={cn(
+                        "flex items-center justify-center gap-x-2 truncate text-sm text-ink-muted",
+                        day && "mt-1",
+                      )}
+                    >
+                      {album && (
+                        <Link
+                          href={album.href}
+                          className="truncate text-ink-soft underline-offset-2 transition-colors hover:text-ink hover:underline"
+                        >
+                          {album.title}
+                        </Link>
+                      )}
+                      {album && position && <Dot />}
+                      {position && (
+                        <span className="tabular shrink-0">{position}</span>
+                      )}
+                    </p>
+                  )}
+                  {note && (
+                    <p className="mt-1 truncate text-xs text-ink-muted">
+                      {note}
+                    </p>
+                  )}
                 </figcaption>
               </figure>
               {nav.total > 1 && (
                 <IconButton
                   icon={ChevronRight}
-                  label="Next photo"
+                  label="Photo suivante"
                   disabled={!nav.hasNext}
                   onClick={next}
                   className="md:hidden"
@@ -772,7 +913,9 @@ export default function PhotoViewer({
               id={infoId}
               photo={current}
               showAlbum={!isSharedView}
-              onClose={() => setInfoOpen(false)}
+              onClose={() => {
+                setInfoOpen(false);
+              }}
             />
           )}
         </div>
@@ -781,8 +924,11 @@ export default function PhotoViewer({
           <ShortcutsHelp
             id={helpId}
             canFavorite={canFavorite}
+            canRotate={canRotate}
             canDelete={canDelete}
-            onClose={() => setHelpOpen(false)}
+            onClose={() => {
+              setHelpOpen(false);
+            }}
           />
         )}
 
@@ -795,15 +941,19 @@ export default function PhotoViewer({
         open={confirmOpen}
         onClose={closeConfirm}
         size="sm"
-        title="Delete this photo?"
-        description={`“${current.filename}” will be removed from your library and from storage. This can't be undone.`}
+        title={"Supprimer cette photo\u00a0?"}
+        description={`«\u00a0${current.filename}\u00a0» sera effacée du stockage, définitivement.`}
         footer={
           <>
             <Button data-autofocus onClick={closeConfirm} disabled={deleting}>
-              Keep it
+              Garder
             </Button>
-            <Button variant="danger" onClick={confirmDelete} loading={deleting}>
-              Delete photo
+            <Button
+              variant="danger"
+              onClick={() => void confirmDelete()}
+              loading={deleting}
+            >
+              Supprimer
             </Button>
           </>
         }
@@ -822,6 +972,24 @@ function Dot() {
   );
 }
 
+function NoteAction({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ml-1 font-medium text-ink underline underline-offset-2 hover:decoration-2"
+    >
+      {children}
+    </button>
+  );
+}
+
 /** Fills over one slideshow interval. Reduced motion gets a still bar. */
 function SlideshowProgress({ running }: { running: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -837,7 +1005,9 @@ function SlideshowProgress({ running }: { running: boolean }) {
         fill: "forwards",
       },
     );
-    return () => animation.cancel();
+    return () => {
+      animation.cancel();
+    };
   }, [running]);
   return (
     <div
@@ -861,35 +1031,35 @@ function Unviewable({
   onDownload: () => void;
   onRetry?: () => void;
 }) {
-  const raw = isRawFile(photo);
+  const extension = photo.filename.includes(".")
+    ? photo.filename.split(".").pop()
+    : undefined;
+  const ext = extension?.toUpperCase() ?? null;
+  const message = onRetry
+    ? "La photo n’a pas chargé"
+    : isRawFile(photo)
+      ? `Les fichiers RAW${ext ? ` (${ext})` : ""} ne s’affichent pas dans un navigateur`
+      : "Ce format ne s’affiche pas dans un navigateur";
   return (
     <div
       data-backdrop
       className="absolute inset-0 flex items-center justify-center p-4"
     >
       <div className="flex max-w-md animate-fade-in flex-col items-center rounded-lg border border-line bg-surface px-6 py-10 text-center">
-        <h2 className="font-display text-display-sm font-normal text-ink">
-          {onRetry
-            ? "This photo didn't load"
-            : "This photo can't be shown here"}
+        <h2 className="text-pretty text-display-sm font-semibold text-ink">
+          {message}
         </h2>
-        <p className="mt-2 text-pretty text-sm text-ink-muted">
-          {onRetry
-            ? "Storage may be slow right now. Try again in a moment."
-            : raw
-              ? `It's a camera RAW file (${photo.filename.split(".").pop()?.toUpperCase()}). Browsers can't display those. Download it and open it in a photo editor.`
-              : "Browsers can't display this kind of file. Download it to open it on your computer."}
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          {onRetry && (
-            <Button variant="primary" onClick={onRetry}>
-              Try again
+        {onRetry ? (
+          <Button variant="primary" className="mt-6" onClick={onRetry}>
+            Réessayer
+          </Button>
+        ) : (
+          allowDownload && (
+            <Button className="mt-6" onClick={onDownload}>
+              Télécharger l’original
             </Button>
-          )}
-          {allowDownload && (
-            <Button onClick={onDownload}>Download original</Button>
-          )}
-        </div>
+          )
+        )}
       </div>
     </div>
   );

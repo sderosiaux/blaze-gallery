@@ -5,15 +5,14 @@ import { useState } from "react";
 import { Film } from "lucide-react";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { EmptyState, Section, Stat } from "@/components/ui";
-import { parseAlbumName } from "@/lib/albums";
+import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
 import { BarList, ShowMore, type BarItem } from "./charts";
 import {
-  albumKicker,
+  folderKicker,
   formatExtension,
   formatNumber,
   formatPercent,
   formatSize,
-  ownDate,
 } from "./format";
 import {
   BarsSkeleton,
@@ -35,7 +34,7 @@ export default function VideosTab({ active }: { active: boolean }) {
   if (state.status === "error") {
     return (
       <TabError
-        title="Video figures didn't load"
+        title="Les chiffres des vidéos n’ont pas chargé"
         error={state.error}
         onRetry={retry}
         className="py-6"
@@ -45,7 +44,11 @@ export default function VideosTab({ active }: { active: boolean }) {
 
   if (state.status !== "ready") {
     return (
-      <div role="status" aria-label="Loading videos" className="pt-8 sm:pt-10">
+      <div
+        role="status"
+        aria-label="Chargement des vidéos"
+        className="pt-8 sm:pt-10"
+      >
         <StatsRowSkeleton />
         <div className="grid gap-x-12 lg:grid-cols-2">
           {[0, 1].map((i) => (
@@ -62,14 +65,7 @@ export default function VideosTab({ active }: { active: boolean }) {
   const { summary, formats, largest, albums } = state.data;
 
   if (summary.total_videos === 0) {
-    return (
-      <EmptyState
-        icon={Film}
-        title="No videos yet"
-        body="Videos you add to an album show up here, with the space they take."
-        className="py-12"
-      />
-    );
+    return <EmptyState icon={Film} title="Aucune vidéo" className="py-12" />;
   }
 
   const formatItems: BarItem[] = formats.map((f) => ({
@@ -78,7 +74,7 @@ export default function VideosTab({ active }: { active: boolean }) {
     label: formatExtension(f.format),
     value: f.count,
     valueLabel: formatNumber(f.count),
-    detail: `${formatSize(f.total_size_bytes)} · ${formatPercent(f.count, summary.total_videos)} of videos`,
+    detail: `${formatSize(f.total_size_bytes)} · ${formatPercent(f.count, summary.total_videos)} des vidéos`,
     series: "video",
   }));
 
@@ -88,7 +84,7 @@ export default function VideosTab({ active }: { active: boolean }) {
       key: String(a.id),
       name: title,
       href: albumHref(a.path),
-      kicker: albumKicker(a.path, ownDate(a.name)),
+      kicker: folderKicker(a.path, a.name),
       label: title,
       value: a.video_count,
       valueLabel: formatNumber(a.video_count),
@@ -102,52 +98,38 @@ export default function VideosTab({ active }: { active: boolean }) {
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 pt-8 sm:pt-10 lg:grid-cols-4">
         <Stat
           className={cell}
-          label="Videos"
+          label="Vidéos"
           value={formatNumber(summary.total_videos)}
-          hint={`in ${formatNumber(summary.albums_with_videos)} albums`}
+          hint={`dans ${formatCount(summary.albums_with_videos, "dossier")}`}
         />
         <Stat
           className={cell}
-          label="Space used"
+          label="Espace occupé"
           value={formatSize(summary.total_size_bytes)}
         />
         <Stat
           className={cell}
-          label="Average size"
+          label="Taille moyenne"
           value={formatSize(summary.avg_size_bytes)}
         />
         <Stat
           className={cell}
-          label="Largest"
+          label="La plus lourde"
           value={formatSize(summary.max_size_bytes)}
           hint={largest[0]?.filename}
         />
       </div>
 
       <div className="grid gap-x-12 lg:grid-cols-2">
-        <Section
-          title="Formats"
-          description="How many videos of each kind, and the space they take."
-        >
-          <BarList
-            items={formatItems}
-            initial={6}
-            step={10}
-            noun="more formats"
-          />
+        <Section title="Formats" description="Par nombre de vidéos">
+          <BarList items={formatItems} initial={6} step={10} />
         </Section>
-        <Section
-          title="Albums with the most videos"
-          description="Where the videos live, and the space they take there."
-        >
-          <BarList items={albumItems} initial={6} step={8} noun="more albums" />
+        <Section title="Dossiers avec le plus de vidéos">
+          <BarList items={albumItems} initial={6} step={8} />
         </Section>
       </div>
 
-      <Section
-        title="Largest videos"
-        description="The files that weigh the most. Open one to watch it in its album."
-      >
+      <Section title="Vidéos les plus lourdes">
         <LargestVideos videos={largest} />
       </Section>
     </div>
@@ -164,13 +146,13 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
           <thead>
             <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-[0.08em] text-ink-muted">
               <th scope="col" className="px-4 py-2.5 font-medium">
-                Video
+                Vidéo
               </th>
               <th
                 scope="col"
                 className="hidden px-4 py-2.5 font-medium md:table-cell"
               >
-                Album
+                Dossier
               </th>
               <th
                 scope="col"
@@ -182,13 +164,18 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
                 scope="col"
                 className="w-24 px-4 py-2.5 text-right font-medium"
               >
-                Size
+                Taille
               </th>
             </tr>
           </thead>
           <tbody>
             {videos.slice(0, visible).map((v) => {
               const album = parseAlbumName(v.folder_name).title;
+              const date = albumDateLabel({
+                name: v.folder_name,
+                date_from: null,
+                date_to: null,
+              });
               return (
                 <tr key={v.id} className="border-b border-line last:border-0">
                   <td className="px-4 py-3">
@@ -202,8 +189,9 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
                     <Link
                       href={albumHref(v.folder_path)}
                       className="mt-0.5 block truncate text-xs text-ink-muted hover:text-ink md:hidden"
+                      title={v.folder_path}
                     >
-                      {album}
+                      {date ? `${album} · ${date}` : album}
                     </Link>
                   </td>
                   <td className="hidden px-4 py-3 md:table-cell">
@@ -212,6 +200,9 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
                       className="block truncate text-ink-soft transition-colors hover:text-accent-strong"
                       title={v.folder_path}
                     >
+                      {date && (
+                        <span className="kicker block truncate">{date}</span>
+                      )}
                       {album}
                     </Link>
                   </td>
@@ -232,7 +223,6 @@ function LargestVideos({ videos }: { videos: VideoStats["largest"] }) {
         visible={visible}
         initial={initial}
         step={8}
-        noun="more videos"
         onChange={setVisible}
       />
     </>

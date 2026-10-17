@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { getThumbnailStorageInfo } from "@/lib/thumbnails";
+import type { ThumbnailStorageInfo } from "@/lib/thumbnails";
 import { listObjects } from "@/lib/s3";
 import type {
   ThumbnailCoverage,
@@ -98,6 +100,13 @@ function listLocalFiles(dir: string): FileStats {
   return stats;
 }
 
+function requireBucket(storage: ThumbnailStorageInfo): string {
+  if (storage.bucket === undefined) {
+    throw new Error("Thumbnail bucket is not configured");
+  }
+  return storage.bucket;
+}
+
 async function scanStorage(): Promise<ThumbnailStorageScan> {
   const startedAt = Date.now();
   const storage = getThumbnailStorageInfo();
@@ -105,7 +114,7 @@ async function scanStorage(): Promise<ThumbnailStorageScan> {
 
   // Records first, files second: thumbnails keep being generated while the
   // listing runs, and a file written after this snapshot is new, not unused.
-  const recordsResult = await query(`
+  const recordsResult = await query<{ thumbnail_path: string }>(`
     SELECT thumbnail_path FROM photos
     WHERE thumbnail_path IS NOT NULL AND thumbnail_path != ''
   `);
@@ -119,7 +128,7 @@ async function scanStorage(): Promise<ThumbnailStorageScan> {
   const directoryExists = isS3 || fs.existsSync(storage.location);
   const stats: FileStats = isS3
     ? await listS3Files(
-        storage.bucket!,
+        requireBucket(storage),
         storage.prefix ? `${storage.prefix}/` : undefined,
       )
     : directoryExists
@@ -174,13 +183,16 @@ function storageScan(refresh: boolean): Promise<ThumbnailStorageScan> {
 }
 
 async function coverage(): Promise<ThumbnailCoverage> {
-  const result = await query(`
+  const result = await query<{ total_photos: number; with_thumbnail: number }>(`
     SELECT
       COUNT(*)::int AS total_photos,
       (COUNT(*) FILTER (WHERE thumbnail_path IS NOT NULL AND thumbnail_path != ''))::int AS with_thumbnail
     FROM photos
   `);
-  const { total_photos, with_thumbnail } = result.rows[0];
+  const { total_photos, with_thumbnail } = requireRow(
+    result,
+    "Thumbnail coverage",
+  );
   const storage = getThumbnailStorageInfo();
   return {
     total_photos,

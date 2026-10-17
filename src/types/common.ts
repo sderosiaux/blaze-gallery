@@ -1,3 +1,5 @@
+import type { Config, Folder, Photo, PhotoMetadata, SyncJob } from "./index";
+
 // Common reusable types and status enums for the application
 
 // Status types for photo processing
@@ -52,12 +54,12 @@ export interface S3LogContext extends BaseLogContext {
   urlLength?: number;
   contentType?: string;
   // DEBUG mode fields
-  sampleObjects?: Array<{
+  sampleObjects?: {
     key: string;
     size: number;
     lastModified: string;
     etag: string;
-  }>;
+  }[];
   totalObjects?: number;
   showingSample?: number;
   message?: string;
@@ -160,7 +162,7 @@ export interface CreatePhotoData {
   size: number;
   mime_type: string;
   modified_at: string;
-  metadata?: import("./index").PhotoMetadata;
+  metadata?: PhotoMetadata;
   metadata_status?: MetadataStatus;
   thumbnail_status?: ThumbnailStatus;
 }
@@ -184,17 +186,16 @@ export interface CreateSyncJobData {
 }
 
 // API response interfaces
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
 }
 
-export interface SyncJobResponse
-  extends ApiResponse<import("./index").SyncJob> {}
-export interface PhotoResponse extends ApiResponse<import("./index").Photo> {}
-export interface FolderResponse extends ApiResponse<import("./index").Folder> {}
-export interface ConfigResponse extends ApiResponse<import("./index").Config> {}
+export type SyncJobResponse = ApiResponse<SyncJob>;
+export type PhotoResponse = ApiResponse<Photo>;
+export type FolderResponse = ApiResponse<Folder>;
+export type ConfigResponse = ApiResponse<Config>;
 
 // Thumbnail generation options
 export interface ThumbnailOptions {
@@ -209,7 +210,7 @@ export interface ThumbnailOptions {
 // Database query builder types
 export interface DatabaseUpdateFields {
   updates: string[];
-  values: any[];
+  values: unknown[];
 }
 
 // Pagination interface

@@ -1,8 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { query, requireRow } from "@/lib/database";
 import { s3AuditLogger } from "@/lib/s3Audit";
 import type { AuditLogEntry, AuditLogPage } from "@/components/audit/types";
+import { isInvalidDateParam } from "@/app/api/_lib/request";
+
+interface LogRow {
+  id: number | string;
+  timestamp: string | number | Date;
+  operation: string;
+  method: string;
+  endpoint: string;
+  bucket: string;
+  key: string | null;
+  duration_ms: number;
+  status_code: number;
+  bytes_transferred: number | null;
+  error_message: string | null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +33,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
     const startDate = searchParams.get("start_date");
     const endDate = searchParams.get("end_date");
-    if (
-      (startDate && isNaN(Date.parse(startDate))) ||
-      (endDate && isNaN(Date.parse(endDate)))
-    ) {
+    if (isInvalidDateParam(startDate) || isInvalidDateParam(endDate)) {
       return NextResponse.json(
         {
           success: false,
@@ -55,11 +68,11 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       : "";
 
     const [countResult, rowsResult] = await Promise.all([
-      query(
+      query<{ count: number }>(
         `SELECT COUNT(*)::int AS count FROM s3_audit_logs ${whereClause}`,
         params,
       ),
-      query(
+      query<LogRow>(
         `
         SELECT id, timestamp, operation, method, endpoint, bucket, key,
                duration_ms, status_code,
@@ -85,7 +98,10 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       bytes_transferred: row.bytes_transferred,
       error_message: row.error_message,
     }));
-    const page: AuditLogPage = { logs, total_count: countResult.rows[0].count };
+    const page: AuditLogPage = {
+      logs,
+      total_count: requireRow(countResult, "Audit log count").count,
+    };
 
     return NextResponse.json({ success: true, data: page });
   } catch (error) {

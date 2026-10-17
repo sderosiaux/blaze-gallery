@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { generateGoogleAuthUrl } from "@/lib/auth/googleOAuth";
 import { authConfig, AUTH_RATE_LIMITS } from "@/lib/auth/config";
 import { authRateLimiter, validateOrigin } from "@/lib/auth/validators";

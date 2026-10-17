@@ -56,7 +56,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         aria-label={label}
         title={label}
         aria-pressed={active}
-        disabled={disabled || loading}
+        disabled={disabled === true || loading === true}
         className={cn(
           "touch-target inline-flex shrink-0 items-center justify-center rounded-full",
           "transition-[background-color,color,transform] duration-150 ease-out-soft active:scale-95",
