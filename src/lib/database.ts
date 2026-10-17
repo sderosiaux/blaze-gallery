@@ -899,7 +899,7 @@ export type TimelinePhoto = Photo & { folder_path: string };
 
 /**
  * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id).
- * Uses idx_photos_date_taken (scripts/create-timeline-index.ts).
+ * Uses idx_photos_date_taken (db/schema.sql).
  */
 export async function getTimelinePhotos(
   before: TimelineCursor | null,
