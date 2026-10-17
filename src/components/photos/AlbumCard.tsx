@@ -85,7 +85,8 @@ export default function AlbumCard({
         />
       </div>
       <div className="pt-3">
-        {dateLabel && <div className="kicker mb-1 truncate">{dateLabel}</div>}
+        {/* The kicker line is always there so titles align across a row */}
+        <div className="kicker mb-1 min-h-4 truncate">{dateLabel}</div>
         <h3
           className={cn(
             "line-clamp-2 font-display font-semibold leading-snug text-ink transition-colors [overflow-wrap:anywhere] group-hover:text-accent-strong",
