@@ -17,7 +17,10 @@ import { Button, Dialog, IconButton, useToast } from "@/components/ui";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
-import { isVideo } from "@/lib/albums";
+import { usePhotoRotation } from "@/hooks/usePhotoRotation";
+import { formatNumber, isVideo } from "@/lib/albums";
+import type { PhotoPatch } from "@/lib/photoPatch";
+import { userRotation } from "@/lib/rotation";
 import { cn } from "@/lib/cn";
 import ViewerPhoto, {
   type FullStatus,
@@ -43,8 +46,10 @@ interface PhotoViewerProps {
   /** The album, in order: arrows, swipe and the slideshow walk through it. */
   photos?: Photo[];
   onClose: () => void;
-  /** Called with the photo as the server now has it after a favourite toggle. */
-  onFavoriteToggle?: (photo: Photo) => void;
+  /** How many photos the list holds when only part of it is loaded (search): the counter shows it. */
+  total?: number;
+  /** What the server now has after a favourite toggle or a hand rotation. */
+  onPhotoUpdate?: (id: Photo["id"], patch: PhotoPatch) => void;
   onPhotoChange?: (photo: Photo) => void;
   /** Called once the photo is deleted from storage. Without it, delete is not offered. */
   onDelete?: (photo: Photo) => void;
@@ -85,7 +90,8 @@ export default function PhotoViewer({
   photo,
   photos,
   onClose,
-  onFavoriteToggle,
+  total,
+  onPhotoUpdate,
   onPhotoChange,
   onDelete,
   isSharedView = false,
@@ -100,7 +106,20 @@ export default function PhotoViewer({
   const [mounted, setMounted] = useState(false);
 
   const nav = usePhotoNavigation(photo, photos, onPhotoChange);
-  const current = nav.current;
+  // The photo as shown: a hand rotation the server has stored shows at once,
+  // whether or not the parent passes the change back down.
+  const turning = usePhotoRotation(nav.current, {
+    enabled: !isSharedView && !isVideo(nav.current),
+    onChange: (turned) => {
+      onPhotoUpdate?.(turned.id, {
+        user_rotation: userRotation(turned.metadata),
+      });
+    },
+    onError: () => {
+      toast.show("La rotation n’a pas été enregistrée", "error");
+    },
+  });
+  const current = turning.photo;
   const currentId = String(current.id);
   const currentIdRef = useRef(currentId);
   currentIdRef.current = currentId;
@@ -112,6 +131,7 @@ export default function PhotoViewer({
   );
   const video = isVideo(current);
   const canFavorite = !isSharedView;
+  const canRotate = !isSharedView && !video;
   const canDelete = !isSharedView && Boolean(onDelete);
 
   const [infoOpen, setInfoOpen] = useState(false);
@@ -150,7 +170,9 @@ export default function PhotoViewer({
 
   const favorite = useFavoriteToggle(current, {
     enabled: canFavorite,
-    onChange: onFavoriteToggle,
+    onChange: (updated) => {
+      onPhotoUpdate?.(updated.id, { is_favorite: updated.is_favorite });
+    },
     onError: () => {
       toast.show("Le favori n’a pas été enregistré", "error");
     },
@@ -163,6 +185,22 @@ export default function PhotoViewer({
     );
     favorite.toggle();
   }, [canFavorite, favorite]);
+
+  const { rotate: turnPhoto } = turning;
+  const rotate = useCallback(
+    (direction: "cw" | "ccw") => {
+      if (!canRotate) return;
+      // The rotated photo is a new image: zoom starts over on it
+      setZoomedId(null);
+      setAnnouncement(
+        direction === "cw"
+          ? "Pivotée vers la droite"
+          : "Pivotée vers la gauche",
+      );
+      turnPhoto(direction);
+    },
+    [canRotate, turnPhoto],
+  );
 
   const download = useCallback(async () => {
     if (!allowDownload) return;
@@ -333,18 +371,21 @@ export default function PhotoViewer({
     ? formatTakenDay(current.metadata.date_taken)
     : null;
   const album = isSharedView ? null : albumOf(current);
-  const inList = nav.index >= 0 && nav.total > 1;
-  const position = inList ? `${nav.index + 1} / ${nav.total}` : null;
+  const listSize = Math.max(total ?? 0, nav.total);
+  const inList = nav.index >= 0 && listSize > 1;
+  const position = inList
+    ? `${formatNumber(nav.index + 1)} / ${formatNumber(listSize)}`
+    : null;
   // An undated photo shows no title; assistive tech still gets its name.
   const name = day ?? current.filename;
 
   useEffect(() => {
     setAnnouncement(
-      [inList && `Photo ${nav.index + 1} sur ${nav.total}`, name]
+      [inList && `Photo ${nav.index + 1} sur ${listSize}`, name]
         .filter(Boolean)
         .join(", "),
     );
-  }, [currentId, inList, nav.index, nav.total, name]);
+  }, [currentId, inList, nav.index, listSize, name]);
 
   // ---- focus, keyboard, scroll lock -------------------------------------
 
@@ -489,6 +530,12 @@ export default function PhotoViewer({
         handled();
         toggleFavorite();
         break;
+      case "r":
+      case "R":
+        if (!canRotate) return;
+        handled();
+        rotate(e.shiftKey ? "ccw" : "cw");
+        break;
       case "i":
       case "I":
         handled();
@@ -617,7 +664,8 @@ export default function PhotoViewer({
     />
   ) : (
     <ViewerPhoto
-      key={currentId}
+      // A turn is new pixels everywhere (preview, rendition, ratio): start clean
+      key={`${currentId}-r${turning.rotation}`}
       photo={current}
       sources={sources}
       sessionToken={session}
@@ -681,6 +729,13 @@ export default function PhotoViewer({
                 setInfoOpen((v) => !v);
               },
             }}
+            onRotate={
+              canRotate
+                ? () => {
+                    rotate("cw");
+                  }
+                : undefined
+            }
             onDownload={allowDownload ? startDownload : undefined}
             onDelete={
               canDelete
@@ -868,6 +923,7 @@ export default function PhotoViewer({
           <ShortcutsHelp
             id={helpId}
             canFavorite={canFavorite}
+            canRotate={canRotate}
             canDelete={canDelete}
             onClose={() => {
               setHelpOpen(false);

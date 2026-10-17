@@ -6,6 +6,7 @@ import type { Photo } from "@/types";
 import { IconButton } from "@/components/ui";
 import { formatNumber } from "@/lib/albums";
 import { cn } from "@/lib/cn";
+import { rotatedSize, userRotation } from "@/lib/rotation";
 import { albumCrumbs } from "./sources";
 import { formatCoordinates, formatSize } from "./format";
 
@@ -50,7 +51,10 @@ export default function InfoPanel({
   onClose,
 }: InfoPanelProps) {
   const meta = photo.metadata;
-  const dims = meta?.dimensions;
+  // As shown: a photo turned by hand reads the other way round
+  const dims = meta?.dimensions
+    ? rotatedSize(meta.dimensions, userRotation(meta))
+    : undefined;
   const camera = cameraName(meta?.camera);
   const crumbs = showAlbum ? albumCrumbs(photo) : [];
   const location = meta?.location;

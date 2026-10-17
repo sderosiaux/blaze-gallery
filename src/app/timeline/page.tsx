@@ -26,6 +26,7 @@ import { LoadError } from "@/components/find/LoadError";
 import TimelineMonth, { MonthSkeleton } from "@/components/find/TimelineMonth";
 import { YearPicker, YearRail } from "@/components/find/YearIndex";
 import { setFavorite } from "@/components/find/favorites";
+import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import {
@@ -278,10 +279,12 @@ function TimelineContent() {
     [summaryMonths, activeYear],
   );
 
-  const patch = useCallback((id: Photo["id"], changes: Partial<Photo>) => {
+  const patch = useCallback((id: Photo["id"], changes: PhotoPatch) => {
     setFeed((f) => ({
       ...f,
-      items: f.items.map((p) => (sameId(p, { id }) ? { ...p, ...changes } : p)),
+      items: f.items.map((p) =>
+        sameId(p, { id }) ? applyPhotoPatch(p, changes) : p,
+      ),
     }));
   }, []);
 
@@ -492,9 +495,7 @@ function TimelineContent() {
           photos={feed.items}
           onClose={closePhoto}
           onPhotoChange={changePhoto}
-          onFavoriteToggle={(updated) => {
-            patch(updated.id, { is_favorite: updated.is_favorite });
-          }}
+          onPhotoUpdate={patch}
           onDelete={(deleted) => {
             setFeed((f) => ({
               ...f,

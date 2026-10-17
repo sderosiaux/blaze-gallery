@@ -281,6 +281,7 @@ function ResultsView({
         >
           <PhotoGrid
             photos={photos.feed.items}
+            total={photos.feed.total}
             selectedPhotoId={selectedPhotoId}
             onPhotoUrlChange={onPhotoUrlChange}
             onPhotoDeleted={(deleted) => {

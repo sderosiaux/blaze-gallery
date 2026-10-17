@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Photo } from "@/types";
 import PhotoViewer from "./PhotoViewer";
 import JustifiedGrid from "./photos/JustifiedGrid";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import PhotoTile from "./photos/PhotoTile";
 import { useToast } from "@/components/ui";
+import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 
 interface PhotoGridProps {
   photos: Photo[];
@@ -22,6 +23,8 @@ interface PhotoGridProps {
   sessionToken?: string;
   /** Number of tiles loaded eagerly, the first screen. */
   eagerCount?: number;
+  /** All matches when `photos` is one loaded part of them: the viewer counts against it. */
+  total?: number;
 }
 
 export function PhotoGridSkeleton({ count = 12 }: { count?: number }) {
@@ -57,13 +60,14 @@ export default function PhotoGrid({
   allowDownload = true,
   sessionToken,
   eagerCount = 18,
+  total,
 }: PhotoGridProps) {
   const toast = useToast();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   // The page owns the list (it may refresh it, e.g. as thumbnails get built);
   // what happens here — favourites toggled, photos deleted — is layered on top
   // so a refreshed list never undoes it.
-  const [changes, setChanges] = useState<ReadonlyMap<string, Photo>>(
+  const [changes, setChanges] = useState<ReadonlyMap<string, PhotoPatch>>(
     () => new Map(),
   );
   const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
@@ -73,20 +77,12 @@ export default function PhotoGrid({
         .filter((p) => !deleted.has(String(p.id)))
         .map((p) => {
           const local = changes.get(String(p.id));
-          // Only what can change here: the favourite flag and a hand rotation.
-          if (!local) return p;
-          const rotation = local.metadata?.user_rotation;
-          return {
-            ...p,
-            is_favorite: local.is_favorite,
-            metadata:
-              p.metadata && rotation !== undefined
-                ? { ...p.metadata, user_rotation: rotation }
-                : p.metadata,
-          };
+          return local ? applyPhotoPatch(p, local) : p;
         }),
     [photos, changes, deleted],
   );
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   useEffect(() => {
     if (!selectedPhotoId) {
@@ -98,9 +94,11 @@ export default function PhotoGrid({
   }, [selectedPhotoId, items]);
 
   const updateOne = useCallback(
-    (updated: Photo) => {
-      setChanges((all) => new Map(all).set(String(updated.id), updated));
-      onPhotoUpdated?.(updated);
+    (id: Photo["id"], patch: PhotoPatch) => {
+      const key = String(id);
+      setChanges((all) => new Map(all).set(key, { ...all.get(key), ...patch }));
+      const base = itemsRef.current.find((p) => String(p.id) === key);
+      if (base) onPhotoUpdated?.(applyPhotoPatch(base, patch));
     },
     [onPhotoUpdated],
   );
@@ -120,8 +118,8 @@ export default function PhotoGrid({
 
   const saveFavorite = useCallback(
     async (photo: Photo) => {
-      const optimistic = { ...photo, is_favorite: !photo.is_favorite };
-      updateOne(optimistic);
+      const wanted = !photo.is_favorite;
+      updateOne(photo.id, { is_favorite: wanted });
       try {
         const response = await fetch(`/api/photos/${photo.id}/favorite`, {
           method: "POST",
@@ -129,10 +127,10 @@ export default function PhotoGrid({
         const data = await readJsonObject(response);
         if (!data.success) throw new Error(asString(data.error));
         const isFavorite = Boolean(data.is_favorite);
-        if (isFavorite !== optimistic.is_favorite)
-          updateOne({ ...photo, is_favorite: isFavorite });
+        if (isFavorite !== wanted)
+          updateOne(photo.id, { is_favorite: isFavorite });
       } catch {
-        updateOne(photo);
+        updateOne(photo.id, { is_favorite: photo.is_favorite });
         toast.show("Les favoris n'ont pas pu être mis à jour.", "error");
       }
     },
@@ -171,8 +169,9 @@ export default function PhotoGrid({
         <PhotoViewer
           photo={selectedPhoto}
           photos={items}
+          total={total}
           onClose={close}
-          onFavoriteToggle={isSharedView ? undefined : updateOne}
+          onPhotoUpdate={isSharedView ? undefined : updateOne}
           onPhotoChange={(next) => {
             setSelectedPhoto(next);
             onPhotoUrlChange?.(String(next.id));

@@ -7,6 +7,7 @@ import {
   Keyboard,
   Pause,
   Play,
+  RotateCw,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -19,6 +20,8 @@ interface PhotoViewerControlsProps {
   zoom?: { active: boolean; available: boolean; onToggle: () => void };
   favorite?: { active: boolean; onToggle: () => void };
   info: { open: boolean; panelId: string; onToggle: () => void };
+  /** Absent in shared views and for videos. */
+  onRotate?: () => void;
   /** Absent when downloads aren't allowed. */
   onDownload?: () => void;
   /** Absent in shared views and when the parent can't delete. */
@@ -32,6 +35,7 @@ export default function PhotoViewerControls({
   zoom,
   favorite,
   info,
+  onRotate,
   onDownload,
   onDelete,
   help,
@@ -96,6 +100,14 @@ export default function PhotoViewerControls({
         active={info.open}
         onClick={info.onToggle}
       />
+      {onRotate && (
+        <IconButton
+          icon={RotateCw}
+          label="Pivoter à droite (R)"
+          aria-keyshortcuts="R Shift+R"
+          onClick={onRotate}
+        />
+      )}
       {onDownload && (
         <IconButton
           icon={Download}

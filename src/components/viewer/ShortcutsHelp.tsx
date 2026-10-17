@@ -11,6 +11,7 @@ interface Shortcut {
 interface ShortcutsHelpProps {
   id: string;
   canFavorite: boolean;
+  canRotate: boolean;
   canDelete: boolean;
   onClose: () => void;
 }
@@ -18,6 +19,7 @@ interface ShortcutsHelpProps {
 export default function ShortcutsHelp({
   id,
   canFavorite,
+  canRotate,
   canDelete,
   onClose,
 }: ShortcutsHelpProps) {
@@ -29,6 +31,12 @@ export default function ShortcutsHelp({
       : []),
     { keys: ["I"], label: "Afficher ou masquer les infos" },
     { keys: ["Z"], label: "Zoomer ou dézoomer (double-clic aussi)" },
+    ...(canRotate
+      ? [
+          { keys: ["R"], label: "Pivoter d’un quart de tour à droite" },
+          { keys: ["Maj", "R"], label: "Pivoter d’un quart de tour à gauche" },
+        ]
+      : []),
     ...(canDelete
       ? [{ keys: ["Suppr"], label: "Supprimer la photo, après confirmation" }]
       : []),

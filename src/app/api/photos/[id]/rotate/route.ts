@@ -4,19 +4,25 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { getPhoto, query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { thumbnailService } from "@/lib/thumbnails";
-import { turn, userRotation } from "@/lib/rotation";
+import { type QuarterTurn, userRotation } from "@/lib/rotation";
 
-function readDirection(body: unknown): "cw" | "ccw" | null {
+function readRotation(body: unknown): QuarterTurn | null {
   if (typeof body !== "object" || body === null) return null;
-  const { direction } = body as Record<string, unknown>;
-  return direction === "cw" || direction === "ccw" ? direction : null;
+  const { rotation } = body as Record<string, unknown>;
+  return rotation === 0 ||
+    rotation === 90 ||
+    rotation === 180 ||
+    rotation === 270
+    ? rotation
+    : null;
 }
 
 /**
- * POST /api/photos/:id/rotate  { "direction": "cw" | "ccw" }
- * Turns a photo a quarter by hand. The original in the bucket is untouched:
- * the turn is stored in metadata and the stored thumbnail is dropped so the
- * next one is built turned.
+ * POST /api/photos/:id/rotate  { "rotation": 0 | 90 | 180 | 270 }
+ * Sets how far a photo is turned by hand, clockwise. The target rather than a
+ * step, so repeated presses can't add up out of order. The original in the
+ * bucket is untouched: the turn is stored in metadata and the stored
+ * thumbnail is dropped so the next one is built turned.
  */
 export const POST = requireAuth(async function POST(
   request: NextRequest,
@@ -29,10 +35,10 @@ export const POST = requireAuth(async function POST(
       { status: 400 },
     );
   }
-  const direction = readDirection(await request.json().catch(() => null));
-  if (!direction) {
+  const rotation = readRotation(await request.json().catch(() => null));
+  if (rotation === null) {
     return NextResponse.json(
-      { success: false, error: 'direction must be "cw" or "ccw"' },
+      { success: false, error: "rotation must be 0, 90, 180 or 270" },
       { status: 400 },
     );
   }
@@ -45,7 +51,13 @@ export const POST = requireAuth(async function POST(
         { status: 404 },
       );
     }
-    const rotation = turn(userRotation(photo.metadata), direction);
+    if (rotation === userRotation(photo.metadata)) {
+      return NextResponse.json({
+        success: true,
+        user_rotation: rotation,
+        metadata: photo.metadata,
+      });
+    }
 
     await query(
       `UPDATE photos
