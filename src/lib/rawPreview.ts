@@ -178,6 +178,17 @@ function pick(candidates: Candidate[]): Candidate | undefined {
 }
 
 /**
+ * Picks the largest rendition: the full-size preview most cameras store
+ * (6016 px in a NEF), which a screen-sized display copy is resized from.
+ */
+function pickLargest(candidates: Candidate[]): Candidate | undefined {
+  const usable = candidates
+    .filter((c) => c.length <= MAX_JPEG_BYTES)
+    .sort((a, b) => b.length - a.length);
+  return usable[0];
+}
+
+/**
  * Reads the head, then — only if some IFDs lie beyond it — one more window
  * that covers them, and parses both as one sparse buffer.
  */
@@ -205,9 +216,23 @@ export async function readTiffLayout(
 export async function extractEmbeddedJpeg(
   read: RangeReader,
 ): Promise<EmbeddedJpeg | undefined> {
+  return extractWith(read, pick);
+}
+
+/** The largest embedded JPEG (up to 12 MB), for a screen-sized rendition. */
+export async function extractLargestEmbeddedJpeg(
+  read: RangeReader,
+): Promise<EmbeddedJpeg | undefined> {
+  return extractWith(read, pickLargest);
+}
+
+async function extractWith(
+  read: RangeReader,
+  choose: (candidates: Candidate[]) => Candidate | undefined,
+): Promise<EmbeddedJpeg | undefined> {
   const { layout, head } = await readTiffLayout(read, HEAD_BYTES);
   const { candidates, width, height, orientation } = layout;
-  const chosen = pick(candidates);
+  const chosen = choose(candidates);
   if (!chosen) return undefined;
 
   const end = chosen.offset + chosen.length;

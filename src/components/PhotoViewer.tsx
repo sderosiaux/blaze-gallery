@@ -280,11 +280,16 @@ export default function PhotoViewer({
     hasNext: nav.hasNext,
   });
 
-  // Neighbours: their cheap layers right away, their originals once this
-  // photo's original is in (they would only slow it down before).
+  // Neighbours: their cheap layers right away, their renditions once this
+  // photo's sharp image is in (they would only slow it down before). The
+  // first look at a neighbour also makes its rendition on the server.
   useEffect(() => {
     const keep: string[] = [];
-    if (sources.full && !video) keep.push(sources.full);
+    if (!video) {
+      [sources.display, sources.full].forEach((src) => {
+        if (src) keep.push(src);
+      });
+    }
     const settled = video || full.status !== "loading";
     nav.neighbours.forEach((p, i) => {
       if (isVideo(p)) return;
@@ -295,13 +300,22 @@ export default function PhotoViewer({
         loadImage(src);
         keep.push(src);
       });
-      if (s.full && settled && i < 2) {
-        loadImage(s.full, { sessionToken: session });
-        keep.push(s.full);
+      const sharpSrc = s.display ?? s.full;
+      if (sharpSrc && settled && i < 2) {
+        loadImage(sharpSrc, { sessionToken: session });
+        keep.push(sharpSrc);
       }
     });
     retainImages(keep);
-  }, [nav.neighbours, sources.full, video, full.status, shared, session]);
+  }, [
+    nav.neighbours,
+    sources.display,
+    sources.full,
+    video,
+    full.status,
+    shared,
+    session,
+  ]);
 
   // Closing cancels the originals still on their way: the grid needs the
   // bandwidth. Deferred so the stage has unsubscribed from its own first.
@@ -538,9 +552,23 @@ export default function PhotoViewer({
   if (!mounted) return null;
 
   // Only what changes what you can do: a preview standing in for a file the
-  // browser can't show, or an original that didn't come.
+  // browser can't show, a RAW seen through its rendition (zoom stops at its
+  // pixels, the file itself is a download away), or an original that didn't come.
   const note = (() => {
     if (video) return null;
+    if (full.status === "ready" && isRawFile(current)) {
+      const extension = current.filename.split(".").pop()?.toUpperCase();
+      return (
+        <>
+          {extension ? `Fichier RAW (${extension}).` : "Fichier RAW."}
+          {allowDownload && (
+            <NoteAction onClick={startDownload}>
+              Télécharger l’original
+            </NoteAction>
+          )}
+        </>
+      );
+    }
     if (full.status === "unavailable" && full.placeholder === "shown") {
       return (
         <>

@@ -2,6 +2,8 @@ import type { Photo } from "@/types";
 import { photoSources } from "@/components/photos/PhotoTile";
 import { albumHref } from "@/components/photos/AlbumCard";
 import { isVideo, parseAlbumName } from "@/lib/albums";
+import { displayUrl } from "@/lib/photoUrls";
+import { rotatedSize, userRotation } from "@/lib/rotation";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -31,7 +33,13 @@ export interface ViewerSources {
   /** EXIF preview, a few KB. Absent for videos. */
   preview?: string;
   thumb: string;
-  /** What the stage shows at full size: the original, or null when a browser can't display it. */
+  /**
+   * What the stage shows: the 2048 px rendition made by the server, RAW
+   * included, turned by hand if the photo was. Null for videos, and for GIFs
+   * that would lose their animation (unless turned: the turn wins).
+   */
+  display: string | null;
+  /** The original, or null when a browser can't display it: zoom past the rendition, or stand in when it fails. */
   full: string | null;
   /** Shared views: the download route needs the permission; the library redirects to storage. */
   download: string;
@@ -61,9 +69,15 @@ export function viewerSources(
   const original = shareToken
     ? `/api/shares/${shareToken}/view/${id}`
     : `/api/photos/${id}/download`;
+  const rotation = userRotation(photo.metadata);
+  const animated = photo.mime_type.toLowerCase() === "image/gif";
   return {
     preview: isVideo(photo) ? undefined : preview,
     thumb,
+    display:
+      isVideo(photo) || (animated && !rotation)
+        ? null
+        : displayUrl(id, shareToken, rotation),
     full: isVideo(photo) || canShowOriginal(photo) ? original : null,
     download: shareToken
       ? `/api/shares/${shareToken}/download/${id}`
@@ -132,9 +146,10 @@ export function albumOf(
     : null;
 }
 
+/** Width / height as shown, hand rotation included. */
 export function photoRatio(photo: Photo): number | undefined {
-  const dims = photo.metadata?.dimensions;
-  return dims && dims.width > 0 && dims.height > 0
-    ? dims.width / dims.height
-    : undefined;
+  const stored = photo.metadata?.dimensions;
+  if (!stored || stored.width <= 0 || stored.height <= 0) return undefined;
+  const dims = rotatedSize(stored, userRotation(photo.metadata));
+  return dims.width / dims.height;
 }
