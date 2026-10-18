@@ -26,6 +26,7 @@
     "bcryptjs": "^3.0.3",
     "exifreader": "^4.23.7",
     "lucide-react": "^0.446.0",
+    "maplibre-gl": "^5.24.0",
     "next": "14.2.11",
     "node-cron": "^4.2.1",
     "pg": "^8.12.0",

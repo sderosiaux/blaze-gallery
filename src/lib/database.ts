@@ -5,6 +5,12 @@ import * as crypto from "crypto";
 import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
+import {
+  addMonths,
+  CELLS_PER_DEGREE,
+  type MapBox,
+  type MapPeriod,
+} from "./mapArea";
 import { normalizeTextForSearch } from "./textUtils";
 import type {
   CreatePhotoData,
@@ -950,6 +956,137 @@ export async function getTimelineSummary(): Promise<TimelineSummary> {
     query<{ total: number }>(`SELECT COUNT(*)::int AS total FROM photos`),
   ]);
   return { months: months.rows, total_photos: requireRow(total).total };
+}
+
+// On the map: a GPS fix (imageProbe only writes finite numbers, never 0,0)
+// and a date taken, which the period and the newest-first order need.
+const ON_MAP = `(p.metadata->'location') IS NOT NULL
+  AND (p.metadata->>'date_taken') IS NOT NULL`;
+const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
+const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
+
+/**
+ * WHERE clause for photos on the map, within the period and the box when
+ * given; values go to `params`. Months compare as text against the ISO
+ * date_taken, like the timeline's months, so idx_photos_date_taken serves them.
+ */
+function mapFilter(
+  params: unknown[],
+  period: MapPeriod,
+  box: MapBox | null,
+): string {
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const where = [ON_MAP];
+  if (period.from)
+    where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
+  if (period.to)
+    where.push(
+      `(p.metadata->>'date_taken') < ${add(addMonths(period.to, 1))}::text`,
+    );
+  if (box) {
+    where.push(
+      `${LATITUDE} BETWEEN ${add(box.south)}::float8 AND ${add(box.north)}::float8`,
+      `${LONGITUDE} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
+    );
+  }
+  return where.join("\n  AND ");
+}
+
+/**
+ * Photos per map cell as [latitude, longitude, count], placed at the mean
+ * position of the cell's photos (4 decimals, about 10 m): circles land
+ * where the photos were taken instead of on a grid.
+ */
+export async function getMapPoints(
+  period: MapPeriod,
+): Promise<[number, number, number][]> {
+  const params: unknown[] = [CELLS_PER_DEGREE];
+  const result = await query<{ lat: number; lng: number; count: number }>(
+    `
+    SELECT round(AVG(${LATITUDE})::numeric, 4)::float8 AS lat,
+           round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
+           COUNT(*)::int AS count
+    FROM photos p
+    WHERE ${mapFilter(params, period, null)}
+    GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
+  `,
+    params,
+  );
+  return result.rows.map((row) => [row.lat, row.lng, row.count]);
+}
+
+/** Photos on the map per month of date taken, oldest first. */
+export async function getMapMonths(): Promise<
+  { month: string; count: number }[]
+> {
+  const result = await query<{ month: string; count: number }>(`
+    SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
+    FROM photos p
+    WHERE ${ON_MAP}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+  return result.rows;
+}
+
+/**
+ * Photos taken inside the box, newest first, keyset-paginated on
+ * (date_taken, id) like the timeline. No index covers the coordinates, so
+ * each page scans the table (0.1–0.2 s warm for 210k photos); the page is
+ * picked on narrow rows first and only its photos are read in full and
+ * joined to their folder, which halves a page over the whole world.
+ */
+export async function getMapPhotos(
+  box: MapBox,
+  period: MapPeriod,
+  after: TimelineCursor | null,
+  limit: number,
+): Promise<TimelinePhoto[]> {
+  const params: unknown[] = [limit];
+  const where = mapFilter(params, period, box);
+  let seek = "";
+  if (after) {
+    params.push(after.dateTaken, after.id);
+    seek = `AND ((p.metadata->>'date_taken'), p.id) < ($${params.length - 1}::text, $${params.length}::bigint)`;
+  }
+  const result = await query<DatabasePhoto & { folder_path: string }>(
+    `
+    WITH page AS (
+      SELECT p.id, (p.metadata->>'date_taken') AS taken
+      FROM photos p
+      WHERE ${where}
+        ${seek}
+      ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
+      LIMIT $1
+    )
+    SELECT p.*, f.path AS folder_path
+    FROM page
+    JOIN photos p ON p.id = page.id
+    JOIN folders f ON f.id = p.folder_id
+    ORDER BY page.taken DESC, page.id DESC
+  `,
+    params,
+  );
+  return result.rows.map((row) => ({
+    ...normalizePhoto(row),
+    folder_path: row.folder_path,
+  }));
+}
+
+/** How many photos getMapPhotos pages through. */
+export async function countMapPhotos(
+  box: MapBox,
+  period: MapPeriod,
+): Promise<number> {
+  const params: unknown[] = [];
+  const result = await query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, period, box)}`,
+    params,
+  );
+  return requireRow(result).total;
 }
 
 export async function updatePhotoStatus(

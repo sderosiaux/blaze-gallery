@@ -10,6 +10,7 @@ import {
   Gauge,
   Heart,
   Library,
+  MapIcon,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -53,6 +54,12 @@ const PRIMARY_NAV: NavLinkItem[] = [
     label: "Chronologie",
     icon: CalendarDays,
     match: (p) => p.startsWith("/timeline"),
+  },
+  {
+    href: "/carte",
+    label: "Carte",
+    icon: MapIcon,
+    match: (p) => p.startsWith("/carte"),
   },
   {
     href: "/favorites",
