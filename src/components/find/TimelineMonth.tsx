@@ -65,7 +65,7 @@ function TimelineMonth({
       id={yearAnchor ? `year-${yearAnchor}` : undefined}
       data-month={group.key}
       aria-labelledby={headingId}
-      className="scroll-mt-[calc(var(--topbar-height)+1rem)] pt-10 first:pt-2"
+      className="scroll-mt-[calc(var(--content-top)+1rem)] pt-10 first:pt-2"
     >
       <header className="mb-4 flex flex-col gap-1 border-b border-line pb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
         <h2
