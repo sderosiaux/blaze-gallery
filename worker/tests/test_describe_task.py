@@ -87,9 +87,37 @@ def test_the_model_sees_the_photo_turned_as_the_owner_turned_it(conn, pool):
     # Bucket serves a 64x48 JPEG: upright as stored, then on its side
     assert sorted(describer.sizes) == [(48, 64), (64, 48)]
     rotations = conn.execute(
-        "SELECT photo_id, (stats ->> 'user_rotation')::int FROM analysis_jobs ORDER BY photo_id"
+        "SELECT photo_id, (stats ->> 'rotation')::int FROM analysis_jobs ORDER BY photo_id"
     ).fetchall()
     assert rotations == [(ids[0], 0), (ids[1], 90)]
+
+
+def test_a_photo_stored_on_its_side_is_turned_the_way_its_faces_were_found(conn, pool):
+    ids = add_photos(conn, [("image/jpeg", None), ("image/jpeg", None)])
+    # Faces found only on the photo turned 90° clockwise; the owner's own turn wins
+    conn.execute(
+        "UPDATE photos SET metadata = %s WHERE id = %s", (Jsonb({"user_rotation": 180}), ids[1])
+    )
+    for photo_id in ids:
+        conn.execute(
+            """
+            INSERT INTO faces (photo_id, box, landmarks, detect_rotation, det_score,
+                               width_px, height_px, embedding, model)
+            VALUES (%s, '{0,0,1,1}', '{0,0,0,0,0,0,0,0,0,0}', 90, 0.9, 100, 100,
+                    array_fill(0.01, ARRAY[512])::halfvec, 'test')
+            """,
+            (photo_id,),
+        )
+    enqueue_ids(conn, "describe", ids, pinned=True)
+    describer = FakeDescriber()
+
+    run(pool, describer)
+
+    assert sorted(describer.sizes) == [(48, 64), (64, 48)]
+    rotations = conn.execute(
+        "SELECT photo_id, (stats ->> 'rotation')::int FROM analysis_jobs ORDER BY photo_id"
+    ).fetchall()
+    assert rotations == [(ids[0], 90), (ids[1], 180)]
 
 
 def test_an_invalid_reply_after_the_retry_fails_for_good(conn, pool):

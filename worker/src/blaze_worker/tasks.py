@@ -85,7 +85,8 @@ class DescribeResult:
             "tries": d.tries,
             "tokens_in": d.prompt_tokens,
             "tokens_out": d.generated_tokens,
-            "user_rotation": self.rotation,
+            # Turn the model saw the photo with: the owner's, else the faces task's
+            "rotation": self.rotation,
             **({"first_errors": list(d.first_errors)} if d.first_errors else {}),
             **({"dropped_objects": list(d.dropped_objects)} if d.dropped_objects else {}),
         }
@@ -99,7 +100,9 @@ class DescribeAnalyzer:
         self.describer = describer
 
     def analyze(self, job: jobs.Job, picture: Picture) -> DescribeResult:
-        rotation = user_rotation(job.metadata)
+        # The owner's turn first; else the turn on which the faces task found
+        # faces, so a photo stored on its side is not described on its side
+        rotation = user_rotation(job.metadata) or job.faces_rotation
         try:
             description = self.describer.describe(rendition(picture, rotation))
         except InvalidReply as error:
