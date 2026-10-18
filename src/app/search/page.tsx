@@ -150,8 +150,6 @@ function useSearchRequest<R>(
 
 function SearchContent() {
   const params = useSearchParams();
-  const person = params.get("person") ?? "";
-  if (/^\d+$/.test(person)) return <PersonContent personId={person} />;
   return <QueryContent q={(params.get("q") ?? "").trim()} />;
 }
 
@@ -603,7 +601,7 @@ function MoreButton({
   );
 }
 
-/** Named people the query is about, each leading to the photos showing them. */
+/** Named people the query is about, each leading to their page (/personnes). */
 function PeopleRow({ people }: { people: PersonMatch[] }) {
   return (
     <section aria-label="Personnes" className="pt-8">
@@ -611,7 +609,7 @@ function PeopleRow({ people }: { people: PersonMatch[] }) {
         {people.map((person) => (
           <li key={person.id}>
             <Link
-              href={`/search?person=${person.id}`}
+              href={`/personnes/${person.id}`}
               className="flex items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-1.5 pr-5 transition-colors hover:border-line-strong hover:bg-surface-sunken"
             >
               <PersonAvatar person={person} />
@@ -655,115 +653,6 @@ function PersonAvatar({ person }: { person: PersonMatch }) {
       style={{ objectPosition: position }}
       loading="lazy"
     />
-  );
-}
-
-interface PersonResults {
-  name: string | null;
-  photos: SearchFeedPage<Photo>;
-  total: number;
-}
-
-/** /search?person=<id>: the photos showing one person, newest first. */
-function PersonContent({ personId }: { personId: string }) {
-  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
-  const { state, attempt, retry } = useSearchRequest(
-    personId,
-    `/api/search?person=${personId}`,
-    (data): PersonResults => {
-      const photos = readSearchPage<Photo>(data, "photos");
-      const person = isRecord(data.person) ? data.person : {};
-      return {
-        name: typeof person.name === "string" ? person.name : null,
-        photos,
-        total: readSearchTotal(data, "photos", photos.items.length),
-      };
-    },
-  );
-
-  if (state.status === "error") {
-    return (
-      <>
-        <PageHeader title="Personne" />
-        <LoadError
-          title="Ces photos n'ont pas pu être chargées"
-          onRetry={retry}
-        />
-      </>
-    );
-  }
-
-  if (state.status !== "ready") {
-    return (
-      <>
-        <PageHeader title="Personne" />
-        <Section title="Photos">
-          <PhotoGridSkeleton count={8} />
-        </Section>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <PageHeader title={state.results.name ?? "Sans nom"} />
-      <PersonPhotos
-        key={`${personId}\n${attempt}`}
-        personId={personId}
-        results={state.results}
-        selectedPhotoId={selectedPhotoId}
-        onPhotoUrlChange={setPhotoParam}
-      />
-    </>
-  );
-}
-
-function PersonPhotos({
-  personId,
-  results,
-  selectedPhotoId,
-  onPhotoUrlChange,
-}: {
-  personId: string;
-  results: PersonResults;
-  selectedPhotoId: string | null;
-  onPhotoUrlChange: (id: string | null) => void;
-}) {
-  const photos = useSearchFeed(
-    {
-      params: { person: personId },
-      after: "photos_after",
-      read: (data) => readSearchPage<Photo>(data, "photos"),
-    },
-    results.photos,
-    results.total,
-  );
-
-  if (photos.feed.items.length === 0) {
-    return (
-      <EmptyState
-        icon={UserRound}
-        title="Aucune photo pour l'instant"
-        body="Ses visages apparaîtront ici une fois reconnus."
-        className="pt-10"
-      />
-    );
-  }
-
-  return (
-    <Section
-      title="Photos"
-      action={<Count n={photos.feed.total} one="photo" />}
-    >
-      <PhotoFeed
-        feed={photos.feed}
-        loadMore={photos.loadMore}
-        remove={photos.remove}
-        selectedPhotoId={selectedPhotoId}
-        onPhotoUrlChange={onPhotoUrlChange}
-        more="scroll"
-      />
-    </Section>
   );
 }
 

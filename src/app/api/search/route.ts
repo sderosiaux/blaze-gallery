@@ -2,15 +2,9 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { parseColorFilter } from "@/lib/colors";
-import type {
-  FolderSearchCursor,
-  PersonPhotoCursor,
-  PhotoSearchCursor,
-} from "@/lib/database";
+import type { FolderSearchCursor, PhotoSearchCursor } from "@/lib/database";
 import {
   countSearchMatches,
-  getPerson,
-  getPersonPhotos,
   searchFolders,
   searchPeople,
   searchPhotos,
@@ -43,13 +37,10 @@ const PEOPLE_LIMIT = 6;
  * that list and its following cursor. `color` / `tone` narrow the photos,
  * text and semantic matches alike (not the folders), to those holding that
  * color, in that tone; a cursor goes with the same filter.
- * With `person=<id>` instead of `q`: the photos showing that person, newest
- * first, paged with `photos_after`.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const q = (searchParams.get("q") ?? "").trim();
-  const person = searchParams.get("person");
   const photosAfter = searchParams.get("photos_after");
   const foldersAfter = searchParams.get("folders_after");
   const semanticAfter = searchParams.get("semantic_after");
@@ -63,16 +54,6 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   const colors = parsedColors.value;
 
   try {
-    if (person !== null) {
-      if (!/^\d+$/.test(person)) {
-        return NextResponse.json(
-          { success: false, error: "person must be a person id" },
-          { status: 400 },
-        );
-      }
-      return await personPhotos(Number(person), photosAfter);
-    }
-
     if (q === "") {
       return NextResponse.json({
         success: true,
@@ -181,38 +162,6 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   }
 });
 
-const PERSON_PAGE = 100;
-
-async function personPhotos(personId: number, photosAfter: string | null) {
-  if (photosAfter !== null) {
-    const after = decodeCursor(photosAfter, toPersonPhotoCursor);
-    if (!after) return badCursor("photos_after");
-    const page = await getPersonPhotos(personId, after, PERSON_PAGE);
-    return NextResponse.json({
-      success: true,
-      photos: page.items,
-      next_photos: encodeCursor(page.next),
-    });
-  }
-  const [person, page] = await Promise.all([
-    getPerson(personId),
-    getPersonPhotos(personId, null, PERSON_PAGE),
-  ]);
-  if (!person) {
-    return NextResponse.json(
-      { success: false, error: "No such person" },
-      { status: 404 },
-    );
-  }
-  return NextResponse.json({
-    success: true,
-    person,
-    photos: page.items,
-    photo_total: person.photo_count,
-    next_photos: encodeCursor(page.next),
-  });
-}
-
 function badCursor(param: string) {
   return NextResponse.json(
     { success: false, error: `${param} must be a cursor from this API` },
@@ -236,13 +185,5 @@ function toFolderCursor(value: unknown): FolderSearchCursor | null {
   const { name, path } = value;
   return typeof name === "string" && typeof path === "string"
     ? { name, path }
-    : null;
-}
-
-function toPersonPhotoCursor(value: unknown): PersonPhotoCursor | null {
-  if (!isRecord(value)) return null;
-  const { taken, id } = value;
-  return typeof taken === "string" && typeof id === "string" && /^\d+$/.test(id)
-    ? { taken, id }
     : null;
 }
