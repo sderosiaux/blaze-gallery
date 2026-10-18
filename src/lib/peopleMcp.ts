@@ -50,6 +50,25 @@ export async function resolvePerson(ref: string | number): Promise<PersonRow> {
   return person;
 }
 
+/** photo_descriptions rows (task 'describe'): what the image shows, by photo id. */
+async function descriptionsOf(
+  photoIds: number[],
+): Promise<Map<number, Record<string, unknown>>> {
+  if (photoIds.length === 0) return new Map();
+  const result = await query<{
+    photo_id: number;
+    model: string;
+    data: Record<string, unknown>;
+  }>(
+    `SELECT photo_id::int AS photo_id, model, data FROM photo_descriptions
+     WHERE photo_id = ANY($1::bigint[])`,
+    [photoIds],
+  );
+  return new Map(
+    result.rows.map((row) => [row.photo_id, { ...row.data, model: row.model }]),
+  );
+}
+
 interface Cursor {
   taken: string | null;
   id: number;
@@ -161,7 +180,10 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
   const page = rest.slice(0, q.limit);
   const last = page[page.length - 1];
 
-  const rows = await photoFaceRows(page.map((p) => p.id));
+  const [rows, descriptions] = await Promise.all([
+    photoFaceRows(page.map((p) => p.id)),
+    descriptionsOf(page.flatMap((p) => [p.id, ...p.copies])),
+  ]);
   const byPhoto = new Map<number, typeof rows>();
   for (const row of rows) {
     const list = byPhoto.get(row.photo_id) ?? [];
@@ -197,6 +219,11 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
       },
       faces_count: faces.length,
       copies: photo.copies,
+      // A copy is the same file: its description holds for this one
+      description:
+        [photo.id, ...photo.copies]
+          .map((id) => descriptions.get(id))
+          .find((d) => d !== undefined) ?? null,
     };
   });
 
@@ -219,7 +246,7 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
 export async function mcpPhotoFaces(photoId: number) {
   const photo = await getPhoto(photoId);
   if (!photo) throw new PeopleError(`Photo ${String(photoId)} not found`, 404);
-  const [rows, folder, job] = await Promise.all([
+  const [rows, folder, job, descriptions] = await Promise.all([
     photoFaceRows([photoId]),
     query<{ path: string }>(
       "SELECT f.path FROM folders f JOIN photos p ON p.folder_id = f.id WHERE p.id = $1",
@@ -229,6 +256,7 @@ export async function mcpPhotoFaces(photoId: number) {
       "SELECT status FROM analysis_jobs WHERE photo_id = $1 AND task = 'faces'",
       [photoId],
     ),
+    descriptionsOf([photoId]),
   ]);
   const faces = rows.map((row) => {
     const face: PhotoFace = photoFace(row, photo.metadata);
@@ -249,6 +277,7 @@ export async function mcpPhotoFaces(photoId: number) {
       folder.rows[0]?.path ?? null,
     ),
     analyzed: job.rows[0]?.status === "done",
+    description: descriptions.get(photoId) ?? null,
     faces,
   };
 }
