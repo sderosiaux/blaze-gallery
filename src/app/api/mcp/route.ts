@@ -22,6 +22,7 @@ import {
   parseRankCursor,
   TONE_LIMITS,
   tonesOf,
+  type ColorFilter,
 } from "@/lib/colors";
 import { parsePeriod } from "@/lib/mapArea";
 import type { Photo, Folder } from "@/types";
@@ -37,7 +38,12 @@ import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
 import { requireAuthOrApiKey } from "@/lib/auth/middleware";
 import { PeopleError } from "@/lib/people";
-import { mcpListPeople, mcpPersonPhotos, mcpPhotoFaces } from "@/lib/peopleMcp";
+import {
+  mcpListPeople,
+  mcpPersonPhotos,
+  mcpPhotoFaces,
+  resolvePerson,
+} from "@/lib/peopleMcp";
 import { semanticSearch } from "@/lib/semanticSearch";
 import { parseDateRange, periodFilter, rangeFilter } from "@/lib/semanticQuery";
 import {
@@ -464,29 +470,36 @@ function parseFolderSearchFilters(args: ToolArgs): FolderSearchFilters {
 
 const COLOR_LIMIT = { default: 50, max: 200 };
 
-/** search_photos_by_color's arguments, checked: a wrong value is an error, not a silent default. */
-function parseColorSearch(args: ToolArgs) {
-  const fail = (message: string) =>
-    new McpToolError(ErrorCode.InvalidRequest, message);
+/** `color` and `tone`, each optional; a wrong value is an error. */
+function parseColors(args: ToolArgs): ColorFilter {
   const optional = <T>(
     value: unknown,
     is: (v: unknown) => v is T,
     message: string,
   ): T | null => {
     if (value === undefined || value === null) return null;
-    if (!is(value)) throw fail(message);
+    if (!is(value)) throw new McpToolError(ErrorCode.InvalidRequest, message);
     return value;
   };
-  const color = optional(
-    args.color,
-    isHue,
-    `color must be one of ${HUES.join(", ")}`,
-  );
-  const tone = optional(
-    args.tone,
-    isColorTone,
-    `tone must be one of ${COLOR_TONES.join(", ")}`,
-  );
+  return {
+    color: optional(
+      args.color,
+      isHue,
+      `color must be one of ${HUES.join(", ")}`,
+    ),
+    tone: optional(
+      args.tone,
+      isColorTone,
+      `tone must be one of ${COLOR_TONES.join(", ")}`,
+    ),
+  };
+}
+
+/** search_photos_by_color's arguments, checked: a wrong value is an error, not a silent default. */
+function parseColorSearch(args: ToolArgs) {
+  const fail = (message: string) =>
+    new McpToolError(ErrorCode.InvalidRequest, message);
+  const { color, tone } = parseColors(args);
   if (color === null && tone === null)
     throw fail("give a color, a tone or both");
   const period = parsePeriod((key) => {
@@ -538,6 +551,28 @@ function requirePositiveInt(args: ToolArgs, name: string): number {
     );
   }
   return value;
+}
+
+/** `people`: person_ids or exact names, each resolved; absent is nobody. */
+async function parsePeople(args: ToolArgs): Promise<number[]> {
+  const people = args.people;
+  if (people === undefined || people === null) return [];
+  if (
+    !Array.isArray(people) ||
+    !people.every(
+      (ref) =>
+        (typeof ref === "string" && ref.trim() !== "") ||
+        (typeof ref === "number" && Number.isSafeInteger(ref)),
+    )
+  ) {
+    throw new McpToolError(
+      ErrorCode.InvalidParams,
+      "people must be an array of person_ids (numbers) or exact names (strings)",
+    );
+  }
+  const refs = people as (string | number)[];
+  const rows = await peopleCall(() => Promise.all(refs.map(resolvePerson)));
+  return [...new Set(rows.map((person) => person.id))];
 }
 
 /** People errors carry an HTTP status: 404 for an unknown person or photo. */
@@ -879,7 +914,11 @@ const toolHandlers = new Map<string, ToolHandler>([
         throw new McpToolError(ErrorCode.InvalidRequest, range.error);
       }
       const result = await semanticSearch(query, {
-        filter: { ...NO_PHOTO_FILTER, dates: rangeFilter(range.value) },
+        filter: {
+          people: await parsePeople(args),
+          dates: rangeFilter(range.value),
+          colors: parseColors(args),
+        },
         cut: true,
         offset: cursor?.offset ?? 0,
         limit,
@@ -1240,6 +1279,24 @@ const toolSchemas = {
           description:
             "Only photos taken on or before this year, month or day: YYYY, YYYY-MM or YYYY-MM-DD",
         },
+        people: {
+          type: "array",
+          items: { type: ["number", "string"] },
+          description:
+            'Only photos where ALL these people are (their face named by the owner or accepted by the face matcher): person_id from list_people, or the exact name, case-insensitive, e.g. ["Suzie"] or ["Céline", "Stéphane"]. Put the people here, not in query: query says what the photo shows ("à la plage"), and a name in it only adds noise',
+        },
+        color: {
+          type: "string",
+          enum: [...HUES],
+          description:
+            "Only photos holding this hue family (as search_photos_by_color measures it; blue, brown, black, grey and white need a larger share, since nearly every photo has a little of them)",
+        },
+        tone: {
+          type: "string",
+          enum: [...COLOR_TONES],
+          description:
+            "Only photos in this tone (as search_photos_by_color defines it): vives, douces, lumineuse, sombre, neutres, nb (black and white)",
+        },
       },
       required: ["query"],
     },
@@ -1418,7 +1475,7 @@ export const POST = requireAuthOrApiKey(async function POST(
             {
               name: "semantic_search",
               description:
-                "Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet).",
+                'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet).',
               inputSchema: toolSchemas.semantic_search.inputSchema,
             },
           ],
