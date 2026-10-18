@@ -31,10 +31,11 @@ import {
 import { foldPalette, type ColorBin, type Swatch } from "./palette";
 import { asQuarterTurn, type QuarterTurn } from "./rotation";
 import {
+  ANY_DATE,
   SEMANTIC_MARGIN,
   SEMANTIC_MIN_SIMILARITY,
   SEMANTIC_REFERENCE_RANK,
-  type DateRange,
+  type DateFilter,
 } from "./semanticQuery";
 import type {
   CreatePhotoData,
@@ -629,6 +630,80 @@ function andColorFilter(
   return sql ? `AND ${sql}` : "";
 }
 
+// ---- photo filters --------------------------------------------------------
+
+/** What a list of photos keeps: those showing all of `people`, taken within `dates`, holding `colors`. */
+export interface PhotoFilter {
+  people: readonly number[];
+  dates: DateFilter;
+  colors: ColorFilter;
+}
+
+export const NO_PHOTO_FILTER: PhotoFilter = {
+  people: [],
+  dates: ANY_DATE,
+  colors: NO_COLOR_FILTER,
+};
+
+/**
+ * AND clauses keeping the photos (id `photoId`) where every one of `people`
+ * is (a face named as that person: seed, manual or auto; the partial unique
+ * index idx_faces_person_once_per_photo serves each); ids go to `params`.
+ */
+function andPeopleFilter(
+  params: unknown[],
+  people: readonly number[],
+  photoId = "p.id",
+): string {
+  return people
+    .map((personId) => {
+      params.push(personId);
+      return `AND EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = ${photoId}
+        AND pf.person_id = $${params.length} AND pf.assignment IN ('seed', 'manual', 'auto'))`;
+    })
+    .join("\n");
+}
+
+/**
+ * AND clauses keeping the photos (photos p) taken within `dates`, compared
+ * as text with the ISO date_taken like the timeline and the map; the days
+ * of the year are its "MM-DD". Nothing for any date.
+ */
+function andDateFilter(params: unknown[], dates: DateFilter): string {
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}::text`;
+  };
+  const taken = "(p.metadata->>'date_taken')";
+  const day = `substr(${taken}, 6, 5)`;
+  const clauses: string[] = [];
+  if (dates.ranges.length > 0)
+    clauses.push(
+      dates.ranges
+        .map((range) => {
+          const sides = [
+            range.from === null ? null : `${taken} >= ${add(range.from)}`,
+            range.before === null ? null : `${taken} < ${add(range.before)}`,
+          ].filter((side) => side !== null);
+          return sides.length > 0
+            ? `(${sides.join(" AND ")})`
+            : `${taken} IS NOT NULL`;
+        })
+        .join(" OR "),
+    );
+  if (dates.annual.length > 0)
+    clauses.push(
+      dates.annual
+        .map((window) =>
+          window.from <= window.to
+            ? `${day} BETWEEN ${add(window.from)} AND ${add(window.to)}`
+            : `(${day} >= ${add(window.from)} OR ${day} <= ${add(window.to)})`,
+        )
+        .join(" OR "),
+    );
+  return clauses.map((clause) => `AND (${clause})`).join("\n");
+}
+
 export type ColorRankedPhoto = TimelinePhoto & {
   /** hues[color] with a color, else colorfulness (chroma for nb), see TONE_RANK */
   color_score: number;
@@ -683,17 +758,17 @@ function colorRank(filter: ColorFilter): ColorRank | null {
 const DATED = "(p.metadata->>'date_taken') IS NOT NULL";
 
 /**
- * Dated photos passing the filter, most marked first (see colorRank),
- * keyset-paginated on (score, id); within `period` (date taken) when given.
- * The page is picked on photo_colors through its index, then read in full.
+ * Dated photos passing the color filter, most marked first (see
+ * colorRank), keyset-paginated on (score, id); only those showing
+ * `filter.people` and taken within `filter.dates` when given. The page is
+ * picked on photo_colors through its index, then read in full.
  */
 export async function getPhotosByColor(
-  filter: ColorFilter,
-  period: MapPeriod,
+  filter: PhotoFilter,
   after: ColorRankCursor | null,
   limit: number,
 ): Promise<{ photos: ColorRankedPhoto[]; next: ColorRankCursor | null }> {
-  const rank = colorRank(filter);
+  const rank = colorRank(filter.colors);
   if (!rank) throw new Error("getPhotosByColor needs a color or a tone");
   const params: unknown[] = [limit + 1];
   const add = (value: unknown) => {
@@ -701,16 +776,14 @@ export async function getPhotosByColor(
     return `$${params.length}`;
   };
   const where = [...rank.where, DATED];
-  if (period.from)
-    where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
-  if (period.to)
-    where.push(
-      `(p.metadata->>'date_taken') < ${add(addDays(lastDay(period.to), 1))}::text`,
-    );
   if (after)
     where.push(
       `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
     );
+  const narrow = [
+    andDateFilter(params, filter.dates),
+    andPeopleFilter(params, filter.people),
+  ].join("\n");
   const result = await query<
     DatabasePhoto & { folder_path: string; color_score: number }
   >(
@@ -720,6 +793,7 @@ export async function getPhotosByColor(
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
       WHERE ${where.join("\n        AND ")}
+        ${narrow}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1
     )
@@ -1175,6 +1249,16 @@ export async function cacheQueryEmbedding(
   );
 }
 
+/** The people the owner named, as the search box reads queries (lib/searchQuery.ts). */
+export async function listPersonNames(): Promise<
+  { id: number; name: string }[]
+> {
+  const result = await query<{ id: number; name: string }>(
+    "SELECT id::int AS id, name FROM people WHERE name IS NOT NULL ORDER BY id",
+  );
+  return result.rows;
+}
+
 /** How many photos semantic search can find (an index-only count of the key). */
 export async function countPhotoEmbeddings(): Promise<number> {
   const result = await query<{ n: number }>(
@@ -1189,37 +1273,58 @@ export type ScoredPhoto = SearchPhoto & {
 };
 
 /**
- * Photos nearest to the query embedding, most similar first, down to
- * SEMANTIC_MARGIN below the SEMANTIC_REFERENCE_RANK-th one (never under
- * SEMANTIC_MIN_SIMILARITY); offset-paginated (the ranking exists only for
- * this query). The HNSW index serves the inner query: with a date range or a color filter,
- * iterative scan keeps it walking until enough photos pass the filter, in
- * relaxed order, hence the outer sort. `next` is the offset of the next
- * page, null on the last one.
+ * Fewest nearest photos the index query asks for (well past the reference
+ * rank). Asked for a handful (a 5-photo MCP page), the planner walks the
+ * HNSW index even for a person photographed 1,667 times, and iterative scan
+ * gives up at hnsw.max_scan_tuples with 1 of the 6 nearest; asked for about
+ * 20 or more, it measures each of that person's photos instead (EXPLAIN
+ * ANALYZE, 2026-10-18). At 100 every filter tried got the faster plan.
+ */
+const SEMANTIC_MIN_WINDOW = 100;
+
+/**
+ * Photos nearest to the query embedding, most similar first, among those
+ * passing `filter`; with `cut`, only down to SEMANTIC_MARGIN below the
+ * SEMANTIC_REFERENCE_RANK-th one (never under SEMANTIC_MIN_SIMILARITY);
+ * offset-paginated (the ranking exists only for this query). One query
+ * shape whatever the filter: the planner picks the plan from its estimates,
+ * and on the library (EXPLAIN ANALYZE, 2026-10-18) its pick was the faster
+ * one each time. A person photographed 7,000 to 20,000 times, or a common
+ * color: it walks the HNSW index and iterative scan goes on until enough
+ * photos pass, in relaxed order, hence the outer sort (6 to 35 ms, against
+ * 74 to 290 ms for the exact distance to each; 54 to 61 of the 61 nearest,
+ * the same reference photo). A year, the days of Christmas, a person in a
+ * year: it measures the distance to each photo passing the filter, exact
+ * (1 to 170 ms).
+ * `next` is the offset of the next page, null on the last one.
  */
 export async function searchPhotosByContent(
   q: QueryEmbedding,
-  range: DateRange,
+  filter: PhotoFilter,
   offset: number,
   limit: number,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  cut = true,
 ): Promise<{ items: ScoredPhoto[]; next: number | null }> {
-  // At least the reference rank, so a small page gets the same floor
-  const window = Math.max(offset + limit + 1, SEMANTIC_REFERENCE_RANK);
+  const window = Math.max(offset + limit + 1, SEMANTIC_MIN_WINDOW);
   const params: unknown[] = [q.embedding, q.model, window];
   const add = (value: unknown) => {
     params.push(value);
     return `$${params.length}`;
   };
-  const dated: string[] = [];
-  if (range.from)
-    dated.push(`(p.metadata->>'date_taken') >= ${add(range.from)}::text`);
-  if (range.before)
-    dated.push(`(p.metadata->>'date_taken') < ${add(range.before)}::text`);
-  const colored = andColorFilter(params, colors, "e.photo_id");
-  const maxDistance = add(1 - SEMANTIC_MIN_SIMILARITY);
-  const margin = add(SEMANTIC_MARGIN);
-  const referenceOffset = add(SEMANTIC_REFERENCE_RANK - 1);
+  const dated = andDateFilter(params, filter.dates);
+  const narrow = [
+    dated,
+    andColorFilter(params, filter.colors, "e.photo_id"),
+    andPeopleFilter(params, filter.people, "e.photo_id"),
+  ].join("\n");
+  const floor = cut
+    ? `AND n.distance <= least(
+               ${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
+               coalesce(
+                 (SELECT distance FROM nearest ORDER BY distance
+                  OFFSET ${add(SEMANTIC_REFERENCE_RANK - 1)} LIMIT 1),
+                 (SELECT max(distance) FROM nearest)) + ${add(SEMANTIC_MARGIN)}::float8)`
+    : "";
   const pageOffset = add(offset);
   const pageLimit = add(limit + 1);
 
@@ -1239,10 +1344,9 @@ export async function searchPhotosByContent(
       `WITH nearest AS (
          SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
          FROM photo_embeddings e
-         ${dated.length > 0 ? "JOIN photos p ON p.id = e.photo_id" : ""}
+         ${dated === "" ? "" : "JOIN photos p ON p.id = e.photo_id"}
          WHERE e.model = $2
-           ${dated.map((condition) => `AND ${condition}`).join("\n")}
-           ${colored}
+           ${narrow}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
        )
@@ -1250,13 +1354,8 @@ export async function searchPhotosByContent(
        FROM nearest n
        JOIN photos p ON p.id = n.photo_id
        JOIN folders f ON f.id = p.folder_id
-       WHERE n.distance <= least(
-               ${maxDistance}::float8,
-               coalesce(
-                 (SELECT distance FROM nearest ORDER BY distance
-                  OFFSET ${referenceOffset} LIMIT 1),
-                 (SELECT max(distance) FROM nearest)) + ${margin}::float8)
-         AND p.mime_type LIKE 'image/%'
+       WHERE p.mime_type LIKE 'image/%'
+         ${floor}
        ORDER BY n.distance, n.photo_id
        OFFSET ${pageOffset} LIMIT ${pageLimit}`,
       params,
@@ -1703,25 +1802,13 @@ export type TimelinePhoto = Photo & { folder_path: string };
 
 /**
  * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id);
- * only those passing the color filter when given.
+ * only those passing `filter` when given.
  * Uses idx_photos_date_taken (db/schema.sql).
  */
-/**
- * AND clause keeping the photos where the person is (her face named seed,
- * manual or auto); the id goes to `params`. Null keeps every photo.
- */
-function andPersonFilter(params: unknown[], personId: number | null): string {
-  if (personId === null) return "";
-  params.push(personId);
-  return `AND EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = p.id
-    AND pf.person_id = $${params.length} AND pf.assignment IN ('seed', 'manual', 'auto'))`;
-}
-
 export async function getTimelinePhotos(
   before: TimelineCursor | null,
   limit: number,
-  colors: ColorFilter = NO_COLOR_FILTER,
-  personId: number | null = null,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<TimelinePhoto[]> {
   const params: unknown[] = [limit];
   let cursorFilter = "";
@@ -1730,8 +1817,11 @@ export async function getTimelinePhotos(
     // Row comparison so the btree on (date_taken, id) serves the seek
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
-  const colorFilter = andColorFilter(params, colors);
-  const personFilter = andPersonFilter(params, personId);
+  const narrow = [
+    andColorFilter(params, filter.colors),
+    andDateFilter(params, filter.dates),
+    andPeopleFilter(params, filter.people),
+  ].join("\n");
 
   const result = await query<DatabasePhoto & { folder_path: string }>(
     `
@@ -1740,8 +1830,7 @@ export async function getTimelinePhotos(
     JOIN folders f ON f.id = p.folder_id
     WHERE (p.metadata->>'date_taken') IS NOT NULL
       ${cursorFilter}
-      ${colorFilter}
-      ${personFilter}
+      ${narrow}
     ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
     LIMIT $1
   `,
@@ -1766,10 +1855,11 @@ export async function getTimelineSummary(
   personId: number | null = null,
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
+  const people = personId === null ? [] : [personId];
   const colorFilter = andColorFilter(params, colors);
-  const personFilter = andPersonFilter(params, personId);
+  const personFilter = andPeopleFilter(params, people);
   const totalParams: unknown[] = [];
-  const totalFilter = andPersonFilter(totalParams, personId);
+  const totalFilter = andPeopleFilter(totalParams, people);
   const [months, total] = await Promise.all([
     query<{ month: string; count: number }>(
       `

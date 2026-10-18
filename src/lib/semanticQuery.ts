@@ -1,11 +1,10 @@
 /**
  * What semantic photo search decides before touching the database: the text
  * the embedder is asked to embed, the similarity a photo needs to count as a
- * match, date bounds, and which named people a query is about.
+ * match, and date bounds.
  */
 import { addDays, firstDay, isDay, isMonth, lastDay } from "./mapArea";
-import type { Parsed } from "./mapArea";
-import { normalizeTextForSearch } from "./textUtils";
+import type { MapPeriod, Parsed } from "./mapArea";
 
 /** Longer queries get no semantic part: the text model reads 64 tokens. */
 export const SEMANTIC_QUERY_MAX = 200;
@@ -40,7 +39,45 @@ export interface DateRange {
   before: string | null;
 }
 
-export const ANY_DATE: DateRange = { from: null, before: null };
+/**
+ * Days of the year, "MM-DD", both included, every year; `from` after `to`
+ * runs over the new year (winter: "12-01" to "02-29").
+ */
+export interface AnnualWindow {
+  from: string;
+  to: string;
+}
+
+/**
+ * When the photos were taken: within one of `ranges` (none: any year) and
+ * on a day of one of `annual` (none: any day). "Noël 2011" is a range,
+ * "Noël" a window: a photo of the 2011 holidays passes both.
+ */
+export interface DateFilter {
+  ranges: DateRange[];
+  annual: AnnualWindow[];
+}
+
+export const ANY_DATE: DateFilter = { ranges: [], annual: [] };
+
+export function hasDateFilter(dates: DateFilter): boolean {
+  return dates.ranges.length > 0 || dates.annual.length > 0;
+}
+
+/** One range as a filter; open on both sides is any date. */
+export function rangeFilter(range: DateRange): DateFilter {
+  return range.from === null && range.before === null
+    ? ANY_DATE
+    : { ranges: [range], annual: [] };
+}
+
+/** The map's period (months or days, both included) as a filter. */
+export function periodFilter(period: MapPeriod): DateFilter {
+  return rangeFilter({
+    from: period.from ? firstDay(period.from) : null,
+    before: period.to ? addDays(lastDay(period.to), 1) : null,
+  });
+}
 
 const YEAR = /^(19|20)\d{2}$/;
 
@@ -76,25 +113,4 @@ export function parseDateRange(
       before: end ? addDays(end.last, 1) : null,
     },
   };
-}
-
-/** Lower case, no accents, every run of non-letters a single space. */
-function words(text: string): string {
-  return normalizeTextForSearch(text)
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
-/**
- * A query is about a person when it holds their whole name ("suzie à la
- * plage") or is one or more whole words of it ("suzie" for "Suzie Martin"),
- * accents and case aside: "chat" is not about "Chatelain".
- */
-export function queryNamesPerson(q: string, name: string): boolean {
-  const query = words(q);
-  const person = words(name);
-  if (query === "" || person === "") return false;
-  return (
-    ` ${query} `.includes(` ${person} `) || ` ${person} `.includes(` ${query} `)
-  );
 }

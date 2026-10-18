@@ -44,6 +44,16 @@ export function readSemanticPage<T>(
   return { items, next: typeof next === "string" ? next : null };
 }
 
+/** The `filtered` page of a /api/search response: the photos the understood filters keep. */
+export function readFilteredPage<T>(
+  data: Record<string, unknown>,
+): SearchFeedPage<T> {
+  const filtered = isRecord(data.filtered) ? data.filtered : {};
+  const items = (Array.isArray(filtered.photos) ? filtered.photos : []) as T[];
+  const next = filtered.next;
+  return { items, next: typeof next === "string" ? next : null };
+}
+
 /** Where the pages of one list come from. */
 export interface FeedSource<T> {
   /** Parameters every page repeats: `q`, or `person` */

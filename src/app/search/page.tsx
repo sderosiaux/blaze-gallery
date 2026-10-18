@@ -21,10 +21,12 @@ import {
 import { AlbumGridSkeleton } from "@/components/find/AlbumGridSkeleton";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
 import { LoadError } from "@/components/find/LoadError";
+import { QueryChips, type UnderstoodPart } from "@/components/find/QueryChips";
 import { StartingPoints } from "@/components/find/StartingPoints";
 import { useColorFilterParam } from "@/components/find/useColorFilterParam";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import {
+  readFilteredPage,
   readSearchPage,
   readSearchTotal,
   readSemanticPage,
@@ -43,37 +45,7 @@ import {
   NO_COLOR_FILTER,
   type ColorFilter,
 } from "@/lib/colors";
-
-// Suggested alone, these find nothing a person means: only the words that carry the query are offered
-const FUNCTION_WORDS = new Set([
-  "le",
-  "la",
-  "les",
-  "un",
-  "une",
-  "des",
-  "du",
-  "de",
-  "au",
-  "aux",
-  "et",
-  "ou",
-  "en",
-  "dans",
-  "sur",
-  "sous",
-  "avec",
-  "sans",
-  "pour",
-  "par",
-  "à",
-  "a",
-  "the",
-  "of",
-  "in",
-  "on",
-  "and",
-]);
+import { isStopword, removeParts } from "@/lib/searchQuery";
 
 type SemanticStatus = "ok" | "unavailable" | "not_indexed";
 
@@ -84,6 +56,15 @@ interface PersonMatch {
   cover_face_id: number | null;
 }
 
+/** How /api/search read the query (`understood`) */
+interface Understood {
+  parts: UnderstoodPart[];
+  /** The words left for the content, as typed */
+  text: string | null;
+  /** What the photos were ranked by; null when only filters remain */
+  content: string | null;
+}
+
 interface Results {
   photos: SearchFeedPage<Photo>;
   photoTotal: number;
@@ -91,8 +72,11 @@ interface Results {
   folderTotal: number;
   semantic: SearchFeedPage<Photo>;
   semanticStatus: SemanticStatus;
+  /** The photos the understood filters keep, when nothing ranked them */
+  filtered: SearchFeedPage<Photo>;
+  understood: Understood;
   people: PersonMatch[];
-  /** The color filter the photos came with */
+  /** The color filter of the URL the photos came with */
   colors: ColorFilter;
 }
 
@@ -118,6 +102,40 @@ const colorsKey = (colors: ColorFilter) =>
 function readSemanticStatus(data: Record<string, unknown>): SemanticStatus {
   const status = isRecord(data.semantic) ? data.semantic.status : undefined;
   return status === "ok" || status === "not_indexed" ? status : "unavailable";
+}
+
+function readUnderstood(data: Record<string, unknown>, q: string): Understood {
+  const understood = isRecord(data.understood) ? data.understood : {};
+  const { parts, text, content } = understood;
+  return {
+    parts: (Array.isArray(parts) ? parts : []) as UnderstoodPart[],
+    text: typeof text === "string" ? text : null,
+    content: typeof content === "string" || content === null ? content : q,
+  };
+}
+
+/**
+ * The colors the photos are narrowed to: the color bar's (the URL), else
+ * those the query says ("photos rouges").
+ */
+function effectiveColors(
+  url: ColorFilter,
+  parts: UnderstoodPart[],
+): ColorFilter {
+  return {
+    color: url.color ?? parts.find((p) => p.kind === "color")?.color ?? null,
+    tone: url.tone ?? parts.find((p) => p.kind === "tone")?.tone ?? null,
+  };
+}
+
+/** A new search entry in the history: the query and the color bar's filter. */
+function pushSearch(q: string, colors: ColorFilter) {
+  const params = new URLSearchParams(searchParamsOf(q, colors));
+  window.history.pushState(
+    null,
+    "",
+    q === "" ? "/search" : `/search?${params.toString()}`,
+  );
 }
 
 /**
@@ -198,6 +216,8 @@ function QueryContent({ q }: { q: string }) {
         folderTotal: readSearchTotal(data, "folders", folders.items.length),
         semantic: readSemanticPage<Photo>(data),
         semanticStatus: readSemanticStatus(data),
+        filtered: readFilteredPage<Photo>(data),
+        understood: readUnderstood(data, q),
         people: (Array.isArray(data.people)
           ? data.people
           : []) as PersonMatch[],
@@ -205,6 +225,23 @@ function QueryContent({ q }: { q: string }) {
       };
     },
   );
+  const parts = state.status === "ready" ? state.results.understood.parts : [];
+
+  // The bar shows the query's color too; changing it takes that word out
+  const changeColors = (next: ColorFilter) => {
+    const colorPart = parts.find((p) => p.kind === "color");
+    const tonePart = parts.find((p) => p.kind === "tone");
+    const dropped = [
+      colorPart && next.color !== colorPart.color ? colorPart : null,
+      tonePart && next.tone !== tonePart.tone ? tonePart : null,
+    ].filter((part) => part !== null);
+    const url: ColorFilter = {
+      color: colorPart && !dropped.includes(colorPart) ? null : next.color,
+      tone: tonePart && !dropped.includes(tonePart) ? null : next.tone,
+    };
+    if (dropped.length === 0) setColors(url);
+    else pushSearch(removeParts(q, dropped), url);
+  };
 
   if (state.status === "idle") {
     return (
@@ -215,7 +252,20 @@ function QueryContent({ q }: { q: string }) {
     );
   }
 
-  const header = <PageHeader title={quoted(state.key)} />;
+  const header = (
+    <PageHeader title={quoted(state.key)}>
+      {state.status === "ready" && (
+        <QueryChips
+          parts={parts}
+          text={state.results.understood.text}
+          onRemove={(part) => {
+            pushSearch(removeParts(q, [part]), colors);
+          }}
+          className="mt-5"
+        />
+      )}
+    </PageHeader>
+  );
 
   if (state.status === "error") {
     return (
@@ -251,8 +301,8 @@ function QueryContent({ q }: { q: string }) {
         q={state.key}
         results={state.results}
         refreshing={state.refreshing}
-        colors={colors}
-        onColorsChange={setColors}
+        colors={effectiveColors(colors, parts)}
+        onColorsChange={changeColors}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={setPhotoParam}
       />
@@ -272,7 +322,7 @@ function ResultsView({
   q: string;
   results: Results;
   refreshing: boolean;
-  /** The filter in the URL; `results.colors` until the photos for it come */
+  /** The filter in effect, the URL's or the query's; the photos' until those for it come */
   colors: ColorFilter;
   onColorsChange: (next: ColorFilter) => void;
   selectedPhotoId: string | null;
@@ -284,23 +334,22 @@ function ResultsView({
     results.folderTotal,
   );
 
+  // Suggested alone, stopwords find nothing a person means: only the words that carry the query are offered
   const words = useMemo(
     () =>
       Array.from(
-        new Set(
-          q
-            .split(/\s+/)
-            .filter(
-              (w) => w.length > 1 && !FUNCTION_WORDS.has(w.toLowerCase()),
-            ),
-        ),
+        new Set(q.split(/\s+/).filter((w) => w.length > 1 && !isStopword(w))),
       ),
     [q],
   );
 
+  const { content } = results.understood;
+  const understood = results.understood.parts.length > 0;
   const notice =
-    results.semanticStatus === "unavailable"
-      ? "La recherche par le contenu des photos ne répond pas pour l'instant : résultats par nom de dossier et de fichier."
+    results.semanticStatus === "unavailable" && content !== null
+      ? understood
+        ? `La recherche par le contenu des photos ne répond pas pour l'instant : photos non triées selon ${quoted(content)}.`
+        : "La recherche par le contenu des photos ne répond pas pour l'instant : résultats par nom de dossier et de fichier."
       : results.semanticStatus === "not_indexed"
         ? "Les photos sont en cours d'analyse ; la recherche par le contenu arrive bientôt."
         : null;
@@ -310,13 +359,16 @@ function ResultsView({
     </p>
   );
 
-  const filtered = hasColorFilter(results.colors);
-  const hasPhotos = results.semantic.items.length > 0 || results.photoTotal > 0;
+  const narrowed = hasColorFilter(colors) || understood;
+  const hasPhotos =
+    results.semantic.items.length > 0 ||
+    results.filtered.items.length > 0 ||
+    results.photoTotal > 0;
   if (
     folders.feed.items.length === 0 &&
     !hasPhotos &&
     results.people.length === 0 &&
-    !filtered &&
+    !narrowed &&
     !refreshing
   ) {
     return (
@@ -381,7 +433,7 @@ function ResultsView({
         </Section>
       )}
 
-      {(hasPhotos || filtered || refreshing) && (
+      {(hasPhotos || narrowed || refreshing) && (
         <Section title="Photos">
           <ColorFilterBar
             filter={colors}
@@ -395,6 +447,7 @@ function ResultsView({
               key={colorsKey(results.colors)}
               q={q}
               results={results}
+              colors={colors}
               selectedPhotoId={selectedPhotoId}
               onPhotoUrlChange={onPhotoUrlChange}
               onClearColors={() => {
@@ -409,25 +462,30 @@ function ResultsView({
 }
 
 /** The search's photo lists that can hold the open photo. */
-type PhotoList = "semantic" | "names";
+type PhotoList = "semantic" | "filtered" | "names";
 
 /**
  * The photos of one search and one color filter: those showing what the
- * query describes, ranked, then those whose file or folder name matches.
+ * query describes, ranked (or, with nothing to rank by, those its filters
+ * keep), then those whose file or folder name matches.
  */
 function PhotoResults({
   q,
   results,
+  colors: shownColors,
   selectedPhotoId,
   onPhotoUrlChange,
   onClearColors,
 }: {
   q: string;
   results: Results;
+  /** The filter in effect, the URL's or the query's */
+  colors: ColorFilter;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
   onClearColors: () => void;
 }) {
+  // Later pages repeat the URL's filter: the server reads the query's again
   const { colors } = results;
   const photos = useSearchFeed(
     searchListSource<Photo>(q, "photos", colors),
@@ -445,26 +503,41 @@ function PhotoResults({
     results.semantic,
     results.semantic.items.length,
   );
+  const filteredSource: FeedSource<Photo> = {
+    params: searchParamsOf(q, colors),
+    after: "filtered_after",
+    read: readFilteredPage,
+  };
+  const filtered = useSearchFeed(
+    filteredSource,
+    results.filtered,
+    results.filtered.items.length,
+  );
 
-  // A photo can be in both lists: only the list it was opened from shows it.
+  // A photo can be in two lists: only the list it was opened from shows it.
   const [opener, setOpener] = useState<PhotoList | null>(null);
+  const holds = (feed: SearchFeed<Photo>) =>
+    feed.items.some((p) => String(p.id) === selectedPhotoId);
   const viewerList: PhotoList | null = !selectedPhotoId
     ? null
     : (opener ??
-      (semantic.feed.items.some((p) => String(p.id) === selectedPhotoId)
+      (holds(semantic.feed)
         ? "semantic"
-        : "names"));
+        : holds(filtered.feed)
+          ? "filtered"
+          : "names"));
   const urlChangeFrom = (list: PhotoList) => (id: string | null) => {
     setOpener(id ? list : null);
     onPhotoUrlChange(id);
   };
 
   const showSemantic = semantic.feed.items.length > 0;
+  const showFiltered = filtered.feed.items.length > 0;
   const showNames = photos.feed.items.length > 0;
-  if (!showSemantic && !showNames) {
-    return (
+  if (!showSemantic && !showFiltered && !showNames) {
+    return hasColorFilter(shownColors) ? (
       <EmptyState
-        title={`Aucune photo ${filterAdjective(colors)} pour cette recherche`}
+        title={`Aucune photo ${filterAdjective(shownColors)} pour cette recherche`}
         action={
           <Button variant="secondary" icon={RotateCcw} onClick={onClearColors}>
             Toutes les couleurs
@@ -472,8 +545,16 @@ function PhotoResults({
         }
         className="py-10"
       />
+    ) : (
+      <EmptyState
+        title="Aucune photo pour cette recherche"
+        body="Retirez un filtre pour élargir."
+        className="py-10"
+      />
     );
   }
+  // The last list of the page brings its next pages by scrolling
+  const mainMore = showNames ? "button" : "scroll";
 
   const names = showNames && (
     <PhotoFeed
@@ -495,10 +576,20 @@ function PhotoResults({
           remove={semantic.remove}
           selectedPhotoId={viewerList === "semantic" ? selectedPhotoId : null}
           onPhotoUrlChange={urlChangeFrom("semantic")}
-          more="button"
+          more={mainMore}
         />
       )}
-      {showSemantic && showNames ? (
+      {showFiltered && (
+        <PhotoFeed
+          feed={filtered.feed}
+          loadMore={filtered.loadMore}
+          remove={filtered.remove}
+          selectedPhotoId={viewerList === "filtered" ? selectedPhotoId : null}
+          onPhotoUrlChange={urlChangeFrom("filtered")}
+          more={mainMore}
+        />
+      )}
+      {(showSemantic || showFiltered) && showNames ? (
         <Section
           title="Noms de fichiers et dossiers"
           action={<Count n={photos.feed.total} one="photo" />}

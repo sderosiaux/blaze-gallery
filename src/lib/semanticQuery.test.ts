@@ -4,7 +4,7 @@ import {
   SEMANTIC_QUERY_MAX,
   normalizeSemanticQuery,
   parseDateRange,
-  queryNamesPerson,
+  periodFilter,
 } from "./semanticQuery";
 
 void test("a query is keyed lower case, spaces collapsed, accents kept", () => {
@@ -58,13 +58,17 @@ void test("date bounds that are not dates, or the wrong way round, are refused",
   assert.equal(parseDateRange("2020", "2019-12").ok, false);
 });
 
-void test("a query names a person by whole words, accents and case aside", () => {
-  assert.equal(queryNamesPerson("Suzie", "Suzie"), true);
-  assert.equal(queryNamesPerson("suzie à la plage", "Suzie"), true);
-  assert.equal(queryNamesPerson("lea", "Léa Martin"), true);
-  assert.equal(queryNamesPerson("léa martin", "Léa Martin"), true);
-  assert.equal(queryNamesPerson("chat", "Chatelain"), false);
-  assert.equal(queryNamesPerson("suz", "Suzie"), false);
-  assert.equal(queryNamesPerson("martin léa", "Léa Martin"), false);
-  assert.equal(queryNamesPerson("  ", "Suzie"), false);
+void test("the map's period of months or days becomes one range", () => {
+  assert.deepEqual(periodFilter({ from: "2019-07", to: "2019-08" }), {
+    ranges: [{ from: "2019-07-01", before: "2019-09-01" }],
+    annual: [],
+  });
+  assert.deepEqual(periodFilter({ from: null, to: "2020-02-29" }), {
+    ranges: [{ from: null, before: "2020-03-01" }],
+    annual: [],
+  });
+  assert.deepEqual(periodFilter({ from: null, to: null }), {
+    ranges: [],
+    annual: [],
+  });
 });
