@@ -27,6 +27,8 @@ interface ProgressiveImageProps {
   className?: string;
   /** Password-protected shares: every image needs the guest's session. */
   sessionToken?: string;
+  /** The photo's own main color ('#rrggbb', measured), shown until an image arrives. */
+  placeholderColor?: string;
   onFailed?: () => void;
 }
 
@@ -49,6 +51,7 @@ export default function ProgressiveImage({
   order = 0,
   className,
   sessionToken,
+  placeholderColor,
   onFailed,
 }: ProgressiveImageProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -256,6 +259,9 @@ export default function ProgressiveImage({
         "absolute inset-0 overflow-hidden bg-surface-sunken",
         className,
       )}
+      style={
+        placeholderColor ? { backgroundColor: placeholderColor } : undefined
+      }
     >
       {previewObjectUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- blob of an image already sized by the API

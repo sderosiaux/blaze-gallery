@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asString, readJsonObject } from "@/hooks/apiJson";
+import {
+  NO_COLOR_FILTER,
+  setColorParams,
+  type ColorFilter,
+} from "@/lib/colors";
 
 export type SearchList = "photos" | "folders";
 
@@ -43,12 +48,14 @@ export function readSearchTotal(
  * One result list of /api/search past its first page: `loadMore` appends
  * the next page (one request at a time, ignored once everything is in or
  * after a failure unless `retry`), `remove` drops an item the user deleted.
+ * `colors` is the filter the first page came with: the cursor goes with it.
  */
 export function useSearchFeed<T extends { id: number | string }>(
   q: string,
   list: SearchList,
   first: SearchFeedPage<T>,
   total: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ) {
   const [feed, setFeed] = useState<SearchFeed<T>>(() => ({
     ...first,
@@ -69,7 +76,10 @@ export function useSearchFeed<T extends { id: number | string }>(
       const controller = new AbortController();
       inFlight.current = controller;
       setFeed((f) => ({ ...f, phase: "more" }));
-      const params = new URLSearchParams({ q, [`${list}_after`]: next });
+      const params = setColorParams(
+        new URLSearchParams({ q, [`${list}_after`]: next }),
+        colors,
+      );
       fetch(`/api/search?${params.toString()}`, { signal: controller.signal })
         .then(async (response) => {
           const data = await readJsonObject(response);
@@ -99,7 +109,7 @@ export function useSearchFeed<T extends { id: number | string }>(
           if (inFlight.current === controller) inFlight.current = null;
         });
     },
-    [q, list],
+    [q, list, colors],
   );
 
   const remove = useCallback((id: number | string) => {

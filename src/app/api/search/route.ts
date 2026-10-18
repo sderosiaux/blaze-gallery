@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
+import { parseColorFilter } from "@/lib/colors";
 import type { FolderSearchCursor, PhotoSearchCursor } from "@/lib/database";
 import {
   countSearchMatches,
@@ -20,13 +21,23 @@ const FOLDER_PAGE = 20;
  * Without a cursor: the first page of each, their totals and the cursors
  * (`next_photos`, `next_folders`; null on the last page). With
  * `photos_after` or `folders_after` set to one of those opaque cursors:
- * only the next page of that list and its following cursor.
+ * only the next page of that list and its following cursor. `color` /
+ * `tone` narrow the photos (not the folders) to those holding that color,
+ * in that tone; a cursor goes with the same filter.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const q = (searchParams.get("q") ?? "").trim();
   const photosAfter = searchParams.get("photos_after");
   const foldersAfter = searchParams.get("folders_after");
+  const parsedColors = parseColorFilter((key) => searchParams.get(key));
+  if (!parsedColors.ok) {
+    return NextResponse.json(
+      { success: false, error: parsedColors.error },
+      { status: 400 },
+    );
+  }
+  const colors = parsedColors.value;
 
   if (q === "") {
     return NextResponse.json({
@@ -44,7 +55,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     if (photosAfter !== null) {
       const after = decodeCursor(photosAfter, toPhotoCursor);
       if (!after) return badCursor("photos_after");
-      const page = await searchPhotos(q, after, PHOTO_PAGE);
+      const page = await searchPhotos(q, after, PHOTO_PAGE, colors);
       return NextResponse.json({
         success: true,
         photos: page.items,
@@ -64,9 +75,9 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }
 
     const [photos, folders, totals] = await Promise.all([
-      searchPhotos(q, null, PHOTO_PAGE),
+      searchPhotos(q, null, PHOTO_PAGE, colors),
       searchFolders(q, null, FOLDER_PAGE),
-      countSearchMatches(q),
+      countSearchMatches(q, colors),
     ]);
 
     return NextResponse.json({

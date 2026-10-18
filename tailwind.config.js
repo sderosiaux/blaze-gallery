@@ -51,6 +51,20 @@ module.exports = {
         5: token('chart-5'),
         6: token('chart-6'),
       },
+      hue: {
+        red: token('hue-red'),
+        orange: token('hue-orange'),
+        yellow: token('hue-yellow'),
+        green: token('hue-green'),
+        teal: token('hue-teal'),
+        blue: token('hue-blue'),
+        purple: token('hue-purple'),
+        pink: token('hue-pink'),
+        brown: token('hue-brown'),
+        black: token('hue-black'),
+        grey: token('hue-grey'),
+        white: token('hue-white'),
+      },
     },
     extend: {
       fontFamily: {

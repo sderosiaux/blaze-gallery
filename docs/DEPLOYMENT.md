@@ -9,6 +9,12 @@ Whatever the platform, pick an access mode first (Google sign-in or
 `ALLOW_PUBLIC_ACCESS=true`): a production server answers 503 to every API
 call until one is set. See [CONFIGURATION.md](./CONFIGURATION.md#access).
 
+The color strip under each folder cover comes from `folder_palettes`,
+which no server request fills: folding the whole library's colors takes
+seconds. Run `npm run palettes` (same `.env`) after each sync and while the
+worker measures colors; `-- --dry-run` computes without writing. Until it
+has run, folders show no strip.
+
 ## Docker Compose on a server
 
 [SETUP.md](./SETUP.md#run-it-on-your-own-bucket-with-docker-compose)

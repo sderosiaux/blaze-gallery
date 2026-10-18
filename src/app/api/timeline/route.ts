@@ -4,6 +4,7 @@ import type { TimelineCursor } from "@/lib/database";
 import { getTimelinePhotos } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
+import { parseColorFilter } from "@/lib/colors";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,19 @@ const MAX_LIMIT = 500;
  * Photos by date taken, newest first.
  * `before` takes either a plain ISO date (photos strictly older) or the
  * opaque `next_before` of the previous page ("<ISO>|<id>", ties broken by id).
+ * `color` (a hue of lib/colors.ts) and `tone` keep only the photos holding
+ * that color, in that tone.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
+
+  const colors = parseColorFilter((key) => searchParams.get(key));
+  if (!colors.ok) {
+    return NextResponse.json(
+      { success: false, error: colors.error },
+      { status: 400 },
+    );
+  }
 
   const limitParam = searchParams.get("limit");
   const limit = limitParam === null ? DEFAULT_LIMIT : Number(limitParam);
@@ -40,7 +51,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   }
 
   try {
-    const photos = await getTimelinePhotos(before, limit);
+    const photos = await getTimelinePhotos(before, limit, colors.value);
     const last = photos[photos.length - 1];
     const next_before =
       photos.length === limit && last?.metadata?.date_taken

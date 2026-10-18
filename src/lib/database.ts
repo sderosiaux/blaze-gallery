@@ -15,6 +15,21 @@ import {
   type MapPeriod,
 } from "./mapArea";
 import { normalizeTextForSearch } from "./textUtils";
+import {
+  COLOR_TONES,
+  hasColorFilter,
+  HOLDS,
+  HUES,
+  hueIndex,
+  NO_COLOR_FILTER,
+  TONE_LIMITS,
+  type ColorFilter,
+  type ColorRankCursor,
+  type ColorTone,
+  type Hue,
+} from "./colors";
+import { foldPalette, type ColorBin, type Swatch } from "./palette";
+import { asQuarterTurn, type QuarterTurn } from "./rotation";
 import type {
   CreatePhotoData,
   CreateFolderData,
@@ -264,17 +279,23 @@ const COVER_RANK = `${PHOTO_LIKE} DESC, (p.thumbnail_status = 'generated') DESC,
 
 type FolderListingRow = Omit<
   Folder,
-  "thumbnails_generated" | "cover_photo_id" | "date_from" | "date_to"
+  | "thumbnails_generated"
+  | "cover_photo_id"
+  | "date_from"
+  | "date_to"
+  | "palette"
 > & {
   thumbnails_generated: boolean | null;
   cover_photo_id: number | null | undefined;
   date_from: string | null | undefined;
   date_to: string | null | undefined;
+  palette: Swatch[] | null;
 };
 
 /**
- * Adds listing fields (thumbnail state, size, date span, cover) to the
- * folders selected by `baseSql`, which must select `f.*` from `folders f`.
+ * Adds listing fields (thumbnail state, size, date span, cover, palette)
+ * to the folders selected by `baseSql`, which must select `f.*` from
+ * `folders f`.
  */
 async function listFolders(
   baseSql: string,
@@ -301,8 +322,10 @@ async function listFolders(
       agg.date_to,
       (CASE WHEN own_cover.is_photo THEN own_cover.id
             ELSE COALESCE(descendant_photo.id, own_cover.id, descendant_image.id)
-       END)::int AS cover_photo_id
+       END)::int AS cover_photo_id,
+      fp.swatches AS palette
     FROM sub s
+    LEFT JOIN folder_palettes fp ON fp.folder_id = s.id
     LEFT JOIN LATERAL (
       SELECT
         CASE
@@ -375,7 +398,115 @@ async function listFolders(
     cover_photo_id: folder.cover_photo_id ?? null,
     date_from: folder.date_from ?? null,
     date_to: folder.date_to ?? null,
+    palette: folder.palette ?? undefined,
   }));
+}
+
+// A folder's palette: its own photos' palettes summed per bin of a 6x6x6
+// RGB grid (share-weighted mean color per bin), or, when none of its own
+// photos is measured yet, those of every photo below it by path prefix.
+// Each folder keeps its 12 heaviest bins; foldPalette makes them <= 5 colors.
+//
+// The whole library at once: 3.3 s on the production database with every
+// photo measured (simulated 2026-10-18: 210k photos, 1.05M palette colors,
+// 4.7k folders with a palette), too slow for a listing, and the library
+// home spans every photo. So `npm run palettes` (scripts/folder-palettes.ts)
+// computes it offline into folder_palettes, which listings join.
+const PALETTE_SQL = `
+  WITH entries AS (
+    SELECT p.folder_id, e.share::float8 AS share,
+           ('x' || substr(e.hex, 2))::bit(24)::int AS rgb
+    FROM photo_colors pc
+    JOIN photos p ON p.id = pc.photo_id
+    CROSS JOIN LATERAL unnest(pc.palette_hex, pc.palette_share) AS e(hex, share)
+    WHERE e.hex ~ '^#[0-9a-fA-F]{6}$'
+  ),
+  direct AS (
+    SELECT folder_id,
+           ((rgb >> 16) * 6 / 256) * 36
+             + (((rgb >> 8) & 255) * 6 / 256) * 6
+             + ((rgb & 255) * 6 / 256) AS bin,
+           SUM(share) AS w,
+           SUM((rgb >> 16) * share) AS r,
+           SUM(((rgb >> 8) & 255) * share) AS g,
+           SUM((rgb & 255) * share) AS b
+    FROM entries
+    GROUP BY 1, 2
+  ),
+  bins AS (
+    SELECT folder_id, bin, w, r, g, b FROM direct
+    UNION ALL
+    SELECT f.id, d.bin, SUM(d.w), SUM(d.r), SUM(d.g), SUM(d.b)
+    FROM folders f
+    JOIN folders sub
+      ON sub.path >= f.path || '/' AND sub.path < f.path || '0'
+     AND starts_with(sub.path, f.path || '/')
+    JOIN direct d ON d.folder_id = sub.id
+    WHERE f.subfolder_count > 0
+      AND NOT EXISTS (SELECT 1 FROM direct own WHERE own.folder_id = f.id)
+    GROUP BY f.id, d.bin
+  ),
+  ranked AS (
+    SELECT *, row_number() OVER (PARTITION BY folder_id ORDER BY w DESC) AS place
+    FROM bins
+  )
+  SELECT folder_id::text AS folder_id, w, r / w AS r, g / w AS g, b / w AS b
+  FROM ranked
+  WHERE place <= 12
+`;
+
+/** Every folder's palette from photo_colors, by folder id; reads only. */
+export async function computeFolderPalettes(): Promise<Map<string, Swatch[]>> {
+  const result = await query<{
+    folder_id: string;
+    w: number;
+    r: number;
+    g: number;
+    b: number;
+  }>(PALETTE_SQL);
+  const bins = new Map<string, ColorBin[]>();
+  for (const { folder_id, w, r, g, b } of result.rows) {
+    const list = bins.get(folder_id) ?? [];
+    list.push({ weight: w, r, g, b });
+    bins.set(folder_id, list);
+  }
+  const palettes = new Map<string, Swatch[]>();
+  for (const [folderId, list] of bins) {
+    const palette = foldPalette(list);
+    if (palette.length > 0) palettes.set(folderId, palette);
+  }
+  return palettes;
+}
+
+/**
+ * Makes folder_palettes hold exactly `palettes`, in one transaction: each
+ * folder's row is inserted or updated, the rows of folders left out are
+ * deleted. A folder deleted since the computation is skipped. Writes no
+ * other table.
+ */
+export async function replaceFolderPalettes(
+  palettes: ReadonlyMap<string, Swatch[]>,
+): Promise<{ written: number; removed: number }> {
+  const rows = [...palettes].map(([folderId, swatches]) => ({
+    folder_id: Number(folderId),
+    swatches,
+  }));
+  return runTransaction(async (client) => {
+    const written = await client.query(
+      `INSERT INTO folder_palettes (folder_id, swatches, computed_at)
+       SELECT s.folder_id, s.swatches, now()
+       FROM jsonb_to_recordset($1::jsonb) AS s(folder_id bigint, swatches jsonb)
+       JOIN folders f ON f.id = s.folder_id
+       ON CONFLICT (folder_id) DO UPDATE
+         SET swatches = EXCLUDED.swatches, computed_at = EXCLUDED.computed_at`,
+      [JSON.stringify(rows)],
+    );
+    const removed = await client.query(
+      `DELETE FROM folder_palettes WHERE NOT (folder_id = ANY($1::bigint[]))`,
+      [rows.map((row) => row.folder_id)],
+    );
+    return { written: written.rowCount ?? 0, removed: removed.rowCount ?? 0 };
+  });
 }
 
 // Byte order put "Londres" far from "londres2018" and "Mariage" before
@@ -416,6 +547,403 @@ export async function getRecentlyVisitedFolders(
     "s.last_visited DESC",
     [limit],
   );
+}
+
+// ---- colors ---------------------------------------------------------------
+// What photo_colors measures and the thresholds calibrated on the library
+// are in db/schema.sql; the names are in lib/colors.ts.
+
+/**
+ * Share a color needs to narrow a list kept in its own order (timeline,
+ * map, search). At HOLDS, the families nearly every picture has a little of
+ * keep most photos: on 4,740 dated photos (2026-10-18) blue 81% (a corner
+ * of sky), brown 74% (skin, wood), black 91%, grey 94%, white 56%, while
+ * green, the commonest other family, keeps 39%. Each of the five gets the
+ * share at which it keeps about as many: blue 0.25 (42%), brown 0.10
+ * (41%), black 0.15 (37%), grey 0.30 (39%), white 0.10 (30%). Lists ranked
+ * by share (Couleurs, MCP) keep HOLDS: there a corner of sky only sinks.
+ */
+const NARROWS: Record<Hue, number> = {
+  red: HOLDS,
+  orange: HOLDS,
+  yellow: HOLDS,
+  green: HOLDS,
+  teal: HOLDS,
+  blue: 0.25,
+  purple: HOLDS,
+  pink: HOLDS,
+  brown: 0.1,
+  black: 0.15,
+  grey: 0.3,
+  white: 0.1,
+};
+
+/** Each tone over photo_colors pc, as tonesOf reads it (lib/colors.ts). */
+const TONE_WHERE: Record<ColorTone, string> = {
+  vives: `pc.colorfulness >= ${TONE_LIMITS.vives}`,
+  douces: `pc.colorfulness < ${TONE_LIMITS.douces} AND NOT pc.monochrome`,
+  lumineuse: `pc.luminance > ${TONE_LIMITS.lumineuse}`,
+  sombre: `pc.luminance < ${TONE_LIMITS.sombre}`,
+  neutres: `pc.colorfulness < ${TONE_LIMITS.neutres} AND NOT pc.monochrome`,
+  nb: "pc.monochrome",
+};
+
+/**
+ * EXISTS clause keeping the photos (id `photoId`) whose colors pass the
+ * filter, values in `params`; null without a filter. A photo whose colors
+ * are not measured yet passes no filter.
+ */
+function colorFilterSql(
+  params: unknown[],
+  filter: ColorFilter,
+  photoId = "p.id",
+): string | null {
+  if (!hasColorFilter(filter)) return null;
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const where = [`pc.photo_id = ${photoId}`];
+  if (filter.color)
+    where.push(
+      `pc.hues[${add(hueIndex(filter.color))}::int] >= ${add(NARROWS[filter.color])}::real`,
+    );
+  if (filter.tone) where.push(TONE_WHERE[filter.tone]);
+  return `EXISTS (SELECT 1 FROM photo_colors pc WHERE ${where.join(" AND ")})`;
+}
+
+/** `AND <filter>` for a WHERE clause, or nothing. */
+function andColorFilter(
+  params: unknown[],
+  filter: ColorFilter,
+  photoId?: string,
+): string {
+  const sql = colorFilterSql(params, filter, photoId);
+  return sql ? `AND ${sql}` : "";
+}
+
+export type ColorRankedPhoto = TimelinePhoto & {
+  /** hues[color] with a color, else colorfulness (chroma for nb), see TONE_RANK */
+  color_score: number;
+};
+
+interface ColorRank {
+  /** Expression over photo_colors pc the list is ordered by */
+  score: string;
+  order: "ASC" | "DESC";
+  where: string[];
+}
+
+/**
+ * Within a tone, the most colorful photos first. Ranked on the measure that
+ * defines them, the darkest Sombre are black frames, the brightest
+ * Lumineuse blown-out white and the most Neutres flat grey walls; ranked by
+ * colorfulness, night lights, bright beaches and fog with a hint of color
+ * come first and those sink to the end. Noir et blanc has no color to rank
+ * by: the least chroma, the plainest black and white, first.
+ */
+const TONE_RANK: Record<ColorTone, Pick<ColorRank, "score" | "order">> = {
+  vives: { score: "pc.colorfulness", order: "DESC" },
+  douces: { score: "pc.colorfulness", order: "DESC" },
+  lumineuse: { score: "pc.colorfulness", order: "DESC" },
+  sombre: { score: "pc.colorfulness", order: "DESC" },
+  neutres: { score: "pc.colorfulness", order: "DESC" },
+  nb: { score: "pc.chroma", order: "ASC" },
+};
+
+/**
+ * Order and condition of a ranked list: by share of the color when there is
+ * one (the tone then only filters), else by the tone's measure. The hue
+ * position and HOLDS are written into the SQL, not bound: the partial
+ * index of each hue (db/schema.sql) only serves a query naming the same
+ * expression and predicate. Both come from this file, never from a request.
+ */
+function colorRank(filter: ColorFilter): ColorRank | null {
+  const tone = filter.tone ? [TONE_WHERE[filter.tone]] : [];
+  if (filter.color) {
+    const share = `pc.hues[${hueIndex(filter.color)}]`;
+    return {
+      score: share,
+      order: "DESC",
+      where: [`${share} >= ${HOLDS}::real`, ...tone],
+    };
+  }
+  if (filter.tone) return { ...TONE_RANK[filter.tone], where: tone };
+  return null;
+}
+
+/** Dated photos, the timeline's: leaves out sprites, album art and scans, which carry no date taken. */
+const DATED = "(p.metadata->>'date_taken') IS NOT NULL";
+
+/**
+ * Dated photos passing the filter, most marked first (see colorRank),
+ * keyset-paginated on (score, id); within `period` (date taken) when given.
+ * The page is picked on photo_colors through its index, then read in full.
+ */
+export async function getPhotosByColor(
+  filter: ColorFilter,
+  period: MapPeriod,
+  after: ColorRankCursor | null,
+  limit: number,
+): Promise<{ photos: ColorRankedPhoto[]; next: ColorRankCursor | null }> {
+  const rank = colorRank(filter);
+  if (!rank) throw new Error("getPhotosByColor needs a color or a tone");
+  const params: unknown[] = [limit + 1];
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const where = [...rank.where, DATED];
+  if (period.from)
+    where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
+  if (period.to)
+    where.push(
+      `(p.metadata->>'date_taken') < ${add(addDays(lastDay(period.to), 1))}::text`,
+    );
+  if (after)
+    where.push(
+      `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
+    );
+  const result = await query<
+    DatabasePhoto & { folder_path: string; color_score: number }
+  >(
+    `
+    WITH page AS (
+      SELECT pc.photo_id AS id, ${rank.score} AS score
+      FROM photo_colors pc
+      JOIN photos p ON p.id = pc.photo_id
+      WHERE ${where.join("\n        AND ")}
+      ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
+      LIMIT $1
+    )
+    SELECT p.*, f.path AS folder_path, page.score AS color_score
+    FROM page
+    JOIN photos p ON p.id = page.id
+    JOIN folders f ON f.id = p.folder_id
+    ORDER BY page.score ${rank.order}, page.id ${rank.order}
+  `,
+    params,
+  );
+  const photos = result.rows.slice(0, limit).map((row) => ({
+    ...normalizePhoto(row),
+    folder_path: row.folder_path,
+    color_score: row.color_score,
+  }));
+  const last = photos[photos.length - 1];
+  return {
+    photos,
+    next:
+      result.rows.length > limit && last
+        ? { score: last.color_score, id: Number(last.id) }
+        : null,
+  };
+}
+
+/** One band of the Couleurs page: a color or a tone and its most marked photos. */
+export interface ColorBand {
+  kind: "color" | "tone";
+  key: Hue | ColorTone;
+  /** Most marked first; `hex` is the photo's main palette color, `rotation` its hand rotation */
+  photos: { id: number; hex: string | null; rotation: QuarterTurn }[];
+}
+
+export interface ColorOverview {
+  bands: ColorBand[];
+  /**
+   * While the worker's "thumbs" task still has photos queued: dated photos
+   * whose colors are measured, of all dated photos. Null once it is done.
+   */
+  coverage: { measured: number; photos: number } | null;
+}
+
+/** Candidates read per photo a band shows, so a burst does not fill it. */
+const BAND_CANDIDATES = 4;
+
+/** Shots of one folder this close in time are one moment: a band shows one. */
+const BURST_MS = 10 * 60_000;
+
+interface BandCandidate {
+  folderId: string;
+  /** Size and palette: a copy of a file under another name measures the same */
+  look: string;
+  /** date_taken in ms */
+  taken: number;
+}
+
+/**
+ * The best photos of a band, one per folder first: ten shots of one burst
+ * would otherwise fill it with one picture. Short of folders, the next best
+ * come in, in rank order, except copies (same `look`) and shots taken
+ * within BURST_MS of one already shown from the same folder. A band may
+ * stay shorter than `size`.
+ */
+function spreadAcrossFolders<T extends BandCandidate>(
+  ranked: T[],
+  size: number,
+): T[] {
+  const looks = new Set<string>();
+  const unique = ranked.filter((photo) => {
+    if (looks.has(photo.look)) return false;
+    looks.add(photo.look);
+    return true;
+  });
+  const folders = new Set<string>();
+  const first = unique.filter((photo) => {
+    if (folders.has(photo.folderId)) return false;
+    folders.add(photo.folderId);
+    return true;
+  });
+  const picked = new Set(first.slice(0, size));
+  for (const photo of unique) {
+    if (picked.size >= size) break;
+    const burst = [...picked].some(
+      (shown) =>
+        shown.folderId === photo.folderId &&
+        Math.abs(shown.taken - photo.taken) < BURST_MS,
+    );
+    if (!burst) picked.add(photo);
+  }
+  return unique.filter((photo) => picked.has(photo));
+}
+
+/**
+ * The Couleurs page: per color, then per tone, `perBand` of its most marked
+ * dated photos (colorRank's order, spread across folders), and how far the
+ * measuring has got. One indexed top-N per band (db/schema.sql); the
+ * counts, two scans, only while the measuring goes on.
+ */
+export async function getColorOverview(
+  perBand: number,
+): Promise<ColorOverview> {
+  const filters: [ColorBand["kind"], Hue | ColorTone, ColorFilter][] = [
+    ...HUES.map((hue): [ColorBand["kind"], Hue, ColorFilter] => [
+      "color",
+      hue,
+      { color: hue, tone: null },
+    ]),
+    ...COLOR_TONES.map((tone): [ColorBand["kind"], ColorTone, ColorFilter] => [
+      "tone",
+      tone,
+      { color: null, tone },
+    ]),
+  ];
+  // Band numbers, not keys, go into the SQL; the rank expressions are this file's.
+  const tops = filters.map(([, , filter], band) => {
+    const rank = colorRank(filter);
+    if (!rank) throw new Error("A band needs a color or a tone");
+    return `(SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
+             pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
+             p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
+             p.metadata->>'date_taken' AS taken
+      FROM photo_colors pc
+      JOIN photos p ON p.id = pc.photo_id
+      WHERE ${[...rank.where, DATED].join(" AND ")}
+      ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
+      LIMIT $1)`;
+  });
+  const [bands, coverage] = await Promise.all([
+    query<{
+      band: number;
+      id: number;
+      folder_id: string;
+      hex: string | null;
+      rotation: unknown;
+      look: string;
+      taken: string;
+    }>(
+      `SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look, taken
+       FROM (${tops.join("\nUNION ALL\n")}) t`,
+      [perBand * BAND_CANDIDATES],
+    ),
+    getColorCoverage(),
+  ]);
+  // UNION ALL keeps each band's order: rows arrive band by band, best first.
+  const ranked = filters.map(
+    (): (BandCandidate & { photo: ColorBand["photos"][number] })[] => [],
+  );
+  for (const row of bands.rows)
+    ranked[row.band]?.push({
+      folderId: row.folder_id,
+      look: row.look,
+      taken: Date.parse(row.taken),
+      photo: {
+        id: row.id,
+        hex: row.hex,
+        rotation: asQuarterTurn(row.rotation),
+      },
+    });
+  return {
+    bands: filters.map(([kind, key], band) => ({
+      kind,
+      key,
+      photos: spreadAcrossFolders(ranked[band] ?? [], perBand).map(
+        ({ photo }) => photo,
+      ),
+    })),
+    coverage,
+  };
+}
+
+async function getColorCoverage(): Promise<ColorOverview["coverage"]> {
+  const pending = await query<{ pending: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1 FROM analysis_jobs
+      WHERE task = 'thumbs' AND status IN ('queued', 'leased')
+    ) AS pending
+  `);
+  if (!requireRow(pending).pending) return null;
+  const counts = await query<{ measured: number; photos: number }>(`
+    SELECT
+      (SELECT COUNT(*) FROM photo_colors pc JOIN photos p ON p.id = pc.photo_id
+       WHERE ${DATED})::int AS measured,
+      (SELECT COUNT(*) FROM photos p
+       WHERE p.mime_type LIKE 'image/%' AND ${DATED})::int AS photos
+  `);
+  return requireRow(counts, "Color coverage");
+}
+
+export interface PhotoColors {
+  /** Share of each family, in HUES order */
+  hues: number[];
+  palette: Swatch[];
+  colorfulness: number;
+  chroma: number;
+  luminance: number;
+  monochrome: boolean;
+  center_sigma: number;
+  model: string;
+}
+
+/** A photo's measured colors; null until the worker has measured it. */
+export async function getPhotoColors(
+  photoId: number,
+): Promise<PhotoColors | null> {
+  const result = await query<{
+    hues: number[];
+    palette_hex: string[];
+    palette_share: number[];
+    colorfulness: number;
+    chroma: number;
+    luminance: number;
+    monochrome: boolean;
+    center_sigma: number;
+    model: string;
+  }>(
+    `SELECT hues, palette_hex, palette_share, colorfulness, chroma, luminance,
+            monochrome, center_sigma, model
+     FROM photo_colors WHERE photo_id = $1`,
+    [photoId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const { palette_hex, palette_share, ...rest } = row;
+  return {
+    ...rest,
+    palette: palette_hex.map((hex, i) => ({
+      hex,
+      share: palette_share[i] ?? 0,
+    })),
+  };
 }
 
 // ---- search ---------------------------------------------------------------
@@ -525,21 +1053,24 @@ export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
 
 /**
  * Photos whose filename or folder path matches, folder by folder (path, then
- * filename); keyset-paginated on (folder path, filename, id). The page is
- * picked on narrow rows and only its photos are read in full.
+ * filename); keyset-paginated on (folder path, filename, id); only those
+ * passing the color filter when given. The page is picked on narrow rows
+ * and only its photos are read in full.
  */
 export async function searchPhotos(
   q: string,
   after: PhotoSearchCursor | null,
   limit: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<SearchPage<SearchPhoto, PhotoSearchCursor>> {
   const params: unknown[] = [searchTerms(q).like, limit + 1];
-  let seek = "";
+  const where: string[] = [];
   if (after) {
     params.push(after.folderPath, after.filename, after.id);
-    seek =
-      "WHERE (f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)";
+    where.push("(f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)");
   }
+  const colorWhere = colorFilterSql(params, colors, "h.id");
+  if (colorWhere) where.push(colorWhere);
   const result = await query<
     DatabasePhoto & { folder_name: string; folder_path: string }
   >(
@@ -547,7 +1078,7 @@ export async function searchPhotos(
      page AS (
        SELECT h.id, f.path, h.filename
        FROM hits h JOIN folders f ON f.id = h.folder_id
-       ${seek}
+       ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY f.path, h.filename, h.id
        LIMIT $2
      )
@@ -580,14 +1111,18 @@ export async function searchPhotos(
 /** How many photos and folders searchPhotos and searchFolders page through */
 export async function countSearchMatches(
   q: string,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<{ photos: number; folders: number }> {
+  const params: unknown[] = [searchTerms(q).like];
+  const colorWhere = colorFilterSql(params, colors, "h.id");
   const result = await query<{ photos: number; folders: number }>(
     `WITH ${PHOTO_HITS}
      SELECT
-       (SELECT COUNT(*) FROM hits)::int AS photos,
+       (SELECT COUNT(*) FROM hits h
+        ${colorWhere ? `WHERE ${colorWhere}` : ""})::int AS photos,
        (SELECT COUNT(*) FROM folders f
         WHERE ${containsSql("f.path", "$1")} AND ${HAS_CONTENT})::int AS folders`,
-    [searchTerms(q).like],
+    params,
   );
   return requireRow(result, "Search count");
 }
@@ -1021,12 +1556,14 @@ export interface TimelineCursor {
 export type TimelinePhoto = Photo & { folder_path: string };
 
 /**
- * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id).
+ * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id);
+ * only those passing the color filter when given.
  * Uses idx_photos_date_taken (db/schema.sql).
  */
 export async function getTimelinePhotos(
   before: TimelineCursor | null,
   limit: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<TimelinePhoto[]> {
   const params: unknown[] = [limit];
   let cursorFilter = "";
@@ -1035,6 +1572,7 @@ export async function getTimelinePhotos(
     // Row comparison so the btree on (date_taken, id) serves the seek
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
+  const colorFilter = andColorFilter(params, colors);
 
   const result = await query<DatabasePhoto & { folder_path: string }>(
     `
@@ -1043,6 +1581,7 @@ export async function getTimelinePhotos(
     JOIN folders f ON f.id = p.folder_id
     WHERE (p.metadata->>'date_taken') IS NOT NULL
       ${cursorFilter}
+      ${colorFilter}
     ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
     LIMIT $1
   `,
@@ -1061,15 +1600,24 @@ export interface TimelineSummary {
   total_photos: number;
 }
 
-export async function getTimelineSummary(): Promise<TimelineSummary> {
+/** Months as getTimelinePhotos pages through them, color filter included. */
+export async function getTimelineSummary(
+  colors: ColorFilter = NO_COLOR_FILTER,
+): Promise<TimelineSummary> {
+  const params: unknown[] = [];
+  const colorFilter = andColorFilter(params, colors);
   const [months, total] = await Promise.all([
-    query<{ month: string; count: number }>(`
+    query<{ month: string; count: number }>(
+      `
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
+        ${colorFilter}
       GROUP BY 1
       ORDER BY 1 DESC
-    `),
+    `,
+      params,
+    ),
     query<{ total: number }>(`SELECT COUNT(*)::int AS total FROM photos`),
   ]);
   return { months: months.rows, total_photos: requireRow(total).total };
@@ -1083,15 +1631,16 @@ const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
 const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
 
 /**
- * WHERE clause for photos on the map, within the period and the box when
- * given; values go to `params`. Months and days compare as text against the
- * ISO date_taken, like the timeline's months, so idx_photos_date_taken serves
- * them: `to` stops before the day after it.
+ * WHERE clause for photos on the map, within the period, the box and the
+ * color filter when given; values go to `params`. Months and days compare
+ * as text against the ISO date_taken, like the timeline's months, so
+ * idx_photos_date_taken serves them: `to` stops before the day after it.
  */
 function mapFilter(
   params: unknown[],
   period: MapPeriod,
   box: MapBox | null,
+  colors: ColorFilter,
 ): string {
   const add = (value: unknown) => {
     params.push(value);
@@ -1110,6 +1659,8 @@ function mapFilter(
       `${LONGITUDE} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
     );
   }
+  const colorWhere = colorFilterSql(params, colors);
+  if (colorWhere) where.push(colorWhere);
   return where.join("\n  AND ");
 }
 
@@ -1120,6 +1671,7 @@ function mapFilter(
  */
 export async function getMapPoints(
   period: MapPeriod,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<[number, number, number][]> {
   const params: unknown[] = [CELLS_PER_DEGREE];
   const result = await query<{ lat: number; lng: number; count: number }>(
@@ -1128,7 +1680,7 @@ export async function getMapPoints(
            round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
            COUNT(*)::int AS count
     FROM photos p
-    WHERE ${mapFilter(params, period, null)}
+    WHERE ${mapFilter(params, period, null, colors)}
     GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
   `,
     params,
@@ -1141,7 +1693,10 @@ export async function getMapPoints(
  * days, else per month, oldest first; only those taken inside the box when
  * one is given. One scan: the days are counted, then folded into months.
  */
-export async function getMapDates(box: MapBox | null): Promise<{
+export async function getMapDates(
+  box: MapBox | null,
+  colors: ColorFilter = NO_COLOR_FILTER,
+): Promise<{
   unit: "day" | "month";
   dates: { date: string; count: number }[];
 }> {
@@ -1151,7 +1706,7 @@ export async function getMapDates(box: MapBox | null): Promise<{
     WITH days AS (
       SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
       FROM photos p
-      WHERE ${mapFilter(params, { from: null, to: null }, box)}
+      WHERE ${mapFilter(params, { from: null, to: null }, box, colors)}
       GROUP BY 1
     ), span AS (
       SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
@@ -1183,9 +1738,10 @@ export async function getMapPhotos(
   period: MapPeriod,
   after: TimelineCursor | null,
   limit: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<TimelinePhoto[]> {
   const params: unknown[] = [limit];
-  const where = mapFilter(params, period, box);
+  const where = mapFilter(params, period, box, colors);
   let seek = "";
   if (after) {
     params.push(after.dateTaken, after.id);
@@ -1219,10 +1775,11 @@ export async function getMapPhotos(
 export async function countMapPhotos(
   box: MapBox,
   period: MapPeriod,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<number> {
   const params: unknown[] = [];
   const result = await query<{ total: number }>(
-    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, period, box)}`,
+    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, period, box, colors)}`,
     params,
   );
   return requireRow(result).total;

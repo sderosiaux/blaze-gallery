@@ -394,7 +394,11 @@ CREATE TABLE IF NOT EXISTS photo_descriptions (
 --   Neutres:                   colorfulness < 15 AND NOT monochrome
 --   Noir et blanc:             monochrome
 --   Sombre / Lumineuse:        luminance < 30 / luminance > 65
---   Vives / Douces:            colorfulness >= 55 / colorfulness < 22
+--   Vives / Douces:            colorfulness >= 55 /
+--                              colorfulness < 22 AND NOT monochrome
+-- A list kept in its own order (timeline, map, search) cannot sink a corner
+-- of sky: there blue, brown, black, grey and white need a larger share
+-- (NARROWS in src/lib/database.ts).
 CREATE TABLE IF NOT EXISTS photo_colors (
   photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
   hues real[12] NOT NULL CHECK (array_length(hues, 1) = 12),
@@ -408,4 +412,54 @@ CREATE TABLE IF NOT EXISTS photo_colors (
   center_sigma real NOT NULL,
   model text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- The Couleurs page and MCP list the photos holding a color by share, most
+-- first (keyset on share, photo_id), and the photos in a tone by
+-- colorfulness (black and white by chroma): one partial index per hue over
+-- the photos holding it, written with the same expression and predicate as
+-- colorRank in src/lib/database.ts (a query only uses a partial expression
+-- index when it names both).
+CREATE INDEX IF NOT EXISTS idx_photo_colors_red
+  ON photo_colors ((hues[1]), photo_id) WHERE hues[1] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_orange
+  ON photo_colors ((hues[2]), photo_id) WHERE hues[2] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_yellow
+  ON photo_colors ((hues[3]), photo_id) WHERE hues[3] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_green
+  ON photo_colors ((hues[4]), photo_id) WHERE hues[4] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_teal
+  ON photo_colors ((hues[5]), photo_id) WHERE hues[5] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_blue
+  ON photo_colors ((hues[6]), photo_id) WHERE hues[6] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_purple
+  ON photo_colors ((hues[7]), photo_id) WHERE hues[7] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_pink
+  ON photo_colors ((hues[8]), photo_id) WHERE hues[8] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_brown
+  ON photo_colors ((hues[9]), photo_id) WHERE hues[9] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_black
+  ON photo_colors ((hues[10]), photo_id) WHERE hues[10] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_grey
+  ON photo_colors ((hues[11]), photo_id) WHERE hues[11] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_white
+  ON photo_colors ((hues[12]), photo_id) WHERE hues[12] >= 0.03::real;
+CREATE INDEX IF NOT EXISTS idx_photo_colors_colorfulness
+  ON photo_colors (colorfulness, photo_id);
+CREATE INDEX IF NOT EXISTS idx_photo_colors_monochrome
+  ON photo_colors (chroma, photo_id) WHERE monochrome;
+
+-- Each folder's palette, the strip under its cover in folder listings: up to
+-- 5 colors, swatches = [{"hex": "#rrggbb", "share": 0..1}], heaviest first,
+-- shares summing to 1. Folded from its own photos' photo_colors palettes, or
+-- when none of them is measured yet from every photo below it by path; a
+-- folder with no measured photo has no row. Too slow to compute per listing
+-- (seconds over the whole library), so computed offline: written only by
+-- `npm run palettes` (scripts/folder-palettes.ts), which replaces the whole
+-- content in one transaction. Run on the sync host after each sync and
+-- during or after a worker "thumbs" pass.
+CREATE TABLE IF NOT EXISTS folder_palettes (
+  folder_id bigint PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
+  swatches jsonb NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now()
 );

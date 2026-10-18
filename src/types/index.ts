@@ -24,6 +24,11 @@ export interface Folder {
   date_to: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Up to 5 colors of its photos, heaviest first, shares summing to 1 (lib/palette.ts).
+   * Listings only; absent while none of its photos has measured colors.
+   */
+  palette?: { hex: string; share: number }[];
 }
 
 export interface Photo {

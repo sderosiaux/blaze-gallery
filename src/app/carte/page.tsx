@@ -17,6 +17,8 @@ import {
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import ColorFilterBar from "@/components/find/ColorFilterBar";
+import { useColorFilterParam } from "@/components/find/useColorFilterParam";
 import PeriodBrush from "@/components/map/PeriodBrush";
 import { useAreaPhotos } from "@/components/map/useAreaPhotos";
 import {
@@ -29,6 +31,7 @@ import {
   type MapPoints,
 } from "@/components/map/mapData";
 import { formatCount } from "@/lib/albums";
+import { filterAdjective, hasColorFilter, NO_COLOR_FILTER } from "@/lib/colors";
 import type { MapBox, MapPeriod } from "@/lib/mapArea";
 
 // MapLibre needs the browser (WebGL) and weighs about 1 MB: only this page loads it.
@@ -94,6 +97,8 @@ function MapContent() {
   const box = useSettled(readUrlBox((key) => params.get(key)));
   const period = useSettled(readUrlPeriod((key) => params.get(key)));
   const filtered = period.from !== null || period.to !== null;
+  const [colors, setColors] = useColorFilterParam();
+  const colorFiltered = hasColorFilter(colors);
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
 
   const selectBox = useCallback((next: MapBox | null) => {
@@ -121,6 +126,10 @@ function MapContent() {
     changePeriod({ from: null, to: null }, "push");
   };
 
+  const allColors = () => {
+    setColors(NO_COLOR_FILTER);
+  };
+
   const periodRef = useRef(period);
   periodRef.current = period;
 
@@ -132,7 +141,7 @@ function MapContent() {
   const [dates, setDates] = useState<MapDates | "error" | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    fetchMapDates(box, controller.signal)
+    fetchMapDates(box, colors, controller.signal)
       .then((next) => {
         if (controller.signal.aborted) return;
         setDates(next);
@@ -149,7 +158,7 @@ function MapContent() {
     return () => {
       controller.abort();
     };
-  }, [box, datesAttempt, changePeriod]);
+  }, [box, colors, datesAttempt, changePeriod]);
 
   // The previous period's points stay on the map until the new ones come.
   const [pointsAttempt, setPointsAttempt] = useState(0);
@@ -158,7 +167,7 @@ function MapContent() {
   useEffect(() => {
     const controller = new AbortController();
     setPointsFailed(false);
-    fetchMapPoints(period, controller.signal)
+    fetchMapPoints(period, colors, controller.signal)
       .then(setPoints)
       .catch(() => {
         if (!controller.signal.aborted) setPointsFailed(true);
@@ -166,10 +175,15 @@ function MapContent() {
     return () => {
       controller.abort();
     };
-  }, [period, pointsAttempt]);
+  }, [period, colors, pointsAttempt]);
 
   const [attempt, setAttempt] = useState(0);
-  const { feed, loadMore, remove } = useAreaPhotos(box, period, attempt);
+  const { feed, loadMore, remove } = useAreaPhotos(
+    box,
+    period,
+    colors,
+    attempt,
+  );
   const { phase, cursor } = feed;
 
   // Scrolling near the end of the grid brings the next page.
@@ -219,9 +233,10 @@ function MapContent() {
       />
     );
   } else if (points && points.points.length === 0) {
+    const none = `Aucune photo${colorFiltered ? ` ${filterAdjective(colors)}` : ""} localisée`;
     message = filtered ? (
       <MapMessage
-        title="Aucune photo localisée sur cette période"
+        title={`${none} sur cette période`}
         action={
           <Button
             size="sm"
@@ -233,8 +248,22 @@ function MapContent() {
           </Button>
         }
       />
+    ) : colorFiltered ? (
+      <MapMessage
+        title={none}
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={RotateCcw}
+            onClick={allColors}
+          >
+            Toutes les couleurs
+          </Button>
+        }
+      />
     ) : (
-      <MapMessage title="Aucune photo localisée" />
+      <MapMessage title={none} />
     );
   }
 
@@ -264,16 +293,25 @@ function MapContent() {
     results = (
       <EmptyState
         icon={MapPinOff}
-        title={
-          filtered
-            ? "Aucune photo dans cette zone sur cette période"
-            : "Aucune photo dans cette zone"
-        }
+        title={`Aucune photo${colorFiltered ? ` ${filterAdjective(colors)}` : ""} dans cette zone${filtered ? " sur cette période" : ""}`}
         action={
-          filtered && (
-            <Button variant="secondary" icon={RotateCcw} onClick={allDates}>
-              Toutes les dates
-            </Button>
+          (filtered || colorFiltered) && (
+            <>
+              {filtered && (
+                <Button variant="secondary" icon={RotateCcw} onClick={allDates}>
+                  Toutes les dates
+                </Button>
+              )}
+              {colorFiltered && (
+                <Button
+                  variant="secondary"
+                  icon={RotateCcw}
+                  onClick={allColors}
+                >
+                  Toutes les couleurs
+                </Button>
+              )}
+            </>
           )
         }
         className="py-12"
@@ -330,6 +368,7 @@ function MapContent() {
   return (
     <>
       <PageHeader title="Carte" />
+      <ColorFilterBar filter={colors} onChange={setColors} className="mb-4" />
 
       <MapView
         points={points?.points ?? null}

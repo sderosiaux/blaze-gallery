@@ -9,7 +9,14 @@ import {
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, CalendarDays, Library, RotateCw } from "lucide-react";
+import {
+  ArrowUp,
+  CalendarDays,
+  Library,
+  Palette,
+  RotateCcw,
+  RotateCw,
+} from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
@@ -28,7 +35,16 @@ import { YearPicker, YearRail } from "@/components/find/YearIndex";
 import { setFavorite } from "@/components/find/favorites";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import ColorFilterBar from "@/components/find/ColorFilterBar";
+import { useColorFilterParam } from "@/components/find/useColorFilterParam";
 import { asString, readJsonObject } from "@/hooks/apiJson";
+import {
+  filterAdjective,
+  hasColorFilter,
+  NO_COLOR_FILTER,
+  setColorParams,
+  type ColorFilter,
+} from "@/lib/colors";
 import {
   endOfMonthCursor,
   countsOf,
@@ -55,8 +71,15 @@ interface Feed {
   phase: "loading" | "ready" | "more" | "error" | "more-error";
 }
 
-async function fetchPage(before: string | null, signal: AbortSignal) {
-  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+async function fetchPage(
+  before: string | null,
+  colors: ColorFilter,
+  signal: AbortSignal,
+) {
+  const params = setColorParams(
+    new URLSearchParams({ limit: String(PAGE_SIZE) }),
+    colors,
+  );
   if (before) params.set("before", before);
   const response = await fetch(`/api/timeline?${params.toString()}`, {
     signal,
@@ -72,6 +95,13 @@ async function fetchPage(before: string | null, signal: AbortSignal) {
 
 const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
   String(a.id) === String(b.id);
+
+/** `/timeline` at a year or month, keeping the color filter. */
+function timelineHref(colors: ColorFilter, at: Record<string, string> = {}) {
+  const params = setColorParams(new URLSearchParams(at), colors);
+  const query = params.toString();
+  return query ? `/timeline?${query}` : "/timeline";
+}
 
 /** Pages can overlap if the backfill dates a photo between two requests. */
 function unseen(seen: Set<string>, photos: TimelinePhoto[]) {
@@ -96,6 +126,8 @@ function TimelineContent() {
       ? Number(yearParam)
       : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [colors, setColors] = useColorFilterParam();
+  const filtered = hasColorFilter(colors);
 
   const [years, setYears] = useState<number[]>([]);
   const [summaryMonths, setSummaryMonths] = useState<MonthCount[]>([]);
@@ -112,7 +144,7 @@ function TimelineContent() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchTimelineSummary(controller.signal)
+    fetchTimelineSummary(controller.signal, colors)
       .then((summary) => {
         setYears(yearsOf(summary.months));
         setSummaryMonths(summary.months);
@@ -124,7 +156,7 @@ function TimelineContent() {
     return () => {
       controller.abort();
     };
-  }, [attempt]);
+  }, [attempt, colors]);
 
   useEffect(() => {
     inFlight.current?.abort();
@@ -138,6 +170,7 @@ function TimelineContent() {
         : startYear
           ? endOfYearCursor(startYear)
           : null,
+      colors,
       controller.signal,
     )
       .then(({ photos, next }) => {
@@ -157,33 +190,36 @@ function TimelineContent() {
     return () => {
       controller.abort();
     };
-  }, [startYear, startMonth, attempt]);
+  }, [startYear, startMonth, attempt, colors]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
-  const loadMore = useCallback((retry = false) => {
-    const { cursor, phase } = feedRef.current;
-    if (!cursor || inFlight.current) return;
-    if (phase !== "ready" && !(retry && phase === "more-error")) return;
-    const controller = new AbortController();
-    inFlight.current = controller;
-    setFeed((f) => ({ ...f, phase: "more" }));
-    fetchPage(cursor, controller.signal)
-      .then(({ photos, next }) => {
-        setFeed((f) => ({
-          items: [...f.items, ...unseen(seen.current, photos)],
-          cursor: next,
-          phase: "ready",
-        }));
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setFeed((f) => ({ ...f, phase: "more-error" }));
-      })
-      .finally(() => {
-        if (inFlight.current === controller) inFlight.current = null;
-      });
-  }, []);
+  const loadMore = useCallback(
+    (retry = false) => {
+      const { cursor, phase } = feedRef.current;
+      if (!cursor || inFlight.current) return;
+      if (phase !== "ready" && !(retry && phase === "more-error")) return;
+      const controller = new AbortController();
+      inFlight.current = controller;
+      setFeed((f) => ({ ...f, phase: "more" }));
+      fetchPage(cursor, colors, controller.signal)
+        .then(({ photos, next }) => {
+          setFeed((f) => ({
+            items: [...f.items, ...unseen(seen.current, photos)],
+            cursor: next,
+            phase: "ready",
+          }));
+        })
+        .catch(() => {
+          if (!controller.signal.aborted)
+            setFeed((f) => ({ ...f, phase: "more-error" }));
+        })
+        .finally(() => {
+          if (inFlight.current === controller) inFlight.current = null;
+        });
+    },
+    [colors],
+  );
 
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -253,25 +289,28 @@ function TimelineContent() {
       window.history.pushState(
         null,
         "",
-        years[0] === year ? "/timeline" : `/timeline?year=${year}`,
+        timelineHref(colors, years[0] === year ? {} : { year: String(year) }),
       );
     },
-    [years],
+    [years, colors],
   );
 
-  const jumpMonth = useCallback((month: string) => {
-    const section = document.querySelector<HTMLElement>(
-      `[data-month="${month}"]`,
-    );
-    if (section) {
-      section.scrollIntoView({ block: "start" });
-      return;
-    }
-    // Not loaded yet: start the list at that month.
-    window.scrollTo({ top: 0 });
-    setActiveMonth(month);
-    window.history.pushState(null, "", `/timeline?month=${month}`);
-  }, []);
+  const jumpMonth = useCallback(
+    (month: string) => {
+      const section = document.querySelector<HTMLElement>(
+        `[data-month="${month}"]`,
+      );
+      if (section) {
+        section.scrollIntoView({ block: "start" });
+        return;
+      }
+      // Not loaded yet: start the list at that month.
+      window.scrollTo({ top: 0 });
+      setActiveMonth(month);
+      window.history.pushState(null, "", timelineHref(colors, { month }));
+    },
+    [colors],
+  );
 
   const counts = useMemo(() => countsOf(summaryMonths), [summaryMonths]);
   const activeYearMonths = useMemo(
@@ -341,7 +380,13 @@ function TimelineContent() {
     setAttempt((n) => n + 1);
   };
 
-  const header = <PageHeader title="Chronologie" />;
+  const latestHref = timelineHref(colors);
+  const header = (
+    <>
+      <PageHeader title="Chronologie" />
+      <ColorFilterBar filter={colors} onChange={setColors} className="mb-6" />
+    </>
+  );
 
   if (feed.phase === "error") {
     return (
@@ -368,19 +413,30 @@ function TimelineContent() {
   }
 
   if (feed.items.length === 0) {
+    const what = filtered ? filterAdjective(colors) : "datée";
     return (
       <>
         {header}
         <EmptyState
-          icon={CalendarDays}
+          icon={filtered ? Palette : CalendarDays}
           title={
             startYear
-              ? `Aucune photo datée en ${startYear} ou avant`
-              : "Aucune photo datée"
+              ? `Aucune photo ${what} en ${startYear} ou avant`
+              : `Aucune photo ${what}`
           }
           action={
-            startYear ? (
-              <ButtonLink href="/timeline" variant="secondary" icon={ArrowUp}>
+            filtered ? (
+              <Button
+                variant="secondary"
+                icon={RotateCcw}
+                onClick={() => {
+                  setColors(NO_COLOR_FILTER);
+                }}
+              >
+                Toutes les couleurs
+              </Button>
+            ) : startYear ? (
+              <ButtonLink href={latestHref} variant="secondary" icon={ArrowUp}>
                 Revenir au plus récent
               </ButtonLink>
             ) : (
@@ -412,7 +468,7 @@ function TimelineContent() {
                 et avant
               </span>
               <ButtonLink
-                href="/timeline"
+                href={latestHref}
                 size="sm"
                 variant="ghost"
                 icon={ArrowUp}
