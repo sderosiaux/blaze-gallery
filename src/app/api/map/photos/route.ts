@@ -12,9 +12,10 @@ const PAGE_SIZE = 100;
 
 /**
  * Photos taken inside the box (`south`, `west`, `north`, `east`, degrees)
- * and the period (`from`, `to`: YYYY-MM, optional), newest first, in the
- * timeline's shape. Without `after`: the first page and `total`. With
- * `after` set to the previous page's `next_after`: the next page only.
+ * and the period (`from`, `to`: YYYY-MM or YYYY-MM-DD, optional), newest
+ * first, in the timeline's shape. Without `after`: the first page and
+ * `total`. With `after` set to the previous page's `next_after`: the next
+ * page only.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;

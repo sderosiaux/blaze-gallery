@@ -17,14 +17,15 @@ import {
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
-import type { MonthCount } from "@/components/find/timeline";
 import PeriodBrush from "@/components/map/PeriodBrush";
 import { useAreaPhotos } from "@/components/map/useAreaPhotos";
 import {
-  fetchMapMonths,
+  fetchMapDates,
   fetchMapPoints,
+  holdsPhotos,
   readUrlBox,
   readUrlPeriod,
+  type MapDates,
   type MapPoints,
 } from "@/components/map/mapData";
 import { formatCount } from "@/lib/albums";
@@ -120,20 +121,35 @@ function MapContent() {
     changePeriod({ from: null, to: null }, "push");
   };
 
-  const [monthsAttempt, setMonthsAttempt] = useState(0);
-  const [months, setMonths] = useState<MonthCount[] | "error" | null>(null);
+  const periodRef = useRef(period);
+  periodRef.current = period;
+
+  const [datesAttempt, setDatesAttempt] = useState(0);
+  // With a zone selected, the brush shows when that place was photographed,
+  // day by day for a single trip; the previous bars stay until the new ones
+  // come. A period the zone holds no photo of would leave an empty
+  // selection: the new bars come with all dates.
+  const [dates, setDates] = useState<MapDates | "error" | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    setMonths(null);
-    fetchMapMonths(controller.signal)
-      .then(setMonths)
+    fetchMapDates(box, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        setDates(next);
+        // A zone without photos has no bars to fall back on: the period stays.
+        if (
+          next.dates.length > 0 &&
+          !holdsPhotos(next.dates, periodRef.current)
+        )
+          changePeriod({ from: null, to: null }, "replace");
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setMonths("error");
+        if (!controller.signal.aborted) setDates("error");
       });
     return () => {
       controller.abort();
     };
-  }, [monthsAttempt]);
+  }, [box, datesAttempt, changePeriod]);
 
   // The previous period's points stay on the map until the new ones come.
   const [pointsAttempt, setPointsAttempt] = useState(0);
@@ -324,7 +340,7 @@ function MapContent() {
         {message}
       </MapView>
 
-      {months === "error" ? (
+      {dates === "error" ? (
         <div className="flex items-center justify-between gap-3 pt-4 text-sm text-ink-muted">
           <p>La période n&apos;a pas pu être chargée.</p>
           <Button
@@ -333,19 +349,15 @@ function MapContent() {
             icon={RotateCw}
             className="-mr-3"
             onClick={() => {
-              setMonthsAttempt((n) => n + 1);
+              setDatesAttempt((n) => n + 1);
             }}
           >
             Réessayer
           </Button>
         </div>
       ) : (
-        months && (
-          <PeriodBrush
-            months={months}
-            period={period}
-            onChange={changePeriod}
-          />
+        dates && (
+          <PeriodBrush dates={dates} period={period} onChange={changePeriod} />
         )
       )}
 

@@ -1,18 +1,18 @@
-import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
-import { LOCALE } from "@/lib/albums";
+import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
+import { formatDay, LOCALE } from "@/lib/albums";
 import {
+  addDays,
   addMonths,
+  firstDay,
+  isDay,
+  isMonth,
+  lastDay,
   parseBox,
   parsePeriod,
   type MapBox,
   type MapPeriod,
 } from "@/lib/mapArea";
-import {
-  isMonthCount,
-  monthLabel,
-  type MonthCount,
-  type TimelinePhoto,
-} from "@/components/find/timeline";
+import { monthLabel, type TimelinePhoto } from "@/components/find/timeline";
 
 /** [latitude, longitude, photos] of one map cell, where its photos average. */
 export type MapPoint = [number, number, number];
@@ -58,11 +58,55 @@ export async function fetchMapPoints(
   return { cell: data.cell, points: asArray(data.points).filter(isPoint) };
 }
 
-export async function fetchMapMonths(
+/** Photos per day ("YYYY-MM-DD") over a short span, else per month ("YYYY-MM"). */
+export type DateUnit = "day" | "month";
+
+export interface DateCount {
+  date: string;
+  count: number;
+}
+
+export interface MapDates {
+  unit: DateUnit;
+  /** Oldest first, only dates holding photos */
+  dates: DateCount[];
+}
+
+export async function fetchMapDates(
+  box: MapBox | null,
   signal: AbortSignal,
-): Promise<MonthCount[]> {
-  const data = await readSuccess(await fetch("/api/map/months", { signal }));
-  return asArray(data.months).filter(isMonthCount);
+): Promise<MapDates> {
+  const query = box
+    ? `?${new URLSearchParams({
+        south: String(box.south),
+        west: String(box.west),
+        north: String(box.north),
+        east: String(box.east),
+      }).toString()}`
+    : "";
+  const data = await readSuccess(
+    await fetch(`/api/map/dates${query}`, { signal }),
+  );
+  const unit: DateUnit = data.unit === "day" ? "day" : "month";
+  const valid = unit === "day" ? isDay : isMonth;
+  const dates = asArray(data.dates).filter(
+    (value): value is DateCount =>
+      isRecord(value) &&
+      typeof value.date === "string" &&
+      valid(value.date) &&
+      typeof value.count === "number",
+  );
+  return { unit, dates };
+}
+
+/** Whether a photo of `dates` may fall in the period, to their precision. */
+export function holdsPhotos(dates: DateCount[], period: MapPeriod): boolean {
+  const from = period.from ? firstDay(period.from) : "";
+  const to = period.to ? lastDay(period.to) : "9999";
+  return dates.some(
+    ({ date, count }) =>
+      count > 0 && lastDay(date) >= from && firstDay(date) <= to,
+  );
 }
 
 export interface AreaPage {
@@ -113,24 +157,52 @@ export function roundDegrees(value: number): number {
   return Math.round(value * 1e5) / 1e5;
 }
 
-/** Every month from `first` to `last`, both included. */
-export function monthsBetween(first: string, last: string): string[] {
-  const months: string[] = [];
-  for (let m = first; m <= last; m = addMonths(m, 1)) months.push(m);
-  return months;
+/** Every day or month from `first` to `last`, both included. */
+export function datesBetween(
+  first: string,
+  last: string,
+  unit: DateUnit,
+): string[] {
+  const next = unit === "day" ? addDays : addMonths;
+  const dates: string[] = [];
+  for (let d = first; d <= last; d = next(d, 1)) dates.push(d);
+  return dates;
 }
 
-function monthName(month: string): string {
-  return new Date(`${month}-01T00:00:00.000Z`).toLocaleDateString(LOCALE, {
-    month: "long",
+const formatUtc = (day: string, options: Intl.DateTimeFormatOptions) =>
+  new Date(`${day}T00:00:00.000Z`).toLocaleDateString(LOCALE, {
+    ...options,
     timeZone: "UTC",
   });
+
+/** "12 avril 2014" or "avril 2014" */
+export function dateLabel(date: string): string {
+  return isDay(date) ? formatDay(`${date}T00:00:00.000Z`) : monthLabel(date);
 }
 
 /** "mai 2019", "mai – août 2021", "mai 2019 – août 2021" */
-export function periodLabel(from: string, to: string): string {
+function monthsLabel(from: string, to: string): string {
   if (from === to) return monthLabel(from);
-  if (from.slice(0, 4) === to.slice(0, 4))
-    return `${monthName(from)} – ${monthLabel(to)}`;
-  return `${monthLabel(from)} – ${monthLabel(to)}`;
+  if (from.slice(0, 4) !== to.slice(0, 4))
+    return `${monthLabel(from)} – ${monthLabel(to)}`;
+  return `${formatUtc(`${from}-01`, { month: "long" })} – ${monthLabel(to)}`;
+}
+
+/**
+ * Months as monthsLabel; days as "12 – 19 avril 2014", "28 mars – 3 avril
+ * 2014", or as months when they cover whole ones. A month next to a day
+ * counts as its days.
+ */
+export function periodLabel(from: string, to: string): string {
+  if (isMonth(from) && isMonth(to)) return monthsLabel(from, to);
+  const first = firstDay(from);
+  const last = lastDay(to);
+  if (first.endsWith("-01") && last === lastDay(last.slice(0, 7)))
+    return monthsLabel(first.slice(0, 7), last.slice(0, 7));
+  if (first === last) return dateLabel(last);
+  if (first.slice(0, 7) === last.slice(0, 7))
+    return `${formatUtc(first, { day: "numeric" })} – ${dateLabel(last)}`;
+  if (first.slice(0, 4) === last.slice(0, 4))
+    return `${formatUtc(first, { day: "numeric", month: "long" })} – ${dateLabel(last)}`;
+  return `${dateLabel(first)} – ${dateLabel(last)}`;
 }

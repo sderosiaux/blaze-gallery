@@ -8,9 +8,10 @@ import { requireAuth } from "@/lib/auth/middleware";
 export const dynamic = "force-dynamic";
 
 /**
- * Where the photos taken in the period (`from`, `to`: YYYY-MM, both
- * optional and included) were taken: `points` holds [latitude, longitude,
- * count] per cell of `cell` degrees, at the mean position of its photos.
+ * Where the photos taken in the period (`from`, `to`: YYYY-MM or
+ * YYYY-MM-DD, both optional and included) were taken: `points` holds
+ * [latitude, longitude, count] per cell of `cell` degrees, at the mean
+ * position of its photos.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const period = parsePeriod((key) => request.nextUrl.searchParams.get(key));
