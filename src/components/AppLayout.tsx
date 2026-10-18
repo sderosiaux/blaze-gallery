@@ -12,6 +12,7 @@ import {
   Library,
   MapIcon,
   Menu,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -54,6 +55,12 @@ const PRIMARY_NAV: NavLinkItem[] = [
     label: "Carte",
     icon: MapIcon,
     match: (p) => p.startsWith("/carte"),
+  },
+  {
+    href: "/couleurs",
+    label: "Couleurs",
+    icon: Palette,
+    match: (p) => p.startsWith("/couleurs"),
   },
   {
     href: "/favorites",
