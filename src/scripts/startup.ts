@@ -65,16 +65,23 @@ async function performStartup(): Promise<void> {
       }
     }
 
-    logger.info("Checking thumbnail service...");
-    const thumbnailStats = await thumbnailService.getThumbnailStats();
-    const sizeMB = (thumbnailStats.totalSize / 1024 / 1024).toFixed(1);
-    logger.info(
-      `Thumbnails: ${thumbnailStats.totalThumbnails} files (${sizeMB}MB)`,
-    );
+    // On a serverless host a function is frozen once it answers: a scan
+    // started here would die midway and its job would linger as running.
+    // The bucket is synced by `npm run sync` from a long-lived machine instead.
+    if (process.env.VERCEL) {
+      logger.info("Serverless host: bucket sync runs elsewhere (npm run sync)");
+    } else {
+      logger.info("Checking thumbnail service...");
+      const thumbnailStats = await thumbnailService.getThumbnailStats();
+      const sizeMB = (thumbnailStats.totalSize / 1024 / 1024).toFixed(1);
+      logger.info(
+        `Thumbnails: ${thumbnailStats.totalThumbnails} files (${sizeMB}MB)`,
+      );
 
-    logger.info("Starting sync service...");
-    await syncService.start();
-    logger.info("Sync service started");
+      logger.info("Starting sync service...");
+      await syncService.start();
+      logger.info("Sync service started");
+    }
 
     logger.info("Blaze Gallery startup completed successfully!");
 

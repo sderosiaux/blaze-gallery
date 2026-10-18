@@ -10,6 +10,8 @@ import {
   createSyncJob,
   updateSyncJob,
   getActiveSyncJobs,
+  failStaleSyncJobs,
+  claimSyncJob,
   createOrUpdateFolder,
   createOrUpdatePhoto,
   getFolderByPath,
@@ -220,6 +222,32 @@ function logQueueFailure(error: unknown): void {
   );
 }
 
+/** A running job silent for this long belongs to a process that died. */
+const STALE_AFTER_MINUTES = 15;
+const HEARTBEAT_MS = 60_000;
+
+const PRIORITY: Record<SyncJob["type"], number> = {
+  folder_scan: 1,
+  metadata_scan: 2,
+  full_scan: 3,
+  cleanup: 4,
+};
+
+/** Pending jobs, folder and metadata scans first, then full scans, then cleanup. */
+function pendingByPriority(jobs: SyncJob[]): SyncJob[] {
+  return jobs
+    .filter((job) => job.status === "pending")
+    .sort((a, b) => PRIORITY[a.type] - PRIORITY[b.type]);
+}
+
+async function failStaleJobs(): Promise<void> {
+  const failed = await failStaleSyncJobs(STALE_AFTER_MINUTES);
+  if (failed.length > 0)
+    logger.syncOperation(
+      `Failed sync jobs left by a stopped process: #${failed.join(", #")}`,
+    );
+}
+
 export class SyncService {
   private isRunning = false;
   private currentJob: SyncJob | null = null;
@@ -243,6 +271,7 @@ export class SyncService {
 
   private async ensureInitialSync() {
     try {
+      await failStaleJobs();
       const activeJobs = await getActiveSyncJobs();
 
       // Check for existing pending/running jobs - don't cancel them, let them continue
@@ -443,25 +472,10 @@ export class SyncService {
 
     while (this.isRunning) {
       try {
+        await failStaleJobs();
         const activeJobs = await getActiveSyncJobs();
-
-        // Separate jobs by priority: folder_scan/metadata_scan > full_scan > cleanup
-        const pendingJobs = activeJobs.filter(
-          (job) => job.status === "pending",
-        );
+        const pendingJobs = pendingByPriority(activeJobs);
         const runningJob = activeJobs.find((job) => job.status === "running");
-
-        // Sort pending jobs by priority (folder_scan first, then full_scan)
-        const priorityOrder = {
-          folder_scan: 1,
-          metadata_scan: 2,
-          full_scan: 3,
-          cleanup: 4,
-        };
-        pendingJobs.sort(
-          (a, b) =>
-            (priorityOrder[a.type] || 99) - (priorityOrder[b.type] || 99),
-        );
 
         const highPriorityPending = pendingJobs.find(
           (job) => job.type === "folder_scan" || job.type === "metadata_scan",
@@ -509,14 +523,19 @@ export class SyncService {
   }
 
   private async executeJob(job: SyncJob) {
+    if (!(await claimSyncJob(job.id))) return;
     this.currentJob = job;
+    // Proves this process is alive even through a long listing or a slow
+    // batch, so other processes don't take the job for abandoned.
+    const heartbeat = setInterval(() => {
+      updateSyncJob(job.id, {}).catch((error: unknown) => {
+        logger.syncError("Sync heartbeat failed", error as Error, {
+          jobId: job.id,
+        });
+      });
+    }, HEARTBEAT_MS);
 
     try {
-      await updateSyncJob(job.id, {
-        status: "running",
-        started_at: new Date().toISOString(),
-      });
-
       logger.syncOperation("Starting sync job", {
         jobId: job.id,
         jobType: job.type,
@@ -561,7 +580,28 @@ export class SyncService {
         error_message: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
+      clearInterval(heartbeat);
       this.currentJob = null;
+    }
+  }
+
+  /**
+   * Runs pending jobs, by priority, until none is left, then returns. For a
+   * long-lived process outside the web server (`npm run sync`): unlike the
+   * startup loop it ends, so it can run from cron. Waits while another live
+   * process holds a running job.
+   */
+  async drain(): Promise<void> {
+    for (;;) {
+      await failStaleJobs();
+      const activeJobs = await getActiveSyncJobs();
+      if (activeJobs.some((job) => job.status === "running")) {
+        await this.sleep(5000);
+        continue;
+      }
+      const next = pendingByPriority(activeJobs)[0];
+      if (!next) return;
+      await this.executeJob(next);
     }
   }
 

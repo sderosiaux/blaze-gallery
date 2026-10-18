@@ -71,10 +71,12 @@ What differs from a long-running server:
   view of each photo downloads the original from the bucket and resizes it
   there, which counts against function duration, memory and invocations,
   and against the bucket's egress.
-- The sync queue runs in the background of the request that started it,
-  and Vercel can freeze a function once it has answered. A full scan of a
-  large bucket may not finish there; running it from a long-lived instance
-  (Docker or `npm start`) on the same database and bucket does.
+- The app does not sync the bucket on Vercel: a function is frozen once it
+  has answered, so a scan would stop midway. Run `npm run sync` from any
+  machine with the same `.env` (by hand after adding photos, or from cron):
+  it queues a full scan and runs the queue until it is empty. A job left
+  without a heartbeat for 15 minutes is failed so it never blocks the next
+  sync.
 - The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
   the server process.
 

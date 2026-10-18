@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
+    "sync": "tsx scripts/sync.ts",
     "lint": "next lint --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
@@ -47,6 +48,7 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "postcss": "^8.4.47",
     "prettier": "^3.0.0",
-    "tailwindcss": "^3.4.1"
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.15"
   }
 }
