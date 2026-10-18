@@ -705,8 +705,8 @@ def run_people() -> None:
         create_person,
         decide,
         find_person,
-        largest_faces,
         set_seeds,
+        sole_faces,
     )
 
     parser = argparse.ArgumentParser(description=run_people.__doc__)
@@ -716,7 +716,7 @@ def run_people() -> None:
     seed = commands.add_parser("seed", help="the owner's example faces of a person")
     seed.add_argument("--person", required=True, help="name or id")
     seed.add_argument("--faces", help="comma-separated face ids")
-    seed.add_argument("--photos", help="comma-separated photo ids: their largest face")
+    seed.add_argument("--photos", help="comma-separated photo ids with a single face")
     label = commands.add_parser("label", help="yes/no on faces, as the review screen does")
     label.add_argument("--person", required=True, help="name or id")
     label.add_argument("--accept", help="comma-separated face ids")
@@ -745,7 +745,7 @@ def run_people() -> None:
                 faces = _ids(args.faces)
                 photos = _ids(args.photos)
                 if photos:
-                    faces += list(largest_faces(conn, photos).values())
+                    faces += list(sole_faces(conn, photos).values())
                 if not faces:
                     raise PeopleError("give --faces or --photos")
                 print(f"{person.name}: {set_seeds(conn, person.id, faces)} seed faces")
