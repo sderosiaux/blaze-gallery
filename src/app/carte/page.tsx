@@ -121,11 +121,12 @@ function MapContent() {
   };
 
   const [monthsAttempt, setMonthsAttempt] = useState(0);
+  // With a zone selected, the brush shows when that place was photographed;
+  // the previous bars stay until the new ones come.
   const [months, setMonths] = useState<MonthCount[] | "error" | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    setMonths(null);
-    fetchMapMonths(controller.signal)
+    fetchMapMonths(box, controller.signal)
       .then(setMonths)
       .catch(() => {
         if (!controller.signal.aborted) setMonths("error");
@@ -133,7 +134,7 @@ function MapContent() {
     return () => {
       controller.abort();
     };
-  }, [monthsAttempt]);
+  }, [box, monthsAttempt]);
 
   // The previous period's points stay on the map until the new ones come.
   const [pointsAttempt, setPointsAttempt] = useState(0);

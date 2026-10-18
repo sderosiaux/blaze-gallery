@@ -59,9 +59,20 @@ export async function fetchMapPoints(
 }
 
 export async function fetchMapMonths(
+  box: MapBox | null,
   signal: AbortSignal,
 ): Promise<MonthCount[]> {
-  const data = await readSuccess(await fetch("/api/map/months", { signal }));
+  const query = box
+    ? `?${new URLSearchParams({
+        south: String(box.south),
+        west: String(box.west),
+        north: String(box.north),
+        east: String(box.east),
+      }).toString()}`
+    : "";
+  const data = await readSuccess(
+    await fetch(`/api/map/months${query}`, { signal }),
+  );
   return asArray(data.months).filter(isMonthCount);
 }
 

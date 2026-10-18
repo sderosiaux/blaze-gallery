@@ -1018,17 +1018,21 @@ export async function getMapPoints(
   return result.rows.map((row) => [row.lat, row.lng, row.count]);
 }
 
-/** Photos on the map per month of date taken, oldest first. */
-export async function getMapMonths(): Promise<
-  { month: string; count: number }[]
-> {
-  const result = await query<{ month: string; count: number }>(`
+/** Photos on the map per month of date taken, oldest first; only those taken inside the box when one is given. */
+export async function getMapMonths(
+  box: MapBox | null,
+): Promise<{ month: string; count: number }[]> {
+  const params: unknown[] = [];
+  const result = await query<{ month: string; count: number }>(
+    `
     SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
     FROM photos p
-    WHERE ${ON_MAP}
+    WHERE ${mapFilter(params, { from: null, to: null }, box)}
     GROUP BY 1
     ORDER BY 1
-  `);
+  `,
+    params,
+  );
   return result.rows;
 }
 
