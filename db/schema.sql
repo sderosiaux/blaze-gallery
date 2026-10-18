@@ -357,3 +357,55 @@ CREATE TABLE IF NOT EXISTS photo_descriptions (
   data jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- What colors each photo holds, from the "thumbs" task (worker/), which
+-- downloads the original once for its thumbnail and these measures. One row
+-- per photo; a new model recomputes and replaces it. Contract for the UI
+-- (Couleurs page, color chips, palette strips) and for MCP clients.
+--
+-- Measured on the photo as the owner sees it (EXIF orientation and
+-- metadata.user_rotation applied, displayed colors, no white balance
+-- correction), at 128 px, in CIE L*a*b* / LCh (D65). Each pixel weighs
+-- exp(-(dx/sx)^2/2 - (dy/sy)^2/2) from the center, sx = center_sigma x width,
+-- sy = center_sigma x height: "mostly the center, a large one" (at 0.40 the
+-- border still counts about a third of the center).
+--
+-- hues: the share of the weighted picture in each of 12 families, summing
+-- to 1, ALWAYS in this order (1-based for SQL: hues[1] is red):
+--    1 red     2 orange   3 yellow   4 green   5 teal    6 blue
+--    7 purple  8 pink     9 brown   10 black  11 grey   12 white
+-- Pixels with low chroma go to black / grey / white by lightness; the others
+-- to a family by hue angle, with soft borders. Warm hues only count as red,
+-- orange or yellow when saturated: skin, wood, hair and tungsten-lit walls
+-- are brown (a close-up portrait reads mostly brown, not orange); light
+-- muted reds are pink.
+-- palette_hex / palette_share: up to 5 colors ('#rrggbb', sRGB) found by
+-- weighted k-means in Lab, with their shares of the weighted picture, most
+-- important first (shares sum to 1; fewer than 5 on a flat picture).
+-- colorfulness: Hasler-Suesstrunk M, weighted (0 grey, ~15 slightly, ~33
+-- moderately, ~45 average, ~59 quite, 80+ very colorful).
+-- chroma: weighted mean C*. luminance: weighted mean L* (0 black - 100 white).
+-- monochrome: 95% of the weight has C* < 6 (B&W, and colorless photos such
+-- as thick fog: they look the same).
+-- model: the algorithm version (rows of two models do not compare).
+--
+-- Thresholds calibrated on the library (see the worker's calibration):
+--   color chip "contains c":   hues[c] >= 0.03, ranked by hues[c] DESC
+--   Neutres:                   colorfulness < 15 AND NOT monochrome
+--   Noir et blanc:             monochrome
+--   Sombre / Lumineuse:        luminance < 30 / luminance > 65
+--   Vives / Douces:            colorfulness >= 55 / colorfulness < 22
+CREATE TABLE IF NOT EXISTS photo_colors (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  hues real[12] NOT NULL CHECK (array_length(hues, 1) = 12),
+  palette_hex text[] NOT NULL,
+  palette_share real[] NOT NULL
+    CHECK (cardinality(palette_share) = cardinality(palette_hex)),
+  colorfulness real NOT NULL,
+  chroma real NOT NULL,
+  luminance real NOT NULL,
+  monochrome boolean NOT NULL,
+  center_sigma real NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
