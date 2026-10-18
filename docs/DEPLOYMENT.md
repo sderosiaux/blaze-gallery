@@ -76,7 +76,12 @@ What differs from a long-running server:
   machine with the same `.env` (by hand after adding photos, or from cron):
   it queues a full scan and runs the queue until it is empty. A job left
   without a heartbeat for 15 minutes is failed so it never blocks the next
-  sync.
+  sync. The scan lists the whole bucket (a few minutes) and writes only what
+  differs from the database: new files, replaced files, files gone. It never
+  removes anything when the listing fails partway, and stops without writing
+  when more than 5% of the photos would go (`--allow-mass-removal` to
+  confirm). `npm run sync -- --dry-run` prints what it would change and
+  writes nothing.
 - The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
   the server process.
 
