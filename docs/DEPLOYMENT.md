@@ -146,8 +146,10 @@ token.
 `docker restart blaze-embedder` is safe. New photos: `docker run --rm
 --env-file blaze.env --entrypoint blaze-enqueue blaze-worker:embed --task <task>
 --all` for faces, thumbs and embed queues the missing ones (running it again
-changes nothing), then `docker start blaze-worker blaze-worker-thumbs
-blaze-worker-embed`. Each worker stops once its queue is empty, so the
+changes nothing), then `docker start blaze-worker`, `docker start -a
+blaze-worker-thumbs` and, once it has exited, `docker start blaze-worker-embed`:
+embed only claims photos whose thumbnail exists, and stops at once when none
+is ready yet. Each worker stops once its queue is empty, so the
 database can suspend; nothing polls it between runs. Progress:
 `--entrypoint blaze-queue ... --task embed`.
 
