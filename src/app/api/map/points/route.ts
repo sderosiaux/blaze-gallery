@@ -4,6 +4,7 @@ import { getMapPoints } from "@/lib/database";
 import { CELLS_PER_DEGREE, parsePeriod } from "@/lib/mapArea";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
+import { parseColorFilter } from "@/lib/colors";
 
 export const dynamic = "force-dynamic";
 
@@ -11,19 +12,28 @@ export const dynamic = "force-dynamic";
  * Where the photos taken in the period (`from`, `to`: YYYY-MM or
  * YYYY-MM-DD, both optional and included) were taken: `points` holds
  * [latitude, longitude, count] per cell of `cell` degrees, at the mean
- * position of its photos.
+ * position of its photos. `color` / `tone` count only the photos holding
+ * that color, in that tone.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
-  const period = parsePeriod((key) => request.nextUrl.searchParams.get(key));
+  const get = (key: string) => request.nextUrl.searchParams.get(key);
+  const period = parsePeriod(get);
   if (!period.ok) {
     return NextResponse.json(
       { success: false, error: period.error },
       { status: 400 },
     );
   }
+  const colors = parseColorFilter(get);
+  if (!colors.ok) {
+    return NextResponse.json(
+      { success: false, error: colors.error },
+      { status: 400 },
+    );
+  }
 
   try {
-    const points = await getMapPoints(period.value);
+    const points = await getMapPoints(period.value, colors.value);
     return NextResponse.json(
       { success: true, cell: 1 / CELLS_PER_DEGREE, points },
       // A sync adds photos now and then: a minute old is fine.
