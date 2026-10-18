@@ -14,7 +14,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "website:dev": "cd website && npm run dev",
     "website:build": "cd website && npm run build",
-    "check": "npm run typecheck && npm run lint && npm run format:check"
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.650.0",
