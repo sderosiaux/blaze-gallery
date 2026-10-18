@@ -21,7 +21,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import BrandMark from "@/components/BrandMark";
-import GitHubIcon from "@/components/GitHubIcon";
 import AuthButton from "@/components/auth/AuthButton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useLayout } from "@/contexts/LayoutContext";
@@ -210,14 +209,29 @@ function SidebarContent({
           collapsed ? "justify-center" : "justify-between pl-5 pr-3",
         )}
       >
-        <Link
-          href="/"
-          onClick={onNavigate}
-          aria-label="Blaze Gallery, accueil"
-          className="rounded"
-        >
-          <BrandMark compact={collapsed} />
-        </Link>
+        {/* Folded, the rail has room for one control: the one that unfolds it. */}
+        {!(collapsed && onToggleCollapse) && (
+          <Link
+            href="/"
+            onClick={onNavigate}
+            aria-label="Blaze Gallery, accueil"
+            className="rounded"
+          >
+            <BrandMark compact={collapsed} />
+          </Link>
+        )}
+        {onToggleCollapse && (
+          <IconButton
+            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+            label={
+              collapsed
+                ? "Déplier la barre latérale  ["
+                : "Replier la barre latérale  ["
+            }
+            size="sm"
+            onClick={onToggleCollapse}
+          />
+        )}
         {onClose && (
           <IconButton
             icon={X}
@@ -338,51 +352,16 @@ function SidebarContent({
       )}
       {!showNav && <div className="flex-1" />}
 
-      <div
-        className={cn(
-          "shrink-0 space-y-2 border-t border-line py-3",
-          collapsed ? "px-3" : "px-3",
-        )}
-      >
-        {authEnabled && (
-          <div className={cn("flex", collapsed ? "justify-center" : "")}>
-            <AuthButton compact={collapsed} />
-          </div>
-        )}
+      {authEnabled && (
         <div
           className={cn(
-            "flex items-center",
-            collapsed ? "flex-col gap-1" : "justify-between",
+            "flex shrink-0 border-t border-line px-3 py-3",
+            collapsed && "justify-center",
           )}
         >
-          <a
-            href="https://github.com/sderosiaux/blaze-gallery"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Code source sur GitHub"
-            title="Code source sur GitHub"
-            className={cn(
-              "flex h-9 items-center gap-2 rounded-md text-xs text-ink-muted transition-colors hover:text-ink",
-              collapsed ? "w-9 justify-center" : "px-3",
-            )}
-          >
-            <GitHubIcon size={16} />
-            {!collapsed && <span>Code source</span>}
-          </a>
-          {onToggleCollapse && (
-            <IconButton
-              icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-              label={
-                collapsed
-                  ? "Déplier la barre latérale  ["
-                  : "Replier la barre latérale  ["
-              }
-              size="sm"
-              onClick={onToggleCollapse}
-            />
-          )}
+          <AuthButton compact={collapsed} />
         </div>
-      </div>
+      )}
     </div>
   );
 }
