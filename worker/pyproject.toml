@@ -30,6 +30,7 @@ blaze-queue = "blaze_worker.cli:run_status"
 blaze-faces-preview = "blaze_worker.cli:run_preview"
 blaze-describe-preview = "blaze_worker.cli:run_describe_preview"
 blaze-colors-preview = "blaze_worker.cli:run_colors_preview"
+blaze-people = "blaze_worker.cli:run_people"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6", "testcontainers>=4.8"]
