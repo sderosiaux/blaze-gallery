@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import type { TimelineCursor } from "@/lib/database";
-import { getTimelinePhotos } from "@/lib/database";
+import { getTimelinePhotos, NO_PHOTO_FILTER } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 import { parseColorFilter } from "@/lib/colors";
@@ -62,12 +62,11 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   }
 
   try {
-    const photos = await getTimelinePhotos(
-      before,
-      limit,
-      colors.value,
-      personId,
-    );
+    const photos = await getTimelinePhotos(before, limit, {
+      ...NO_PHOTO_FILTER,
+      colors: colors.value,
+      people: personId === null ? [] : [personId],
+    });
     const last = photos[photos.length - 1];
     const next_before =
       photos.length === limit && last?.metadata?.date_taken

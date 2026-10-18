@@ -8,6 +8,7 @@ import {
   getPhotosByColor,
   getPhotosInFolder,
   getPhoto,
+  NO_PHOTO_FILTER,
   query,
   requireRow,
 } from "@/lib/database";
@@ -38,7 +39,7 @@ import { requireAuthOrApiKey } from "@/lib/auth/middleware";
 import { PeopleError } from "@/lib/people";
 import { mcpListPeople, mcpPersonPhotos, mcpPhotoFaces } from "@/lib/peopleMcp";
 import { semanticSearch } from "@/lib/semanticSearch";
-import { parseDateRange } from "@/lib/semanticQuery";
+import { parseDateRange, periodFilter, rangeFilter } from "@/lib/semanticQuery";
 import {
   decodeCursor,
   encodeCursor,
@@ -677,8 +678,7 @@ const toolHandlers = new Map<string, ToolHandler>([
     async (args) => {
       const { colors, period, limit, cursor } = parseColorSearch(args);
       const { photos, next } = await getPhotosByColor(
-        colors,
-        period,
+        { ...NO_PHOTO_FILTER, colors, dates: periodFilter(period) },
         cursor,
         limit,
       );
@@ -879,7 +879,8 @@ const toolHandlers = new Map<string, ToolHandler>([
         throw new McpToolError(ErrorCode.InvalidRequest, range.error);
       }
       const result = await semanticSearch(query, {
-        range: range.value,
+        filter: { ...NO_PHOTO_FILTER, dates: rangeFilter(range.value) },
+        cut: true,
         offset: cursor?.offset ?? 0,
         limit,
         count: true,

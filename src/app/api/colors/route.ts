@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getPhotosByColor } from "@/lib/database";
+import { getPhotosByColor, NO_PHOTO_FILTER } from "@/lib/database";
 import {
   formatRankCursor,
   hasColorFilter,
@@ -41,8 +41,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
   try {
     const { photos, next } = await getPhotosByColor(
-      colors.value,
-      { from: null, to: null },
+      { ...NO_PHOTO_FILTER, colors: colors.value },
       after,
       limit,
     );

@@ -3,10 +3,10 @@ import {
   cacheQueryEmbedding,
   countPhotoEmbeddings,
   searchPhotosByContent,
+  type PhotoFilter,
   type QueryEmbedding,
   type ScoredPhoto,
 } from "./database";
-import type { ColorFilter } from "./colors";
 import {
   embedderConfig,
   requestTextEmbedding,
@@ -14,7 +14,7 @@ import {
   type EmbedderConfig,
 } from "./embedderClient";
 import { logger } from "./logger";
-import { normalizeSemanticQuery, type DateRange } from "./semanticQuery";
+import { normalizeSemanticQuery } from "./semanticQuery";
 
 /**
  * ok: ranked photos (maybe none above the floor). unavailable: the query
@@ -34,15 +34,16 @@ export interface SemanticResults {
 }
 
 /**
- * Photos showing what `q` describes. Never throws: a search keeps its text
- * results whatever happens here, so failures read as "unavailable".
+ * Photos showing what `q` describes, among those passing `filter`. Never
+ * throws: a search keeps its text results whatever happens here, so
+ * failures read as "unavailable".
  */
 export async function semanticSearch(
   q: string,
   options: {
-    range: DateRange;
-    /** Only photos holding that color, in that tone (lib/colors.ts) */
-    colors?: ColorFilter;
+    filter: PhotoFilter;
+    /** Keep only the photos close enough to `q` (searchPhotosByContent) */
+    cut: boolean;
     offset: number;
     limit: number;
     /** Count photo_embeddings (first page); later pages skip it */
@@ -57,16 +58,18 @@ export async function semanticSearch(
     indexed,
   });
   try {
-    if (options.count) {
-      indexed = await countPhotoEmbeddings();
-      if (indexed === 0)
-        return { status: "not_indexed", photos: [], next: null, indexed };
-    }
     const config = embedderConfig();
     const text = normalizeSemanticQuery(q);
-    // Without an embedder, no waiting: the text results come alone
+    // The count and the embedding, each a round trip, go together
+    const [count, embedding] = await Promise.all([
+      options.count ? countPhotoEmbeddings() : null,
+      // Without an embedder, no waiting: the text results come alone
+      config === null || text === null ? null : embedQuery(config, text),
+    ]);
+    indexed = count;
+    if (indexed === 0)
+      return { status: "not_indexed", photos: [], next: null, indexed };
     if (config === null || text === null) return unavailable();
-    const embedding = await embedQuery(config, text);
     if (!embedding) {
       logger.warn("Semantic search: the embedder did not answer", {
         query: text,
@@ -75,10 +78,10 @@ export async function semanticSearch(
     }
     const page = await searchPhotosByContent(
       embedding,
-      options.range,
+      options.filter,
       options.offset,
       options.limit,
-      options.colors,
+      options.cut,
     );
     return { status: "ok", photos: page.items, next: page.next, indexed };
   } catch (error) {
