@@ -7,6 +7,7 @@ dependencies = [
   "boto3>=1.40",
   "hsemotion-onnx>=0.3.1",
   "insightface>=2.1",
+  "jsonschema>=4.23",
   "numpy>=2.0",
   "onnxruntime>=1.22",
   "opencv-python-headless>=4.10",
@@ -18,11 +19,16 @@ dependencies = [
   "rawpy>=0.24",
 ]
 
+[project.optional-dependencies]
+# The describe task runs a vision-language model with MLX: Apple silicon only
+describe = ["mlx-vlm>=0.7.8; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
 [project.scripts]
 blaze-worker = "blaze_worker.cli:run_worker"
 blaze-enqueue = "blaze_worker.cli:run_enqueue"
 blaze-queue = "blaze_worker.cli:run_status"
 blaze-faces-preview = "blaze_worker.cli:run_preview"
+blaze-describe-preview = "blaze_worker.cli:run_describe_preview"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6", "testcontainers>=4.8"]

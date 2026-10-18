@@ -1,9 +1,12 @@
 """Claim -> fetch/decode -> infer -> write, each stage on its own threads.
 
 Downloads and decodes (I/O, GIL released by boto3 and Pillow) overlap with
-inference (ONNX Runtime releases the GIL too) and with database writes, which
-cost a few round trips to a remote Postgres. Bounded queues between stages
-keep at most a few dozen photos in memory.
+inference (ONNX Runtime and MLX release the GIL too) and with database writes,
+which cost a few round trips to a remote Postgres. Bounded queues between
+stages keep at most a few dozen photos in memory.
+
+One process runs one task: its analyzers (one per inference thread, see
+tasks.py) say what the task finds in a photo and how that is written.
 
 Stop: the first stop() stops claiming and lets every claimed job finish; the
 second one gives back the leases of jobs not yet analyzed and exits as soon
@@ -19,32 +22,56 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import psycopg
 from psycopg_pool import ConnectionPool
 
 from . import jobs
-from .decode import Picture, Undecodable, Unsupported, load_picture
-from .faces import Analysis, FaceModel, ModelFiles
-from .storage import Originals
-from .store import LeaseLost, save_faces
+from .decode import Picture, Reader, Undecodable, Unsupported, load_picture
+from .store import LeaseLost
 
 log = logging.getLogger("blaze_worker")
 
-SUPPORTED_TASKS = ("faces",)
+
+class Result(Protocol):
+    """What a model found in one photo, ready to be written."""
+
+    @property
+    def infer_seconds(self) -> float: ...
+
+    def stats(self) -> dict[str, Any]:
+        """Measurements for analysis_jobs.stats, next to the fetch and decode ones."""
+        ...
+
+    def save(self, conn: Any, owner: str, job: jobs.Job, stats: dict[str, Any]) -> int:
+        """Writes the result and completes the job in one transaction; rows written.
+
+        Raises LeaseLost when the job is no longer ours.
+        """
+        ...
+
+
+class Analyzer(Protocol):
+    """A model for the task, used by one inference thread at a time."""
+
+    def analyze(self, job: jobs.Job, picture: Picture) -> Result: ...
+
+
+class Rejected(Exception):
+    """The model's output for this photo is unusable, and a new attempt would repeat it."""
 
 
 @dataclass(frozen=True)
 class Options:
     owner: str
-    tasks: tuple[str, ...]
+    task: str
     concurrency: int
     fetchers: int
     writers: int
     lease_seconds: int
+    # Long side of Picture.small, the rendition the analyzers look at
     max_side: int
-    det_size: int
     # 0: exit once the queue is empty; else poll that often
     wait_seconds: float
     reap_every_seconds: float = 60.0
@@ -53,7 +80,8 @@ class Options:
 @dataclass
 class Counters:
     done: int = 0
-    faces: int = 0
+    # Rows written (faces, descriptions)
+    found: int = 0
     skipped: int = 0
     failed: int = 0
     released: int = 0
@@ -74,7 +102,7 @@ class Counters:
         elapsed = max(time.monotonic() - self.started, 1e-6)
         n = max(self.done, 1)
         return (
-            f"done={self.done} faces={self.faces} skipped={self.skipped} failed={self.failed} "
+            f"done={self.done} found={self.found} skipped={self.skipped} failed={self.failed} "
             f"rate={self.done / elapsed:.2f}/s fetch={self.fetch_seconds / n * 1000:.0f}ms "
             f"decode={self.decode_seconds / n * 1000:.0f}ms "
             f"infer={self.infer_seconds / n * 1000:.0f}ms "
@@ -87,18 +115,15 @@ class Worker:
         self,
         options: Options,
         pool: ConnectionPool,
-        originals: Originals,
-        files: ModelFiles,
-        models: list[FaceModel],
+        originals: Reader,
+        analyzers: list[Analyzer],
     ) -> None:
-        unknown = set(options.tasks) - set(SUPPORTED_TASKS)
-        if unknown:
-            raise SystemExit(f"unknown tasks: {', '.join(sorted(unknown))}")
+        if len(analyzers) != options.concurrency:
+            raise ValueError("one analyzer per inference thread")
         self.options = options
         self.pool = pool
         self.originals = originals
-        self.files = files
-        self.models = models
+        self.analyzers = analyzers
         self.counters = Counters()
 
         self._inflight: dict[int, jobs.Job] = {}
@@ -198,7 +223,7 @@ class Worker:
                 continue
         self._release(job)
 
-    def _infer_loop(self, model: FaceModel) -> None:
+    def _infer_loop(self, analyzer: Analyzer) -> None:
         while True:
             item = self._infer_q.get()
             if item is None:
@@ -208,16 +233,18 @@ class Worker:
                 self._release(job)
                 continue
             try:
-                analysis = model.analyze(picture)
+                result = analyzer.analyze(job, picture)
+            except Rejected as error:
+                self._fail(job, f"rejected: {error}", permanent=True)
+                continue
             except Exception as error:
                 log.exception("job %s: inference failed", job.id)
                 self._fail(job, f"infer: {type(error).__name__}: {error}", permanent=False)
                 continue
-            self._record(job, picture, analysis)
+            self._record(job, picture, result)
 
-    def _record(self, job: jobs.Job, picture: Picture, analysis: Analysis) -> None:
+    def _record(self, job: jobs.Job, picture: Picture, result: Result) -> None:
         height, width = picture.full.shape[:2]
-        infer = analysis.detect_seconds + analysis.rotate_seconds + analysis.faces_seconds
         stats = {
             "src": picture.source,
             "w": width,
@@ -225,32 +252,20 @@ class Worker:
             "bytes": picture.bytes_read,
             "ms_fetch": round(picture.fetch_seconds * 1000),
             "ms_decode": round(picture.decode_seconds * 1000),
-            "ms_detect": round(analysis.detect_seconds * 1000),
-            "ms_rotate": round(analysis.rotate_seconds * 1000),
-            "ms_faces": round(analysis.faces_seconds * 1000),
-            "passes": analysis.detect_passes,
-            "rotation": analysis.rotation,
-            "det": self.options.det_size,
+            "ms_infer": round(result.infer_seconds * 1000),
+            **result.stats(),
         }
         counters = self.counters
         counters.add(
             bytes=picture.bytes_read,
             fetch_seconds=picture.fetch_seconds,
             decode_seconds=picture.decode_seconds,
-            infer_seconds=infer,
+            infer_seconds=result.infer_seconds,
         )
 
         def write(conn: Any) -> None:
-            written = save_faces(
-                conn,
-                self.options.owner,
-                job,
-                self.files.pipeline_model,
-                self.files.embedding_model,
-                analysis.faces,
-                stats,
-            )
-            counters.add(done=1, faces=written)
+            written = result.save(conn, self.options.owner, job, stats)
+            counters.add(done=1, found=written)
 
         self._close(job, write)
 
@@ -285,8 +300,10 @@ class Worker:
         self._writers = ThreadPoolExecutor(options.writers, thread_name_prefix="write")
         fetchers = ThreadPoolExecutor(options.fetchers, thread_name_prefix="fetch")
         inference = [
-            threading.Thread(target=self._infer_loop, args=(model,), name=f"infer-{i}", daemon=True)
-            for i, model in enumerate(self.models)
+            threading.Thread(
+                target=self._infer_loop, args=(analyzer,), name=f"infer-{i}", daemon=True
+            )
+            for i, analyzer in enumerate(self.analyzers)
         ]
         background = [
             threading.Thread(target=self._heartbeat, name="heartbeat", daemon=True),
@@ -315,7 +332,7 @@ class Worker:
                         lambda conn, room=room: jobs.claim(
                             conn,
                             options.owner,
-                            options.tasks,
+                            [options.task],
                             min(room, self._batch),
                             options.lease_seconds,
                         )
@@ -339,7 +356,7 @@ class Worker:
                 if options.wait_seconds <= 0:
                     # Jobs leased by other workers may still come back (their
                     # worker died): stay until they are done or reclaimed.
-                    held, expires_in = self._db(lambda conn: jobs.leased(conn, options.tasks))
+                    held, expires_in = self._db(lambda conn: jobs.leased(conn, [options.task]))
                     if not held:
                         log.info("queue empty")
                         break

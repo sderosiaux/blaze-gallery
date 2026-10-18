@@ -5,15 +5,13 @@ from __future__ import annotations
 import io
 import threading
 
-import pytest
-from pgvector.psycopg import register_vector
 from PIL import Image
-from psycopg_pool import ConnectionPool
 
 from blaze_worker import jobs
 from blaze_worker.enqueue import enqueue_ids
 from blaze_worker.faces import Analysis, ModelFiles
 from blaze_worker.pipeline import Options, Worker
+from blaze_worker.tasks import FacesAnalyzer
 
 from .conftest import add_photos
 
@@ -55,31 +53,18 @@ class GatedModel:
 FILES = ModelFiles(pack=None, expression=None, embedding_model="emb", pipeline_model="pipe")  # type: ignore[arg-type]
 
 
-@pytest.fixture
-def pool(schema):
-    with ConnectionPool(
-        schema,
-        min_size=1,
-        max_size=6,
-        kwargs={"autocommit": True, "prepare_threshold": None},
-        configure=register_vector,
-    ) as connections:
-        yield connections
-
-
 def make_worker(pool, model: GatedModel, fetchers: int = 2) -> Worker:
     options = Options(
         owner="test",
-        tasks=("faces",),
+        task="faces",
         concurrency=1,
         fetchers=fetchers,
         writers=2,
         lease_seconds=600,
         max_side=32,
-        det_size=640,
         wait_seconds=0,
     )
-    return Worker(options, pool, Bucket(), FILES, [model])  # type: ignore[arg-type,list-item]
+    return Worker(options, pool, Bucket(), [FacesAnalyzer(model, FILES, 640)])  # type: ignore[arg-type]
 
 
 def statuses(conn) -> dict[str, int]:
