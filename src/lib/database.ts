@@ -6,8 +6,11 @@ import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
 import {
-  addMonths,
+  addDays,
   CELLS_PER_DEGREE,
+  DAY_SPAN,
+  isDay,
+  lastDay,
   type MapBox,
   type MapPeriod,
 } from "./mapArea";
@@ -967,8 +970,9 @@ const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
 
 /**
  * WHERE clause for photos on the map, within the period and the box when
- * given; values go to `params`. Months compare as text against the ISO
- * date_taken, like the timeline's months, so idx_photos_date_taken serves them.
+ * given; values go to `params`. Months and days compare as text against the
+ * ISO date_taken, like the timeline's months, so idx_photos_date_taken serves
+ * them: `to` stops before the day after it.
  */
 function mapFilter(
   params: unknown[],
@@ -984,7 +988,7 @@ function mapFilter(
     where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
   if (period.to)
     where.push(
-      `(p.metadata->>'date_taken') < ${add(addMonths(period.to, 1))}::text`,
+      `(p.metadata->>'date_taken') < ${add(addDays(lastDay(period.to), 1))}::text`,
     );
   if (box) {
     where.push(
@@ -1018,22 +1022,39 @@ export async function getMapPoints(
   return result.rows.map((row) => [row.lat, row.lng, row.count]);
 }
 
-/** Photos on the map per month of date taken, oldest first; only those taken inside the box when one is given. */
-export async function getMapMonths(
-  box: MapBox | null,
-): Promise<{ month: string; count: number }[]> {
-  const params: unknown[] = [];
-  const result = await query<{ month: string; count: number }>(
+/**
+ * Photos on the map per day of date taken when they span at most DAY_SPAN
+ * days, else per month, oldest first; only those taken inside the box when
+ * one is given. One scan: the days are counted, then folded into months.
+ */
+export async function getMapDates(box: MapBox | null): Promise<{
+  unit: "day" | "month";
+  dates: { date: string; count: number }[];
+}> {
+  const params: unknown[] = [DAY_SPAN];
+  const result = await query<{ date: string; count: number }>(
     `
-    SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
-    FROM photos p
-    WHERE ${mapFilter(params, { from: null, to: null }, box)}
+    WITH days AS (
+      SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
+      FROM photos p
+      WHERE ${mapFilter(params, { from: null, to: null }, box)}
+      GROUP BY 1
+    ), span AS (
+      SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
+    )
+    SELECT CASE WHEN span.by_day THEN days.day ELSE substr(days.day, 1, 7) END AS date,
+           SUM(days.count)::int AS count
+    FROM days CROSS JOIN span
     GROUP BY 1
     ORDER BY 1
   `,
     params,
   );
-  return result.rows;
+  const first = result.rows[0];
+  return {
+    unit: first && isDay(first.date) ? "day" : "month",
+    dates: result.rows,
+  };
 }
 
 /**

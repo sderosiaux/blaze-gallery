@@ -8,7 +8,10 @@ export interface MapBox {
   east: number;
 }
 
-/** Months of date taken ("YYYY-MM"), both included; null leaves that side open. */
+/**
+ * Months ("YYYY-MM") or days ("YYYY-MM-DD") of date taken, both included;
+ * null leaves that side open.
+ */
 export interface MapPeriod {
   from: string | null;
   to: string | null;
@@ -17,13 +20,22 @@ export interface MapPeriod {
 /** Points are counted per cell of 1/200° (about 550 m north–south). */
 export const CELLS_PER_DEGREE = 200;
 
+/** Photos spanning at most this many days are counted per day, else per month. */
+export const DAY_SPAN = 120;
+
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const MONTH = /^(19|20)\d{2}-(0[1-9]|1[0-2])$/;
+const DAY = /^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const DEGREES = /^-?\d{1,3}(\.\d{1,12})?$/;
 
 export function isMonth(value: string): boolean {
   return MONTH.test(value);
+}
+
+/** A calendar day: "2021-02-29" is not one. */
+export function isDay(value: string): boolean {
+  return DAY.test(value) && addDays(value, 0) === value;
 }
 
 /** "2021-12" plus one is "2022-01". */
@@ -33,16 +45,36 @@ export function addMonths(month: string, n: number): string {
   return new Date(Date.UTC(year, index, 1)).toISOString().slice(0, 7);
 }
 
+/** "2021-12-31" plus one is "2022-01-01". */
+export function addDays(day: string, n: number): string {
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date + n))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** First day of a month, or the day itself. */
+export function firstDay(bound: string): string {
+  return isMonth(bound) ? `${bound}-01` : bound;
+}
+
+/** Last day of a month, or the day itself. */
+export function lastDay(bound: string): string {
+  return isMonth(bound) ? addDays(`${addMonths(bound, 1)}-01`, -1) : bound;
+}
+
 type Read = (key: string) => string | null;
+
+const isBound = (value: string) => isMonth(value) || isDay(value);
 
 export function parsePeriod(get: Read): Parsed<MapPeriod> {
   const from = get("from") ?? "";
   const to = get("to") ?? "";
-  if (from !== "" && !isMonth(from))
-    return { ok: false, error: "from must be a month, YYYY-MM" };
-  if (to !== "" && !isMonth(to))
-    return { ok: false, error: "to must be a month, YYYY-MM" };
-  if (from !== "" && to !== "" && from > to)
+  if (from !== "" && !isBound(from))
+    return { ok: false, error: "from must be a month or a day, YYYY-MM[-DD]" };
+  if (to !== "" && !isBound(to))
+    return { ok: false, error: "to must be a month or a day, YYYY-MM[-DD]" };
+  if (from !== "" && to !== "" && firstDay(from) > lastDay(to))
     return { ok: false, error: "from must not come after to" };
   return { ok: true, value: { from: from || null, to: to || null } };
 }
