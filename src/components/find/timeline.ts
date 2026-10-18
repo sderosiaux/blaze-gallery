@@ -8,7 +8,7 @@ export interface MonthCount {
   count: number;
 }
 
-function isMonthCount(value: unknown): value is MonthCount {
+export function isMonthCount(value: unknown): value is MonthCount {
   return (
     isRecord(value) &&
     typeof value.month === "string" &&

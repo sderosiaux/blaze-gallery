@@ -7,13 +7,15 @@
     "build": "next build",
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
+    "sync": "tsx scripts/sync.ts",
     "lint": "next lint --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "website:dev": "cd website && npm run dev",
     "website:build": "cd website && npm run build",
-    "check": "npm run typecheck && npm run lint && npm run format:check"
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.650.0",
@@ -26,6 +28,7 @@
     "bcryptjs": "^3.0.3",
     "exifreader": "^4.23.7",
     "lucide-react": "^0.446.0",
+    "maplibre-gl": "^5.24.0",
     "next": "14.2.11",
     "node-cron": "^4.2.1",
     "pg": "^8.12.0",
@@ -46,6 +49,7 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "postcss": "^8.4.47",
     "prettier": "^3.0.0",
-    "tailwindcss": "^3.4.1"
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.15"
   }
 }

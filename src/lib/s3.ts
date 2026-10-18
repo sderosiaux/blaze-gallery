@@ -372,6 +372,8 @@ export interface ListObjectsOptions {
   request?: Request;
   /** Use the thumbnail S3 client (R2) instead of the default (Backblaze) */
   useThumbnailClient?: boolean;
+  /** Record the call in s3_audit_logs (default); a dry run writes nothing */
+  audit?: boolean;
 }
 
 export async function listObjects(options: ListObjectsOptions): Promise<{
@@ -387,6 +389,7 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
     pageNumber = 1,
     request,
     useThumbnailClient = false,
+    audit = true,
   } = options;
 
   const client = useThumbnailClient ? getThumbnailS3Client() : getS3Client();
@@ -429,16 +432,18 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
       `Retrieved ${objects.length} objects from S3: ${folderDescWithCount}${pageInfoWithCount} (${duration}ms, ${responseSizeKB}KB)`,
     );
 
-    await auditMiddleware.log({
-      operation: "ListObjects",
-      method: "GET",
-      bucket,
-      key: prefix,
-      startTime,
-      statusCode,
-      bytesTransferred: responseSize,
-      request,
-    });
+    if (audit) {
+      await auditMiddleware.log({
+        operation: "ListObjects",
+        method: "GET",
+        bucket,
+        key: prefix,
+        startTime,
+        statusCode,
+        bytesTransferred: responseSize,
+        request,
+      });
+    }
 
     // In DEBUG mode, include sample objects for troubleshooting
     if (process.env.LOG_LEVEL === "DEBUG") {
@@ -495,16 +500,18 @@ export async function listObjects(options: ListObjectsOptions): Promise<{
     errorMessage = errorInfo.message;
 
     // Audit logging for error
-    await auditMiddleware.log({
-      operation: "ListObjects",
-      method: "GET",
-      bucket,
-      key: prefix,
-      startTime,
-      statusCode,
-      error: errorMessage,
-      request,
-    });
+    if (audit) {
+      await auditMiddleware.log({
+        operation: "ListObjects",
+        method: "GET",
+        bucket,
+        key: prefix,
+        startTime,
+        statusCode,
+        error: errorMessage,
+        request,
+      });
+    }
 
     logger.s3Error(
       `Failed to list objects from ${folderDesc} after ${duration}ms`,
@@ -1105,21 +1112,10 @@ export async function getObjectStreamAuto(key: string, request?: Request) {
  * No need to manually initialize S3 client or fetch config
  */
 export async function listObjectsAuto(
-  prefix?: string,
-  continuationToken?: string,
-  maxKeys = 1000,
-  pageNumber = 1,
-  request?: Request,
+  options: Omit<ListObjectsOptions, "bucket" | "useThumbnailClient"> = {},
 ) {
   const bucket = S3Manager.getInstance().getBucketName();
-  return listObjects({
-    bucket,
-    prefix,
-    continuationToken,
-    maxKeys,
-    pageNumber,
-    request,
-  });
+  return listObjects({ ...options, bucket });
 }
 
 /**

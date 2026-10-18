@@ -104,6 +104,8 @@ interface FolderSuggestionListProps {
   active: number;
   onActiveChange: (index: number) => void;
   onPick: () => void;
+  /** In the flow under the field (the search palette) rather than floating under it. */
+  inline?: boolean;
 }
 
 /**
@@ -117,6 +119,7 @@ export function FolderSuggestionList({
   active,
   onActiveChange,
   onPick,
+  inline = false,
 }: FolderSuggestionListProps) {
   const expanded = open && folders.length > 0;
 
@@ -134,7 +137,12 @@ export function FolderSuggestionList({
         role="listbox"
         aria-label="Dossiers"
         hidden={!expanded}
-        className="absolute inset-x-4 top-full z-overlay mt-1 max-h-[min(70vh,30rem)] overflow-y-auto rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-fade-in sm:inset-x-0 sm:mt-2"
+        className={cn(
+          "overflow-y-auto bg-surface p-1.5",
+          inline
+            ? "max-h-[min(60vh,28rem)] border-t border-line"
+            : "absolute inset-x-4 top-full z-overlay mt-1 max-h-[min(70vh,30rem)] animate-fade-in rounded-lg border border-line shadow-pop sm:inset-x-0 sm:mt-2",
+        )}
       >
         {expanded &&
           folders.map((folder, i) => {

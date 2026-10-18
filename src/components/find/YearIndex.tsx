@@ -64,7 +64,7 @@ export function YearRail({
     <nav aria-label="Aller à une année ou un mois" className="hidden md:block">
       <ol
         ref={listRef}
-        className="scrollbar-none sticky top-[calc(var(--topbar-height)+1.5rem)] max-h-[calc(100dvh-var(--topbar-height)-3rem)] overflow-y-auto border-l border-line py-1"
+        className="scrollbar-none sticky top-[calc(var(--content-top)+1.5rem)] max-h-[calc(100dvh-var(--content-top)-3rem)] overflow-y-auto border-l border-line py-1"
       >
         {years.map((year) => {
           const current = year === active;

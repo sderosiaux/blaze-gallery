@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useId, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -10,6 +10,7 @@ import {
   Gauge,
   Heart,
   Library,
+  MapIcon,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,12 +26,7 @@ import AuthButton from "@/components/auth/AuthButton";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useLayout } from "@/contexts/LayoutContext";
 import { IconButton, useToast } from "@/components/ui";
-import {
-  FolderSuggestionList,
-  suggestionOptionId,
-  useFolderSuggestions,
-} from "@/components/find/FolderSuggestions";
-import { albumHref } from "@/components/photos/AlbumCard";
+import { SearchPalette } from "@/components/find/SearchPalette";
 import { isRecord, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
 
@@ -53,6 +49,12 @@ const PRIMARY_NAV: NavLinkItem[] = [
     label: "Chronologie",
     icon: CalendarDays,
     match: (p) => p.startsWith("/timeline"),
+  },
+  {
+    href: "/carte",
+    label: "Carte",
+    icon: MapIcon,
+    match: (p) => p.startsWith("/carte"),
   },
   {
     href: "/favorites",
@@ -145,6 +147,7 @@ function NavRow({
 function SidebarContent({
   collapsed,
   onNavigate,
+  onSearch,
   showNav,
   authEnabled,
   onToggleCollapse,
@@ -152,6 +155,7 @@ function SidebarContent({
 }: {
   collapsed: boolean;
   onNavigate?: () => void;
+  onSearch: () => void;
   showNav: boolean;
   authEnabled: boolean;
   onToggleCollapse?: () => void;
@@ -233,6 +237,32 @@ function SidebarContent({
           )}
         >
           <ul className="space-y-0.5">
+            <li>
+              <button
+                type="button"
+                onClick={onSearch}
+                aria-label={collapsed ? "Rechercher (⌘K)" : undefined}
+                aria-keyshortcuts="Meta+K /"
+                title={collapsed ? "Rechercher (⌘K)" : undefined}
+                className={cn(
+                  "group flex h-10 w-full items-center gap-3 rounded-md text-sm text-ink-soft transition-colors duration-150 hover:bg-surface-sunken hover:text-ink",
+                  collapsed ? "justify-center px-0" : "px-3",
+                )}
+              >
+                <Search
+                  className="h-[18px] w-[18px] shrink-0 text-ink-muted group-hover:text-ink-soft"
+                  aria-hidden
+                />
+                {!collapsed && (
+                  <>
+                    <span className="truncate">Rechercher</span>
+                    <kbd className="ml-auto rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted">
+                      ⌘K
+                    </kbd>
+                  </>
+                )}
+              </button>
+            </li>
             {PRIMARY_NAV.map((item) => (
               <li key={item.href}>
                 <NavRow
@@ -357,163 +387,6 @@ function SidebarContent({
   );
 }
 
-function TopSearch() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const query = useSearchParams().get("q") ?? "";
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState("");
-  // What the user typed: suggestions follow it, not the value synced from the URL.
-  const [typed, setTyped] = useState("");
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(-1);
-  const suggestions = useFolderSuggestions(typed);
-  const listId = useId();
-  const expanded = open && suggestions.length > 0;
-
-  // Follows Back/Forward and in-app links between /search?q= values.
-  useEffect(() => {
-    if (pathname === "/search") setValue(query);
-  }, [pathname, query]);
-
-  // A new list starts with nothing highlighted: Enter runs the full search.
-  useEffect(() => {
-    setActive(-1);
-  }, [suggestions]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const isK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
-      if (isK || (e.key === "/" && !isTypingTarget(e.target))) {
-        e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
-  const close = () => {
-    setOpen(false);
-    setActive(-1);
-  };
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = value.trim();
-    close();
-    router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
-    inputRef.current?.blur();
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const count = suggestions.length;
-    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
-      e.preventDefault();
-      const down = e.key === "ArrowDown";
-      if (!expanded) {
-        setOpen(true);
-        setActive(down ? 0 : count - 1);
-        return;
-      }
-      // -1 is the field itself, between the last option and the first.
-      setActive((i) =>
-        down
-          ? ((i + 2) % (count + 1)) - 1
-          : ((i + count + 1) % (count + 1)) - 1,
-      );
-    } else if (e.key === "Enter") {
-      const folder = expanded ? suggestions[active] : undefined;
-      if (!folder) return; // the form submits: the full search
-      e.preventDefault();
-      close();
-      router.push(albumHref(folder.path));
-      inputRef.current?.blur();
-    } else if (e.key === "Escape") {
-      if (expanded) {
-        // Only closes the list; the field keeps its text.
-        e.preventDefault();
-        close();
-      } else {
-        inputRef.current?.blur();
-      }
-    }
-  };
-
-  return (
-    <form
-      role="search"
-      onSubmit={submit}
-      className="w-full max-w-xl sm:relative"
-    >
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-          aria-hidden
-        />
-        <input
-          ref={inputRef}
-          type="search"
-          role="combobox"
-          aria-expanded={expanded}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            expanded && active >= 0
-              ? suggestionOptionId(listId, active)
-              : undefined
-          }
-          autoComplete="off"
-          spellCheck={false}
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setTyped(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => {
-            setOpen(true);
-          }}
-          onBlur={close}
-          onKeyDown={onKeyDown}
-          placeholder="Rechercher"
-          aria-label="Rechercher des dossiers et des photos"
-          className="h-10 w-full rounded-full border border-line bg-surface/70 pl-10 pr-14 text-sm text-ink placeholder:text-ink-muted transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20"
-        />
-        {value ? (
-          <button
-            type="button"
-            aria-label="Effacer la recherche"
-            onClick={() => {
-              setValue("");
-              setTyped("");
-              inputRef.current?.focus();
-            }}
-            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        ) : (
-          <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[11px] text-ink-muted sm:block">
-            ⌘K
-          </kbd>
-        )}
-      </div>
-      <FolderSuggestionList
-        id={listId}
-        folders={suggestions}
-        open={open}
-        active={active}
-        onActiveChange={setActive}
-        onPick={close}
-      />
-    </form>
-  );
-}
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const {
@@ -633,6 +506,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const showNav = mounted && !authLoading && (!authEnabled || isAuthenticated);
 
+  // Search lives in a palette, so no bar takes room above the page. ⌘K and
+  // "/" open it from anywhere; the photo viewer keeps both keys to itself.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => {
+    setMobileNavOpen(false);
+    setSearchOpen(true);
+  }, [setMobileNavOpen]);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!showNav) return;
+    const onKey = (e: KeyboardEvent) => {
+      const isK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      if (isK || (e.key === "/" && !isTypingTarget(e.target))) {
+        e.preventDefault();
+        openSearch();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showNav, openSearch]);
+
   return (
     <div className="min-h-dvh">
       <a
@@ -659,6 +557,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           showNav={showNav}
           authEnabled={mounted && authEnabled}
           onToggleCollapse={toggleSidebar}
+          onSearch={openSearch}
         />
       </aside>
 
@@ -697,6 +596,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               collapsed={false}
               showNav={showNav}
               authEnabled={mounted && authEnabled}
+              onSearch={openSearch}
               onNavigate={() => {
                 setMobileNavOpen(false);
               }}
@@ -716,9 +616,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             : "lg:pl-[var(--sidebar-expanded)]",
         )}
       >
+        {/* Phones and tablets only: on a desktop the sidebar carries all of it. */}
         <header
           className={cn(
-            "sticky top-0 z-topbar flex h-[var(--topbar-height)] items-center gap-3 px-4 transition-[background-color,border-color] duration-200 sm:px-8 lg:px-12",
+            "sticky top-0 z-topbar flex h-[var(--topbar-height)] items-center gap-3 px-4 transition-[background-color,border-color] duration-200 sm:px-8 lg:hidden",
             scrolled
               ? "border-b border-line bg-paper/85 backdrop-blur-md"
               : "border-b border-transparent bg-paper",
@@ -728,7 +629,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ref={menuButtonRef}
             icon={Menu}
             label="Ouvrir le menu"
-            className="-ml-1 lg:hidden"
+            className="-ml-1"
             onClick={() => {
               setMobileNavOpen(true);
             }}
@@ -736,28 +637,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link
             href="/"
             aria-label="Blaze Gallery, accueil"
-            className="mr-1 shrink-0 rounded lg:hidden"
+            className="mr-1 shrink-0 rounded"
           >
             <BrandMark compact />
           </Link>
           {showNav && (
-            <Suspense
-              fallback={
-                <div className="h-10 w-full max-w-xl rounded-full border border-line bg-surface/70" />
-              }
-            >
-              <TopSearch />
-            </Suspense>
+            <IconButton
+              icon={Search}
+              label="Rechercher"
+              className="-mr-1 ml-auto"
+              onClick={openSearch}
+            />
           )}
         </header>
 
         <main
           id="main"
           tabIndex={-1}
-          className="mx-auto w-full max-w-[1680px] px-4 pb-24 focus:outline-none sm:px-8 lg:px-12"
+          className="mx-auto w-full max-w-[1680px] px-4 pb-24 focus:outline-none sm:px-8 lg:px-12 lg:pt-6"
         >
           {children}
         </main>
+        {showNav && (
+          <Suspense fallback={null}>
+            <SearchPalette open={searchOpen} onClose={closeSearch} />
+          </Suspense>
+        )}
       </div>
     </div>
   );
