@@ -20,6 +20,33 @@ function countsLine(folder: Folder) {
   return parts.join(" · ") || "Vide";
 }
 
+/**
+ * The folder's colors, as wide as their share of its photos. Sits in the
+ * gap above the title, so cards with and without one line up.
+ */
+function PaletteStrip({
+  palette,
+}: {
+  palette: NonNullable<Folder["palette"]>;
+}) {
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-x-0 top-1 flex h-1 gap-px overflow-hidden rounded-full"
+    >
+      {palette.map(({ hex, share }) => (
+        <span
+          key={hex}
+          // The faint edge keeps a white segment visible on the white page
+          className="h-full min-w-[3px] ring-1 ring-inset ring-ink/5"
+          // The photos' own measured colors: data, not theme
+          style={{ backgroundColor: hex, flexGrow: share }}
+        />
+      ))}
+    </div>
+  );
+}
+
 interface AlbumCardProps {
   folder: Folder;
   eager?: boolean;
@@ -84,7 +111,8 @@ export default function AlbumCard({
           className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-inset ring-ink/5"
         />
       </div>
-      <div className="pt-3">
+      <div className="relative pt-3">
+        {folder.palette && <PaletteStrip palette={folder.palette} />}
         {/* The kicker line is always there so titles align across a row */}
         <div className="kicker mb-1 min-h-4 truncate">{dateLabel}</div>
         <h3
