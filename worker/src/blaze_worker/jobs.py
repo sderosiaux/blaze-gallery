@@ -36,6 +36,9 @@ class Job:
     mime_type: str
     size: int
     metadata: dict[str, Any] | None
+    # Clockwise turn the faces task needed to find faces on this photo (0 when
+    # upright or not analysed): a photo stored on its side without EXIF orientation
+    faces_rotation: int = 0
 
 
 def requeue_expired(conn: Connection) -> tuple[int, int]:
@@ -91,13 +94,16 @@ def claim(
             FROM picked, photos p
             WHERE j.id = picked.id AND p.id = j.photo_id
             RETURNING j.id, j.photo_id, j.task, j.attempts, j.max_attempts,
-                      p.s3_key, p.mime_type, p.size, p.metadata, j.priority
+                      p.s3_key, p.mime_type, p.size, p.metadata,
+                      coalesce((SELECT f.detect_rotation FROM faces f
+                                WHERE f.photo_id = p.id LIMIT 1), 0),
+                      j.priority
             """,
             {"tasks": list(tasks), "limit": limit, "owner": owner, "lease": lease_seconds},
         ).fetchall()
     # RETURNING does not keep the ORDER BY of the CTE
-    rows.sort(key=lambda r: (-r[9], r[0]))
-    return [Job(*row[:9]) for row in rows]
+    rows.sort(key=lambda r: (-r[10], r[0]))
+    return [Job(*row[:10]) for row in rows]
 
 
 def renew(conn: Connection, owner: str, job_ids: Sequence[int], lease_seconds: int) -> set[int]:
