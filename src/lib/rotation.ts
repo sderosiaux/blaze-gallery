@@ -32,3 +32,24 @@ export function rotatedSize<T extends { width: number; height: number }>(
     ? { width: size.height, height: size.width }
     : { width: size.width, height: size.height };
 }
+
+/** [x, y, w, h], fractions of the picture. */
+export type Box = readonly [number, number, number, number];
+
+/**
+ * A box measured on the picture as stored (faces.box) placed on the picture
+ * turned clockwise by `rotation`, the way the owner sees it.
+ */
+export function turnBox(box: Box, rotation: QuarterTurn): Box {
+  const [x, y, w, h] = box;
+  switch (rotation) {
+    case 90:
+      return [1 - y - h, x, h, w];
+    case 180:
+      return [1 - x - w, 1 - y - h, w, h];
+    case 270:
+      return [y, 1 - x - w, h, w];
+    default:
+      return box;
+  }
+}

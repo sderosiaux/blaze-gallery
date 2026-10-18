@@ -29,7 +29,14 @@ import {
   type Hue,
 } from "./colors";
 import { foldPalette, type ColorBin, type Swatch } from "./palette";
-import { asQuarterTurn, type QuarterTurn } from "./rotation";
+import { asQuarterTurn, turnBox, type Box, type QuarterTurn } from "./rotation";
+import {
+  SEMANTIC_MARGIN,
+  SEMANTIC_MIN_SIMILARITY,
+  SEMANTIC_REFERENCE_RANK,
+  queryNamesPerson,
+  type DateRange,
+} from "./semanticQuery";
 import type {
   CreatePhotoData,
   CreateFolderData,
@@ -1125,6 +1132,297 @@ export async function countSearchMatches(
     params,
   );
   return requireRow(result, "Search count");
+}
+
+// ---- semantic search ------------------------------------------------------
+//
+// The worker embeds every image (photo_embeddings, task "embed"); the
+// embedder on the worker machine embeds queries over HTTPS
+// (lib/embedderClient.ts). The app never runs a model; it keeps the query
+// embeddings it got in search_query_embeddings. db/schema.sql has the contract.
+
+/** A query's embedding as pgvector text, and the model that wrote it. */
+export interface QueryEmbedding {
+  embedding: string;
+  model: string;
+}
+
+/** The stored embedding of a normalized query (normalizeSemanticQuery), if asked before. */
+export async function cachedQueryEmbedding(
+  text: string,
+): Promise<QueryEmbedding | null> {
+  const result = await query<QueryEmbedding>(
+    `UPDATE search_query_embeddings SET last_used_at = now()
+     WHERE text = $1
+     RETURNING embedding::text AS embedding, model`,
+    [text],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Keeps a query's embedding for the next time it is asked. */
+export async function cacheQueryEmbedding(
+  text: string,
+  embedding: QueryEmbedding,
+): Promise<void> {
+  await query(
+    `INSERT INTO search_query_embeddings (text, embedding, model)
+     VALUES ($1, $2::halfvec, $3)
+     ON CONFLICT (text) DO UPDATE SET
+       embedding = EXCLUDED.embedding, model = EXCLUDED.model,
+       last_used_at = now()`,
+    [text, embedding.embedding, embedding.model],
+  );
+}
+
+/** How many photos semantic search can find (an index-only count of the key). */
+export async function countPhotoEmbeddings(): Promise<number> {
+  const result = await query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM photo_embeddings",
+  );
+  return requireRow(result).n;
+}
+
+export type ScoredPhoto = SearchPhoto & {
+  /** Cosine similarity between the query and the photo, 3 decimals */
+  score: number;
+};
+
+/**
+ * Photos nearest to the query embedding, most similar first, down to
+ * SEMANTIC_MARGIN below the SEMANTIC_REFERENCE_RANK-th one (never under
+ * SEMANTIC_MIN_SIMILARITY); offset-paginated (the ranking exists only for
+ * this query). The HNSW index serves the inner query: with a date range or a color filter,
+ * iterative scan keeps it walking until enough photos pass the filter, in
+ * relaxed order, hence the outer sort. `next` is the offset of the next
+ * page, null on the last one.
+ */
+export async function searchPhotosByContent(
+  q: QueryEmbedding,
+  range: DateRange,
+  offset: number,
+  limit: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
+): Promise<{ items: ScoredPhoto[]; next: number | null }> {
+  // At least the reference rank, so a small page gets the same floor
+  const window = Math.max(offset + limit + 1, SEMANTIC_REFERENCE_RANK);
+  const params: unknown[] = [q.embedding, q.model, window];
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const dated: string[] = [];
+  if (range.from)
+    dated.push(`(p.metadata->>'date_taken') >= ${add(range.from)}::text`);
+  if (range.before)
+    dated.push(`(p.metadata->>'date_taken') < ${add(range.before)}::text`);
+  const colored = andColorFilter(params, colors, "e.photo_id");
+  const maxDistance = add(1 - SEMANTIC_MIN_SIMILARITY);
+  const margin = add(SEMANTIC_MARGIN);
+  const referenceOffset = add(SEMANTIC_REFERENCE_RANK - 1);
+  const pageOffset = add(offset);
+  const pageLimit = add(limit + 1);
+
+  const rows = await runTransaction(async (client) => {
+    await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
+    // ef_search is capped at 1000; iterative scan goes on past it anyway
+    await client.query(
+      `SET LOCAL hnsw.ef_search = ${Math.min(1000, Math.max(100, window))}`,
+    );
+    const result = await client.query<
+      DatabasePhoto & {
+        folder_name: string;
+        folder_path: string;
+        distance: number;
+      }
+    >(
+      `WITH nearest AS (
+         SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
+         FROM photo_embeddings e
+         ${dated.length > 0 ? "JOIN photos p ON p.id = e.photo_id" : ""}
+         WHERE e.model = $2
+           ${dated.map((condition) => `AND ${condition}`).join("\n")}
+           ${colored}
+         ORDER BY e.embedding <=> $1::halfvec
+         LIMIT $3
+       )
+       SELECT p.*, f.name AS folder_name, f.path AS folder_path, n.distance
+       FROM nearest n
+       JOIN photos p ON p.id = n.photo_id
+       JOIN folders f ON f.id = p.folder_id
+       WHERE n.distance <= least(
+               ${maxDistance}::float8,
+               coalesce(
+                 (SELECT distance FROM nearest ORDER BY distance
+                  OFFSET ${referenceOffset} LIMIT 1),
+                 (SELECT max(distance) FROM nearest)) + ${margin}::float8)
+         AND p.mime_type LIKE 'image/%'
+       ORDER BY n.distance, n.photo_id
+       OFFSET ${pageOffset} LIMIT ${pageLimit}`,
+      params,
+    );
+    return result.rows;
+  });
+
+  const items = rows.slice(0, limit).map(({ distance, ...row }) => ({
+    ...normalizePhoto(row),
+    folder_name: row.folder_name,
+    folder_path: row.folder_path,
+    score: Math.round((1 - distance) * 1000) / 1000,
+  }));
+  return { items, next: rows.length > limit ? offset + limit : null };
+}
+
+// ---- people ---------------------------------------------------------------
+
+/** A face counts for its person unless the owner said it is someone else. */
+const PERSON_FACE = "fa.assignment IS DISTINCT FROM 'rejected'";
+
+export interface PersonMatch {
+  id: number;
+  name: string;
+  /** Photos showing them */
+  photo_count: number;
+  /** Their clearest face's photo, for an avatar */
+  cover_photo_id: number | null;
+  /** That face, [x, y, w, h] fractions of the photo as the owner sees it */
+  cover_box: Box | null;
+  cover_rotation: QuarterTurn;
+}
+
+/**
+ * Named people the query is about (queryNamesPerson), most photographed
+ * first. The owner names a handful of people: they are all read and matched
+ * here rather than in SQL.
+ */
+export async function searchPeople(
+  q: string,
+  limit: number,
+): Promise<PersonMatch[]> {
+  const named = await query<{ id: number; name: string }>(
+    "SELECT id::int AS id, name FROM people WHERE name IS NOT NULL",
+  );
+  const ids = named.rows
+    .filter((person) => queryNamesPerson(q, person.name))
+    .map((person) => person.id);
+  if (ids.length === 0) return [];
+
+  const result = await query<{
+    id: number;
+    name: string;
+    photo_count: number;
+    cover_photo_id: number | null;
+    cover_box: number[] | null;
+    cover_rotation: unknown;
+  }>(
+    `SELECT pe.id::int AS id, pe.name,
+            (SELECT COUNT(DISTINCT fa.photo_id) FROM faces fa
+             WHERE fa.person_id = pe.id AND ${PERSON_FACE})::int AS photo_count,
+            cover.photo_id::int AS cover_photo_id,
+            cover.box AS cover_box,
+            (cover.metadata->>'user_rotation')::int AS cover_rotation
+     FROM people pe
+     LEFT JOIN LATERAL (
+       SELECT fa.photo_id, fa.box, p.metadata
+       FROM faces fa JOIN photos p ON p.id = fa.photo_id
+       WHERE fa.person_id = pe.id AND ${PERSON_FACE}
+       ORDER BY fa.cluster_eligible DESC, fa.det_score DESC,
+                least(fa.width_px, fa.height_px) DESC, fa.id
+       LIMIT 1
+     ) cover ON true
+     WHERE pe.id = ANY($1::bigint[])
+     ORDER BY photo_count DESC, pe.name
+     LIMIT $2`,
+    [ids, limit],
+  );
+  return result.rows.map((row) => {
+    const rotation = asQuarterTurn(row.cover_rotation);
+    const [x, y, w, h] = row.cover_box ?? [];
+    return {
+      id: row.id,
+      name: row.name,
+      photo_count: row.photo_count,
+      cover_photo_id: row.cover_photo_id,
+      cover_box:
+        x !== undefined && y !== undefined && w !== undefined && h !== undefined
+          ? turnBox([x, y, w, h], rotation)
+          : null,
+      cover_rotation: rotation,
+    };
+  });
+}
+
+export interface Person {
+  id: number;
+  name: string | null;
+  photo_count: number;
+}
+
+export async function getPerson(personId: number): Promise<Person | null> {
+  const result = await query<Person>(
+    `SELECT pe.id::int AS id, pe.name,
+            (SELECT COUNT(DISTINCT fa.photo_id) FROM faces fa
+             WHERE fa.person_id = pe.id AND ${PERSON_FACE})::int AS photo_count
+     FROM people pe WHERE pe.id = $1`,
+    [personId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Keyset of getPersonPhotos: date taken ("" when unknown) and id of the last photo. */
+export interface PersonPhotoCursor {
+  taken: string;
+  id: string;
+}
+
+/**
+ * Photos where the person's face was found, newest first, undated ones
+ * last; keyset-paginated on (date taken, id).
+ */
+export async function getPersonPhotos(
+  personId: number,
+  after: PersonPhotoCursor | null,
+  limit: number,
+): Promise<SearchPage<SearchPhoto, PersonPhotoCursor>> {
+  const taken = "coalesce(p.metadata->>'date_taken', '')";
+  const params: unknown[] = [personId, limit + 1];
+  let seek = "";
+  if (after) {
+    params.push(after.taken, after.id);
+    seek = `AND (${taken}, p.id) < ($3::text, $4::bigint)`;
+  }
+  const result = await query<
+    DatabasePhoto & { folder_name: string; folder_path: string; taken: string }
+  >(
+    `WITH page AS (
+       SELECT DISTINCT p.id, ${taken} AS taken
+       FROM faces fa JOIN photos p ON p.id = fa.photo_id
+       WHERE fa.person_id = $1 AND ${PERSON_FACE}
+         ${seek}
+       ORDER BY taken DESC, p.id DESC
+       LIMIT $2
+     )
+     SELECT p.*, f.name AS folder_name, f.path AS folder_path, page.taken
+     FROM page
+     JOIN photos p ON p.id = page.id
+     JOIN folders f ON f.id = p.folder_id
+     ORDER BY page.taken DESC, page.id DESC`,
+    params,
+  );
+  const rows = result.rows.slice(0, limit);
+  const items = rows.map(({ taken: _taken, ...row }) => ({
+    ...normalizePhoto(row),
+    folder_name: row.folder_name,
+    folder_path: row.folder_path,
+  }));
+  const last = rows[rows.length - 1];
+  return {
+    items,
+    next:
+      result.rows.length > limit && last
+        ? { taken: last.taken, id: String(last.id) }
+        : null,
+  };
 }
 
 export interface FolderSuggestion {

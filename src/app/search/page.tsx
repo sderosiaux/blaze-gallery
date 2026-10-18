@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Library, RotateCcw, RotateCw, SearchX } from "lucide-react";
+import { Library, RotateCcw, RotateCw, SearchX, UserRound } from "lucide-react";
 import type { Folder, Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
@@ -26,34 +26,53 @@ import { usePhotoParam } from "@/components/find/usePhotoParam";
 import {
   readSearchPage,
   readSearchTotal,
+  readSemanticPage,
+  searchListSource,
+  searchParamsOf,
   useSearchFeed,
+  type FeedSource,
+  type SearchFeed,
   type SearchFeedPage,
 } from "@/components/find/useSearchFeed";
-import { asString, readJsonObject } from "@/hooks/apiJson";
+import { asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
 import {
   filterAdjective,
   hasColorFilter,
   NO_COLOR_FILTER,
-  setColorParams,
   type ColorFilter,
 } from "@/lib/colors";
+import { thumbnailUrl } from "@/lib/photoUrls";
+
+type SemanticStatus = "ok" | "unavailable" | "not_indexed";
+
+interface PersonMatch {
+  id: number;
+  name: string;
+  photo_count: number;
+  cover_photo_id: number | null;
+  cover_box: [number, number, number, number] | null;
+  cover_rotation: number;
+}
 
 interface Results {
   photos: SearchFeedPage<Photo>;
   photoTotal: number;
   folders: SearchFeedPage<Folder>;
   folderTotal: number;
+  semantic: SearchFeedPage<Photo>;
+  semanticStatus: SemanticStatus;
+  people: PersonMatch[];
   /** The color filter the photos came with */
   colors: ColorFilter;
 }
 
-type State =
+type State<R> =
   | { status: "idle" }
-  | { status: "loading"; q: string }
-  | { status: "error"; q: string }
-  /** `refreshing`: the photos are coming again for another color filter */
-  | { status: "ready"; q: string; results: Results; refreshing: boolean };
+  | { status: "loading"; key: string }
+  | { status: "error"; key: string }
+  /** `refreshing`: the same key is being fetched again with other parameters */
+  | { status: "ready"; key: string; results: R; refreshing: boolean };
 
 /** How far below the viewport the next page of photos starts loading. */
 const PREFETCH_MARGIN = "0px 0px 1600px 0px";
@@ -67,57 +86,98 @@ function quoted(q: string) {
 const colorsKey = (colors: ColorFilter) =>
   `${colors.color ?? ""}|${colors.tone ?? ""}`;
 
-function SearchContent() {
-  const q = (useSearchParams().get("q") ?? "").trim();
-  const [colors, setColors] = useColorFilterParam();
-  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
-  const [state, setState] = useState<State>(() =>
-    q ? { status: "loading", q } : { status: "idle" },
+function readSemanticStatus(data: Record<string, unknown>): SemanticStatus {
+  const status = isRecord(data.semantic) ? data.semantic.status : undefined;
+  return status === "ok" || status === "not_indexed" ? status : "unavailable";
+}
+
+/**
+ * Fetches `url` whenever it changes (or on retry) and reads the response; an
+ * empty key is the idle state. A new url for the same key (another color
+ * filter for the same words) keeps the results shown while it loads.
+ */
+function useSearchRequest<R>(
+  key: string,
+  url: string,
+  read: (data: Record<string, unknown>) => R,
+) {
+  const [state, setState] = useState<State<R>>(() =>
+    key ? { status: "loading", key } : { status: "idle" },
   );
   const [attempt, setAttempt] = useState(0);
+  const readRef = useRef(read);
+  readRef.current = read;
 
   useEffect(() => {
-    if (!q) {
+    if (!key) {
       setState({ status: "idle" });
       return;
     }
     const controller = new AbortController();
-    // Another color for the same words: the folders stay, the photos reload.
     setState((s) =>
-      s.status === "ready" && s.q === q
+      s.status === "ready" && s.key === key
         ? { ...s, refreshing: true }
-        : { status: "loading", q },
+        : { status: "loading", key },
     );
-    const params = setColorParams(new URLSearchParams({ q }), colors);
-    fetch(`/api/search?${params.toString()}`, {
-      signal: controller.signal,
-    })
+    fetch(url, { signal: controller.signal })
       .then(async (response) => {
         const data = await readJsonObject(response);
         if (!response.ok || !data.success)
           throw new Error(asString(data.error));
-        const photos = readSearchPage<Photo>(data, "photos");
-        const folders = readSearchPage<Folder>(data, "folders");
         setState({
           status: "ready",
-          q,
+          key,
+          results: readRef.current(data),
           refreshing: false,
-          results: {
-            photos,
-            photoTotal: readSearchTotal(data, "photos", photos.items.length),
-            folders,
-            folderTotal: readSearchTotal(data, "folders", folders.items.length),
-            colors,
-          },
         });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState({ status: "error", q });
+        if (!controller.signal.aborted) setState({ status: "error", key });
       });
     return () => {
       controller.abort();
     };
-  }, [q, colors, attempt]);
+  }, [key, url, attempt]);
+
+  return {
+    state,
+    attempt,
+    retry: () => {
+      setAttempt((n) => n + 1);
+    },
+  };
+}
+
+function SearchContent() {
+  const params = useSearchParams();
+  const person = params.get("person") ?? "";
+  if (/^\d+$/.test(person)) return <PersonContent personId={person} />;
+  return <QueryContent q={(params.get("q") ?? "").trim()} />;
+}
+
+function QueryContent({ q }: { q: string }) {
+  const [colors, setColors] = useColorFilterParam();
+  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const { state, attempt, retry } = useSearchRequest(
+    q,
+    `/api/search?${new URLSearchParams(searchParamsOf(q, colors)).toString()}`,
+    (data): Results => {
+      const photos = readSearchPage<Photo>(data, "photos");
+      const folders = readSearchPage<Folder>(data, "folders");
+      return {
+        photos,
+        photoTotal: readSearchTotal(data, "photos", photos.items.length),
+        folders,
+        folderTotal: readSearchTotal(data, "folders", folders.items.length),
+        semantic: readSemanticPage<Photo>(data),
+        semanticStatus: readSemanticStatus(data),
+        people: (Array.isArray(data.people)
+          ? data.people
+          : []) as PersonMatch[],
+        colors,
+      };
+    },
+  );
 
   if (state.status === "idle") {
     return (
@@ -128,18 +188,13 @@ function SearchContent() {
     );
   }
 
-  const header = <PageHeader title={quoted(state.q)} />;
+  const header = <PageHeader title={quoted(state.key)} />;
 
   if (state.status === "error") {
     return (
       <>
         {header}
-        <LoadError
-          title="La recherche n'a pas abouti"
-          onRetry={() => {
-            setAttempt((n) => n + 1);
-          }}
-        />
+        <LoadError title="La recherche n'a pas abouti" onRetry={retry} />
       </>
     );
   }
@@ -165,8 +220,8 @@ function SearchContent() {
     <>
       {header}
       <ResultsView
-        key={`${state.q}\n${attempt}`}
-        q={state.q}
+        key={`${state.key}\n${attempt}`}
+        q={state.key}
         results={state.results}
         refreshing={state.refreshing}
         colors={colors}
@@ -197,8 +252,7 @@ function ResultsView({
   onPhotoUrlChange: (id: string | null) => void;
 }) {
   const folders = useSearchFeed(
-    q,
-    "folders",
+    searchListSource<Folder>(q, "folders"),
     results.folders,
     results.folderTotal,
   );
@@ -208,50 +262,71 @@ function ResultsView({
     [q],
   );
 
+  const notice =
+    results.semanticStatus === "unavailable"
+      ? "La recherche par le contenu des photos ne répond pas pour l'instant : résultats par nom de dossier et de fichier."
+      : results.semanticStatus === "not_indexed"
+        ? "Les photos sont en cours d'analyse ; la recherche par le contenu arrive bientôt."
+        : null;
+  const noticeLine = notice && (
+    <p className="mt-2 text-sm text-ink-muted" role="status">
+      {notice}
+    </p>
+  );
+
   const filtered = hasColorFilter(results.colors);
+  const hasPhotos = results.semantic.items.length > 0 || results.photoTotal > 0;
   if (
     folders.feed.items.length === 0 &&
-    results.photoTotal === 0 &&
+    !hasPhotos &&
+    results.people.length === 0 &&
     !filtered &&
     !refreshing
   ) {
     return (
-      <EmptyState
-        icon={SearchX}
-        title="Aucun résultat"
-        body={
-          words.length > 1 ? (
-            <>
-              Essayez un seul mot{"\u00a0: "}
-              {words.map((w, i) => (
-                <span key={w}>
-                  {i > 0 && ", "}
-                  <Link
-                    href={`/search?q=${encodeURIComponent(w)}`}
-                    className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink"
-                  >
-                    {quoted(w)}
-                  </Link>
-                </span>
-              ))}
-              .
-            </>
-          ) : (
-            "Essayez un lieu, un prénom ou une année."
-          )
-        }
-        action={
-          <ButtonLink href="/" variant="secondary" icon={Library}>
-            Ouvrir la bibliothèque
-          </ButtonLink>
-        }
-        className="pt-10"
-      />
+      <>
+        {noticeLine}
+        <EmptyState
+          icon={SearchX}
+          title="Aucun résultat"
+          body={
+            words.length > 1 ? (
+              <>
+                Essayez un seul mot{"\u00a0: "}
+                {words.map((w, i) => (
+                  <span key={w}>
+                    {i > 0 && ", "}
+                    <Link
+                      href={`/search?q=${encodeURIComponent(w)}`}
+                      className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink"
+                    >
+                      {quoted(w)}
+                    </Link>
+                  </span>
+                ))}
+                .
+              </>
+            ) : (
+              "Essayez un lieu, un prénom ou une année."
+            )
+          }
+          action={
+            <ButtonLink href="/" variant="secondary" icon={Library}>
+              Ouvrir la bibliothèque
+            </ButtonLink>
+          }
+          className="pt-10"
+        />
+      </>
     );
   }
 
   return (
     <>
+      {noticeLine}
+
+      {results.people.length > 0 && <PeopleRow people={results.people} />}
+
       {folders.feed.items.length > 0 && (
         <Section
           title="Dossiers"
@@ -259,36 +334,19 @@ function ResultsView({
         >
           <AlbumGrid folders={folders.feed.items} showPath eagerCount={8} />
           {folders.feed.next && (
-            <div className="mt-8 flex flex-col items-center gap-3 text-center">
-              {folders.feed.phase === "more-error" && (
-                <p className="text-sm text-ink-muted">
-                  Les dossiers suivants n&apos;ont pas pu être chargés.
-                </p>
-              )}
-              <Button
-                variant="secondary"
-                icon={
-                  folders.feed.phase === "more-error" ? RotateCw : undefined
-                }
-                loading={folders.feed.phase === "more"}
-                onClick={() => {
-                  folders.loadMore(true);
-                }}
-              >
-                {folders.feed.phase === "more-error"
-                  ? "Réessayer"
-                  : "Afficher plus"}
-              </Button>
-            </div>
+            <MoreButton
+              phase={folders.feed.phase}
+              failed="Les dossiers suivants n'ont pas pu être chargés."
+              onClick={() => {
+                folders.loadMore(true);
+              }}
+            />
           )}
         </Section>
       )}
 
-      {(results.photoTotal > 0 || filtered || refreshing) && (
-        <Section
-          title="Photos"
-          action={!refreshing && <Count n={results.photoTotal} one="photo" />}
-        >
+      {(hasPhotos || filtered || refreshing) && (
+        <Section title="Photos">
           <ColorFilterBar
             filter={colors}
             onChange={onColorsChange}
@@ -300,9 +358,7 @@ function ResultsView({
             <PhotoResults
               key={colorsKey(results.colors)}
               q={q}
-              colors={results.colors}
-              first={results.photos}
-              total={results.photoTotal}
+              results={results}
               selectedPhotoId={selectedPhotoId}
               onPhotoUrlChange={onPhotoUrlChange}
               onClearColors={() => {
@@ -316,56 +372,60 @@ function ResultsView({
   );
 }
 
-/** The photos of one search and one color filter, a page at a time. */
+/** The search's photo lists that can hold the open photo. */
+type PhotoList = "semantic" | "names";
+
+/**
+ * The photos of one search and one color filter: those showing what the
+ * query describes, ranked, then those whose file or folder name matches.
+ */
 function PhotoResults({
   q,
-  colors,
-  first,
-  total,
+  results,
   selectedPhotoId,
   onPhotoUrlChange,
   onClearColors,
 }: {
   q: string;
-  colors: ColorFilter;
-  first: SearchFeedPage<Photo>;
-  total: number;
+  results: Results;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
   onClearColors: () => void;
 }) {
-  const photos = useSearchFeed(q, "photos", first, total, colors);
-  const loadMorePhotos = photos.loadMore;
-  const { phase: photoPhase, next: nextPhotos } = photos.feed;
+  const { colors } = results;
+  const photos = useSearchFeed(
+    searchListSource<Photo>(q, "photos", colors),
+    results.photos,
+    results.photoTotal,
+  );
+  const semanticSource: FeedSource<Photo> = {
+    params: searchParamsOf(q, colors),
+    after: "semantic_after",
+    read: readSemanticPage,
+  };
+  // Ranked pages have no total: the feed counts what it has loaded.
+  const semantic = useSearchFeed(
+    semanticSource,
+    results.semantic,
+    results.semantic.items.length,
+  );
 
-  // Scrolling near the end of the grid brings the next page.
-  const sentinel = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = sentinel.current;
-    if (!el || photoPhase !== "ready" || !nextPhotos) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) loadMorePhotos();
-      },
-      { rootMargin: PREFETCH_MARGIN },
-    );
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [photoPhase, nextPhotos, loadMorePhotos]);
+  // A photo can be in both lists: only the list it was opened from shows it.
+  const [opener, setOpener] = useState<PhotoList | null>(null);
+  const viewerList: PhotoList | null = !selectedPhotoId
+    ? null
+    : (opener ??
+      (semantic.feed.items.some((p) => String(p.id) === selectedPhotoId)
+        ? "semantic"
+        : "names"));
+  const urlChangeFrom = (list: PhotoList) => (id: string | null) => {
+    setOpener(id ? list : null);
+    onPhotoUrlChange(id);
+  };
 
-  // The viewer walks every loaded photo: near the last one, fetch the next page.
-  const photoCount = photos.feed.items.length;
-  const selectedIndex = selectedPhotoId
-    ? photos.feed.items.findIndex((p) => String(p.id) === selectedPhotoId)
-    : -1;
-  useEffect(() => {
-    if (selectedIndex !== -1 && selectedIndex >= photoCount - VIEWER_PREFETCH)
-      loadMorePhotos();
-  }, [selectedIndex, photoCount, photoPhase, loadMorePhotos]);
-
-  if (photoCount === 0) {
+  const showSemantic = semantic.feed.items.length > 0;
+  const showNames = photos.feed.items.length > 0;
+  if (!showSemantic && !showNames) {
     return (
       <EmptyState
         title={`Aucune photo ${filterAdjective(colors)} pour cette recherche`}
@@ -379,43 +439,331 @@ function PhotoResults({
     );
   }
 
+  const names = showNames && (
+    <PhotoFeed
+      feed={photos.feed}
+      loadMore={photos.loadMore}
+      remove={photos.remove}
+      selectedPhotoId={viewerList === "names" ? selectedPhotoId : null}
+      onPhotoUrlChange={urlChangeFrom("names")}
+      more="scroll"
+    />
+  );
+
+  return (
+    <>
+      {showSemantic && (
+        <PhotoFeed
+          feed={semantic.feed}
+          loadMore={semantic.loadMore}
+          remove={semantic.remove}
+          selectedPhotoId={viewerList === "semantic" ? selectedPhotoId : null}
+          onPhotoUrlChange={urlChangeFrom("semantic")}
+          more="button"
+        />
+      )}
+      {showSemantic && showNames ? (
+        <Section
+          title="Noms de fichiers et dossiers"
+          action={<Count n={photos.feed.total} one="photo" />}
+        >
+          {names}
+        </Section>
+      ) : (
+        names
+      )}
+    </>
+  );
+}
+
+/**
+ * One photo list with its next pages: brought by scrolling near its end
+ * (the last list of the page) or by a button (a list with others below it),
+ * and by the viewer reaching its last photos either way.
+ */
+function PhotoFeed({
+  feed,
+  loadMore,
+  remove,
+  selectedPhotoId,
+  onPhotoUrlChange,
+  more,
+}: {
+  feed: SearchFeed<Photo>;
+  loadMore: (retry?: boolean) => void;
+  remove: (id: number | string) => void;
+  selectedPhotoId: string | null;
+  onPhotoUrlChange: (id: string | null) => void;
+  more: "scroll" | "button";
+}) {
+  const { phase, next, items } = feed;
+
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (more !== "scroll" || !el || phase !== "ready" || !next) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) loadMore();
+      },
+      { rootMargin: PREFETCH_MARGIN },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [more, phase, next, loadMore]);
+
+  const count = items.length;
+  const selectedIndex = selectedPhotoId
+    ? items.findIndex((p) => String(p.id) === selectedPhotoId)
+    : -1;
+  useEffect(() => {
+    if (selectedIndex !== -1 && selectedIndex >= count - VIEWER_PREFETCH)
+      loadMore();
+  }, [selectedIndex, count, phase, loadMore]);
+
   return (
     <>
       <PhotoGrid
-        photos={photos.feed.items}
-        total={photos.feed.total}
+        photos={items}
+        total={feed.total}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={onPhotoUrlChange}
         onPhotoDeleted={(deleted) => {
-          photos.remove(deleted.id);
+          remove(deleted.id);
         }}
         eagerCount={12}
       />
 
-      <div ref={sentinel} aria-hidden />
-
-      {photoPhase === "more" && (
-        <div className="mt-1">
-          <PhotoGridSkeleton count={8} />
-        </div>
-      )}
-
-      {photoPhase === "more-error" && (
-        <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-ink-muted">
-          <p>Les photos suivantes n&apos;ont pas pu être chargées.</p>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={RotateCw}
+      {more === "button" ? (
+        next && (
+          <MoreButton
+            phase={phase}
+            failed="Les photos suivantes n'ont pas pu être chargées."
             onClick={() => {
-              loadMorePhotos(true);
+              loadMore(true);
             }}
-          >
-            Réessayer
-          </Button>
-        </div>
+          />
+        )
+      ) : (
+        <>
+          <div ref={sentinel} aria-hidden />
+
+          {phase === "more" && (
+            <div className="mt-1">
+              <PhotoGridSkeleton count={8} />
+            </div>
+          )}
+
+          {phase === "more-error" && (
+            <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-ink-muted">
+              <p>Les photos suivantes n&apos;ont pas pu être chargées.</p>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={RotateCw}
+                onClick={() => {
+                  loadMore(true);
+                }}
+              >
+                Réessayer
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </>
+  );
+}
+
+function MoreButton({
+  phase,
+  failed,
+  onClick,
+}: {
+  phase: SearchFeed<unknown>["phase"];
+  failed: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="mt-8 flex flex-col items-center gap-3 text-center">
+      {phase === "more-error" && (
+        <p className="text-sm text-ink-muted">{failed}</p>
+      )}
+      <Button
+        variant="secondary"
+        icon={phase === "more-error" ? RotateCw : undefined}
+        loading={phase === "more"}
+        onClick={onClick}
+      >
+        {phase === "more-error" ? "Réessayer" : "Afficher plus"}
+      </Button>
+    </div>
+  );
+}
+
+/** Named people the query is about, each leading to the photos showing them. */
+function PeopleRow({ people }: { people: PersonMatch[] }) {
+  return (
+    <section aria-label="Personnes" className="pt-8">
+      <ul className="flex flex-wrap gap-3">
+        {people.map((person) => (
+          <li key={person.id}>
+            <Link
+              href={`/search?person=${person.id}`}
+              className="flex items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-1.5 pr-5 transition-colors hover:border-line-strong hover:bg-surface-sunken"
+            >
+              <PersonAvatar person={person} />
+              <span className="flex flex-col leading-tight">
+                <span className="font-medium text-ink">{person.name}</span>
+                <span className="tabular text-xs text-ink-muted">
+                  {formatCount(person.photo_count, "photo")}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PersonAvatar({ person }: { person: PersonMatch }) {
+  if (person.cover_photo_id === null) {
+    return (
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-sunken text-ink-muted">
+        <UserRound className="h-5 w-5" aria-hidden />
+      </span>
+    );
+  }
+  const box = person.cover_box;
+  // Centers the crop on the face (exact along the axis object-cover crops)
+  const position = box
+    ? `${((box[0] + box[2] / 2) * 100).toFixed(1)}% ${((box[1] + box[3] / 2) * 100).toFixed(1)}%`
+    : "center";
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- a 40 px avatar from the thumbnail route
+    <img
+      src={thumbnailUrl(
+        person.cover_photo_id,
+        undefined,
+        person.cover_rotation,
+      )}
+      alt=""
+      className="h-10 w-10 rounded-full object-cover"
+      style={{ objectPosition: position }}
+      loading="lazy"
+    />
+  );
+}
+
+interface PersonResults {
+  name: string | null;
+  photos: SearchFeedPage<Photo>;
+  total: number;
+}
+
+/** /search?person=<id>: the photos showing one person, newest first. */
+function PersonContent({ personId }: { personId: string }) {
+  const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const { state, attempt, retry } = useSearchRequest(
+    personId,
+    `/api/search?person=${personId}`,
+    (data): PersonResults => {
+      const photos = readSearchPage<Photo>(data, "photos");
+      const person = isRecord(data.person) ? data.person : {};
+      return {
+        name: typeof person.name === "string" ? person.name : null,
+        photos,
+        total: readSearchTotal(data, "photos", photos.items.length),
+      };
+    },
+  );
+
+  if (state.status === "error") {
+    return (
+      <>
+        <PageHeader title="Personne" />
+        <LoadError
+          title="Ces photos n'ont pas pu être chargées"
+          onRetry={retry}
+        />
+      </>
+    );
+  }
+
+  if (state.status !== "ready") {
+    return (
+      <>
+        <PageHeader title="Personne" />
+        <Section title="Photos">
+          <PhotoGridSkeleton count={8} />
+        </Section>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader title={state.results.name ?? "Sans nom"} />
+      <PersonPhotos
+        key={`${personId}\n${attempt}`}
+        personId={personId}
+        results={state.results}
+        selectedPhotoId={selectedPhotoId}
+        onPhotoUrlChange={setPhotoParam}
+      />
+    </>
+  );
+}
+
+function PersonPhotos({
+  personId,
+  results,
+  selectedPhotoId,
+  onPhotoUrlChange,
+}: {
+  personId: string;
+  results: PersonResults;
+  selectedPhotoId: string | null;
+  onPhotoUrlChange: (id: string | null) => void;
+}) {
+  const photos = useSearchFeed(
+    {
+      params: { person: personId },
+      after: "photos_after",
+      read: (data) => readSearchPage<Photo>(data, "photos"),
+    },
+    results.photos,
+    results.total,
+  );
+
+  if (photos.feed.items.length === 0) {
+    return (
+      <EmptyState
+        icon={UserRound}
+        title="Aucune photo pour l'instant"
+        body="Ses visages apparaîtront ici une fois reconnus."
+        className="pt-10"
+      />
+    );
+  }
+
+  return (
+    <Section
+      title="Photos"
+      action={<Count n={photos.feed.total} one="photo" />}
+    >
+      <PhotoFeed
+        feed={photos.feed}
+        loadMore={photos.loadMore}
+        remove={photos.remove}
+        selectedPhotoId={selectedPhotoId}
+        onPhotoUrlChange={onPhotoUrlChange}
+        more="scroll"
+      />
+    </Section>
   );
 }
 
