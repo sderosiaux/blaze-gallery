@@ -12,7 +12,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import pg from "pg";
 
-// Same number for every instance: two containers starting together take turns
+// Same number for every instance: two containers starting together take turns.
+// Transaction-scoped: behind a transaction pooler (Neon's pooled endpoint) a
+// session lock outlives this script on the shared server connection and blocks
+// every later migration.
 const MIGRATION_LOCK = 7_235_101;
 
 /** @param {pg.Client} client */
@@ -21,11 +24,11 @@ async function applySchema(client) {
     new URL("../db/schema.sql", import.meta.url),
     "utf8",
   );
-  await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK]);
   await client.query("BEGIN");
   try {
     // Fail instead of waiting forever behind a long write on an existing table
     await client.query("SET LOCAL lock_timeout = '30s'");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [MIGRATION_LOCK]);
     await client.query(schema);
     await client.query("COMMIT");
   } catch (error) {

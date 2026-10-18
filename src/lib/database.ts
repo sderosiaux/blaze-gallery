@@ -1177,19 +1177,62 @@ export async function createSyncJob(
   return requireRow(result);
 }
 
+/** Every update is also a heartbeat: the job's process is alive. */
 export async function updateSyncJob(
   jobId: number,
   updates: Partial<SyncJob>,
 ): Promise<void> {
-  const fields = Object.keys(updates)
-    .map((key, index) => `${key} = $${index + 1}`)
-    .join(", ");
+  const fields = [
+    ...Object.keys(updates).map((key, index) => `${key} = $${index + 1}`),
+    "heartbeat_at = CURRENT_TIMESTAMP",
+  ].join(", ");
   const values = [...Object.values(updates), jobId];
 
   await query(
     `UPDATE sync_jobs SET ${fields} WHERE id = $${values.length}`,
     values,
   );
+}
+
+/**
+ * Takes a pending job for this process: false when another process got it
+ * first, so two sync loops never run the same job.
+ */
+export async function claimSyncJob(jobId: number): Promise<boolean> {
+  const result = await query(
+    `
+    UPDATE sync_jobs
+    SET status = 'running', started_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND status = 'pending'
+  `,
+    [jobId],
+  );
+  return result.rowCount === 1;
+}
+
+/**
+ * Fails running jobs whose process stopped beating `minutes` ago or more, so
+ * a scan left behind by a dead process no longer blocks the queue. Returns
+ * the ids it failed.
+ */
+export async function failStaleSyncJobs(minutes: number): Promise<number[]> {
+  const result = await query<{ id: number }>(
+    `
+    UPDATE sync_jobs
+    SET status = 'failed',
+        completed_at = CURRENT_TIMESTAMP,
+        error_message = $2
+    WHERE status = 'running'
+      AND COALESCE(heartbeat_at, started_at, created_at)
+          < CURRENT_TIMESTAMP - make_interval(mins => $1::int)
+    RETURNING id
+  `,
+    [
+      minutes,
+      `Abandoned: no heartbeat for ${minutes} minutes (the process running it stopped)`,
+    ],
+  );
+  return result.rows.map((row) => row.id);
 }
 
 export async function getSyncJob(jobId: number): Promise<SyncJob | null> {

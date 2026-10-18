@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
     CHECK (type IN ('full_scan', 'folder_scan', 'metadata_scan', 'cleanup'))
 );
 
+-- Touched every minute by the process running the job. A running job that
+-- stops beating was left by a process that died (a serverless function frozen
+-- mid-scan): it is failed instead of blocking every later sync.
+ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS heartbeat_at timestamp;
+
 CREATE TABLE IF NOT EXISTS shared_folders (
   id bigserial PRIMARY KEY,
   folder_id bigint NOT NULL REFERENCES folders (id),
