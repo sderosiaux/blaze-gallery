@@ -511,3 +511,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_faces_person_once_per_photo
 -- One person per name, whatever the case: "Suzie" typed twice is one person
 CREATE UNIQUE INDEX IF NOT EXISTS idx_people_name
   ON people (lower(name)) WHERE name IS NOT NULL;
+
+-- What a photo shows, as a point in the space of a vision-language model
+-- (task 'embed', worker/), for search by content: a text query embedded by
+-- the same model's text tower lands near the photos it describes, in French
+-- as in other languages. Computed on the app's 400 px thumbnail, never on the
+-- original. embedding: L2-normalized; compare with <=> (cosine distance).
+-- model names the space ("<weights>@<revision>"): vectors of two models never
+-- compare, and the app only matches a query against photos of its model.
+-- The HNSW index exists from the start: rows arrive a few per second, which
+-- costs the index little, and search must work while the backfill runs.
+-- With a WHERE clause or past ~40 rows, pgvector >= 0.8 needs
+-- SET hnsw.iterative_scan = relaxed_order (and a larger hnsw.ef_search).
+CREATE TABLE IF NOT EXISTS photo_embeddings (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  embedding halfvec(768) NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_photo_embeddings_embedding
+  ON photo_embeddings USING hnsw (embedding halfvec_cosine_ops);
+
+-- Search queries already embedded, so a query asked again costs no request
+-- to the embedder. The text tower runs on the worker machine behind HTTPS
+-- (blaze-embedder), not in the app's serverless functions; the app writes
+-- here what it answered. text: NFC, trimmed, single spaces, lower case,
+-- accents kept. A new model means new photo vectors: empty this table with
+-- them (TRUNCATE), or old rows find no photo of their model.
+CREATE TABLE IF NOT EXISTS search_query_embeddings (
+  text text PRIMARY KEY,
+  embedding halfvec(768) NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz NOT NULL DEFAULT now()
+);
