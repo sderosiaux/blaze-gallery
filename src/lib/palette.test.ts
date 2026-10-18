@@ -57,7 +57,7 @@ void test("keeps at most five colors, heaviest first, shares summing to 1", () =
   close(
     palette.reduce((sum, s) => sum + s.share, 0),
     1,
-    1e-9,
+    1e-3,
   );
 });
 

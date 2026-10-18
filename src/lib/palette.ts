@@ -4,7 +4,7 @@
  * the heaviest bins into at most five colors a glance tells apart.
  */
 
-/** One color of a palette and its part of it; parts sum to 1. */
+/** One color of a palette and its part of it; parts sum to 1 (four decimals). */
 export interface Swatch {
   hex: string;
   share: number;
@@ -118,6 +118,7 @@ export function foldPalette(
   const shown = visible.reduce((sum, k) => sum + k.weight, 0);
   return visible.map((k) => ({
     hex: toHex(k.r / k.weight, k.g / k.weight, k.b / k.weight),
-    share: k.weight / shown,
+    // Four decimals: a 0.01% sliver of a strip is no pixel
+    share: Math.round((k.weight / shown) * 10_000) / 10_000,
   }));
 }
