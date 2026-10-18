@@ -425,7 +425,8 @@ const PALETTE_SQL = `
     FROM photo_colors pc
     JOIN photos p ON p.id = pc.photo_id
     CROSS JOIN LATERAL unnest(pc.palette_hex, pc.palette_share) AS e(hex, share)
-    WHERE e.hex ~ '^#[0-9a-fA-F]{6}$'
+    -- A colour with no share weighs nothing, and a bin of only those would divide by zero
+    WHERE e.hex ~ '^#[0-9a-fA-F]{6}$' AND e.share > 0
   ),
   direct AS (
     SELECT folder_id,
