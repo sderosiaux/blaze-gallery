@@ -75,7 +75,8 @@ export function folderDate(path: string | null): string | null {
   return null;
 }
 
-function dayOf(iso: string): number {
+/** Days since 1970-01-01 of an ISO date or timestamp (its date part). */
+export function dayOf(iso: string): number {
   return Math.floor(Date.parse(iso.slice(0, 10)) / DAY_MS);
 }
 

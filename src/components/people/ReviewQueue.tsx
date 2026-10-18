@@ -48,7 +48,12 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
-async function send(personId: number, decision: string, faceIds: number[]) {
+/** Look-alikes a yes put in the queue (0 for the other decisions). */
+async function send(
+  personId: number,
+  decision: string,
+  faceIds: number[],
+): Promise<number> {
   const response = await fetch(`/api/people/${String(personId)}/candidates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -57,6 +62,7 @@ async function send(personId: number, decision: string, faceIds: number[]) {
   const data = await readJsonObject(response);
   if (!response.ok || data.success !== true)
     throw new Error(`HTTP ${response.status}`);
+  return typeof data.proposed === "number" ? data.proposed : 0;
 }
 
 /**
@@ -200,10 +206,12 @@ export default function ReviewQueue({
       );
       moveTo(nextUndecided(last, after));
       try {
-        await write(
+        const proposed = await write(
           verdict === "accepted" ? "accept" : "reject",
           withCopies(fresh),
         );
+        // They wait past the end of the list: "Visages suivants" brings them
+        if (proposed > 0) setTotal((t) => t + proposed);
       } catch {
         revert(before, fresh);
         setHistory((h) => h.filter((s) => s.faceIds !== fresh));
