@@ -63,7 +63,8 @@ export async function listPeople(): Promise<PersonSummary[]> {
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM faces f
         JOIN photos ph ON ph.id = f.photo_id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS photo_count,
-      (SELECT count(*)::int FROM face_candidates c
+      (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
+        JOIN faces f ON f.id = c.face_id JOIN photos ph ON ph.id = f.photo_id
         WHERE c.person_id = p.id AND c.status = 'pending') AS pending_count,
       (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')

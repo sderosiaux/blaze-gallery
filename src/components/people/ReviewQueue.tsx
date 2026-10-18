@@ -83,6 +83,20 @@ export default function ReviewQueue({
   const wrapRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const area = useElementSize(wrapRef);
+  // One request at a time, in the order of the keys: a quick G then U must
+  // reach the server as G then U
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+  const write = useCallback(
+    (decision: string, faceIds: number[]) => {
+      const next = writes.current.then(
+        () => send(personId, decision, faceIds),
+        () => send(personId, decision, faceIds),
+      );
+      writes.current = next.catch(() => undefined);
+      return next;
+    },
+    [personId],
+  );
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -159,6 +173,19 @@ export default function ReviewQueue({
     [candidates],
   );
 
+  /** Puts these faces back as they were before a write that failed. */
+  const revert = useCallback((before: Map<number, Verdict>, ids: number[]) => {
+    setVerdicts((current) => {
+      const next = new Map(current);
+      for (const id of ids) {
+        const was = before.get(id);
+        if (was) next.set(id, was);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
   const decide = useCallback(
     async (faceIds: number[], verdict: Verdict) => {
       const fresh = faceIds.filter((id) => verdicts.get(id) !== verdict);
@@ -173,15 +200,13 @@ export default function ReviewQueue({
       );
       moveTo(nextUndecided(last, after));
       try {
-        await send(
-          personId,
+        await write(
           verdict === "accepted" ? "accept" : "reject",
           withCopies(fresh),
         );
-        onChange(total - after.size);
       } catch {
-        setVerdicts(before);
-        setHistory((h) => h.slice(0, -1));
+        revert(before, fresh);
+        setHistory((h) => h.filter((s) => s.faceIds !== fresh));
         toast.show("La décision n’a pas été enregistrée", "error");
       }
     },
@@ -191,10 +216,9 @@ export default function ReviewQueue({
       moveTo,
       nextUndecided,
       withCopies,
-      personId,
-      onChange,
+      write,
+      revert,
       toast,
-      total,
     ],
   );
 
@@ -209,24 +233,19 @@ export default function ReviewQueue({
     const first = candidates.findIndex((c) => c.face_id === step.faceIds[0]);
     if (first >= 0) moveTo(first);
     try {
-      await send(personId, "undo", withCopies(step.faceIds));
-      onChange(total - after.size);
+      await write("undo", withCopies(step.faceIds));
     } catch {
-      setVerdicts(before);
+      revert(before, step.faceIds);
       setHistory((h) => [...h, step]);
       toast.show("L’annulation n’a pas été enregistrée", "error");
     }
-  }, [
-    history,
-    verdicts,
-    candidates,
-    moveTo,
-    withCopies,
-    personId,
-    onChange,
-    toast,
-    total,
-  ]);
+  }, [history, verdicts, candidates, moveTo, withCopies, write, revert, toast]);
+
+  // The count follows what is on screen, whatever order the answers come in
+  const decided = verdicts.size;
+  useEffect(() => {
+    if (status === "ready") onChange(total - decided);
+  }, [status, total, decided, onChange]);
 
   const rowOf = (index: number) => Math.floor(index / columns);
   const acceptRow = useCallback(
