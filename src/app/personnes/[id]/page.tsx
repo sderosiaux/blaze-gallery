@@ -30,6 +30,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
+import { YearPicker, YearRail } from "@/components/find/YearIndex";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import { asArray, isRecord, readJsonObject } from "@/hooks/apiJson";
@@ -38,6 +39,9 @@ import { ageOn } from "@/lib/faces";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 
 type Tab = "photos" | "a-trier";
+
+/** A year counts as the one being read once its heading passes this line. */
+const SPY_LINE = 160;
 
 interface YearGroup {
   key: string;
@@ -85,7 +89,11 @@ function YearSection({
   const age = ageLabel(birthDate, group);
   const headingId = `year-${group.key}`;
   return (
-    <section aria-labelledby={headingId} className="pt-10 first:pt-2">
+    <section
+      aria-labelledby={headingId}
+      data-year={group.year ?? undefined}
+      className="scroll-mt-[calc(var(--topbar-height)+1rem)] pt-10 first:pt-2"
+    >
       <header className="mb-4 flex items-baseline gap-3 border-b border-line pb-3">
         <h2
           id={headingId}
@@ -239,6 +247,52 @@ function PersonContent() {
 
   const groups = useMemo(() => byYear(photos), [photos]);
 
+  // The year index of Chronologie, oldest first like the photos
+  const years = useMemo(
+    () => groups.flatMap((g) => (g.year === null ? [] : [g.year])),
+    [groups],
+  );
+  const yearCounts = useMemo(
+    () =>
+      new Map(
+        groups.flatMap((g) =>
+          g.year === null ? [] : [[String(g.year), g.photos.length] as const],
+        ),
+      ),
+    [groups],
+  );
+  const [activeYear, setActiveYear] = useState<number | null>(null);
+  useEffect(() => {
+    if (tab !== "photos") return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      let current: number | null = null;
+      for (const section of Array.from(
+        document.querySelectorAll<HTMLElement>("[data-year]"),
+      )) {
+        if (section.getBoundingClientRect().top > SPY_LINE) break;
+        current = Number(section.dataset.year);
+      }
+      setActiveYear(current ?? years[0] ?? null);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+    };
+  }, [groups, years, tab]);
+  const jumpToYear = useCallback((year: number) => {
+    document
+      .querySelector(`[data-year="${String(year)}"]`)
+      ?.scrollIntoView({ block: "start" });
+  }, []);
+  const noMonths = useCallback(() => undefined, []);
+
   if (status === "missing") {
     return (
       <EmptyState
@@ -297,6 +351,13 @@ function PersonContent() {
                 <span>{formatDateRange(first, last)}</span>
               </>
             )}
+            <MetaDot />
+            <Link
+              href={`/timeline?person=${String(person.id)}`}
+              className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-accent"
+            >
+              Dans la chronologie
+            </Link>
           </>
         }
       />
@@ -320,17 +381,43 @@ function PersonContent() {
             className="py-16"
           />
         ) : (
-          <div>
-            {groups.map((group) => (
-              <YearSection
-                key={group.key}
-                group={group}
-                birthDate={person.birth_date}
-                onOpen={openFromGrid}
-                onToggleFavorite={(photo) => void toggleFavorite(photo)}
+          <>
+            <div className="md:grid md:grid-cols-[minmax(0,1fr)_6rem] md:gap-8">
+              <div className="min-w-0">
+                {groups.map((group) => (
+                  <YearSection
+                    key={group.key}
+                    group={group}
+                    birthDate={person.birth_date}
+                    onOpen={openFromGrid}
+                    onToggleFavorite={(photo) => void toggleFavorite(photo)}
+                  />
+                ))}
+              </div>
+              {years.length > 1 && (
+                <YearRail
+                  years={years}
+                  counts={yearCounts}
+                  active={activeYear}
+                  activeYearMonths={[]}
+                  activeMonth={null}
+                  onJump={jumpToYear}
+                  onJumpMonth={noMonths}
+                />
+              )}
+            </div>
+            {years.length > 1 && (
+              <YearPicker
+                years={years}
+                counts={yearCounts}
+                active={activeYear}
+                activeYearMonths={[]}
+                activeMonth={null}
+                onJump={jumpToYear}
+                onJumpMonth={noMonths}
               />
-            ))}
-          </div>
+            )}
+          </>
         )
       ) : (
         <ReviewQueue

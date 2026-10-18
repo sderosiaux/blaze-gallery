@@ -32,11 +32,15 @@ export interface MonthGroup {
   photos: TimelinePhoto[];
 }
 
+/** Months of the library, narrowed by a color filter and/or a person id. */
 export async function fetchTimelineSummary(
   signal?: AbortSignal,
   colors: ColorFilter = NO_COLOR_FILTER,
+  person: string | null = null,
 ): Promise<TimelineSummary> {
-  const query = setColorParams(new URLSearchParams(), colors).toString();
+  const params = setColorParams(new URLSearchParams(), colors);
+  if (person) params.set("person", person);
+  const query = params.toString();
   const response = await fetch(
     `/api/timeline/summary${query ? `?${query}` : ""}`,
     { signal },
