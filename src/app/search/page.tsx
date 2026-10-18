@@ -44,6 +44,37 @@ import {
   type ColorFilter,
 } from "@/lib/colors";
 
+// Suggested alone, these find nothing a person means: only the words that carry the query are offered
+const FUNCTION_WORDS = new Set([
+  "le",
+  "la",
+  "les",
+  "un",
+  "une",
+  "des",
+  "du",
+  "de",
+  "au",
+  "aux",
+  "et",
+  "ou",
+  "en",
+  "dans",
+  "sur",
+  "sous",
+  "avec",
+  "sans",
+  "pour",
+  "par",
+  "à",
+  "a",
+  "the",
+  "of",
+  "in",
+  "on",
+  "and",
+]);
+
 type SemanticStatus = "ok" | "unavailable" | "not_indexed";
 
 interface PersonMatch {
@@ -254,7 +285,16 @@ function ResultsView({
   );
 
   const words = useMemo(
-    () => Array.from(new Set(q.split(/\s+/).filter((w) => w.length > 1))),
+    () =>
+      Array.from(
+        new Set(
+          q
+            .split(/\s+/)
+            .filter(
+              (w) => w.length > 1 && !FUNCTION_WORDS.has(w.toLowerCase()),
+            ),
+        ),
+      ),
     [q],
   );
 
