@@ -1,6 +1,11 @@
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import type { Photo } from "@/types";
 import { formatDay } from "@/lib/albums";
+import {
+  NO_COLOR_FILTER,
+  setColorParams,
+  type ColorFilter,
+} from "@/lib/colors";
 
 /** "YYYY-MM" of date taken, as returned by /api/timeline/summary */
 export interface MonthCount {
@@ -29,8 +34,13 @@ export interface MonthGroup {
 
 export async function fetchTimelineSummary(
   signal?: AbortSignal,
+  colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<TimelineSummary> {
-  const response = await fetch("/api/timeline/summary", { signal });
+  const query = setColorParams(new URLSearchParams(), colors).toString();
+  const response = await fetch(
+    `/api/timeline/summary${query ? `?${query}` : ""}`,
+    { signal },
+  );
   const data = await readJsonObject(response);
   if (!response.ok || !data.success)
     throw new Error(asString(data.error) ?? `HTTP ${response.status}`);

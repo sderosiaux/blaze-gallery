@@ -44,6 +44,22 @@
   --chart-5: 59 91 168;
   --chart-6: 157 23 77;
 
+  /* The 12 hue families of photo_colors, for the color chips only: the same
+     swatches the worker draws its calibration sheets with
+     (worker/src/blaze_worker/colors_sheet.py). */
+  --hue-red: 214 40 40;
+  --hue-orange: 247 127 0;
+  --hue-yellow: 246 201 14;
+  --hue-green: 42 157 63;
+  --hue-teal: 20 184 166;
+  --hue-blue: 29 78 216;
+  --hue-purple: 123 44 191;
+  --hue-pink: 244 114 182;
+  --hue-brown: 139 90 43;
+  --hue-black: 17 17 17;
+  --hue-grey: 138 138 138;
+  --hue-white: 244 244 244;
+
   --sidebar-expanded: 15.5rem;
   --sidebar-collapsed: 4.25rem;
   --topbar-height: 4rem;

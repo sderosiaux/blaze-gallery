@@ -1,5 +1,6 @@
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatDay, LOCALE } from "@/lib/albums";
+import { setColorParams, type ColorFilter } from "@/lib/colors";
 import {
   addDays,
   addMonths,
@@ -38,8 +39,8 @@ async function readSuccess(response: Response) {
   return data;
 }
 
-function periodQuery(period: MapPeriod): URLSearchParams {
-  const params = new URLSearchParams();
+function periodQuery(period: MapPeriod, colors: ColorFilter): URLSearchParams {
+  const params = setColorParams(new URLSearchParams(), colors);
   if (period.from) params.set("from", period.from);
   if (period.to) params.set("to", period.to);
   return params;
@@ -47,10 +48,11 @@ function periodQuery(period: MapPeriod): URLSearchParams {
 
 export async function fetchMapPoints(
   period: MapPeriod,
+  colors: ColorFilter,
   signal: AbortSignal,
 ): Promise<MapPoints> {
   const response = await fetch(
-    `/api/map/points?${periodQuery(period).toString()}`,
+    `/api/map/points?${periodQuery(period, colors).toString()}`,
     { signal },
   );
   const data = await readSuccess(response);
@@ -74,18 +76,19 @@ export interface MapDates {
 
 export async function fetchMapDates(
   box: MapBox | null,
+  colors: ColorFilter,
   signal: AbortSignal,
 ): Promise<MapDates> {
-  const query = box
-    ? `?${new URLSearchParams({
-        south: String(box.south),
-        west: String(box.west),
-        north: String(box.north),
-        east: String(box.east),
-      }).toString()}`
-    : "";
+  const params = setColorParams(new URLSearchParams(), colors);
+  if (box) {
+    params.set("south", String(box.south));
+    params.set("west", String(box.west));
+    params.set("north", String(box.north));
+    params.set("east", String(box.east));
+  }
+  const query = params.toString();
   const data = await readSuccess(
-    await fetch(`/api/map/dates${query}`, { signal }),
+    await fetch(`/api/map/dates${query ? `?${query}` : ""}`, { signal }),
   );
   const unit: DateUnit = data.unit === "day" ? "day" : "month";
   const valid = unit === "day" ? isDay : isMonth;
@@ -120,10 +123,11 @@ export interface AreaPage {
 export async function fetchAreaPage(
   box: MapBox,
   period: MapPeriod,
+  colors: ColorFilter,
   after: string | null,
   signal: AbortSignal,
 ): Promise<AreaPage> {
-  const params = periodQuery(period);
+  const params = periodQuery(period, colors);
   params.set("south", String(box.south));
   params.set("west", String(box.west));
   params.set("north", String(box.north));
