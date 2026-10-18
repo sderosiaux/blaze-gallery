@@ -708,6 +708,14 @@ export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
   return result.rows.map(normalizePhoto);
 }
 
+/**
+ * In a photo upsert: true when the incoming file differs from the stored one.
+ * A sync that rewrote metadata for every unchanged file wiped the EXIF data of
+ * 91k photos on 2026-10-18; only a replaced file may lose what was extracted.
+ */
+const FILE_CHANGED =
+  "(photos.size IS DISTINCT FROM EXCLUDED.size OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at)";
+
 export async function createOrUpdatePhoto(
   photoData: CreatePhotoData,
 ): Promise<Photo> {
@@ -728,9 +736,11 @@ export async function createOrUpdatePhoto(
       size = EXCLUDED.size,
       mime_type = EXCLUDED.mime_type,
       modified_at = EXCLUDED.modified_at,
-      metadata = EXCLUDED.metadata,
-      metadata_status = EXCLUDED.metadata_status,
-      thumbnail_status = EXCLUDED.thumbnail_status,
+      -- A rescan of an unchanged file keeps everything extracted from it;
+      -- only a new size or date (the file was replaced) resets it.
+      metadata = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata ELSE photos.metadata END,
+      metadata_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata_status ELSE photos.metadata_status END,
+      thumbnail_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.thumbnail_status ELSE photos.thumbnail_status END,
       last_synced = CURRENT_TIMESTAMP
     RETURNING *
   `,
@@ -799,9 +809,9 @@ export async function bulkCreateOrUpdatePhotos(
         size = EXCLUDED.size,
         mime_type = EXCLUDED.mime_type,
         modified_at = EXCLUDED.modified_at,
-        metadata = EXCLUDED.metadata,
-        metadata_status = EXCLUDED.metadata_status,
-        thumbnail_status = EXCLUDED.thumbnail_status,
+        metadata = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata ELSE photos.metadata END,
+        metadata_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata_status ELSE photos.metadata_status END,
+        thumbnail_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.thumbnail_status ELSE photos.thumbnail_status END,
         last_synced = CURRENT_TIMESTAMP
       RETURNING *
     `,
