@@ -23,7 +23,7 @@ on AWS S3 only `us-east-1` buckets work.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `DATABASE_URL` | required | PostgreSQL 13+ connection string. TLS follows `sslmode` in the URL (`require` for hosted databases). Docker Compose overrides it with its own database. |
+| `DATABASE_URL` | required | PostgreSQL 13+ connection string; the server must offer pgvector 0.7+ (the schema runs `CREATE EXTENSION vector`). TLS follows `sslmode` in the URL (`require` for hosted databases). Docker Compose overrides it with its own database. |
 
 `npm run db:migrate` creates the tables from `db/schema.sql`. It only adds
 what is missing, so it is safe on an existing database; the Docker image

@@ -72,7 +72,8 @@ curl -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/j
 ## Run it with Node.js
 
 Needs Node.js 20.12 or newer (`.nvmrc` pins the version used in
-development) and PostgreSQL 13 or newer.
+development) and PostgreSQL 13 or newer with the pgvector extension
+(0.7 or newer) available: the schema creates it for face embeddings.
 
 ```bash
 npm ci

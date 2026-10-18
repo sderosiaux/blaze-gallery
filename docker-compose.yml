@@ -15,7 +15,8 @@ name: blaze-gallery
 
 services:
   db:
-    image: postgres:17
+    # postgres:17 plus pgvector, which db/schema.sql needs for face embeddings
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: blaze
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blaze}

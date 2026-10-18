@@ -186,3 +186,144 @@ CREATE INDEX IF NOT EXISTS idx_s3_audit_session_timestamp ON s3_audit_logs (sess
 CREATE INDEX IF NOT EXISTS idx_s3_audit_status_code ON s3_audit_logs (status_code);
 CREATE INDEX IF NOT EXISTS idx_s3_audit_timestamp ON s3_audit_logs ("timestamp");
 CREATE INDEX IF NOT EXISTS idx_s3_audit_timestamp_operation ON s3_audit_logs ("timestamp", operation);
+
+-- ---------------------------------------------------------------------------
+-- Photo analysis: a job queue shared by workers on several machines (worker/),
+-- and what the "faces" task finds. Only new tables: nothing above changes.
+-- Rows cascade away with their photo, so deletePhoto keeps working.
+
+-- halfvec (pgvector >= 0.7) keeps a 512-d embedding at ~1 KB.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- One row per (photo, task). `task` is free text so a new task (describe,
+-- embed) is new rows, not new schema. Workers claim queued rows with
+-- FOR UPDATE SKIP LOCKED and hold them under a lease: a worker that dies stops
+-- renewing it, and the next claimer puts the row back in the queue (or marks
+-- it failed once attempts reaches max_attempts). A worker that lost its lease
+-- cannot complete the row: completion checks lease_owner.
+--   queued  -> leased -> done | skipped (nothing to analyze, e.g. SVG)
+--                     -> queued (retry after not_before) | failed
+-- lease_owner stays set on done/failed/skipped: it is the machine that did it.
+CREATE TABLE IF NOT EXISTS analysis_jobs (
+  id bigserial PRIMARY KEY,
+  photo_id bigint NOT NULL REFERENCES photos (id) ON DELETE CASCADE,
+  task text NOT NULL,
+  status text NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'leased', 'done', 'failed', 'skipped')),
+  -- Higher first; the enqueue script uses the year taken (0 when unknown)
+  priority integer NOT NULL DEFAULT 0,
+  attempts integer NOT NULL DEFAULT 0,
+  max_attempts integer NOT NULL DEFAULT 3,
+  lease_owner text,
+  lease_expires_at timestamptz,
+  -- Backoff: a failed attempt is retried no earlier than this
+  not_before timestamptz,
+  last_error text,
+  -- Model that produced the result, e.g. "insightface/buffalo_l"
+  model text,
+  -- Per-run measurements: bytes fetched, ms per stage, result counts
+  stats jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  started_at timestamptz,
+  finished_at timestamptz,
+  UNIQUE (photo_id, task)
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_claim
+  ON analysis_jobs (task, priority DESC, id) WHERE status = 'queued';
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_lease
+  ON analysis_jobs (lease_expires_at) WHERE status = 'leased';
+
+-- People the owner names. The system proposes groups of faces; a row may
+-- exist unnamed until he names it.
+CREATE TABLE IF NOT EXISTS people (
+  id bigserial PRIMARY KEY,
+  name text,
+  birth_date date,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- One row per face worth keeping (det_score >= 0.7 and a box side >= 25 px
+-- in the 1024 px rendition the detector sees). A photo with no such face has
+-- no row here; its analysis_jobs row (task 'faces', status 'done') says it
+-- was looked at.
+--
+-- Geometry. box = [x, y, w, h] and landmarks = [x1, y1, ... x5, y5] (the two
+-- eyes, nose tip, two mouth corners) are fractions of the image in its
+-- DISPLAYED orientation: EXIF orientation applied,
+-- photos.metadata.user_rotation NOT applied. To draw on a photo the owner
+-- turned by hand, turn the box clockwise on top:
+--   90:  (x, y, w, h) -> (1 - y - h, x, h, w)
+--   180: (x, y, w, h) -> (1 - x - w, 1 - y - h, w, h)
+--   270: (x, y, w, h) -> (y, 1 - x - w, h, w)
+-- detect_rotation: 0, or 90/270 when the face was only found on the image
+-- turned that much clockwise (a photo stored on its side without EXIF
+-- orientation). box and landmarks are converted back to the displayed
+-- orientation; yaw/pitch/roll and the eye/mouth measures are taken in the
+-- turned frame.
+--
+-- Quality. width_px/height_px: the box in pixels of the decoded original
+-- (displayed orientation; half-size for the rare RAW without a preview).
+-- sharpness: variance of the Laplacian of the aligned 112 px face crop
+-- (higher = sharper). yaw/pitch/roll: degrees, 0 = facing the camera.
+-- cluster_eligible: good enough to define who someone is (clustering seeds);
+-- the other faces can still be matched to a person.
+--
+-- Look. eye_left_open/eye_right_open: lid gap over eye width from the
+-- 106-point landmarks, left/right as seen in the photo (~0.3 open, < 0.15
+-- closed). mouth_open: inner-lip gap over mouth width (~0 closed).
+-- expression: strongest of expression_scores, the 8 probabilities in order
+-- anger, contempt, disgust, fear, happiness, neutral, sadness, surprise.
+--
+-- Identity. embedding: L2-normalized ArcFace vector; compare with <=>
+-- (cosine distance). model names the embedding space (pack, file, weights
+-- hash): vectors of two different models never compare; a new model means
+-- re-embedding every face. The HNSW index serves queries ("faces like this
+-- one"); with a WHERE clause, pgvector >= 0.8 needs
+-- SET hnsw.iterative_scan = relaxed_order to return enough rows.
+-- assignment: how person_id was set. seed = picked by the owner as an
+-- example, auto = proposed by clustering, manual = confirmed by the owner,
+-- rejected = the owner said this face is NOT person_id.
+CREATE TABLE IF NOT EXISTS faces (
+  id bigserial PRIMARY KEY,
+  photo_id bigint NOT NULL REFERENCES photos (id) ON DELETE CASCADE,
+  box real[] NOT NULL CHECK (array_length(box, 1) = 4),
+  landmarks real[] NOT NULL CHECK (array_length(landmarks, 1) = 10),
+  detect_rotation smallint NOT NULL DEFAULT 0
+    CHECK (detect_rotation IN (0, 90, 180, 270)),
+  det_score real NOT NULL,
+  width_px integer NOT NULL,
+  height_px integer NOT NULL,
+  sharpness real,
+  yaw real,
+  pitch real,
+  roll real,
+  cluster_eligible boolean GENERATED ALWAYS AS (
+    coalesce(
+      det_score >= 0.8
+      AND least(width_px, height_px) >= 112
+      AND sharpness >= 50
+      AND abs(yaw) <= 45,
+      false
+    )
+  ) STORED,
+  eye_left_open real,
+  eye_right_open real,
+  mouth_open real,
+  expression text,
+  expression_scores real[]
+    CHECK (expression_scores IS NULL OR array_length(expression_scores, 1) = 8),
+  embedding halfvec(512) NOT NULL,
+  model text NOT NULL,
+  person_id bigint REFERENCES people (id) ON DELETE SET NULL,
+  assignment text
+    CHECK (assignment IN ('seed', 'auto', 'manual', 'rejected')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_faces_photo_id ON faces (photo_id);
+CREATE INDEX IF NOT EXISTS idx_faces_person_id
+  ON faces (person_id) WHERE person_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_faces_embedding
+  ON faces USING hnsw (embedding halfvec_cosine_ops);
