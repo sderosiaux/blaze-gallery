@@ -11,17 +11,15 @@ import {
   embedderConfig,
   requestTextEmbedding,
   vectorLiteral,
+  type EmbedderConfig,
 } from "./embedderClient";
 import { logger } from "./logger";
-import {
-  QUERY_EMBEDDING_WAIT_MS,
-  normalizeSemanticQuery,
-  type DateRange,
-} from "./semanticQuery";
+import { normalizeSemanticQuery, type DateRange } from "./semanticQuery";
 
 /**
  * ok: ranked photos (maybe none above the floor). unavailable: the query
- * could not be embedded in time (embedder down, or nothing to embed); the
+ * could not be embedded (no embedder configured, embedder unreachable or
+ * too slow, or nothing to embed); the
  * text search still answers. not_indexed: no photo is embedded yet.
  */
 export type SemanticStatus = "ok" | "unavailable" | "not_indexed";
@@ -64,11 +62,13 @@ export async function semanticSearch(
       if (indexed === 0)
         return { status: "not_indexed", photos: [], next: null, indexed };
     }
+    const config = embedderConfig();
     const text = normalizeSemanticQuery(q);
-    if (text === null) return unavailable();
-    const embedding = await embedQuery(text);
+    // Without an embedder, no waiting: the text results come alone
+    if (config === null || text === null) return unavailable();
+    const embedding = await embedQuery(config, text);
     if (!embedding) {
-      logger.warn("Semantic search: the embedder did not answer in time", {
+      logger.warn("Semantic search: the embedder did not answer", {
         query: text,
       });
       return unavailable();
@@ -93,19 +93,16 @@ export async function semanticSearch(
 
 /**
  * A normalized query's embedding: stored when asked before, else asked of
- * the embedder (QUERY_EMBEDDING_WAIT_MS at most) and stored. Null when the
- * embedder is not configured or did not answer in time.
+ * the embedder (EMBEDDER_LIMITS) and stored. Null when the embedder did not
+ * answer in time.
  */
-async function embedQuery(text: string): Promise<QueryEmbedding | null> {
+async function embedQuery(
+  config: EmbedderConfig,
+  text: string,
+): Promise<QueryEmbedding | null> {
   const cached = await cachedQueryEmbedding(text);
   if (cached) return cached;
-  const config = embedderConfig();
-  if (!config) return null;
-  const answer = await requestTextEmbedding(
-    config,
-    text,
-    QUERY_EMBEDDING_WAIT_MS,
-  );
+  const answer = await requestTextEmbedding(config, text);
   if (!answer) return null;
   const embedding = {
     embedding: vectorLiteral(answer.embedding),

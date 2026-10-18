@@ -25,9 +25,6 @@ export const SEMANTIC_MIN_SIMILARITY = 0.08;
 export const SEMANTIC_MARGIN = 0.035;
 export const SEMANTIC_REFERENCE_RANK = 5;
 
-/** How long a search waits for the embedder to embed a query it never saw. */
-export const QUERY_EMBEDDING_WAIT_MS = 3000;
-
 /**
  * The key of search_query_embeddings: NFC, spaces collapsed, lower case,
  * accents kept (the model reads them). Null when there is nothing to embed.

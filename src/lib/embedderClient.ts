@@ -53,22 +53,66 @@ export function vectorLiteral(values: number[]): string {
   return `[${values.join(",")}]`;
 }
 
+/** How long a search waits on the embedder. */
+export interface EmbedderLimits {
+  /** To connect, TLS handshake included: an unreachable host costs this much */
+  connectMs: number;
+  /** For the whole request */
+  totalMs: number;
+  /** After a failed connection, the embedder is not tried again for this long */
+  retryAfterMs: number;
+}
+
+export const EMBEDDER_LIMITS: EmbedderLimits = {
+  connectMs: 800,
+  totalMs: 3000,
+  retryAfterMs: 60_000,
+};
+
 /**
- * Asks the embedder for `text`'s embedding. Null on any failure or after
- * `timeoutMs` (connection and answer included): the caller searches without it.
+ * When this server instance may try the embedder again after it could not
+ * connect (port closed by the firewall, host down, wrong certificate), so
+ * that later searches do not each pay the connection timeout.
+ */
+export interface Reachability {
+  retryAt: number;
+}
+
+const instanceReachability: Reachability = { retryAt: 0 };
+
+/**
+ * Asks the embedder for `text`'s embedding. Null on any failure, after
+ * `limits.totalMs`, or at once while a failed connection is recent: the
+ * caller searches without it.
  */
 export function requestTextEmbedding(
   config: EmbedderConfig,
   text: string,
-  timeoutMs: number,
+  limits: EmbedderLimits = EMBEDDER_LIMITS,
+  reachability: Reachability = instanceReachability,
 ): Promise<TextEmbedding | null> {
+  if (Date.now() < reachability.retryAt) return Promise.resolve(null);
   return new Promise((resolve) => {
+    let connected = false;
+    let settled = false;
+    const finish = (value: TextEmbedding | null, unreachable = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      clearTimeout(totalTimer);
+      if (unreachable) reachability.retryAt = Date.now() + limits.retryAfterMs;
+      resolve(value);
+    };
     const body = JSON.stringify({ text });
     const req = request(
       new URL("/embed", config.url),
       {
         method: "POST",
         ca: config.ca,
+        // A new connection each time: a kept-alive one may have been closed
+        // by the embedder since (it drops idle clients after 5 s), and only
+        // queries never seen before come here
+        agent: false,
         headers: {
           Authorization: `Bearer ${config.token}`,
           "Content-Type": "application/json",
@@ -81,31 +125,40 @@ export function requestTextEmbedding(
           chunks.push(chunk);
         });
         res.on("end", () => {
-          clearTimeout(timer);
           if (res.statusCode !== 200) {
-            resolve(null);
+            finish(null);
             return;
           }
           try {
-            resolve(
+            finish(
               readTextEmbedding(JSON.parse(Buffer.concat(chunks).toString())),
             );
           } catch {
-            resolve(null);
+            finish(null);
           }
         });
         res.on("error", () => {
-          resolve(null);
+          finish(null);
         });
       },
     );
-    const timer = setTimeout(() => {
+    req.on("socket", (socket) => {
+      socket.once("secureConnect", () => {
+        connected = true;
+        clearTimeout(connectTimer);
+      });
+    });
+    const connectTimer = setTimeout(() => {
       req.destroy();
-      resolve(null);
-    }, timeoutMs);
+      finish(null, true);
+    }, limits.connectMs);
+    const totalTimer = setTimeout(() => {
+      req.destroy();
+      finish(null);
+    }, limits.totalMs);
     req.on("error", () => {
-      clearTimeout(timer);
-      resolve(null);
+      // Refused, unreachable, or a certificate other than the pinned one
+      finish(null, !connected);
     });
     req.end(body);
   });
