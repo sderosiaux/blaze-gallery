@@ -1,7 +1,12 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { putObject, getMimeType, isMediaFile } from "@/lib/s3";
+import {
+  putObject,
+  getMimeType,
+  getObjectMetadata,
+  isMediaFile,
+} from "@/lib/s3";
 import {
   createOrUpdatePhoto,
   getFolderByPath,
@@ -67,14 +72,19 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
 
     logger.info(`Uploaded photo to S3: ${s3Key}`);
 
+    // The bucket's own date and size, as the sync will list them: a server
+    // clock here would make the next sync see the file as replaced and reset
+    // what was extracted from it.
+    const stored = await getObjectMetadata(bucket, s3Key, request);
+
     // Create photo record in DB
     const photo = await createOrUpdatePhoto({
       folder_id: folder.id,
       filename: file.name,
       s3_key: s3Key,
-      size: buffer.length,
+      size: stored.ContentLength ?? buffer.length,
       mime_type: mimeType,
-      modified_at: new Date().toISOString(),
+      modified_at: (stored.LastModified ?? new Date()).toISOString(),
       metadata_status: "none",
       thumbnail_status: "pending",
     });

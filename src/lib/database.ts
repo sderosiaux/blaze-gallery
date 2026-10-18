@@ -5,6 +5,15 @@ import * as crypto from "crypto";
 import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
+import {
+  addDays,
+  CELLS_PER_DEGREE,
+  DAY_SPAN,
+  isDay,
+  lastDay,
+  type MapBox,
+  type MapPeriod,
+} from "./mapArea";
 import { normalizeTextForSearch } from "./textUtils";
 import type {
   CreatePhotoData,
@@ -34,6 +43,26 @@ export interface SyncJob {
   error_message?: string;
   processed_items: number;
   total_items: number;
+  stats?: SyncJobStats | null;
+}
+
+/** What a full scan found, recorded before it changes anything */
+export interface SyncJobStats {
+  /** Objects in the bucket, media or not */
+  listed: number;
+  added: number;
+  changed: number;
+  removed: number;
+  folders_created: number;
+  /**
+   * Photos whose file was replaced: their faces, colours and descriptions
+   * still describe the old file, for a later pass to analyse again.
+   */
+  changed_photo_ids: number[];
+  /** Photos deleted because their file left the bucket */
+  removed_keys: string[];
+  /** Folders whose photo or subfolder count was wrong, set once the changes are in */
+  folders_recounted?: number;
 }
 
 // Database representation of photo (before processing)
@@ -699,6 +728,14 @@ export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
   return result.rows.map(normalizePhoto);
 }
 
+/**
+ * In a photo upsert: true when the incoming file differs from the stored one.
+ * A sync that rewrote metadata for every unchanged file wiped the EXIF data of
+ * 91k photos on 2026-10-18; only a replaced file may lose what was extracted.
+ */
+const FILE_CHANGED =
+  "(photos.size IS DISTINCT FROM EXCLUDED.size OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at)";
+
 export async function createOrUpdatePhoto(
   photoData: CreatePhotoData,
 ): Promise<Photo> {
@@ -719,9 +756,11 @@ export async function createOrUpdatePhoto(
       size = EXCLUDED.size,
       mime_type = EXCLUDED.mime_type,
       modified_at = EXCLUDED.modified_at,
-      metadata = EXCLUDED.metadata,
-      metadata_status = EXCLUDED.metadata_status,
-      thumbnail_status = EXCLUDED.thumbnail_status,
+      -- A rescan of an unchanged file keeps everything extracted from it;
+      -- only a new size or date (the file was replaced) resets it.
+      metadata = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata ELSE photos.metadata END,
+      metadata_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata_status ELSE photos.metadata_status END,
+      thumbnail_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.thumbnail_status ELSE photos.thumbnail_status END,
       last_synced = CURRENT_TIMESTAMP
     RETURNING *
   `,
@@ -741,66 +780,150 @@ export async function createOrUpdatePhoto(
   return normalizePhoto(requireRow(result));
 }
 
-// Bulk operations for sync performance
-export async function bulkCreateOrUpdatePhotos(
-  photosData: CreatePhotoData[],
-): Promise<Photo[]> {
-  if (photosData.length === 0) return [];
+/** A photo file as the sync diff compares it with the bucket */
+export interface PhotoFile {
+  id: number;
+  s3_key: string;
+  size: number;
+  modified_at: Date;
+}
+
+/**
+ * Rows per read of getPhotoFiles. The whole table (~30 MB for 215k photos)
+ * in one result took 100 s over a slow link, past the pool's 60 s query
+ * timeout; a page stays well under it.
+ */
+const PHOTO_FILES_PAGE = 20_000;
+
+/**
+ * Every photo's file (or those under `prefix`), read in id order by pages:
+ * the sync diffs the bucket against it.
+ */
+export async function getPhotoFiles(prefix?: string): Promise<PhotoFile[]> {
+  const files: PhotoFile[] = [];
+  let afterId = 0;
+  for (;;) {
+    const { rows } = await query<PhotoFile>(
+      `
+      SELECT id::int AS id, s3_key, size::float8 AS size, modified_at
+      FROM photos
+      WHERE id > $1 AND ($3::text IS NULL OR starts_with(s3_key, $3))
+      ORDER BY id LIMIT $2
+    `,
+      [afterId, PHOTO_FILES_PAGE, prefix ?? null],
+    );
+    for (const row of rows) files.push(row);
+    const last = rows[rows.length - 1];
+    if (last === undefined || rows.length < PHOTO_FILES_PAGE) return files;
+    afterId = last.id;
+  }
+}
+
+/** Every folder's id by path, in one read */
+export async function getFolderIdsByPath(): Promise<Map<string, number>> {
+  const result = await query<{ id: number; path: string }>(
+    "SELECT id::int AS id, path FROM folders",
+  );
+  return new Map(result.rows.map((row) => [row.path, row.id]));
+}
+
+/** A photo as the sync first records it: nothing extracted from the file yet */
+export type NewPhoto = Omit<CreatePhotoData, "metadata"> &
+  Required<Pick<CreatePhotoData, "metadata_status" | "thumbnail_status">>;
+
+/**
+ * Inserts photos the database doesn't have. A key that is already there is
+ * left exactly as it is: inserting never overwrites what was extracted.
+ * Returns how many rows were inserted.
+ */
+export async function insertNewPhotos(photos: NewPhoto[]): Promise<number> {
+  if (photos.length === 0) return 0;
+
+  const result = await query(
+    `
+    INSERT INTO photos (
+      folder_id, filename, s3_key, size, mime_type, modified_at,
+      metadata_status, thumbnail_status, last_synced
+    )
+    SELECT n.*, CURRENT_TIMESTAMP
+    FROM unnest(
+      $1::bigint[], $2::text[], $3::text[], $4::bigint[], $5::text[],
+      $6::timestamp[], $7::text[], $8::text[]
+    ) AS n
+    ON CONFLICT (s3_key) DO NOTHING
+  `,
+    [
+      photos.map((p) => p.folder_id),
+      photos.map((p) => p.filename),
+      photos.map((p) => p.s3_key),
+      photos.map((p) => p.size),
+      photos.map((p) => p.mime_type),
+      photos.map((p) => p.modified_at),
+      photos.map((p) => p.metadata_status),
+      photos.map((p) => p.thumbnail_status),
+    ],
+  );
+  return result.rowCount ?? 0;
+}
+
+export interface ReplacedFile {
+  id: number;
+  size: number;
+  modified_at: string;
+  thumbnail_status: ThumbnailStatus;
+}
+
+/**
+ * Records that these photos' files were replaced: what was extracted from the
+ * old file (metadata, thumbnail) is dropped so it is read again from the new
+ * one. Faces, colours and descriptions are not touched here.
+ */
+export async function resetReplacedPhotos(
+  files: ReplacedFile[],
+): Promise<void> {
+  if (files.length === 0) return;
+
+  await query(
+    `
+    UPDATE photos p SET
+      size = f.size,
+      modified_at = f.modified_at,
+      metadata = NULL,
+      metadata_status = 'none',
+      thumbnail_status = f.thumbnail_status,
+      thumbnail_path = NULL,
+      last_synced = CURRENT_TIMESTAMP
+    FROM unnest($1::bigint[], $2::bigint[], $3::timestamp[], $4::text[])
+      AS f(id, size, modified_at, thumbnail_status)
+    WHERE p.id = f.id
+  `,
+    [
+      files.map((f) => f.id),
+      files.map((f) => f.size),
+      files.map((f) => f.modified_at),
+      files.map((f) => f.thumbnail_status),
+    ],
+  );
+}
+
+/**
+ * Deletes photos whose file left the bucket. Their faces, descriptions and
+ * analysis jobs go with them (ON DELETE CASCADE); share access logs keep
+ * their row without the photo. Returns how many were deleted.
+ */
+export async function deletePhotos(ids: number[]): Promise<number> {
+  if (ids.length === 0) return 0;
 
   return runTransaction(async (client) => {
-    // Prepare data for bulk insert
-    const values: unknown[] = [];
-    const placeholders: string[] = [];
-
-    photosData.forEach((photoData, index) => {
-      const metadataStatus =
-        photoData.metadata_status ??
-        (photoData.metadata ? "extracted" : "none");
-      const thumbnailStatus = photoData.thumbnail_status ?? "none";
-
-      const baseIndex = index * 9;
-      placeholders.push(
-        `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, CURRENT_TIMESTAMP)`,
-      );
-
-      values.push(
-        photoData.folder_id,
-        photoData.filename,
-        photoData.s3_key,
-        photoData.size,
-        photoData.mime_type,
-        photoData.modified_at,
-        photoData.metadata,
-        metadataStatus,
-        thumbnailStatus,
-      );
-    });
-
-    // Execute single bulk INSERT with ON CONFLICT
-    const result = await client.query<DatabasePhoto>(
-      `
-      INSERT INTO photos (
-        folder_id, filename, s3_key, size, mime_type, modified_at,
-        metadata, metadata_status, thumbnail_status, last_synced
-      )
-      VALUES ${placeholders.join(", ")}
-      ON CONFLICT(s3_key) DO UPDATE SET
-        folder_id = EXCLUDED.folder_id,
-        filename = EXCLUDED.filename,
-        size = EXCLUDED.size,
-        mime_type = EXCLUDED.mime_type,
-        modified_at = EXCLUDED.modified_at,
-        metadata = EXCLUDED.metadata,
-        metadata_status = EXCLUDED.metadata_status,
-        thumbnail_status = EXCLUDED.thumbnail_status,
-        last_synced = CURRENT_TIMESTAMP
-      RETURNING *
-    `,
-      values,
+    await client.query(
+      "UPDATE share_access_logs SET photo_id = NULL WHERE photo_id = ANY($1::bigint[])",
+      [ids],
     );
-
-    // Convert results to Photo objects
-    return result.rows.map(normalizePhoto);
+    const result = await client.query(
+      "DELETE FROM photos WHERE id = ANY($1::bigint[])",
+      [ids],
+    );
+    return result.rowCount ?? 0;
   });
 }
 
@@ -952,6 +1075,159 @@ export async function getTimelineSummary(): Promise<TimelineSummary> {
   return { months: months.rows, total_photos: requireRow(total).total };
 }
 
+// On the map: a GPS fix (imageProbe only writes finite numbers, never 0,0)
+// and a date taken, which the period and the newest-first order need.
+const ON_MAP = `(p.metadata->'location') IS NOT NULL
+  AND (p.metadata->>'date_taken') IS NOT NULL`;
+const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
+const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
+
+/**
+ * WHERE clause for photos on the map, within the period and the box when
+ * given; values go to `params`. Months and days compare as text against the
+ * ISO date_taken, like the timeline's months, so idx_photos_date_taken serves
+ * them: `to` stops before the day after it.
+ */
+function mapFilter(
+  params: unknown[],
+  period: MapPeriod,
+  box: MapBox | null,
+): string {
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const where = [ON_MAP];
+  if (period.from)
+    where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
+  if (period.to)
+    where.push(
+      `(p.metadata->>'date_taken') < ${add(addDays(lastDay(period.to), 1))}::text`,
+    );
+  if (box) {
+    where.push(
+      `${LATITUDE} BETWEEN ${add(box.south)}::float8 AND ${add(box.north)}::float8`,
+      `${LONGITUDE} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
+    );
+  }
+  return where.join("\n  AND ");
+}
+
+/**
+ * Photos per map cell as [latitude, longitude, count], placed at the mean
+ * position of the cell's photos (4 decimals, about 10 m): circles land
+ * where the photos were taken instead of on a grid.
+ */
+export async function getMapPoints(
+  period: MapPeriod,
+): Promise<[number, number, number][]> {
+  const params: unknown[] = [CELLS_PER_DEGREE];
+  const result = await query<{ lat: number; lng: number; count: number }>(
+    `
+    SELECT round(AVG(${LATITUDE})::numeric, 4)::float8 AS lat,
+           round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
+           COUNT(*)::int AS count
+    FROM photos p
+    WHERE ${mapFilter(params, period, null)}
+    GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
+  `,
+    params,
+  );
+  return result.rows.map((row) => [row.lat, row.lng, row.count]);
+}
+
+/**
+ * Photos on the map per day of date taken when they span at most DAY_SPAN
+ * days, else per month, oldest first; only those taken inside the box when
+ * one is given. One scan: the days are counted, then folded into months.
+ */
+export async function getMapDates(box: MapBox | null): Promise<{
+  unit: "day" | "month";
+  dates: { date: string; count: number }[];
+}> {
+  const params: unknown[] = [DAY_SPAN];
+  const result = await query<{ date: string; count: number }>(
+    `
+    WITH days AS (
+      SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
+      FROM photos p
+      WHERE ${mapFilter(params, { from: null, to: null }, box)}
+      GROUP BY 1
+    ), span AS (
+      SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
+    )
+    SELECT CASE WHEN span.by_day THEN days.day ELSE substr(days.day, 1, 7) END AS date,
+           SUM(days.count)::int AS count
+    FROM days CROSS JOIN span
+    GROUP BY 1
+    ORDER BY 1
+  `,
+    params,
+  );
+  const first = result.rows[0];
+  return {
+    unit: first && isDay(first.date) ? "day" : "month",
+    dates: result.rows,
+  };
+}
+
+/**
+ * Photos taken inside the box, newest first, keyset-paginated on
+ * (date_taken, id) like the timeline. No index covers the coordinates, so
+ * each page scans the table (0.1–0.2 s warm for 210k photos); the page is
+ * picked on narrow rows first and only its photos are read in full and
+ * joined to their folder, which halves a page over the whole world.
+ */
+export async function getMapPhotos(
+  box: MapBox,
+  period: MapPeriod,
+  after: TimelineCursor | null,
+  limit: number,
+): Promise<TimelinePhoto[]> {
+  const params: unknown[] = [limit];
+  const where = mapFilter(params, period, box);
+  let seek = "";
+  if (after) {
+    params.push(after.dateTaken, after.id);
+    seek = `AND ((p.metadata->>'date_taken'), p.id) < ($${params.length - 1}::text, $${params.length}::bigint)`;
+  }
+  const result = await query<DatabasePhoto & { folder_path: string }>(
+    `
+    WITH page AS (
+      SELECT p.id, (p.metadata->>'date_taken') AS taken
+      FROM photos p
+      WHERE ${where}
+        ${seek}
+      ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
+      LIMIT $1
+    )
+    SELECT p.*, f.path AS folder_path
+    FROM page
+    JOIN photos p ON p.id = page.id
+    JOIN folders f ON f.id = p.folder_id
+    ORDER BY page.taken DESC, page.id DESC
+  `,
+    params,
+  );
+  return result.rows.map((row) => ({
+    ...normalizePhoto(row),
+    folder_path: row.folder_path,
+  }));
+}
+
+/** How many photos getMapPhotos pages through. */
+export async function countMapPhotos(
+  box: MapBox,
+  period: MapPeriod,
+): Promise<number> {
+  const params: unknown[] = [];
+  const result = await query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, period, box)}`,
+    params,
+  );
+  return requireRow(result).total;
+}
+
 export async function updatePhotoStatus(
   photoId: number,
   status: UpdatePhotoStatus,
@@ -1015,19 +1291,62 @@ export async function createSyncJob(
   return requireRow(result);
 }
 
+/** Every update is also a heartbeat: the job's process is alive. */
 export async function updateSyncJob(
   jobId: number,
   updates: Partial<SyncJob>,
 ): Promise<void> {
-  const fields = Object.keys(updates)
-    .map((key, index) => `${key} = $${index + 1}`)
-    .join(", ");
+  const fields = [
+    ...Object.keys(updates).map((key, index) => `${key} = $${index + 1}`),
+    "heartbeat_at = CURRENT_TIMESTAMP",
+  ].join(", ");
   const values = [...Object.values(updates), jobId];
 
   await query(
     `UPDATE sync_jobs SET ${fields} WHERE id = $${values.length}`,
     values,
   );
+}
+
+/**
+ * Takes a pending job for this process: false when another process got it
+ * first, so two sync loops never run the same job.
+ */
+export async function claimSyncJob(jobId: number): Promise<boolean> {
+  const result = await query(
+    `
+    UPDATE sync_jobs
+    SET status = 'running', started_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND status = 'pending'
+  `,
+    [jobId],
+  );
+  return result.rowCount === 1;
+}
+
+/**
+ * Fails running jobs whose process stopped beating `minutes` ago or more, so
+ * a scan left behind by a dead process no longer blocks the queue. Returns
+ * the ids it failed.
+ */
+export async function failStaleSyncJobs(minutes: number): Promise<number[]> {
+  const result = await query<{ id: number }>(
+    `
+    UPDATE sync_jobs
+    SET status = 'failed',
+        completed_at = CURRENT_TIMESTAMP,
+        error_message = $2
+    WHERE status = 'running'
+      AND COALESCE(heartbeat_at, started_at, created_at)
+          < CURRENT_TIMESTAMP - make_interval(mins => $1::int)
+    RETURNING id
+  `,
+    [
+      minutes,
+      `Abandoned: no heartbeat for ${minutes} minutes (the process running it stopped)`,
+    ],
+  );
+  return result.rows.map((row) => row.id);
 }
 
 export async function getSyncJob(jobId: number): Promise<SyncJob | null> {
@@ -1125,56 +1444,42 @@ export async function updateFolderLastVisited(
   );
 }
 
-// Bulk update folder last synced for sync operations
-export async function bulkUpdateFoldersLastSynced(
-  folderIds: number[],
-): Promise<void> {
-  if (folderIds.length === 0) return;
-
+/**
+ * Stamps as synced every folder (or `folder` and those under it): called
+ * after a complete listing, which checked each of them, changed or not.
+ */
+export async function markFoldersSynced(folder?: string): Promise<void> {
   await query(
     `
-      UPDATE folders
-      SET last_synced = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ANY($1::int[])
-    `,
-    [folderIds],
+    UPDATE folders SET last_synced = CURRENT_TIMESTAMP
+    WHERE $1::text IS NULL OR path = $1 OR starts_with(path, $1 || '/')
+  `,
+    [folder ?? null],
   );
 }
 
-// Bulk folder count updates for sync operations
-export async function bulkUpdateFolderCounts(
-  folderIds: number[],
-): Promise<void> {
-  if (folderIds.length === 0) return;
-
-  return runTransaction(async (client) => {
-    // Single query to update all folder counts at once using CTEs
-    await client.query(
-      `
-      WITH photo_counts AS (
-        SELECT folder_id, COUNT(*) as photo_count
-        FROM photos
-        WHERE folder_id = ANY($1::int[])
-        GROUP BY folder_id
-      ),
-      subfolder_counts AS (
-        SELECT parent_id, COUNT(*) as subfolder_count
-        FROM folders
-        WHERE parent_id = ANY($1::int[])
-        GROUP BY parent_id
-      )
-      UPDATE folders SET
-        photo_count = COALESCE(pc.photo_count, 0),
-        subfolder_count = COALESCE(sc.subfolder_count, 0),
-        updated_at = CURRENT_TIMESTAMP
-      FROM photo_counts pc
-      FULL OUTER JOIN subfolder_counts sc ON pc.folder_id = sc.parent_id
-      WHERE folders.id = ANY($1::int[])
-        AND (folders.id = pc.folder_id OR folders.id = sc.parent_id)
-    `,
-      [folderIds],
-    );
-  });
+/**
+ * Recounts the direct photos and subfolders of every folder and writes only
+ * the counts that are wrong: a full scan leaves them all right, whatever
+ * changed them since (a photo deleted from the app, a scan stopped midway),
+ * without rewriting the ~23k folders. Returns how many it corrected.
+ */
+export async function recountDriftedFolders(): Promise<number> {
+  const result = await query(`
+    UPDATE folders f SET
+      photo_count = n.photos,
+      subfolder_count = n.subfolders,
+      updated_at = CURRENT_TIMESTAMP
+    FROM (
+      SELECT d.id,
+        (SELECT COUNT(*) FROM photos p WHERE p.folder_id = d.id) AS photos,
+        (SELECT COUNT(*) FROM folders c WHERE c.parent_id = d.id) AS subfolders
+      FROM folders d
+    ) n
+    WHERE f.id = n.id
+      AND (f.photo_count, f.subfolder_count) IS DISTINCT FROM (n.photos, n.subfolders)
+  `);
+  return result.rowCount ?? 0;
 }
 
 export async function deleteOldThumbnails(
