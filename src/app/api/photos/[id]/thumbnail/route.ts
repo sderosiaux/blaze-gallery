@@ -7,9 +7,10 @@ import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { thumbnailRateLimiter } from "@/lib/rateLimiter";
-import { requireAuth } from "@/lib/auth/middleware";
+import { requireAuthOrApiKey } from "@/lib/auth/middleware";
 
-export const GET = requireAuth(async function GET(
+// The owner, or a machine client of the MCP tools holding the API key
+export const GET = requireAuthOrApiKey(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {

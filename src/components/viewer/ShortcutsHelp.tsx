@@ -13,6 +13,7 @@ interface ShortcutsHelpProps {
   canFavorite: boolean;
   canRotate: boolean;
   canDelete: boolean;
+  canFaces: boolean;
   onClose: () => void;
 }
 
@@ -21,6 +22,7 @@ export default function ShortcutsHelp({
   canFavorite,
   canRotate,
   canDelete,
+  canFaces,
   onClose,
 }: ShortcutsHelpProps) {
   const shortcuts: Shortcut[] = [
@@ -30,6 +32,9 @@ export default function ShortcutsHelp({
       ? [{ keys: ["F"], label: "Ajouter aux favoris ou en retirer" }]
       : []),
     { keys: ["I"], label: "Afficher ou masquer les infos" },
+    ...(canFaces
+      ? [{ keys: ["P"], label: "Afficher ou masquer les visages" }]
+      : []),
     { keys: ["Z"], label: "Zoomer ou dézoomer (double-clic aussi)" },
     ...(canRotate
       ? [

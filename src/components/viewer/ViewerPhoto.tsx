@@ -27,6 +27,8 @@ interface ViewerPhotoProps {
   onStatus: (status: FullStatus, placeholder: PlaceholderState) => void;
   /** Bump to retry a failed sharp image. */
   retryKey: number;
+  /** Drawn over the photo, in a box exactly its size (face boxes). */
+  overlay?: React.ReactNode;
 }
 
 const DOUBLE_TAP_MS = 300;
@@ -59,6 +61,7 @@ export default function ViewerPhoto({
   onZoomedChange,
   onStatus,
   retryKey,
+  overlay,
 }: ViewerPhotoProps) {
   const areaRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -319,6 +322,7 @@ export default function ViewerPhoto({
                   height={zoomHeight}
                 />
               )}
+              {overlay}
             </div>
           </div>
         </div>
@@ -399,6 +403,7 @@ export default function ViewerPhoto({
                   )}
                 />
               )}
+              {(stageReady || hasPlaceholder) && overlay}
             </div>
           )}
         </div>

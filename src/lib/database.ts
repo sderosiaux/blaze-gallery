@@ -1560,10 +1560,22 @@ export type TimelinePhoto = Photo & { folder_path: string };
  * only those passing the color filter when given.
  * Uses idx_photos_date_taken (db/schema.sql).
  */
+/**
+ * AND clause keeping the photos where the person is (her face named seed,
+ * manual or auto); the id goes to `params`. Null keeps every photo.
+ */
+function andPersonFilter(params: unknown[], personId: number | null): string {
+  if (personId === null) return "";
+  params.push(personId);
+  return `AND EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = p.id
+    AND pf.person_id = $${params.length} AND pf.assignment IN ('seed', 'manual', 'auto'))`;
+}
+
 export async function getTimelinePhotos(
   before: TimelineCursor | null,
   limit: number,
   colors: ColorFilter = NO_COLOR_FILTER,
+  personId: number | null = null,
 ): Promise<TimelinePhoto[]> {
   const params: unknown[] = [limit];
   let cursorFilter = "";
@@ -1573,6 +1585,7 @@ export async function getTimelinePhotos(
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
   const colorFilter = andColorFilter(params, colors);
+  const personFilter = andPersonFilter(params, personId);
 
   const result = await query<DatabasePhoto & { folder_path: string }>(
     `
@@ -1582,6 +1595,7 @@ export async function getTimelinePhotos(
     WHERE (p.metadata->>'date_taken') IS NOT NULL
       ${cursorFilter}
       ${colorFilter}
+      ${personFilter}
     ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
     LIMIT $1
   `,
@@ -1603,9 +1617,13 @@ export interface TimelineSummary {
 /** Months as getTimelinePhotos pages through them, color filter included. */
 export async function getTimelineSummary(
   colors: ColorFilter = NO_COLOR_FILTER,
+  personId: number | null = null,
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
   const colorFilter = andColorFilter(params, colors);
+  const personFilter = andPersonFilter(params, personId);
+  const totalParams: unknown[] = [];
+  const totalFilter = andPersonFilter(totalParams, personId);
   const [months, total] = await Promise.all([
     query<{ month: string; count: number }>(
       `
@@ -1613,12 +1631,16 @@ export async function getTimelineSummary(
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
         ${colorFilter}
+        ${personFilter}
       GROUP BY 1
       ORDER BY 1 DESC
     `,
       params,
     ),
-    query<{ total: number }>(`SELECT COUNT(*)::int AS total FROM photos`),
+    query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalFilter}`,
+      totalParams,
+    ),
   ]);
   return { months: months.rows, total_photos: requireRow(total).total };
 }

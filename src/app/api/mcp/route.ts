@@ -35,6 +35,8 @@ import {
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
 import { requireAuthOrApiKey } from "@/lib/auth/middleware";
+import { PeopleError } from "@/lib/people";
+import { mcpListPeople, mcpPersonPhotos, mcpPhotoFaces } from "@/lib/peopleMcp";
 
 // pg delivers COUNT and SUM (bigint, numeric) as strings; the tools return them as such
 type PgBigint = string;
@@ -499,6 +501,55 @@ function parseColorSearch(args: ToolArgs) {
   return { colors: { color, tone }, period: period.value, limit, cursor };
 }
 
+const DAY_OR_INSTANT =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z)?$/;
+const MAX_PERSON_PHOTOS = 200;
+
+function optionalDate(args: ToolArgs, name: string): string | undefined {
+  const value = args[name];
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "string" ||
+    !DAY_OR_INSTANT.test(value) ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    throw new McpToolError(
+      ErrorCode.InvalidParams,
+      `${name} must be a day (YYYY-MM-DD) or an ISO instant ending in Z`,
+    );
+  }
+  return value;
+}
+
+function requirePositiveInt(args: ToolArgs, name: string): number {
+  const value = args[name];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new McpToolError(
+      ErrorCode.InvalidParams,
+      `${name} is required and must be a positive integer`,
+    );
+  }
+  return value;
+}
+
+/** People errors carry an HTTP status: 404 for an unknown person or photo. */
+async function peopleCall<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof PeopleError) {
+      throw new McpToolError(
+        error.status === 404
+          ? ErrorCode.InvalidRequest
+          : ErrorCode.InvalidParams,
+        error.message,
+        error.status,
+      );
+    }
+    throw error;
+  }
+}
+
 function requireFolderPath(args: ToolArgs): string {
   const folderPath = optionalString(args.folder_path);
   if (folderPath === undefined) {
@@ -740,7 +791,74 @@ const toolHandlers = new Map<string, ToolHandler>([
       };
     },
   ],
+
+  ["list_people", () => mcpListPeople()],
+
+  [
+    "get_person_photos",
+    async (args) => {
+      const person = args.person;
+      if (
+        !(typeof person === "string" && person.trim()) &&
+        !(typeof person === "number" && Number.isSafeInteger(person))
+      ) {
+        throw new McpToolError(
+          ErrorCode.InvalidParams,
+          "person is required: a person_id (number) or an exact name (string)",
+        );
+      }
+      const limit =
+        args.limit === undefined ? 50 : requirePositiveInt(args, "limit");
+      const cursor = args.cursor;
+      if (cursor !== undefined && typeof cursor !== "string") {
+        throw new McpToolError(
+          ErrorCode.InvalidParams,
+          "cursor must be a string",
+        );
+      }
+      return peopleCall(() =>
+        mcpPersonPhotos({
+          person,
+          from: optionalDate(args, "from"),
+          to: optionalDate(args, "to"),
+          limit: Math.min(limit, MAX_PERSON_PHOTOS),
+          cursor,
+        }),
+      );
+    },
+  ],
+
+  [
+    "get_photo_faces",
+    async (args) => {
+      const photoId = requirePositiveInt(args, "photo_id");
+      return peopleCall(() => mcpPhotoFaces(photoId));
+    },
+  ],
 ]);
+
+// -- people tools: field documentation (what a client agent reads) ----------
+
+const FACE_FIELDS = `face fields:
+- face_id: stable id of this face; crop_url: GET a 256 px square JPEG of the face, upright, with some room around it.
+- box: [x, y, width, height] as fractions (0-1) of the photo AS SHOWN (EXIF orientation and the owner's hand rotation applied), origin top-left. Multiply by the shown width/height to get pixels.
+- width_px, height_px: size of the face in pixels of the original file, as shown. Rough quality guide: < 60 small, 60-150 medium, > 150 large.
+- det_score: detector confidence 0-1 (stored faces are >= 0.7).
+- sharpness: variance of the Laplacian of the aligned 112 px face crop; higher is sharper (< 50 blurry, > 150 crisp).
+- yaw, pitch, roll: head pose in degrees, 0 = facing the camera; |yaw| > 45 is a profile.
+- eye_left_open, eye_right_open: lid gap / eye width, left/right as seen in the photo (~0.3 open, < 0.15 closed). mouth_open: inner-lip gap / mouth width (~0 closed, > 0.3 wide open).
+- expression: strongest of expression_scores, probabilities of anger, contempt, disgust, fear, happiness, neutral, sadness, surprise (sum ~1).
+- cluster_eligible: true when the face is good enough to define a person (det >= 0.8, >= 112 px, sharp, |yaw| <= 45).
+- upright_turn: clockwise degrees that stand the face up on the photo as shown (0 almost always).
+Null numbers mean "not measured".`;
+
+const PHOTO_FIELDS = `photo fields:
+- photo_id, filename, folder_path (folder in the owner's bucket; its name often says the event).
+- taken: ISO instant the photo was taken; date_source says where it comes from: "exif" (camera clock), or "folder" (the folder name's date, used when there is no EXIF date or the camera clock disagrees with it by more than 6 months, e.g. a camera never set). null when unknown. exif_date_taken: the raw EXIF value. EXIF times are wall-clock times serialized with a Z suffix: read them as local time, not UTC.
+- gps: {latitude, longitude} or null.
+- width, height: pixel size as shown (hand rotation applied); user_rotation: clockwise degrees the owner turned the photo by hand.
+- description: what the image shows, written by a vision-language model from the pixels alone, or null when the photo was not described yet: caption (one French sentence, no names), activity (short French phrase), setting (indoor | outdoor | vehicle | unknown), place_type (home | garden | restaurant | beach | mountain | city | school | party_venue | car | nature | other), occasion (christmas | birthday | wedding | holiday | everyday | party | school_event | sport | other | unknown), people_count, framing (close_up | portrait | half_body | full_body | group | landscape | object), objects (French nouns), mood (joyful | calm | tender | funny | tired | sad | focused | festive | neutral), model. occasion is guessed from what is visible (candles, a tree, a dress), never from the date: cross it with taken and the folder name (folders often say "Anniversaire", "Noël", "Mariage") before trusting it.
+- urls.thumbnail (400 px wide), urls.display (2048 px long side, the best web rendition): paths on the Blaze server, fetched with the same credentials as this endpoint (session cookie, or Authorization: Bearer <API_KEY>). The first request of a display rendition may take a few seconds (made from the original, then stored).`;
 
 // Tool schemas
 const toolSchemas = {
@@ -979,7 +1097,89 @@ const toolSchemas = {
     },
     outputSchema: { type: "object" },
   },
+  list_people: {
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: { type: "object" },
+  },
+  get_person_photos: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        person: {
+          type: ["number", "string"],
+          description:
+            'The person: person_id from list_people, or the exact name (case-insensitive), e.g. "Suzie"',
+        },
+        from: {
+          type: "string",
+          description:
+            "Only photos taken on or after this day (YYYY-MM-DD) or instant (ISO, Z)",
+        },
+        to: {
+          type: "string",
+          description:
+            "Only photos taken on or before this day (whole day included) or instant",
+        },
+        limit: {
+          type: "number",
+          description: `Photos per page, 1-${String(MAX_PERSON_PHOTOS)} (default 50)`,
+        },
+        cursor: {
+          type: "string",
+          description:
+            "next_cursor of the previous page, to get the next one (same person, from and to)",
+        },
+      },
+      required: ["person"],
+    },
+    outputSchema: { type: "object" },
+  },
+  get_photo_faces: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        photo_id: { type: "number", description: "The photo" },
+      },
+      required: ["photo_id"],
+    },
+    outputSchema: { type: "object" },
+  },
 };
+
+const PEOPLE_TOOLS = [
+  {
+    name: "list_people",
+    description: `People the owner has named. Returns { people: [...], count }. Each person:
+- person_id, name.
+- birth_date: YYYY-MM-DD, or null when the owner has not given it (then do not compute ages; never guess one).
+- photo_count: photos where the person is (one face per photo).
+- pending_candidates: faces the machine proposed that the owner has not reviewed yet (not counted in photo_count).
+- cover_face_crop_url: a 256 px crop of a recent good face of the person, or null.`,
+    inputSchema: toolSchemas.list_people.inputSchema,
+  },
+  {
+    name: "get_person_photos",
+    description: `Every photo of one person, oldest first (undated last), one entry per photo, paginated. The library holds copies of some files in several folders (same filename and size): each appears once, the other photo_ids are listed in copies.
+Returns { person: {person_id, name, birth_date}, total (photos matching from/to), returned, next_cursor (null on the last page), photos: [...] }.
+Each photo: the photo fields below, plus:
+- face: the person's own face on it (face fields below) with assignment: "seed" (example picked by the owner), "manual" (confirmed by a person looking at the face), "auto" (accepted by the machine above a similarity threshold measured to be precise; rare mistakes possible); decided_by: "owner", "agent" (an assistant that checked the crop while calibrating: very likely right, not the owner's word), "auto", or null for seeds; similarity: cosine similarity 0-1 to the person's closest known face taken within 18 months (null when nobody proposed it).
+- others: who else is on the photo: named [{person_id, name, face_id}] and unknown_count (faces nobody named).
+- faces_count: all faces found on the photo.
+- copies: photo_ids of the same file elsewhere in the library (not returned again); usually empty.
+${PHOTO_FIELDS}
+${FACE_FIELDS}
+Coverage: only photos the face analysis has looked at can appear; it runs over the whole library, newest years first.`,
+    inputSchema: toolSchemas.get_person_photos.inputSchema,
+  },
+  {
+    name: "get_photo_faces",
+    description: `All faces found on one photo, with who each one is.
+Returns the photo fields below, plus analyzed (false: the face analysis has not looked at this photo yet, so "no faces" means nothing) and faces: [...], each with the face fields below, person ({person_id, name}, or null when nobody named it) and assignment (seed/manual/auto as in get_person_photos; "rejected" means the owner said it is NOT the person in person_id, so treat the face as unnamed; null: never reviewed).
+${PHOTO_FIELDS}
+${FACE_FIELDS}`,
+    inputSchema: toolSchemas.get_photo_faces.inputSchema,
+  },
+];
 
 // MCP server capabilities and info
 const SERVER_INFO = {
@@ -1113,6 +1313,7 @@ export const POST = requireAuthOrApiKey(async function POST(
                 "Get photo trends over time with various metrics and time ranges",
               inputSchema: toolSchemas.get_photo_trends.inputSchema,
             },
+            ...PEOPLE_TOOLS,
           ],
         });
 

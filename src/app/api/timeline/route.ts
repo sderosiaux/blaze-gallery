@@ -5,6 +5,7 @@ import { getTimelinePhotos } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
 import { parseColorFilter } from "@/lib/colors";
+import { positiveId } from "@/app/api/_lib/people";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ const MAX_LIMIT = 500;
  * `before` takes either a plain ISO date (photos strictly older) or the
  * opaque `next_before` of the previous page ("<ISO>|<id>", ties broken by id).
  * `color` (a hue of lib/colors.ts) and `tone` keep only the photos holding
- * that color, in that tone.
+ * that color, in that tone; `person` (an id) only those where that person is.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -50,8 +51,23 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     );
   }
 
+  // ?person=<id>: only the photos where that person is
+  const personParam = searchParams.get("person");
+  const personId = personParam === null ? null : positiveId(personParam);
+  if (personParam !== null && personId === null) {
+    return NextResponse.json(
+      { success: false, error: "person must be a person id" },
+      { status: 400 },
+    );
+  }
+
   try {
-    const photos = await getTimelinePhotos(before, limit, colors.value);
+    const photos = await getTimelinePhotos(
+      before,
+      limit,
+      colors.value,
+      personId,
+    );
     const last = photos[photos.length - 1];
     const next_before =
       photos.length === limit && last?.metadata?.date_taken

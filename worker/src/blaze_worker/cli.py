@@ -1,4 +1,5 @@
-"""Command-line entry points: blaze-worker, blaze-enqueue, blaze-queue, blaze-*-preview."""
+"""Command-line entry points: blaze-worker, blaze-enqueue, blaze-queue, blaze-*-preview,
+blaze-people."""
 
 from __future__ import annotations
 
@@ -11,13 +12,16 @@ import socket
 import sys
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg_pool import ConnectionPool
 
 from .config import database_url, read_env, storage_settings
+
+if TYPE_CHECKING:
+    from .people_store import Person
 
 log = logging.getLogger("blaze_worker")
 
@@ -506,3 +510,175 @@ def run_colors_preview() -> None:
                 found.monochrome,
                 path,
             )
+
+
+# -- blaze-people -------------------------------------------------------------
+
+
+def _ids(text: str | None) -> list[int]:
+    return [int(v) for v in text.split(",") if v.strip()] if text else []
+
+
+def _print_summary(conn: psycopg.Connection, person_id: int) -> None:
+    from .people_store import summarize
+
+    summary = summarize(conn, person_id)
+    owned = ", ".join(f"{k} {v}" for k, v in sorted(summary.by_assignment.items()))
+    print(f"faces: {owned or 'none'} | pending {summary.pending} | rejected {summary.rejected}")
+    print("   year  faces  pending")
+    for year, (faces, pending) in summary.years.items():
+        print(f"{year or 'undated':>7} {faces:6} {pending:8}")
+
+
+def _print_coverage(conn: psycopg.Connection) -> None:
+    """How much of each year the faces pass has looked at: an expansion sees only that."""
+    from .enqueue import PINNED_PRIORITY
+
+    rows = conn.execute(
+        """
+        SELECT priority, count(*) FILTER (WHERE status IN ('done', 'skipped', 'failed')), count(*)
+        FROM analysis_jobs WHERE task = 'faces' AND priority < %s
+        GROUP BY priority ORDER BY priority DESC
+        """,
+        (PINNED_PRIORITY,),
+    ).fetchall()
+
+    def share(done: int, total: int) -> str:
+        return "<1%" if 0 < done < total / 100 else f"{100 * done / total:.0f}%"
+
+    cells = [f"{year or '?'}:{share(done, total)}" for year, done, total in rows if total]
+    print("faces pass, share of each year's photos looked at:", " ".join(cells))
+
+
+def _expand(conn: psycopg.Connection, person: Person, args: argparse.Namespace) -> None:
+    import time
+    from collections import Counter
+
+    from .people import Thresholds, expand
+    from .people_store import load_faces, person_model, rejected_faces, write_expansion
+
+    thresholds = Thresholds(auto=args.auto, review=args.review)
+    began = time.perf_counter()
+    loaded = load_faces(conn, person_model(conn, person.id))
+    faces, taken = loaded.faces, loaded.taken
+    loaded_at = time.perf_counter()
+    result = expand(
+        faces, person.id, rejected_faces(conn, person.id), thresholds, born=person.birth_date
+    )
+    print(
+        f"{len(faces)} faces loaded in {loaded_at - began:.0f} s, "
+        f"{result.rounds} rounds in {time.perf_counter() - loaded_at:.1f} s: "
+        f"{len(result.accepted)} auto-accepted, {len(result.pending)} to review "
+        f"(auto >= {thresholds.auto}, review >= {thresholds.review}); not proposed: "
+        f"{result.refused_other} closer to someone else, "
+        f"{result.refused_rejected} closer to a rejected face; "
+        f"{result.ambiguous} sent to review as another face of the photo is as close"
+    )
+    years: Counter = Counter()
+    for p in result.accepted + result.pending:
+        years[(taken[p.index].year if taken[p.index] else 0, p.auto)] += 1
+    for year in sorted({y for y, _ in years}):
+        print(
+            f"  {year or 'undated'}: {years[(year, True)]} auto, {years[(year, False)]} to review"
+        )
+    if args.dump:
+        args.dump.write_text(
+            json.dumps(
+                [
+                    {
+                        "face_id": int(faces.ids[p.index]),
+                        "photo_id": int(faces.photo_ids[p.index]),
+                        "taken": taken[p.index].isoformat() if taken[p.index] else None,
+                        "similarity": round(p.similarity, 4),
+                        "best_seed_face_id": int(faces.ids[p.source]),
+                        "eligible": bool(faces.eligible[p.index]),
+                        "auto": p.auto,
+                        "round": p.round,
+                    }
+                    for p in result.accepted + result.pending
+                ]
+                + [
+                    {
+                        "face_id": int(faces.ids[i]),
+                        "photo_id": int(faces.photo_ids[i]),
+                        "taken": taken[i].isoformat() if taken[i] else None,
+                        "similarity": round(similarity, 4),
+                        "refused": reason,
+                        "competitor_similarity": round(competitor, 4),
+                    }
+                    for i, similarity, competitor, reason in result.refused
+                ],
+                indent=1,
+            )
+        )
+        print(f"proposals (and refused faces) -> {args.dump}")
+    if args.dry_run:
+        print("dry run: nothing written")
+        return
+    accepted, pending, dropped = write_expansion(conn, person.id, faces, taken, result)
+    print(f"written: {accepted} accepted, {pending} pending, {dropped} stale pending dropped")
+
+
+def run_people() -> None:
+    """Names people and finds their faces: create, seed, label, expand, status."""
+    from .people import AUTO_THRESHOLD, REVIEW_THRESHOLD
+    from .people_store import (
+        PeopleError,
+        create_person,
+        decide,
+        find_person,
+        largest_faces,
+        set_seeds,
+    )
+
+    parser = argparse.ArgumentParser(description=run_people.__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    create = commands.add_parser("create", help="a new person, birth date unknown")
+    create.add_argument("--name", required=True)
+    seed = commands.add_parser("seed", help="the owner's example faces of a person")
+    seed.add_argument("--person", required=True, help="name or id")
+    seed.add_argument("--faces", help="comma-separated face ids")
+    seed.add_argument("--photos", help="comma-separated photo ids: their largest face")
+    label = commands.add_parser("label", help="yes/no on faces, as the review screen does")
+    label.add_argument("--person", required=True, help="name or id")
+    label.add_argument("--accept", help="comma-separated face ids")
+    label.add_argument("--reject", help="comma-separated face ids")
+    label.add_argument("--by", choices=("owner", "agent"), required=True)
+    grow = commands.add_parser("expand", help="propose and accept faces from the known ones")
+    grow.add_argument("--person", required=True, help="name or id")
+    grow.add_argument("--auto", type=float, default=AUTO_THRESHOLD, help="auto-accept from")
+    grow.add_argument("--review", type=float, default=REVIEW_THRESHOLD, help="propose from")
+    grow.add_argument("--dry-run", action="store_true", help="compute, write nothing")
+    grow.add_argument("--dump", type=Path, help="write every proposal to this JSON file")
+    status = commands.add_parser("status", help="counts per year, and faces pass coverage")
+    status.add_argument("--person", required=True, help="name or id")
+    _env_arg(parser)
+    args = parser.parse_args()
+
+    with _connect(database_url(read_env(args.env_file))) as conn:
+        register_vector(conn)
+        try:
+            if args.command == "create":
+                person = create_person(conn, args.name)
+                print(f"person {person.id}: {person.name}")
+                return
+            person = find_person(conn, args.person)
+            if args.command == "seed":
+                faces = _ids(args.faces)
+                photos = _ids(args.photos)
+                if photos:
+                    faces += list(largest_faces(conn, photos).values())
+                if not faces:
+                    raise PeopleError("give --faces or --photos")
+                print(f"{person.name}: {set_seeds(conn, person.id, faces)} seed faces")
+            elif args.command == "label":
+                accepted, rejected = decide(
+                    conn, person.id, _ids(args.accept), _ids(args.reject), args.by
+                )
+                print(f"{person.name}: {accepted} accepted, {rejected} rejected ({args.by})")
+            elif args.command == "expand":
+                _expand(conn, person, args)
+            _print_summary(conn, person.id)
+            _print_coverage(conn)
+        except PeopleError as error:
+            raise SystemExit(str(error)) from error

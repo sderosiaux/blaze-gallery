@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUp,
@@ -16,6 +17,7 @@ import {
   Palette,
   RotateCcw,
   RotateCw,
+  X,
 } from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
@@ -37,7 +39,7 @@ import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
 import { useColorFilterParam } from "@/components/find/useColorFilterParam";
-import { asString, readJsonObject } from "@/hooks/apiJson";
+import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import {
   filterAdjective,
   hasColorFilter,
@@ -75,12 +77,14 @@ async function fetchPage(
   before: string | null,
   colors: ColorFilter,
   signal: AbortSignal,
+  person: string | null,
 ) {
   const params = setColorParams(
     new URLSearchParams({ limit: String(PAGE_SIZE) }),
     colors,
   );
   if (before) params.set("before", before);
+  if (person) params.set("person", person);
   const response = await fetch(`/api/timeline?${params.toString()}`, {
     signal,
   });
@@ -96,11 +100,41 @@ async function fetchPage(
 const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
   String(a.id) === String(b.id);
 
-/** `/timeline` at a year or month, keeping the color filter. */
-function timelineHref(colors: ColorFilter, at: Record<string, string> = {}) {
+/** `/timeline` at a year or month, keeping the color and person filters. */
+function timelineHref(
+  colors: ColorFilter,
+  at: Record<string, string> = {},
+  person: string | null = null,
+) {
   const params = setColorParams(new URLSearchParams(at), colors);
+  if (person) params.set("person", person);
   const query = params.toString();
   return query ? `/timeline?${query}` : "/timeline";
+}
+
+/** The name on the person chip, once /api/people answers. */
+function usePersonName(person: string | null): string | null {
+  const [found, setFound] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!person) return;
+    const controller = new AbortController();
+    fetch("/api/people", { signal: controller.signal })
+      .then((response) => readJsonObject(response))
+      .then((data) => {
+        const match = asArray(data.people).find(
+          (p) => isRecord(p) && String(p.id) === person,
+        );
+        if (isRecord(match) && typeof match.name === "string")
+          setFound({ id: person, name: match.name });
+      })
+      .catch(() => {
+        // The chip keeps its generic label
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [person]);
+  return found?.id === person ? found.name : null;
 }
 
 /** Pages can overlap if the backfill dates a photo between two requests. */
@@ -128,6 +162,11 @@ function TimelineContent() {
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const [colors, setColors] = useColorFilterParam();
   const filtered = hasColorFilter(colors);
+  // ?person=<id>: only the photos where that person is (from /personnes)
+  const personParam = params.get("person");
+  const person =
+    personParam && /^\d{1,15}$/.test(personParam) ? personParam : null;
+  const personName = usePersonName(person);
 
   const [years, setYears] = useState<number[]>([]);
   const [summaryMonths, setSummaryMonths] = useState<MonthCount[]>([]);
@@ -144,7 +183,7 @@ function TimelineContent() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchTimelineSummary(controller.signal, colors)
+    fetchTimelineSummary(controller.signal, colors, person)
       .then((summary) => {
         setYears(yearsOf(summary.months));
         setSummaryMonths(summary.months);
@@ -156,7 +195,7 @@ function TimelineContent() {
     return () => {
       controller.abort();
     };
-  }, [attempt, colors]);
+  }, [attempt, colors, person]);
 
   useEffect(() => {
     inFlight.current?.abort();
@@ -172,6 +211,7 @@ function TimelineContent() {
           : null,
       colors,
       controller.signal,
+      person,
     )
       .then(({ photos, next }) => {
         setFeed({
@@ -190,7 +230,7 @@ function TimelineContent() {
     return () => {
       controller.abort();
     };
-  }, [startYear, startMonth, attempt, colors]);
+  }, [startYear, startMonth, attempt, colors, person]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -202,7 +242,7 @@ function TimelineContent() {
       const controller = new AbortController();
       inFlight.current = controller;
       setFeed((f) => ({ ...f, phase: "more" }));
-      fetchPage(cursor, colors, controller.signal)
+      fetchPage(cursor, colors, controller.signal, person)
         .then(({ photos, next }) => {
           setFeed((f) => ({
             items: [...f.items, ...unseen(seen.current, photos)],
@@ -218,7 +258,7 @@ function TimelineContent() {
           if (inFlight.current === controller) inFlight.current = null;
         });
     },
-    [colors],
+    [colors, person],
   );
 
   const sentinel = useRef<HTMLDivElement>(null);
@@ -289,10 +329,14 @@ function TimelineContent() {
       window.history.pushState(
         null,
         "",
-        timelineHref(colors, years[0] === year ? {} : { year: String(year) }),
+        timelineHref(
+          colors,
+          years[0] === year ? {} : { year: String(year) },
+          person,
+        ),
       );
     },
-    [years, colors],
+    [years, colors, person],
   );
 
   const jumpMonth = useCallback(
@@ -307,9 +351,13 @@ function TimelineContent() {
       // Not loaded yet: start the list at that month.
       window.scrollTo({ top: 0 });
       setActiveMonth(month);
-      window.history.pushState(null, "", timelineHref(colors, { month }));
+      window.history.pushState(
+        null,
+        "",
+        timelineHref(colors, { month }, person),
+      );
     },
-    [colors],
+    [colors, person],
   );
 
   const counts = useMemo(() => countsOf(summaryMonths), [summaryMonths]);
@@ -380,10 +428,33 @@ function TimelineContent() {
     setAttempt((n) => n + 1);
   };
 
-  const latestHref = timelineHref(colors);
+  const latestHref = timelineHref(colors, {}, person);
   const header = (
     <>
       <PageHeader title="Chronologie" />
+      {person && (
+        <div className="mb-3 flex">
+          <span className="inline-flex h-8 items-center gap-1 rounded-full border border-line-strong bg-surface pl-3 pr-1 text-sm text-ink">
+            <Link
+              href={`/personnes/${person}`}
+              className="underline-offset-2 hover:underline"
+            >
+              {personName ?? "Une personne"}
+            </Link>
+            <Link
+              href={timelineHref(colors, {
+                ...(yearParam ? { year: yearParam } : {}),
+                ...(startMonth ? { month: startMonth } : {}),
+              })}
+              aria-label="Toutes les photos, pas seulement cette personne"
+              title="Retirer le filtre"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </span>
+        </div>
+      )}
       <ColorFilterBar filter={colors} onChange={setColors} className="mb-6" />
     </>
   );
