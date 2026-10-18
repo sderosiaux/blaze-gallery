@@ -38,3 +38,18 @@ ENTRYPOINT ["pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
 FROM base AS runtime
 USER worker
 ENTRYPOINT ["blaze-worker"]
+
+# Search by content: the SigLIP2 towers baked in on top (~1.5 GB). Build with
+#   docker build --target embed -t blaze-worker:embed .
+# The same image runs the embed task (blaze-worker --task embed) and the
+# query embedder (--entrypoint blaze-embedder); docs/DEPLOYMENT.md.
+# The weights get their own stage: a code change does not download them again.
+FROM python:3.12-slim-bookworm AS siglip
+COPY src/blaze_worker/siglip.py /build/siglip.py
+RUN pip install --no-cache-dir numpy \
+    && cd /build && python -c "from siglip import download; print(download('/models'))"
+
+FROM base AS embed
+COPY --from=siglip --chown=worker:worker /models/siglip2 /models/siglip2
+USER worker
+ENTRYPOINT ["blaze-worker"]

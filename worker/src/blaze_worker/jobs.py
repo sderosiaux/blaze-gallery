@@ -72,14 +72,19 @@ def claim(
     tasks: Sequence[str],
     limit: int,
     lease_seconds: int,
+    ready_sql: str | None = None,
 ) -> list[Job]:
+    """ready_sql: a condition on analysis_jobs a row must also meet (the task's own, fixed SQL)."""
+    # Its LIKE wildcards are not placeholders
+    ready = f"AND {ready_sql.replace('%', '%%')}" if ready_sql else ""
     with conn.transaction():
         rows = conn.execute(
-            """
+            f"""
             WITH picked AS (
               SELECT id FROM analysis_jobs
               WHERE status = 'queued' AND task = ANY(%(tasks)s)
                 AND (not_before IS NULL OR not_before <= now())
+                {ready}
               ORDER BY priority DESC, id
               LIMIT %(limit)s
               FOR UPDATE SKIP LOCKED
@@ -229,3 +234,20 @@ def leased(conn: Connection, tasks: Sequence[str]) -> tuple[int, float]:
         (list(tasks),),
     ).fetchone()
     return count, expires_in
+
+
+def progressing(conn: Connection, task: str, quiet_minutes: int = 30) -> bool:
+    """The task still has jobs to do and finished one lately (its workers are running)."""
+    row = conn.execute(
+        """
+        SELECT EXISTS (
+                 SELECT 1 FROM analysis_jobs
+                 WHERE task = %(task)s AND status IN ('queued', 'leased'))
+           AND EXISTS (
+                 SELECT 1 FROM analysis_jobs
+                 WHERE task = %(task)s AND status = 'done'
+                   AND finished_at > now() - make_interval(mins => %(quiet)s))
+        """,
+        {"task": task, "quiet": quiet_minutes},
+    ).fetchone()
+    return bool(row[0])

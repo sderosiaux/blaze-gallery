@@ -30,6 +30,12 @@ import {
 } from "./colors";
 import { foldPalette, type ColorBin, type Swatch } from "./palette";
 import { asQuarterTurn, type QuarterTurn } from "./rotation";
+import {
+  SEMANTIC_MARGIN,
+  SEMANTIC_MIN_SIMILARITY,
+  SEMANTIC_REFERENCE_RANK,
+  type DateRange,
+} from "./semanticQuery";
 import type {
   CreatePhotoData,
   CreateFolderData,
@@ -1125,6 +1131,145 @@ export async function countSearchMatches(
     params,
   );
   return requireRow(result, "Search count");
+}
+
+// ---- semantic search ------------------------------------------------------
+//
+// The worker embeds every image (photo_embeddings, task "embed"); the
+// embedder on the worker machine embeds queries over HTTPS
+// (lib/embedderClient.ts). The app never runs a model; it keeps the query
+// embeddings it got in search_query_embeddings. db/schema.sql has the contract.
+
+/** A query's embedding as pgvector text, and the model that wrote it. */
+export interface QueryEmbedding {
+  embedding: string;
+  model: string;
+}
+
+/** The stored embedding of a normalized query (normalizeSemanticQuery), if asked before. */
+export async function cachedQueryEmbedding(
+  text: string,
+): Promise<QueryEmbedding | null> {
+  const result = await query<QueryEmbedding>(
+    `UPDATE search_query_embeddings SET last_used_at = now()
+     WHERE text = $1
+     RETURNING embedding::text AS embedding, model`,
+    [text],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Keeps a query's embedding for the next time it is asked. */
+export async function cacheQueryEmbedding(
+  text: string,
+  embedding: QueryEmbedding,
+): Promise<void> {
+  await query(
+    `INSERT INTO search_query_embeddings (text, embedding, model)
+     VALUES ($1, $2::halfvec, $3)
+     ON CONFLICT (text) DO UPDATE SET
+       embedding = EXCLUDED.embedding, model = EXCLUDED.model,
+       last_used_at = now()`,
+    [text, embedding.embedding, embedding.model],
+  );
+}
+
+/** How many photos semantic search can find (an index-only count of the key). */
+export async function countPhotoEmbeddings(): Promise<number> {
+  const result = await query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM photo_embeddings",
+  );
+  return requireRow(result).n;
+}
+
+export type ScoredPhoto = SearchPhoto & {
+  /** Cosine similarity between the query and the photo, 3 decimals */
+  score: number;
+};
+
+/**
+ * Photos nearest to the query embedding, most similar first, down to
+ * SEMANTIC_MARGIN below the SEMANTIC_REFERENCE_RANK-th one (never under
+ * SEMANTIC_MIN_SIMILARITY); offset-paginated (the ranking exists only for
+ * this query). The HNSW index serves the inner query: with a date range or a color filter,
+ * iterative scan keeps it walking until enough photos pass the filter, in
+ * relaxed order, hence the outer sort. `next` is the offset of the next
+ * page, null on the last one.
+ */
+export async function searchPhotosByContent(
+  q: QueryEmbedding,
+  range: DateRange,
+  offset: number,
+  limit: number,
+  colors: ColorFilter = NO_COLOR_FILTER,
+): Promise<{ items: ScoredPhoto[]; next: number | null }> {
+  // At least the reference rank, so a small page gets the same floor
+  const window = Math.max(offset + limit + 1, SEMANTIC_REFERENCE_RANK);
+  const params: unknown[] = [q.embedding, q.model, window];
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const dated: string[] = [];
+  if (range.from)
+    dated.push(`(p.metadata->>'date_taken') >= ${add(range.from)}::text`);
+  if (range.before)
+    dated.push(`(p.metadata->>'date_taken') < ${add(range.before)}::text`);
+  const colored = andColorFilter(params, colors, "e.photo_id");
+  const maxDistance = add(1 - SEMANTIC_MIN_SIMILARITY);
+  const margin = add(SEMANTIC_MARGIN);
+  const referenceOffset = add(SEMANTIC_REFERENCE_RANK - 1);
+  const pageOffset = add(offset);
+  const pageLimit = add(limit + 1);
+
+  const rows = await runTransaction(async (client) => {
+    await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
+    // ef_search is capped at 1000; iterative scan goes on past it anyway
+    await client.query(
+      `SET LOCAL hnsw.ef_search = ${Math.min(1000, Math.max(100, window))}`,
+    );
+    const result = await client.query<
+      DatabasePhoto & {
+        folder_name: string;
+        folder_path: string;
+        distance: number;
+      }
+    >(
+      `WITH nearest AS (
+         SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
+         FROM photo_embeddings e
+         ${dated.length > 0 ? "JOIN photos p ON p.id = e.photo_id" : ""}
+         WHERE e.model = $2
+           ${dated.map((condition) => `AND ${condition}`).join("\n")}
+           ${colored}
+         ORDER BY e.embedding <=> $1::halfvec
+         LIMIT $3
+       )
+       SELECT p.*, f.name AS folder_name, f.path AS folder_path, n.distance
+       FROM nearest n
+       JOIN photos p ON p.id = n.photo_id
+       JOIN folders f ON f.id = p.folder_id
+       WHERE n.distance <= least(
+               ${maxDistance}::float8,
+               coalesce(
+                 (SELECT distance FROM nearest ORDER BY distance
+                  OFFSET ${referenceOffset} LIMIT 1),
+                 (SELECT max(distance) FROM nearest)) + ${margin}::float8)
+         AND p.mime_type LIKE 'image/%'
+       ORDER BY n.distance, n.photo_id
+       OFFSET ${pageOffset} LIMIT ${pageLimit}`,
+      params,
+    );
+    return result.rows;
+  });
+
+  const items = rows.slice(0, limit).map(({ distance, ...row }) => ({
+    ...normalizePhoto(row),
+    folder_name: row.folder_name,
+    folder_path: row.folder_path,
+    score: Math.round((1 - distance) * 1000) / 1000,
+  }));
+  return { items, next: rows.length > limit ? offset + limit : null };
 }
 
 export interface FolderSuggestion {

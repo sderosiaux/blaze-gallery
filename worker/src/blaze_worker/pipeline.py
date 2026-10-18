@@ -92,6 +92,13 @@ class Options:
     # 0: exit once the queue is empty; else poll that often
     wait_seconds: float
     reap_every_seconds: float = 60.0
+    # The task's extra claim condition (jobs.claim); with it, a short claim
+    # means the rest is not ready yet: wait before asking again
+    ready_sql: str | None = None
+    # A task whose results make this one's jobs ready (embed follows thumbs):
+    # with nothing to claim, wait while it is still making progress
+    follow: str | None = None
+    follow_poll_seconds: float = 60.0
 
 
 @dataclass
@@ -349,13 +356,15 @@ class Worker:
                         if requeued or failed:
                             log.info("expired leases: %d requeued, %d failed", requeued, failed)
                         last_reap = time.monotonic()
+                    asked = min(room, self._batch)
                     claimed = self._db(
-                        lambda conn, room=room: jobs.claim(
+                        lambda conn, asked=asked: jobs.claim(
                             conn,
                             options.owner,
                             [options.task],
-                            min(room, self._batch),
+                            asked,
                             options.lease_seconds,
+                            options.ready_sql,
                         )
                     )
                 except psycopg.OperationalError:
@@ -369,10 +378,17 @@ class Worker:
                             self._inflight[job.id] = job
                     for job in claimed:
                         fetchers.submit(self._fetch, job)
+                    if options.ready_sql and len(claimed) < asked:
+                        # Each claim scans the rows not ready yet: not in a loop
+                        self._stopping.wait(min(options.wait_seconds, 10.0))
                     continue
                 if busy:
                     with self._cond:
                         self._cond.wait(timeout=1.0)
+                    continue
+                if options.follow and self._db(lambda conn: jobs.progressing(conn, options.follow)):
+                    log.info("nothing ready, %s still running: waiting", options.follow)
+                    self._stopping.wait(options.follow_poll_seconds)
                     continue
                 if options.wait_seconds <= 0:
                     # Jobs leased by other workers may still come back (their
