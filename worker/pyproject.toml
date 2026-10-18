@@ -1,7 +1,7 @@
 [project]
 name = "blaze-worker"
 version = "0.1.0"
-description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the face task"
+description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the faces, describe and thumbs tasks"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "boto3>=1.40",
@@ -29,6 +29,7 @@ blaze-enqueue = "blaze_worker.cli:run_enqueue"
 blaze-queue = "blaze_worker.cli:run_status"
 blaze-faces-preview = "blaze_worker.cli:run_preview"
 blaze-describe-preview = "blaze_worker.cli:run_describe_preview"
+blaze-colors-preview = "blaze_worker.cli:run_colors_preview"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6", "testcontainers>=4.8"]
