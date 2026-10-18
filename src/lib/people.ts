@@ -49,7 +49,7 @@ export interface PersonRow {
 export interface PersonSummary extends PersonRow {
   photo_count: number;
   pending_count: number;
-  /** Face shown for the person: her most recent good face */
+  /** Face shown for the person: COVER_ORDER */
   cover_face_id: number | null;
   first_taken: string | null;
   last_taken: string | null;
@@ -61,13 +61,46 @@ const STILL_OPEN = `(f.assignment IS NULL OR f.assignment = 'rejected')`;
 const PERSON_COLUMNS =
   "p.id::int AS id, p.name, p.birth_date::text AS birth_date";
 
-/** The person's best face for a cover: good enough to define her, then the latest. */
-const COVER_ORDER = `f.cluster_eligible DESC, (f.assignment IN ('seed', 'manual')) DESC,
-  (ph.metadata ->> 'date_taken') DESC NULLS LAST, f.width_px DESC, f.id`;
+/**
+ * Faces the owner gave or confirmed (seed, manual), and how typical each is
+ * of its person: in the closer half to the mean of those faces. A face
+ * behind a helmet visor or sunglasses stays frontal, sharp and "eyes open"
+ * for the measures, but falls in the far half (2026-10: Suzie's visor faces
+ * 92nd and 101st of 117, Céline's sunglasses 31st and 36th of 41).
+ */
+const VALIDATED_FACES = `validated AS MATERIALIZED (
+    SELECT id, person_id, embedding FROM faces
+    WHERE person_id IS NOT NULL AND assignment IN ('seed', 'manual')
+  ),
+  typical AS MATERIALIZED (
+    SELECT v.id, percent_rank() OVER (PARTITION BY v.person_id
+             ORDER BY v.embedding <=> c.mean) <= 0.5 AS typical
+    FROM validated v
+    JOIN (SELECT person_id, avg(embedding) AS mean FROM validated
+          GROUP BY person_id) c ON c.person_id = v.person_id
+  )`;
+
+/**
+ * The person's face for a cover, among the owner's faces (the machine's
+ * only when there is none): good enough to define her, typical of her, eyes
+ * open, frontal, at least 100 px in the 2048 px rendition the crop is cut
+ * from (EDGE in displayRendition.ts), sharp; the latest of those. f = faces,
+ * ph = photos; `typical` is how typical f is, when known.
+ */
+const coverOrder = (typical: string | null) => `f.cluster_eligible DESC,
+  ${typical === null ? "" : `${typical} DESC,`}
+  (least(f.eye_left_open, f.eye_right_open) >= 0.2) DESC NULLS LAST,
+  (abs(f.yaw) + abs(f.pitch) <= 20) DESC NULLS LAST,
+  (greatest(f.width_px, f.height_px) * least(1, 2048.0 / nullif(greatest(
+     (ph.metadata -> 'dimensions' ->> 'width')::int,
+     (ph.metadata -> 'dimensions' ->> 'height')::int), 0)) >= 100) DESC NULLS LAST,
+  (f.sharpness >= 300) DESC NULLS LAST,
+  (ph.metadata ->> 'date_taken') DESC NULLS LAST, f.id`;
 
 export async function listPeople(): Promise<PersonSummary[]> {
   const result = await query<PersonSummary>(
     `
+    WITH ${VALIDATED_FACES}
     SELECT ${PERSON_COLUMNS},
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM faces f
         JOIN photos ph ON ph.id = f.photo_id
@@ -75,9 +108,14 @@ export async function listPeople(): Promise<PersonSummary[]> {
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
         JOIN faces f ON f.id = c.face_id JOIN photos ph ON ph.id = f.photo_id
         WHERE c.person_id = p.id AND c.status = 'pending' AND ${STILL_OPEN}) AS pending_count,
-      (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
-        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
-        ORDER BY ${COVER_ORDER} LIMIT 1) AS cover_face_id,
+      coalesce(
+        (SELECT f.id::int FROM typical t JOIN faces f ON f.id = t.id
+          JOIN photos ph ON ph.id = f.photo_id
+          WHERE f.person_id = p.id
+          ORDER BY ${coverOrder("t.typical")} LIMIT 1),
+        (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
+          WHERE f.person_id = p.id AND f.assignment = 'auto'
+          ORDER BY ${coverOrder(null)} LIMIT 1)) AS cover_face_id,
       (SELECT min(ph.metadata ->> 'date_taken') FROM faces f JOIN photos ph ON ph.id = f.photo_id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS first_taken,
       (SELECT max(ph.metadata ->> 'date_taken') FROM faces f JOIN photos ph ON ph.id = f.photo_id
