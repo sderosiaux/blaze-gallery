@@ -137,7 +137,10 @@ docker run -d --name blaze-embedder --restart unless-stopped --cpu-shares 4096 \
 
 `--cpu-shares 256` lets the thumbs pass take the CPU first. The embedder
 gets no database setting. The port must be open in the host firewall
-(`sudo ufw allow 47443/tcp`); until then the app tries once per minute per
+(`sudo ufw allow 47443/tcp`). On a host whose `DOCKER-USER` chain drops
+outside traffic to containers (ours only lets 80/443 through, for another
+project's proxy), run the embedder with `--network host` instead of `-p`:
+it then sits behind the ufw rule only; until then the app tries once per minute per
 instance, for 0.8 s, and answers with names only. `GET /health` needs no
 token.
 `docker restart blaze-embedder` is safe. New photos: `docker run --rm
