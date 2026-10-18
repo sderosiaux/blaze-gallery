@@ -16,7 +16,11 @@ The interface is in French for now.
 - A timeline of every dated photo, month by month, with the years in the margin.
 - Big folders that stay fast. Tiles on screen load first, the rest follows in order, and opening a folder builds its missing thumbnails once. RAW files (NEF, CR2, ARW, DNG, ORF and more) show the JPEG preview the camera stored inside them.
 - A viewer made for looking: a 2048 px copy of each photo is made once and reused, the original is only fetched to zoom past it or to download. Arrows, Space for the slideshow, F to favourite, R and Shift+R to turn a photo, Z to zoom, I for details.
-- Search across folders and file names, favourites, and a random album when you don't know where to start.
+- Search by what a photo shows, not only by its name: « chat sur un canapé » or "beach at sunset" finds the photos, in French or English. Folders and file names still match too.
+- People. Name a face on a few photos (P in the viewer), and the worker follows that person across the years, baby pictures included. Faces it isn't sure about wait in a review queue (G yes, X no), and the timeline filters to one person.
+- Colours. Browse the library by colour or by tone (black and white, dark, bright, vivid, soft), narrow the timeline, the map or a search to one colour, and see each folder's palette under its cover.
+- A map of every photo with a location. Draw a zone, then narrow it to a period.
+- Favourites, and a random album when you don't know where to start.
 - Upload and delete from the browser, when your storage keys allow writing.
 
 ## How your photos stay yours
@@ -26,6 +30,7 @@ The interface is in French for now.
 - Blaze never rewrites your files. Turning a photo or marking a favourite is stored in Postgres. The bucket only changes when you upload, or delete after confirming.
 - Storage keys stay on the server. Your own downloads use signed links that expire after an hour.
 - No analytics and no tracking. Pages are marked `noindex` and cannot be framed by other sites.
+- Faces, colours and content are read on machines you own (a Mac with Apple silicon, or any Linux box with Docker) with open models. No photo is sent to an AI service.
 - The MCP endpoint, for AI assistants, needs your session or `API_KEY` as a Bearer token.
 
 What Blaze does not do: there is no end-to-end encryption. The server reads your photos to make thumbnails, like any gallery that shows previews. TLS comes from your host (Vercel, or a reverse proxy in front of Docker).
@@ -62,7 +67,9 @@ Open http://localhost:3000. Compose runs PostgreSQL next to the app and creates 
 
 Blaze lists your bucket into PostgreSQL (folders, files, EXIF dates and dimensions), then serves pages from that index. Originals stay where they are and are read on demand. Thumbnails and 2048 px copies are made the first time they're needed and kept on local disk or in a second bucket (Cloudflare R2 works well: no egress fees).
 
-Built with Next.js 14, PostgreSQL, sharp and the AWS S3 SDK.
+The analysis is optional. A Python worker (`worker/`) takes jobs from a queue in PostgreSQL, reads the originals, and writes back thumbnails, colours, faces (InsightFace) and an embedding (SigLIP 2) stored with pgvector. Search queries are turned into embeddings by a small HTTPS service on the same machine.
+
+Built with Next.js 14, PostgreSQL with pgvector, sharp and the AWS S3 SDK.
 
 ## Contributing
 
