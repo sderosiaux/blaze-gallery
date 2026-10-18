@@ -18,6 +18,7 @@ import {
   Search,
   Share2,
   Shuffle,
+  UsersRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -55,6 +56,12 @@ const PRIMARY_NAV: NavLinkItem[] = [
     label: "Carte",
     icon: MapIcon,
     match: (p) => p.startsWith("/carte"),
+  },
+  {
+    href: "/personnes",
+    label: "Personnes",
+    icon: UsersRound,
+    match: (p) => p.startsWith("/personnes"),
   },
   {
     href: "/couleurs",
