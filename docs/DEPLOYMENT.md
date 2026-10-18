@@ -91,6 +91,55 @@ What differs from a long-running server:
 - The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
   the server process.
 
+## Search by content
+
+Searching "les chats" finds photos of cats through SigLIP2 embeddings
+(`photo_embeddings`, `search_query_embeddings` in `db/schema.sql`). The
+functions never run the model. Two containers on the worker machine, both
+from one image, do that work:
+
+- `blaze-worker-embed` runs the `embed` task. It embeds each photo from its
+  R2 thumbnail and leaves a photo queued until the thumbs pass has made that
+  thumbnail. With `--follow thumbs` it waits while the thumbs pass is
+  running, then exits, so the database can go idle.
+- `blaze-embedder` holds the text model behind HTTPS and never touches the
+  database. The app asks it for each query it has not seen before and keeps
+  the answer in `search_query_embeddings`. If it doesn't answer within 3 s,
+  the search falls back to folder and file names.
+
+The app reads three variables: `EMBEDDER_URL` (`https://<server IP>:47443`),
+`EMBEDDER_TOKEN` and `EMBEDDER_CA` (the certificate, PEM; newlines may be
+written `\n`). The app trusts that certificate only. Without the three,
+search works on names alone.
+
+```bash
+cd worker && docker build --target embed -t blaze-worker:embed .
+# Once: a certificate for the server's IP and a token, both chmod 600
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+  -subj "/CN=blaze-embedder" -addext "subjectAltName=IP:<server IP>" \
+  -keyout embedder-key.pem -out embedder-cert.pem
+openssl rand -hex 32 > embedder-token && chmod 600 embedder-*
+# env file: DATABASE_URL, BACKBLAZE_*, THUMBNAIL_S3_* (chmod 600)
+docker run -d --name blaze-worker-embed --restart on-failure:5 --stop-timeout 120 \
+  --cpu-shares 256 --env-file blaze.env blaze-worker:embed \
+  --task embed --concurrency 2 --threads 2 --fetchers 12 --follow thumbs --owner hetzner-embed
+docker run -d --name blaze-embedder --restart unless-stopped --cpu-shares 4096 \
+  --user "$(id -u):$(id -g)" -p 47443:47443 \
+  -v "$PWD/embedder-cert.pem:/run/blaze/cert.pem:ro" \
+  -v "$PWD/embedder-key.pem:/run/blaze/key.pem:ro" \
+  -v "$PWD/embedder-token:/run/blaze/token:ro" \
+  --entrypoint blaze-embedder blaze-worker:embed --port 47443 \
+  --cert /run/blaze/cert.pem --key /run/blaze/key.pem --token-file /run/blaze/token
+```
+
+`--cpu-shares 256` lets the thumbs pass take the CPU first. The port must be
+open in the host firewall. `GET /health` needs no token.
+`docker restart blaze-embedder` is safe. New photos are not queued
+automatically: `docker run --rm --env-file blaze.env --entrypoint blaze-enqueue
+blaze-worker:embed --task embed --all` queues the missing ones (running it
+again changes nothing), then start `blaze-worker-embed` again. Progress:
+`--entrypoint blaze-queue ... --task embed`.
+
 ## Health check
 
 `GET /api/health` needs no authentication. It runs one database query and
