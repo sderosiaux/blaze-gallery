@@ -448,3 +448,18 @@ CREATE INDEX IF NOT EXISTS idx_photo_colors_colorfulness
   ON photo_colors (colorfulness, photo_id);
 CREATE INDEX IF NOT EXISTS idx_photo_colors_monochrome
   ON photo_colors (chroma, photo_id) WHERE monochrome;
+
+-- Each folder's palette, the strip under its cover in folder listings: up to
+-- 5 colors, swatches = [{"hex": "#rrggbb", "share": 0..1}], heaviest first,
+-- shares summing to 1. Folded from its own photos' photo_colors palettes, or
+-- when none of them is measured yet from every photo below it by path; a
+-- folder with no measured photo has no row. Too slow to compute per listing
+-- (seconds over the whole library), so computed offline: written only by
+-- `npm run palettes` (scripts/folder-palettes.ts), which replaces the whole
+-- content in one transaction. Run on the sync host after each sync and
+-- during or after a worker "thumbs" pass.
+CREATE TABLE IF NOT EXISTS folder_palettes (
+  folder_id bigint PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
+  swatches jsonb NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now()
+);

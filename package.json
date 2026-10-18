@@ -8,6 +8,7 @@
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
     "sync": "tsx scripts/sync.ts",
+    "palettes": "tsx scripts/folder-palettes.ts",
     "lint": "next lint --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",

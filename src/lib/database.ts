@@ -279,17 +279,23 @@ const COVER_RANK = `${PHOTO_LIKE} DESC, (p.thumbnail_status = 'generated') DESC,
 
 type FolderListingRow = Omit<
   Folder,
-  "thumbnails_generated" | "cover_photo_id" | "date_from" | "date_to"
+  | "thumbnails_generated"
+  | "cover_photo_id"
+  | "date_from"
+  | "date_to"
+  | "palette"
 > & {
   thumbnails_generated: boolean | null;
   cover_photo_id: number | null | undefined;
   date_from: string | null | undefined;
   date_to: string | null | undefined;
+  palette: Swatch[] | null;
 };
 
 /**
- * Adds listing fields (thumbnail state, size, date span, cover) to the
- * folders selected by `baseSql`, which must select `f.*` from `folders f`.
+ * Adds listing fields (thumbnail state, size, date span, cover, palette)
+ * to the folders selected by `baseSql`, which must select `f.*` from
+ * `folders f`.
  */
 async function listFolders(
   baseSql: string,
@@ -316,8 +322,10 @@ async function listFolders(
       agg.date_to,
       (CASE WHEN own_cover.is_photo THEN own_cover.id
             ELSE COALESCE(descendant_photo.id, own_cover.id, descendant_image.id)
-       END)::int AS cover_photo_id
+       END)::int AS cover_photo_id,
+      fp.swatches AS palette
     FROM sub s
+    LEFT JOIN folder_palettes fp ON fp.folder_id = s.id
     LEFT JOIN LATERAL (
       SELECT
         CASE
@@ -382,10 +390,7 @@ async function listFolders(
     ORDER BY ${orderBy}
   `;
 
-  const [result, palettes] = await Promise.all([
-    query<FolderListingRow>(sql, params),
-    folderPalettes(),
-  ]);
+  const result = await query<FolderListingRow>(sql, params);
 
   return result.rows.map((folder) => ({
     ...folder,
@@ -393,7 +398,7 @@ async function listFolders(
     cover_photo_id: folder.cover_photo_id ?? null,
     date_from: folder.date_from ?? null,
     date_to: folder.date_to ?? null,
-    palette: palettes.get(String(folder.id)),
+    palette: folder.palette ?? undefined,
   }));
 }
 
@@ -405,11 +410,8 @@ async function listFolders(
 // The whole library at once: 3.3 s on the production database with every
 // photo measured (simulated 2026-10-18: 210k photos, 1.05M palette colors,
 // 4.7k folders with a palette), too slow for a listing, and the library
-// home spans every photo. So it runs in the background at most once per
-// PALETTE_TTL_MS while folders are listed, and listings read the last
-// result: a palette lags the worker by up to that long. Measured per
-// process (src/instrumentation.ts starts it with the server); a few MB for
-// 23k folders.
+// home spans every photo. So `npm run palettes` (scripts/folder-palettes.ts)
+// computes it offline into folder_palettes, which listings join.
 const PALETTE_SQL = `
   WITH entries AS (
     SELECT p.folder_id, e.share::float8 AS share,
@@ -453,34 +455,8 @@ const PALETTE_SQL = `
   WHERE place <= 12
 `;
 
-const PALETTE_TTL_MS = 10 * 60_000;
-/** With nothing computed yet, how long a listing waits before going without palettes. */
-const PALETTE_COLD_WAIT_MS = 1_500;
-
-interface PaletteCache {
-  at: number;
-  /** By folder id; folders without a measured photo are absent */
-  palettes: ReadonlyMap<string, Swatch[]>;
-}
-
-/**
- * On globalThis: Next bundles this module more than once in a process
- * (instrumentation, each route in development), and every copy would
- * otherwise pay for its own computation.
- */
-const paletteStore = globalThis as typeof globalThis & {
-  blazeFolderPalettes?: {
-    cache: PaletteCache | null;
-    run: Promise<PaletteCache> | null;
-  };
-};
-const palettesState = (paletteStore.blazeFolderPalettes ??= {
-  cache: null,
-  run: null,
-});
-
-async function computeFolderPalettes(): Promise<PaletteCache> {
-  const at = Date.now();
+/** Every folder's palette from photo_colors, by folder id; reads only. */
+export async function computeFolderPalettes(): Promise<Map<string, Swatch[]>> {
   const result = await query<{
     folder_id: string;
     w: number;
@@ -499,55 +475,38 @@ async function computeFolderPalettes(): Promise<PaletteCache> {
     const palette = foldPalette(list);
     if (palette.length > 0) palettes.set(folderId, palette);
   }
-  logger.info("[DB] Folder palettes computed", {
-    component: "Database",
-    folders: palettes.size,
-    durationMs: Date.now() - at,
+  return palettes;
+}
+
+/**
+ * Makes folder_palettes hold exactly `palettes`, in one transaction: each
+ * folder's row is inserted or updated, the rows of folders left out are
+ * deleted. A folder deleted since the computation is skipped. Writes no
+ * other table.
+ */
+export async function replaceFolderPalettes(
+  palettes: ReadonlyMap<string, Swatch[]>,
+): Promise<{ written: number; removed: number }> {
+  const rows = [...palettes].map(([folderId, swatches]) => ({
+    folder_id: Number(folderId),
+    swatches,
+  }));
+  return runTransaction(async (client) => {
+    const written = await client.query(
+      `INSERT INTO folder_palettes (folder_id, swatches, computed_at)
+       SELECT s.folder_id, s.swatches, now()
+       FROM jsonb_to_recordset($1::jsonb) AS s(folder_id bigint, swatches jsonb)
+       JOIN folders f ON f.id = s.folder_id
+       ON CONFLICT (folder_id) DO UPDATE
+         SET swatches = EXCLUDED.swatches, computed_at = EXCLUDED.computed_at`,
+      [JSON.stringify(rows)],
+    );
+    const removed = await client.query(
+      `DELETE FROM folder_palettes WHERE NOT (folder_id = ANY($1::bigint[]))`,
+      [rows.map((row) => row.folder_id)],
+    );
+    return { written: written.rowCount ?? 0, removed: removed.rowCount ?? 0 };
   });
-  return { at, palettes };
-}
-
-/** One computation at a time; a failure keeps the last palettes and waits a TTL before trying again. */
-function refreshPalettes(): Promise<PaletteCache> {
-  palettesState.run ??= computeFolderPalettes()
-    .catch((error: unknown) => {
-      logger.dbError(
-        "Folder palettes failed",
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return {
-        at: Date.now(),
-        palettes: palettesState.cache?.palettes ?? new Map(),
-      };
-    })
-    .then((cache) => {
-      palettesState.cache = cache;
-      palettesState.run = null;
-      return cache;
-    });
-  return palettesState.run;
-}
-
-/** Starts the first computation, so the first listing finds the palettes ready. */
-export function warmFolderPalettes(): void {
-  if (!palettesState.cache) void refreshPalettes();
-}
-
-async function folderPalettes(): Promise<ReadonlyMap<string, Swatch[]>> {
-  const cache = palettesState.cache;
-  if (cache) {
-    if (Date.now() - cache.at > PALETTE_TTL_MS) void refreshPalettes();
-    return cache.palettes;
-  }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => {
-      resolve(null);
-    }, PALETTE_COLD_WAIT_MS);
-  });
-  const ready = await Promise.race([refreshPalettes(), late]);
-  clearTimeout(timer);
-  return ready?.palettes ?? new Map();
 }
 
 // Byte order put "Londres" far from "londres2018" and "Mariage" before
@@ -800,13 +759,25 @@ export interface ColorOverview {
 /** Candidates read per photo a band shows, so a burst does not fill it. */
 const BAND_CANDIDATES = 4;
 
+/** Shots of one folder this close in time are one moment: a band shows one. */
+const BURST_MS = 10 * 60_000;
+
+interface BandCandidate {
+  folderId: string;
+  /** Size and palette: a copy of a file under another name measures the same */
+  look: string;
+  /** date_taken in ms */
+  taken: number;
+}
+
 /**
  * The best photos of a band, one per folder first: ten shots of one burst
  * would otherwise fill it with one picture. Short of folders, the next best
- * come in, in rank order. A copy of a file in another folder measures the
- * very same colors (`look`): it shows once.
+ * come in, in rank order, except copies (same `look`) and shots taken
+ * within BURST_MS of one already shown from the same folder. A band may
+ * stay shorter than `size`.
  */
-function spreadAcrossFolders<T extends { folderId: string; look: string }>(
+function spreadAcrossFolders<T extends BandCandidate>(
   ranked: T[],
   size: number,
 ): T[] {
@@ -825,7 +796,12 @@ function spreadAcrossFolders<T extends { folderId: string; look: string }>(
   const picked = new Set(first.slice(0, size));
   for (const photo of unique) {
     if (picked.size >= size) break;
-    picked.add(photo);
+    const burst = [...picked].some(
+      (shown) =>
+        shown.folderId === photo.folderId &&
+        Math.abs(shown.taken - photo.taken) < BURST_MS,
+    );
+    if (!burst) picked.add(photo);
   }
   return unique.filter((photo) => picked.has(photo));
 }
@@ -857,7 +833,8 @@ export async function getColorOverview(
     if (!rank) throw new Error("A band needs a color or a tone");
     return `(SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
              pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
-             pc.palette_hex::text || pc.palette_share::text AS look
+             p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
+             p.metadata->>'date_taken' AS taken
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
       WHERE ${[...rank.where, DATED].join(" AND ")}
@@ -872,8 +849,9 @@ export async function getColorOverview(
       hex: string | null;
       rotation: unknown;
       look: string;
+      taken: string;
     }>(
-      `SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look
+      `SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look, taken
        FROM (${tops.join("\nUNION ALL\n")}) t`,
       [perBand * BAND_CANDIDATES],
     ),
@@ -881,16 +859,13 @@ export async function getColorOverview(
   ]);
   // UNION ALL keeps each band's order: rows arrive band by band, best first.
   const ranked = filters.map(
-    (): {
-      folderId: string;
-      look: string;
-      photo: ColorBand["photos"][number];
-    }[] => [],
+    (): (BandCandidate & { photo: ColorBand["photos"][number] })[] => [],
   );
   for (const row of bands.rows)
     ranked[row.band]?.push({
       folderId: row.folder_id,
       look: row.look,
+      taken: Date.parse(row.taken),
       photo: {
         id: row.id,
         hex: row.hex,
