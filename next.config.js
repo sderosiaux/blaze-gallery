@@ -5,7 +5,9 @@ const nextConfig = {
   // uses. `next start` does not support that output, so it stays opt-in.
   output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
   experimental: {
-    serverComponentsExternalPackages: ['pg']
+    serverComponentsExternalPackages: ['pg'],
+    // src/instrumentation.ts: work started with the server
+    instrumentationHook: true
   },
   images: {
     domains: [],
