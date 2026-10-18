@@ -344,18 +344,16 @@ def run_embedder() -> None:
     parser.add_argument("--port", type=int, default=47443)
     parser.add_argument("--cert", help="TLS certificate (PEM); without it, plain HTTP")
     parser.add_argument("--key", help="TLS private key (PEM)")
-    parser.add_argument(
-        "--token-file", type=Path, required=True, help="file holding the Bearer token"
-    )
     parser.add_argument("--threads", type=int, default=4, help="ONNX threads of the text tower")
     parser.add_argument(
         "--model-root", default=os.environ.get("BLAZE_MODEL_ROOT", "~/.blaze-models")
     )
     args = parser.parse_args()
     _setup_logging()
-    token = args.token_file.read_text().strip()
+    # From the environment (docker --env-file): the token is the only secret here
+    token = os.environ.get("EMBEDDER_TOKEN", "").strip()
     if len(token) < 32:
-        raise SystemExit("the token must be at least 32 characters")
+        raise SystemExit("EMBEDDER_TOKEN must hold at least 32 characters")
     if bool(args.cert) != bool(args.key):
         raise SystemExit("--cert and --key go together")
     download(args.model_root)

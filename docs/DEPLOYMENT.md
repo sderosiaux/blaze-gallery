@@ -114,26 +114,30 @@ search works on names alone.
 
 ```bash
 cd worker && docker build --target embed -t blaze-worker:embed .
-# Once: a certificate for the server's IP and a token, both chmod 600
+# Once: a certificate for the server's IP (and 127.0.0.1, for an SSH tunnel)
+# and a token, readable by you only
+mkdir -m 700 embedder-tls
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-  -subj "/CN=blaze-embedder" -addext "subjectAltName=IP:<server IP>" \
-  -keyout embedder-key.pem -out embedder-cert.pem
-openssl rand -hex 32 > embedder-token && chmod 600 embedder-*
-# env file: DATABASE_URL, BACKBLAZE_*, THUMBNAIL_S3_* (chmod 600)
+  -subj "/CN=blaze-embedder" -addext "subjectAltName=IP:<server IP>,IP:127.0.0.1" \
+  -keyout embedder-tls/key.pem -out embedder-tls/cert.pem
+chmod 600 embedder-tls/*
+(umask 077; echo "EMBEDDER_TOKEN=$(openssl rand -hex 32)" > embedder.env)
+# blaze.env: DATABASE_URL, BACKBLAZE_*, THUMBNAIL_S3_* (chmod 600)
 docker run -d --name blaze-worker-embed --restart on-failure:5 --stop-timeout 120 \
   --cpu-shares 256 --env-file blaze.env blaze-worker:embed \
   --task embed --concurrency 2 --threads 2 --fetchers 12 --follow thumbs --owner hetzner-embed
 docker run -d --name blaze-embedder --restart unless-stopped --cpu-shares 4096 \
-  --user "$(id -u):$(id -g)" -p 47443:47443 \
-  -v "$PWD/embedder-cert.pem:/run/blaze/cert.pem:ro" \
-  -v "$PWD/embedder-key.pem:/run/blaze/key.pem:ro" \
-  -v "$PWD/embedder-token:/run/blaze/token:ro" \
+  --user "$(id -u):$(id -g)" -p 47443:47443 --env-file embedder.env \
+  -v "$PWD/embedder-tls:/run/blaze:ro" \
   --entrypoint blaze-embedder blaze-worker:embed --port 47443 \
-  --cert /run/blaze/cert.pem --key /run/blaze/key.pem --token-file /run/blaze/token
+  --cert /run/blaze/cert.pem --key /run/blaze/key.pem
 ```
 
-`--cpu-shares 256` lets the thumbs pass take the CPU first. The port must be
-open in the host firewall. `GET /health` needs no token.
+`--cpu-shares 256` lets the thumbs pass take the CPU first. The embedder
+gets no database setting. The port must be open in the host firewall
+(`sudo ufw allow 47443/tcp`); until then the app tries once per minute per
+instance, for 0.8 s, and answers with names only. `GET /health` needs no
+token.
 `docker restart blaze-embedder` is safe. New photos are not queued
 automatically: `docker run --rm --env-file blaze.env --entrypoint blaze-enqueue
 blaze-worker:embed --task embed --all` queues the missing ones (running it
