@@ -104,6 +104,50 @@ def _taken_elsewhere(conn: Connection, person_id: int, face_ids: Sequence[int]) 
     return [f"face {face_id} is {name}" for face_id, name in rows]
 
 
+def _own(conn: Connection, person_id: int, face_ids: Sequence[int], assignment: str) -> int:
+    """Makes the faces the person's (in the caller's transaction).
+
+    A photo holds a person once: refused when one of the photos already has
+    her on another face (the unique index idx_faces_person_once_per_photo
+    backs this up against a concurrent writer). The photos' other proposals
+    for her, and other people's proposals for these faces, are dropped.
+    """
+    ids = list(face_ids)
+    photos = conn.execute(
+        "SELECT photo_id FROM faces WHERE id = ANY(%s) GROUP BY photo_id HAVING count(*) > 1",
+        (ids,),
+    ).fetchall()
+    if photos:
+        raise PeopleError(f"two faces on photo {photos[0][0]}: a photo holds a person once")
+    clash = conn.execute(
+        """
+        SELECT f.photo_id FROM faces f
+        WHERE f.id = ANY(%(ids)s) AND EXISTS (
+          SELECT 1 FROM faces o WHERE o.photo_id = f.photo_id AND o.id <> f.id
+            AND o.person_id = %(person)s AND o.assignment IN ('seed', 'manual', 'auto'))
+        """,
+        {"ids": ids, "person": person_id},
+    ).fetchall()
+    if clash:
+        raise PeopleError(
+            f"photo {clash[0][0]} already holds this person: a photo holds a person once"
+        )
+    cursor = conn.execute(
+        "UPDATE faces SET person_id = %s, assignment = %s WHERE id = ANY(%s)",
+        (person_id, assignment, ids),
+    )
+    conn.execute(
+        """
+        DELETE FROM face_candidates c USING faces f, faces a
+        WHERE c.status = 'pending' AND f.id = c.face_id AND a.id = ANY(%(ids)s)
+          AND ((c.person_id = %(person)s AND a.photo_id = f.photo_id AND f.id <> a.id)
+               OR (c.person_id <> %(person)s AND f.id = a.id))
+        """,
+        {"person": person_id, "ids": ids},
+    )
+    return cursor.rowcount
+
+
 def set_seeds(conn: Connection, person_id: int, face_ids: Sequence[int]) -> int:
     """The owner's example faces of a person: they define her, whatever their quality."""
     conflicts = _taken_elsewhere(conn, person_id, face_ids)
@@ -115,21 +159,7 @@ def set_seeds(conn: Connection, person_id: int, face_ids: Sequence[int]) -> int:
         ).fetchone()[0]
         if found != len(set(face_ids)):
             raise PeopleError("unknown face id(s)")
-        photos = conn.execute(
-            """
-            SELECT photo_id FROM faces WHERE id = ANY(%s)
-            GROUP BY photo_id HAVING count(*) > 1
-            """,
-            (list(face_ids),),
-        ).fetchall()
-        if photos:
-            raise PeopleError(
-                f"two seed faces on photo {photos[0][0]}: a photo holds a person once"
-            )
-        cursor = conn.execute(
-            "UPDATE faces SET person_id = %s, assignment = 'seed' WHERE id = ANY(%s)",
-            (person_id, list(face_ids)),
-        )
+        seeded = _own(conn, person_id, face_ids, "seed")
         conn.execute(
             """
             UPDATE face_candidates SET status = 'accepted', decided_by = 'owner',
@@ -138,7 +168,7 @@ def set_seeds(conn: Connection, person_id: int, face_ids: Sequence[int]) -> int:
             """,
             (person_id, list(face_ids)),
         )
-    return cursor.rowcount
+    return seeded
 
 
 def decide(
@@ -165,32 +195,7 @@ def decide(
         raise PeopleError("; ".join(conflicts))
     with conn.transaction():
         if accept:
-            clash = conn.execute(
-                """
-                SELECT f.photo_id FROM faces f
-                WHERE f.id = ANY(%(ids)s) AND EXISTS (
-                  SELECT 1 FROM faces o WHERE o.photo_id = f.photo_id AND o.id <> f.id
-                    AND o.person_id = %(person)s AND o.assignment IN ('seed', 'manual', 'auto'))
-                """,
-                {"ids": list(accept), "person": person_id},
-            ).fetchall()
-            if clash:
-                raise PeopleError(
-                    f"photo {clash[0][0]} already holds this person: a photo holds a person once"
-                )
-            conn.execute(
-                "UPDATE faces SET person_id = %s, assignment = 'manual' WHERE id = ANY(%s)",
-                (person_id, list(accept)),
-            )
-            # The photo holds her now: its other faces are not her
-            conn.execute(
-                """
-                DELETE FROM face_candidates c USING faces f, faces a
-                WHERE c.person_id = %(person)s AND c.status = 'pending' AND f.id = c.face_id
-                  AND a.id = ANY(%(ids)s) AND a.photo_id = f.photo_id AND f.id <> a.id
-                """,
-                {"person": person_id, "ids": list(accept)},
-            )
+            _own(conn, person_id, accept, "manual")
         if reject:
             conn.execute(
                 """
@@ -296,6 +301,16 @@ def load_faces(conn: Connection, model: str) -> Loaded:
     return Loaded(faces, taken)
 
 
+# A face the expansion may still write for %(person)s: nobody's (or only
+# rejected for someone else), and not decided for her since it was loaded
+_STILL_OPEN = """
+(f.assignment IS NULL OR (f.assignment = 'rejected' AND f.person_id <> %(person)s))
+AND NOT EXISTS (
+  SELECT 1 FROM face_candidates d
+  WHERE d.person_id = %(person)s AND d.face_id = f.id AND d.status <> 'pending')
+"""
+
+
 def write_expansion(
     conn: Connection, person_id: int, faces: Faces, taken: list[date | None], result: Expansion
 ) -> tuple[int, int, int]:
@@ -320,16 +335,28 @@ def write_expansion(
         done: set[int] = set()
         if accepted:
             ids = [r[0] for r in accepted]
+            # Still nobody's, not decided for her meanwhile, and her photo
+            # not taken by another of its faces meanwhile
             updated = conn.execute(
-                """
-                UPDATE faces SET person_id = %(person)s, assignment = 'auto'
-                WHERE id = ANY(%(ids)s)
-                  AND (assignment IS NULL OR (assignment = 'rejected' AND person_id <> %(person)s))
-                RETURNING id
+                f"""
+                UPDATE faces f SET person_id = %(person)s, assignment = 'auto'
+                WHERE f.id = ANY(%(ids)s) AND {_STILL_OPEN}
+                  AND NOT EXISTS (
+                    SELECT 1 FROM faces o WHERE o.photo_id = f.photo_id AND o.id <> f.id
+                      AND o.person_id = %(person)s AND o.assignment IN ('seed', 'manual', 'auto'))
+                RETURNING f.id
                 """,
                 {"person": person_id, "ids": ids},
             ).fetchall()
             done = {r[0] for r in updated}
+            # Taken: other people's proposals for these faces are moot
+            conn.execute(
+                """
+                DELETE FROM face_candidates
+                WHERE face_id = ANY(%s) AND person_id <> %s AND status = 'pending'
+                """,
+                (list(done), person_id),
+            )
             with conn.cursor() as cursor:
                 cursor.executemany(
                     """
@@ -349,17 +376,21 @@ def write_expansion(
         if pending:
             with conn.cursor() as cursor:
                 cursor.executemany(
-                    """
+                    f"""
                     INSERT INTO face_candidates
                       (person_id, face_id, similarity, best_seed_face_id, gap_days)
-                    VALUES (%s, %s, %s, %s, %s)
+                    SELECT %(person)s, f.id, %(similarity)s, %(source)s, %(gap)s
+                    FROM faces f WHERE f.id = %(face)s AND {_STILL_OPEN}
                     ON CONFLICT (person_id, face_id) DO UPDATE SET
                       similarity = EXCLUDED.similarity,
                       best_seed_face_id = EXCLUDED.best_seed_face_id,
                       gap_days = EXCLUDED.gap_days, updated_at = now()
                     WHERE face_candidates.status = 'pending'
                     """,
-                    [(person_id, *r) for r in pending],
+                    [
+                        {"person": person_id, "face": f, "similarity": s, "source": b, "gap": g}
+                        for f, s, b, g in pending
+                    ],
                 )
         dropped = conn.execute(
             """

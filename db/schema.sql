@@ -503,3 +503,11 @@ CREATE INDEX IF NOT EXISTS idx_face_candidates_queue
   ON face_candidates (person_id, similarity DESC) WHERE status = 'pending';
 -- Deleting a face (a faces re-run) finds its candidates without a scan
 CREATE INDEX IF NOT EXISTS idx_face_candidates_face_id ON face_candidates (face_id);
+
+-- A photo holds a person once, enforced: the expansion (worker CLI) and the
+-- owner's review can decide at the same moment, and only one of them wins
+CREATE UNIQUE INDEX IF NOT EXISTS idx_faces_person_once_per_photo
+  ON faces (photo_id, person_id) WHERE assignment IN ('seed', 'manual', 'auto');
+-- One person per name, whatever the case: "Suzie" typed twice is one person
+CREATE UNIQUE INDEX IF NOT EXISTS idx_people_name
+  ON people (lower(name)) WHERE name IS NOT NULL;

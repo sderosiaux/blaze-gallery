@@ -210,7 +210,8 @@ export default function FacePopover({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (busy) return;
+            // Nothing typed: Enter names nobody
+            if (busy || !typed) return;
             // Enter takes the first suggestion; a new name is created from its own button
             const first = matches[0];
             if (first) void give(first);

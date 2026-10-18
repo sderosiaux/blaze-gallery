@@ -42,7 +42,7 @@ import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
 import { useSwipe } from "./viewer/useSwipe";
 import FaceLayer from "./people/FaceLayer";
 import FacePopover from "./people/FacePopover";
-import { usePhotoFaces } from "./people/usePhotoFaces";
+import { forgetPhotoFaces, usePhotoFaces } from "./people/usePhotoFaces";
 import type { PhotoFace } from "@/lib/people";
 
 /** Face boxes stay on (P) from one photo, and one opening, to the next. */
@@ -149,6 +149,8 @@ export default function PhotoViewer({
   // Who is on a photo is the owner's business: never in a shared view
   const canFaces = !isSharedView && !video;
 
+  // Once per opening, before the first fetch: names may have changed since
+  useState(forgetPhotoFaces);
   const [facesShown, setFacesShown] = useState(
     showFaces ?? facesShownPreference,
   );

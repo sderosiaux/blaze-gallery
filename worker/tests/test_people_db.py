@@ -225,3 +225,55 @@ def test_a_decision_taken_during_an_expansion_wins(conn):
     assert write_expansion(conn, suzie.id, loaded.faces, loaded.taken, result) == (0, 0, 0)
     assert face_row(conn, near) == (cousin.id, "seed")
     assert candidate(conn, suzie.id, near) is None
+
+
+def test_an_expansion_never_overrides_what_was_decided_while_it_ran(conn):
+    lib = Library(conn)
+    suzie, cousin = create_person(conn, "Suzie"), create_person(conn, "Léa")
+    set_seeds(conn, suzie.id, [lib.face(lib.photo("/s", "2015-01-01T00:00:00.000Z"), lib.looks(7))])
+    # A face rejected for Léa earlier: still open to Suzie
+    once_lea = lib.face(lib.photo("/a", "2015-02-01T00:00:00.000Z"), lib.looks(7.05), noise=0.2)
+    decide(conn, cousin.id, [], [once_lea], "owner")
+    # A photo with two faces of her: the expansion takes one
+    group = lib.photo("/g", "2015-03-01T00:00:00.000Z")
+    first = lib.face(group, lib.looks(7.1), noise=0.2)
+    second = lib.face(group, 0.6 * lib.looks(7.1) + 0.8 * lib.stranger())
+    loaded = load_faces(conn, MODEL)
+    result = expand(loaded.faces, suzie.id, [], LIMITS)
+    assert {int(loaded.faces.ids[p.index]) for p in result.accepted} == {once_lea, first}
+    # Meanwhile the owner says no to once_lea for Suzie, and yes to the other face of the group
+    decide(conn, suzie.id, [second], [once_lea], "owner")
+    assert write_expansion(conn, suzie.id, loaded.faces, loaded.taken, result) == (0, 0, 0)
+    assert face_row(conn, once_lea) == (cousin.id, "rejected")
+    assert candidate(conn, suzie.id, once_lea)[:2] == ("rejected", "owner")
+    assert face_row(conn, first) == (None, None)
+    assert face_row(conn, second) == (suzie.id, "manual")
+
+
+def test_a_face_given_to_someone_leaves_the_others_queues(conn):
+    lib = Library(conn)
+    suzie, cousin = create_person(conn, "Suzie"), create_person(conn, "Léa")
+    face = lib.face(lib.photo("/p", "2015-01-01T00:00:00.000Z"), lib.looks(7))
+    conn.execute(
+        "INSERT INTO face_candidates (person_id, face_id, similarity) VALUES (%s, %s, 0.4)",
+        (suzie.id, face),
+    )
+    decide(conn, cousin.id, [face], [], "owner")
+    assert candidate(conn, suzie.id, face) is None
+
+
+def test_seeding_a_photo_that_already_holds_her_is_refused(conn):
+    lib = Library(conn)
+    suzie = create_person(conn, "Suzie")
+    photo = lib.photo("/p", "2015-01-01T00:00:00.000Z")
+    small = lib.face(photo, lib.looks(7), side=120)
+    big = lib.face(photo, lib.stranger(), side=400)
+    decide(conn, suzie.id, [small], [], "owner")
+    with pytest.raises(PeopleError):
+        set_seeds(conn, suzie.id, [big])
+    # The database refuses it too, whoever writes
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        conn.execute(
+            "UPDATE faces SET person_id = %s, assignment = 'auto' WHERE id = %s",
+            (suzie.id, big),
+        )

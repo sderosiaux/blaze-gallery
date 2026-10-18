@@ -192,24 +192,29 @@ def best_within(
     best: np.ndarray,
     best_source: np.ndarray,
     chunk: int = 8192,
+    reference_chunk: int = 2048,
 ) -> None:
     """Raises best[i] to the highest similarity between face i and a source
-    taken within the window (best_source[i]: that source). In place."""
-    if sources.size == 0:
-        return
-    references = faces.embeddings[sources].astype(np.float32)
-    reference_days = faces.days[sources].astype(np.int64)
-    for start in range(0, len(faces), chunk):
-        stop = min(start + chunk, len(faces))
-        block = faces.embeddings[start:stop].astype(np.float32)
-        sims = block @ references.T
-        gaps = np.abs(faces.days[start:stop, None].astype(np.int64) - reference_days[None, :])
-        sims[gaps > window_days] = -np.inf
-        top = sims.argmax(axis=1)
-        values = sims[np.arange(stop - start), top]
-        better = values > best[start:stop]
-        best[start:stop][better] = values[better]
-        best_source[start:stop][better] = sources[top[better]]
+    taken within the window (best_source[i]: that source). In place.
+
+    Sources must be dated. Blocks of chunk x reference_chunk keep memory flat
+    (about 130 MB) however many faces a person has."""
+    for first in range(0, sources.size, reference_chunk):
+        part = sources[first : first + reference_chunk]
+        references = faces.embeddings[part].astype(np.float32)
+        reference_days = faces.days[part]
+        for start in range(0, len(faces), chunk):
+            stop = min(start + chunk, len(faces))
+            block = faces.embeddings[start:stop].astype(np.float32)
+            sims = block @ references.T
+            # int32: NO_DATE minus a real day still fits, and stays far outside any window
+            gaps = np.abs(faces.days[start:stop, None] - reference_days[None, :])
+            sims[gaps > window_days] = -np.inf
+            top = sims.argmax(axis=1)
+            values = sims[np.arange(stop - start), top]
+            better = values > best[start:stop]
+            best[start:stop][better] = values[better]
+            best_source[start:stop][better] = part[top[better]]
 
 
 def _empty_scores(n: int) -> tuple[np.ndarray, np.ndarray]:

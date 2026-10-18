@@ -49,6 +49,9 @@ export interface PersonSummary extends PersonRow {
   last_taken: string | null;
 }
 
+/** A proposal still worth showing: its face became nobody else's meanwhile (f = faces). */
+const STILL_OPEN = `(f.assignment IS NULL OR f.assignment = 'rejected')`;
+
 const PERSON_COLUMNS =
   "p.id::int AS id, p.name, p.birth_date::text AS birth_date";
 
@@ -65,7 +68,7 @@ export async function listPeople(): Promise<PersonSummary[]> {
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS photo_count,
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
         JOIN faces f ON f.id = c.face_id JOIN photos ph ON ph.id = f.photo_id
-        WHERE c.person_id = p.id AND c.status = 'pending') AS pending_count,
+        WHERE c.person_id = p.id AND c.status = 'pending' AND ${STILL_OPEN}) AS pending_count,
       (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
         ORDER BY ${COVER_ORDER} LIMIT 1) AS cover_face_id,
@@ -101,18 +104,24 @@ export async function findPersonByName(
 
 export const MAX_NAME_LENGTH = 80;
 
-export async function createPerson(rawName: string): Promise<PersonRow> {
-  const name = rawName.trim().replace(/\s+/g, " ");
+function cleanName(raw: string): string {
+  const name = raw.trim().replace(/\s+/g, " ");
   if (!name || name.length > MAX_NAME_LENGTH)
     throw new PeopleError("Le nom est vide ou trop long", 422);
-  if (await findPersonByName(name))
-    throw new PeopleError(`« ${name} » existe déjà`, 409);
+  return name;
+}
+
+/** A new person; one per name whatever the case (unique index idx_people_name). */
+export async function createPerson(rawName: string): Promise<PersonRow> {
+  const name = cleanName(rawName);
   const result = await query<PersonRow>(
-    `INSERT INTO people (name) VALUES ($1) RETURNING id::int AS id, name, birth_date::text AS birth_date`,
+    `INSERT INTO people (name) VALUES ($1)
+     ON CONFLICT ((lower(name))) WHERE name IS NOT NULL DO NOTHING
+     RETURNING id::int AS id, name, birth_date::text AS birth_date`,
     [name],
   );
   const person = result.rows[0];
-  if (!person) throw new Error("INSERT returned no row");
+  if (!person) throw new PeopleError(`« ${name} » existe déjà`, 409);
   return person;
 }
 
@@ -332,7 +341,7 @@ export async function pendingCandidates(
       JOIN faces f ON f.id = c.face_id
       JOIN photos ph ON ph.id = f.photo_id
       LEFT JOIN folders fo ON fo.id = ph.folder_id
-      WHERE c.person_id = $1 AND c.status = 'pending'
+      WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN}
       ORDER BY c.similarity DESC NULLS LAST, c.face_id
       LIMIT $2
       `,
@@ -343,7 +352,7 @@ export async function pendingCandidates(
        FROM face_candidates c
        JOIN faces f ON f.id = c.face_id
        JOIN photos ph ON ph.id = f.photo_id
-       WHERE c.person_id = $1 AND c.status = 'pending'`,
+       WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN}`,
       [personId],
     ),
   ]);
@@ -415,12 +424,30 @@ async function recordDecision(
   );
 }
 
-/** The face becomes the person's; whoever it was named before is told no. */
+/**
+ * The face becomes the person's. A face already named as someone else is
+ * refused, unless renaming (the viewer): then that person is told no.
+ */
 async function acceptFaces(
   client: PoolClient,
   personId: number,
-  faces: FaceState[],
+  given: FaceState[],
+  rename: boolean,
 ): Promise<void> {
+  // Already hers (a seed stays a seed)
+  const faces = given.filter(
+    (f) => !(f.person_id === personId && isOwned(f.assignment)),
+  );
+  if (faces.length === 0) return;
+  const elsewhere = faces.filter(
+    (f) =>
+      f.person_id !== null && f.person_id !== personId && isOwned(f.assignment),
+  );
+  if (elsewhere.length > 0 && !rename)
+    throw new PeopleError(
+      "Ce visage porte déjà un autre nom : changez-le depuis la photo",
+      409,
+    );
   const photos = new Set<number>();
   for (const face of faces) {
     if (photos.has(face.photo_id))
@@ -441,25 +468,22 @@ async function acceptFaces(
     throw new PeopleError("Cette personne est déjà sur la photo", 409);
 
   // Renamed from someone else: that person gets a "no" for this face
-  for (const face of faces) {
-    if (
-      face.person_id !== null &&
-      face.person_id !== personId &&
-      isOwned(face.assignment)
-    ) {
+  for (const face of elsewhere) {
+    if (face.person_id !== null)
       await recordDecision(client, face.person_id, [face.id], "rejected");
-    }
   }
   await client.query(
     `UPDATE faces SET person_id = $1, assignment = 'manual' WHERE id = ANY($2::bigint[])`,
     [personId, ids],
   );
   await recordDecision(client, personId, ids, "accepted");
-  // The photo holds her now: its other proposals for her go
+  // The photo holds her now: its other proposals for her go, and so do
+  // other people's proposals for these faces
   await client.query(
     `DELETE FROM face_candidates c USING faces f, faces a
-     WHERE c.person_id = $1 AND c.status = 'pending' AND f.id = c.face_id
-       AND a.id = ANY($2::bigint[]) AND a.photo_id = f.photo_id AND f.id <> a.id`,
+     WHERE c.status = 'pending' AND f.id = c.face_id AND a.id = ANY($2::bigint[])
+       AND ((c.person_id = $1 AND a.photo_id = f.photo_id AND f.id <> a.id)
+            OR (c.person_id <> $1 AND f.id = a.id))`,
     [personId, ids],
   );
 }
@@ -504,23 +528,56 @@ async function undoFaces(
   );
 }
 
+async function decideWith(
+  client: PoolClient,
+  personId: number,
+  faceIds: number[],
+  decision: Decision,
+  rename: boolean,
+): Promise<void> {
+  const person = await client.query(
+    "SELECT 1 FROM people WHERE id = $1 FOR SHARE",
+    [personId],
+  );
+  if (person.rows.length === 0)
+    throw new PeopleError("Personne introuvable", 404);
+  const faces = await lockFaces(client, faceIds);
+  if (decision === "accept") await acceptFaces(client, personId, faces, rename);
+  else if (decision === "reject") await rejectFaces(client, personId, faces);
+  else await undoFaces(client, personId, faces);
+}
+
+/**
+ * The faces' rows are locked, not the other faces of their photos: a
+ * concurrent writer (the expansion) taking the same photo for her trips the
+ * unique index idx_faces_person_once_per_photo instead, answered 409.
+ */
+async function inTransaction<T>(
+  work: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  try {
+    return await runTransaction(work);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    )
+      throw new PeopleError("Cette personne est déjà sur la photo", 409);
+    throw error;
+  }
+}
+
+/** The review queue's yes, no and undo: never takes a face named as someone else. */
 export async function decideFaces(
   personId: number,
   faceIds: number[],
   decision: Decision,
 ): Promise<void> {
-  await runTransaction(async (client) => {
-    const person = await client.query(
-      "SELECT 1 FROM people WHERE id = $1 FOR SHARE",
-      [personId],
-    );
-    if (person.rows.length === 0)
-      throw new PeopleError("Personne introuvable", 404);
-    const faces = await lockFaces(client, faceIds);
-    if (decision === "accept") await acceptFaces(client, personId, faces);
-    else if (decision === "reject") await rejectFaces(client, personId, faces);
-    else await undoFaces(client, personId, faces);
-  });
+  await inTransaction((client) =>
+    decideWith(client, personId, faceIds, decision, false),
+  );
 }
 
 // -- faces of one photo ---------------------------------------------------------------
@@ -553,19 +610,39 @@ export function photoFace(
   };
 }
 
-/** Names a face: an existing person, or a new one by name. */
+/**
+ * Names a face (the viewer): an existing person, or one found or created by
+ * name, in one transaction, so a refused naming leaves no empty person.
+ */
 export async function nameFace(
   faceId: number,
   target: { personId: number } | { name: string },
 ): Promise<PersonRow> {
-  const person =
-    "personId" in target
-      ? await getPerson(target.personId)
-      : ((await findPersonByName(target.name.trim())) ??
-        (await createPerson(target.name)));
-  if (!person) throw new PeopleError("Personne introuvable", 404);
-  await decideFaces(person.id, [faceId], "accept");
-  return person;
+  return inTransaction(async (client) => {
+    let person: PersonRow | undefined;
+    if ("personId" in target) {
+      const found = await client.query<PersonRow>(
+        `SELECT ${PERSON_COLUMNS} FROM people p WHERE p.id = $1`,
+        [target.personId],
+      );
+      person = found.rows[0];
+    } else {
+      const name = cleanName(target.name);
+      await client.query(
+        `INSERT INTO people (name) VALUES ($1)
+         ON CONFLICT ((lower(name))) WHERE name IS NOT NULL DO NOTHING`,
+        [name],
+      );
+      const found = await client.query<PersonRow>(
+        `SELECT ${PERSON_COLUMNS} FROM people p WHERE lower(p.name) = lower($1)`,
+        [name],
+      );
+      person = found.rows[0];
+    }
+    if (!person) throw new PeopleError("Personne introuvable", 404);
+    await decideWith(client, person.id, [faceId], "accept", true);
+    return person;
+  });
 }
 
 /** "Pas cette personne": the face is not who it was said to be. */

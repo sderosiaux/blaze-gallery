@@ -15,8 +15,15 @@ type State =
   | { key: string; status: "error" }
   | ({ key: string; status: "ready" } & PhotoFaces);
 
-/** Kept while the viewer walks back and forth; dropped on any change. */
+/**
+ * Kept while the viewer walks back and forth; dropped on any change, and
+ * each time the viewer opens (decisions taken elsewhere meanwhile, the queue).
+ */
 const cache = new Map<string, PhotoFaces>();
+
+export function forgetPhotoFaces(): void {
+  cache.clear();
+}
 
 async function fetchFaces(
   photoId: string,

@@ -170,10 +170,21 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
   if (q.cursor !== undefined && cursor === null)
     throw new PeopleError("cursor is not one this tool returned", 422);
   // "to" as a day includes the whole day
-  const to = q.to && q.to.length === 10 ? `${q.to}T23:59:59.999Z` : q.to;
+  // Compared as strings with ISO instants: give both the same full form; a
+  // day as "to" includes the whole day
+  const instant = (v: string | undefined, endOfDay: boolean) =>
+    v === undefined
+      ? undefined
+      : v.length === 10
+        ? endOfDay
+          ? `${v}T23:59:59.999Z`
+          : `${v}T00:00:00.000Z`
+        : new Date(v).toISOString();
+  const from = instant(q.from, false);
+  const to = instant(q.to, true);
   const all = (await personPhotos(person.id)).filter(
     (p) =>
-      (!q.from || (p.taken !== null && p.taken >= q.from)) &&
+      (!from || (p.taken !== null && p.taken >= from)) &&
       (!to || (p.taken !== null && p.taken <= to)),
   );
   const rest = cursor ? all.filter((p) => after(p, cursor)) : all;
