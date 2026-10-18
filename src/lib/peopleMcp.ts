@@ -181,6 +181,7 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
           ...faceDetail(own, photo.metadata),
           assignment: photo.assignment,
           similarity: photo.similarity,
+          decided_by: photo.decided_by,
         }
       : null;
     return {
@@ -195,6 +196,7 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
         unknown_count: others.length - named.length,
       },
       faces_count: faces.length,
+      copies: photo.copies,
     };
   });
 

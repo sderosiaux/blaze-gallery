@@ -232,13 +232,10 @@ function PersonContent() {
     if (stale.current && tab === "photos") void load();
   };
 
-  const onQueueChange = useCallback(
-    (delta: { accepted: number; decided: number }) => {
-      setPending((n) => Math.max(0, n - delta.decided));
-      if (delta.accepted !== 0) stale.current = true;
-    },
-    [],
-  );
+  const onQueueChange = useCallback((remaining: number) => {
+    setPending(Math.max(0, remaining));
+    stale.current = true;
+  }, []);
 
   const groups = useMemo(() => byYear(photos), [photos]);
 

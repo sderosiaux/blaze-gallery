@@ -28,8 +28,8 @@ interface Step {
 interface ReviewQueueProps {
   personId: number;
   name: string;
-  /** Faces decided (or undone) here: counts and the photo list follow. */
-  onChange: (delta: { accepted: number; decided: number }) => void;
+  /** After each decision written: faces still waiting (the photo list may have changed). */
+  onChange: (remaining: number) => void;
   onOpenPhoto: (photo: Photo, list: Photo[]) => void;
 }
 
@@ -150,6 +150,15 @@ export default function ReviewQueue({
     [candidates],
   );
 
+  // A tile stands for its face on every copy of the photo: all are decided
+  const withCopies = useCallback(
+    (faceIds: number[]) =>
+      faceIds.flatMap(
+        (id) => candidates.find((c) => c.face_id === id)?.face_ids ?? [id],
+      ),
+    [candidates],
+  );
+
   const decide = useCallback(
     async (faceIds: number[], verdict: Verdict) => {
       const fresh = faceIds.filter((id) => verdicts.get(id) !== verdict);
@@ -163,25 +172,30 @@ export default function ReviewQueue({
         (c) => c.face_id === fresh[fresh.length - 1],
       );
       moveTo(nextUndecided(last, after));
-      const accepted =
-        verdict === "accepted"
-          ? fresh.length
-          : -fresh.filter((id) => before.get(id) === "accepted").length;
-      const newlyDecided = fresh.filter((id) => !before.has(id)).length;
       try {
         await send(
           personId,
           verdict === "accepted" ? "accept" : "reject",
-          fresh,
+          withCopies(fresh),
         );
-        onChange({ accepted, decided: newlyDecided });
+        onChange(total - after.size);
       } catch {
         setVerdicts(before);
         setHistory((h) => h.slice(0, -1));
         toast.show("La décision n’a pas été enregistrée", "error");
       }
     },
-    [verdicts, candidates, moveTo, nextUndecided, personId, onChange, toast],
+    [
+      verdicts,
+      candidates,
+      moveTo,
+      nextUndecided,
+      withCopies,
+      personId,
+      onChange,
+      toast,
+      total,
+    ],
   );
 
   const undo = useCallback(async () => {
@@ -195,17 +209,24 @@ export default function ReviewQueue({
     const first = candidates.findIndex((c) => c.face_id === step.faceIds[0]);
     if (first >= 0) moveTo(first);
     try {
-      await send(personId, "undo", step.faceIds);
-      onChange({
-        accepted: step.verdict === "accepted" ? -step.faceIds.length : 0,
-        decided: -step.faceIds.length,
-      });
+      await send(personId, "undo", withCopies(step.faceIds));
+      onChange(total - after.size);
     } catch {
       setVerdicts(before);
       setHistory((h) => [...h, step]);
       toast.show("L’annulation n’a pas été enregistrée", "error");
     }
-  }, [history, verdicts, candidates, moveTo, personId, onChange, toast]);
+  }, [
+    history,
+    verdicts,
+    candidates,
+    moveTo,
+    withCopies,
+    personId,
+    onChange,
+    toast,
+    total,
+  ]);
 
   const rowOf = (index: number) => Math.floor(index / columns);
   const acceptRow = useCallback(
@@ -236,6 +257,9 @@ export default function ReviewQueue({
   keyRef.current = (e: KeyboardEvent) => {
     if (status !== "ready" || candidates.length === 0) return;
     if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+    // The tabs above own their arrows
+    if (e.target instanceof Element && e.target.closest('[role="tablist"]'))
+      return;
     if (document.querySelector('[aria-modal="true"]')) return;
     const c = candidates[cursor];
     const handled = () => {

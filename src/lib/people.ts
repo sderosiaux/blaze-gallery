@@ -60,7 +60,8 @@ export async function listPeople(): Promise<PersonSummary[]> {
   const result = await query<PersonSummary>(
     `
     SELECT ${PERSON_COLUMNS},
-      (SELECT count(DISTINCT f.photo_id)::int FROM faces f
+      (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM faces f
+        JOIN photos ph ON ph.id = f.photo_id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS photo_count,
       (SELECT count(*)::int FROM face_candidates c
         WHERE c.person_id = p.id AND c.status = 'pending') AS pending_count,
@@ -226,12 +227,17 @@ export interface PersonPhoto extends Photo {
   assignment: Assignment;
   /** Cosine similarity when the machine proposed it; null for the owner's own picks */
   similarity: number | null;
+  /** Who said yes: owner, agent (an assistant checking crops), auto; null for seeds */
+  decided_by: "owner" | "agent" | "auto" | null;
+  /** The same file elsewhere in the library (same name and size): not listed again */
+  copies: number[];
 }
 
 interface PersonFaceRow extends PhotoRow {
   face_id: number;
   assignment: Assignment;
   similarity: number | null;
+  decided_by: PersonPhoto["decided_by"];
 }
 
 function byTaken<T extends { taken: string | null; id: number }>(a: T, b: T) {
@@ -242,43 +248,66 @@ function byTaken<T extends { taken: string | null; id: number }>(a: T, b: T) {
   return a.id - b.id;
 }
 
-/** Every photo of the person, oldest first (undated last). */
+/**
+ * The library holds copies of the same file in several folders (same name,
+ * same size: the rule of the duplicates report). A person's photos and the
+ * review queue show one of them; the others ride along.
+ */
+function copyKey(photo: { filename: string; size: number | string }): string {
+  return `${photo.filename}\u0000${String(photo.size)}`;
+}
+
+/**
+ * Every photo of the person, oldest first (undated last), one per set of
+ * copies: the one whose folder dates it when the camera clock disagrees,
+ * else the first by path.
+ */
 export async function personPhotos(personId: number): Promise<PersonPhoto[]> {
   const result = await query<PersonFaceRow>(
     `
     SELECT ph.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
-           c.similarity
+           c.similarity, c.decided_by
     FROM faces f
     JOIN photos ph ON ph.id = f.photo_id
     LEFT JOIN folders fo ON fo.id = ph.folder_id
     LEFT JOIN face_candidates c ON c.person_id = f.person_id AND c.face_id = f.id
     WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
+    ORDER BY fo.path, ph.id
     `,
     [personId],
   );
-  return result.rows
-    .map((row) => {
-      const { taken, source } = takenOn(
-        row.metadata?.date_taken,
-        row.folder_path,
-      );
-      return {
-        ...row,
-        id: Number(row.id),
-        is_favorite: Boolean(row.is_favorite),
-        thumbnail_url: thumbnailUrl(row.id),
-        taken,
-        date_source: source,
-        similarity: round3(row.similarity),
-      };
-    })
-    .sort(byTaken);
+  const kept = new Map<string, PersonPhoto>();
+  for (const row of result.rows) {
+    const { taken, source } = takenOn(
+      row.metadata?.date_taken,
+      row.folder_path,
+    );
+    const photo: PersonPhoto = {
+      ...row,
+      id: Number(row.id),
+      is_favorite: Boolean(row.is_favorite),
+      thumbnail_url: thumbnailUrl(row.id),
+      taken,
+      date_source: source,
+      similarity: round3(row.similarity),
+      copies: [],
+    };
+    const key = copyKey(row);
+    const first = kept.get(key);
+    if (!first) kept.set(key, photo);
+    else if (first.date_source !== "folder" && source === "folder")
+      kept.set(key, { ...photo, copies: [...first.copies, first.id] });
+    else first.copies.push(photo.id);
+  }
+  return [...kept.values()].sort(byTaken);
 }
 
 // -- the review queue ------------------------------------------------------------
 
 export interface Candidate {
   face_id: number;
+  /** This face and the same face on copies of the photo: decided together */
+  face_ids: number[];
   similarity: number | null;
   taken: string | null;
   crop_url: string;
@@ -309,14 +338,25 @@ export async function pendingCandidates(
       [personId, limit],
     ),
     query<{ total: number }>(
-      `SELECT count(*)::int AS total FROM face_candidates WHERE person_id = $1 AND status = 'pending'`,
+      `SELECT count(DISTINCT (ph.filename, ph.size))::int AS total
+       FROM face_candidates c
+       JOIN faces f ON f.id = c.face_id
+       JOIN photos ph ON ph.id = f.photo_id
+       WHERE c.person_id = $1 AND c.status = 'pending'`,
       [personId],
     ),
   ]);
-  return {
-    total: count.rows[0]?.total ?? 0,
-    candidates: rows.rows.map(({ face_id, similarity, ...photo }) => ({
+  const groups = new Map<string, Candidate>();
+  for (const { face_id, similarity, ...photo } of rows.rows) {
+    const key = copyKey(photo);
+    const group = groups.get(key);
+    if (group) {
+      group.face_ids.push(face_id);
+      continue;
+    }
+    groups.set(key, {
       face_id,
+      face_ids: [face_id],
       similarity: round3(similarity),
       taken: takenOn(photo.metadata?.date_taken, photo.folder_path).taken,
       crop_url: faceCropUrl(face_id),
@@ -326,7 +366,11 @@ export async function pendingCandidates(
         is_favorite: Boolean(photo.is_favorite),
         thumbnail_url: thumbnailUrl(photo.id),
       },
-    })),
+    });
+  }
+  return {
+    total: count.rows[0]?.total ?? 0,
+    candidates: [...groups.values()],
   };
 }
 
