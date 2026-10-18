@@ -6,7 +6,8 @@ which cost a few round trips to a remote Postgres. Bounded queues between
 stages keep at most a few dozen photos in memory.
 
 One process runs one task: its analyzers (one per inference thread, see
-tasks.py) say what the task finds in a photo and how that is written.
+tasks.py) say what the task finds in a photo and how that is written. A
+task that reads originals differently (thumbs) brings its own loader.
 
 Stop: the first stop() stops claiming and lets every claimed job finish; the
 second one gives back the leases of jobs not yet analyzed and exits as soon
@@ -60,6 +61,22 @@ class Analyzer(Protocol):
 
 class Rejected(Exception):
     """The model's output for this photo is unusable, and a new attempt would repeat it."""
+
+
+class Loaded(Protocol):
+    """An original as the task reads it: decode.Picture, unless the task has its own loader."""
+
+    source: str
+    bytes_read: int
+    fetch_seconds: float
+    decode_seconds: float
+
+    @property
+    def size(self) -> tuple[int, int]: ...
+
+
+# (bucket, job) -> Loaded; raises Unsupported (skipped) or Undecodable (failed for good)
+Loader = Callable[[Reader, jobs.Job], Loaded]
 
 
 @dataclass(frozen=True)
@@ -117,6 +134,7 @@ class Worker:
         pool: ConnectionPool,
         originals: Reader,
         analyzers: list[Analyzer],
+        load: Loader | None = None,
     ) -> None:
         if len(analyzers) != options.concurrency:
             raise ValueError("one analyzer per inference thread")
@@ -124,6 +142,9 @@ class Worker:
         self.pool = pool
         self.originals = originals
         self.analyzers = analyzers
+        self.load: Loader = load or (
+            lambda reader, job: load_picture(reader, job.s3_key, job.mime_type, options.max_side)
+        )
         self.counters = Counters()
 
         self._inflight: dict[int, jobs.Job] = {}
@@ -198,7 +219,7 @@ class Worker:
             self._release(job)
             return
         try:
-            picture = load_picture(self.originals, job.s3_key, job.mime_type, self.options.max_side)
+            picture = self.load(self.originals, job)
         except Unsupported as error:
             self.counters.add(skipped=1)
             reason = str(error)
@@ -244,7 +265,7 @@ class Worker:
             self._record(job, picture, result)
 
     def _record(self, job: jobs.Job, picture: Picture, result: Result) -> None:
-        height, width = picture.full.shape[:2]
+        width, height = picture.size
         stats = {
             "src": picture.source,
             "w": width,
