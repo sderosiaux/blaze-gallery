@@ -68,6 +68,9 @@ Keep it running with your process manager (systemd, pm2). Run
 Import the repository, add the environment variables, deploy. Before the
 first deployment, and after any update that changes `db/schema.sql`, run
 `npm run db:migrate` from your machine with the production `DATABASE_URL`.
+`vercel.json` pins the functions to `lhr1`, next to our database (Neon
+`aws-eu-west-2`): a page runs several queries, and each one would otherwise
+cross the Atlantic. Pick the region closest to yours.
 
 What differs from a long-running server:
 
