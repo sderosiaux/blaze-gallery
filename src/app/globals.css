@@ -47,6 +47,14 @@
   --sidebar-expanded: 15.5rem;
   --sidebar-collapsed: 4.25rem;
   --topbar-height: 4rem;
+  /* Where page content may stick: under the phone header, at the very top on desktop (no header there). */
+  --content-top: var(--topbar-height);
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --content-top: 0px;
+  }
 }
 
 @layer base {
