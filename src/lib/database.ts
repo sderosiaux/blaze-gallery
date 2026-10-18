@@ -1273,6 +1273,16 @@ export type ScoredPhoto = SearchPhoto & {
 };
 
 /**
+ * Fewest nearest photos the index query asks for (well past the reference
+ * rank). Asked for a handful (a 5-photo MCP page), the planner walks the
+ * HNSW index even for a person photographed 1,667 times, and iterative scan
+ * gives up at hnsw.max_scan_tuples with 1 of the 6 nearest; asked for about
+ * 20 or more, it measures each of that person's photos instead (EXPLAIN
+ * ANALYZE, 2026-10-18). At 100 every filter tried got the faster plan.
+ */
+const SEMANTIC_MIN_WINDOW = 100;
+
+/**
  * Photos nearest to the query embedding, most similar first, among those
  * passing `filter`; with `cut`, only down to SEMANTIC_MARGIN below the
  * SEMANTIC_REFERENCE_RANK-th one (never under SEMANTIC_MIN_SIMILARITY);
@@ -1295,8 +1305,7 @@ export async function searchPhotosByContent(
   limit: number,
   cut = true,
 ): Promise<{ items: ScoredPhoto[]; next: number | null }> {
-  // At least the reference rank, so a small page gets the same floor
-  const window = Math.max(offset + limit + 1, SEMANTIC_REFERENCE_RANK);
+  const window = Math.max(offset + limit + 1, SEMANTIC_MIN_WINDOW);
   const params: unknown[] = [q.embedding, q.model, window];
   const add = (value: unknown) => {
     params.push(value);
