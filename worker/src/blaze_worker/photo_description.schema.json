@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "blaze-gallery/photo_description/v1",
+  "title": "photo_descriptions.data",
+  "description": "What a photo shows, as seen by a vision-language model. Only what is visible: no names, no dates, nothing about faces (the faces table has their pose and expression). Texts are French.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "caption",
+    "activity",
+    "setting",
+    "place_type",
+    "occasion",
+    "people_count",
+    "framing",
+    "objects",
+    "mood"
+  ],
+  "properties": {
+    "caption": {
+      "description": "One factual French sentence, no names",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 220
+    },
+    "activity": {
+      "description": "What is going on, a short French phrase",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 60
+    },
+    "setting": {
+      "enum": ["indoor", "outdoor", "vehicle", "unknown"]
+    },
+    "place_type": {
+      "enum": [
+        "home",
+        "garden",
+        "restaurant",
+        "beach",
+        "mountain",
+        "city",
+        "school",
+        "party_venue",
+        "car",
+        "nature",
+        "other"
+      ]
+    },
+    "occasion": {
+      "enum": [
+        "christmas",
+        "birthday",
+        "wedding",
+        "holiday",
+        "everyday",
+        "party",
+        "school_event",
+        "sport",
+        "other",
+        "unknown"
+      ]
+    },
+    "people_count": {
+      "description": "People visible, 0 when none",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 200
+    },
+    "framing": {
+      "enum": ["close_up", "portrait", "half_body", "full_body", "group", "landscape", "object"]
+    },
+    "objects": {
+      "description": "Notable things in view, French common nouns",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 40
+      }
+    },
+    "mood": {
+      "enum": ["joyful", "calm", "tender", "funny", "tired", "sad", "focused", "festive", "neutral"]
+    }
+  }
+}

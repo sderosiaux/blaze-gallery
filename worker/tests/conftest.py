@@ -16,6 +16,7 @@ import psycopg
 import pytest
 from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 
 SCHEMA = Path(
     os.environ.get("BLAZE_SCHEMA", Path(__file__).resolve().parents[2] / "db" / "schema.sql")
@@ -73,9 +74,22 @@ def connect(url: str) -> psycopg.Connection:
 def conn(schema: str) -> Iterator[psycopg.Connection]:
     with connect(schema) as connection:
         connection.execute(
-            "TRUNCATE faces, people, analysis_jobs, photos, folders RESTART IDENTITY CASCADE"
+            "TRUNCATE faces, people, photo_descriptions, analysis_jobs, photos, folders "
+            "RESTART IDENTITY CASCADE"
         )
         yield connection
+
+
+@pytest.fixture
+def pool(schema: str) -> Iterator[ConnectionPool]:
+    with ConnectionPool(
+        schema,
+        min_size=1,
+        max_size=6,
+        kwargs={"autocommit": True, "prepare_threshold": None},
+        configure=register_vector,
+    ) as connections:
+        yield connections
 
 
 def add_photos(conn: psycopg.Connection, specs: list[tuple[str, str | None]]) -> list[int]:

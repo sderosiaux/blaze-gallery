@@ -1,14 +1,18 @@
-"""Writes a faces result and closes its job in one transaction."""
+"""Writes a result and closes its job in one transaction."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pgvector import HalfVector
 from psycopg import Connection
+from psycopg.types.json import Jsonb
 
 from . import jobs
-from .faces import DetectedFace
+
+if TYPE_CHECKING:
+    # Not at run time: the describe task would load InsightFace for nothing
+    from .faces import DetectedFace
 
 
 class LeaseLost(Exception):
@@ -87,3 +91,26 @@ def save_faces(
                     ],
                 )
     return written
+
+
+def save_description(
+    conn: Connection,
+    owner: str,
+    job: jobs.Job,
+    model: str,
+    data: dict[str, Any],
+    stats: dict[str, Any],
+) -> int:
+    """Writes the photo's description, replacing an earlier one (whatever its model)."""
+    with conn.transaction():
+        if not jobs.complete(conn, owner, job.id, model, stats):
+            raise LeaseLost(job.id)
+        conn.execute(
+            """
+            INSERT INTO photo_descriptions (photo_id, model, data) VALUES (%s, %s, %s)
+            ON CONFLICT (photo_id) DO UPDATE SET
+              model = EXCLUDED.model, data = EXCLUDED.data, created_at = now()
+            """,
+            (job.photo_id, model, Jsonb(data)),
+        )
+    return 1

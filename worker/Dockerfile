@@ -2,7 +2,7 @@
 #   docker build -t blaze-worker:local .
 # Run with the app's .env (DATABASE_URL, BACKBLAZE_*):
 #   docker run -d --name blaze-worker --env-file blaze.env --stop-timeout 120 \
-#     blaze-worker:local --tasks faces --concurrency 4 --owner hetzner
+#     blaze-worker:local --task faces --concurrency 4 --owner hetzner
 # docker stop sends SIGTERM: the worker finishes the photos it holds, then
 # exits; --stop-timeout leaves it the time to do so.
 

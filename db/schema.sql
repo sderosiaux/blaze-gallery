@@ -327,3 +327,23 @@ CREATE INDEX IF NOT EXISTS idx_faces_person_id
   ON faces (person_id) WHERE person_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_faces_embedding
   ON faces USING hnsw (embedding halfvec_cosine_ops);
+
+-- What a photo shows, in the words of a vision-language model run on the
+-- owner's Mac (task 'describe'). Only what the pixels show: the date and the
+-- folder stay in photos and folders, and how faces look (pose, eyes, mouth,
+-- expression) is in faces; the model is not asked about either. The photo is
+-- seen upright as the owner sees it (EXIF orientation and user_rotation).
+-- data: caption, activity, setting, place_type, occasion, people_count,
+-- framing, objects, mood. Their allowed values are in
+-- worker/src/blaze_worker/photo_description.schema.json; the worker writes
+-- nothing that fails it. Texts are French; occasion comes from visible cues
+-- only (a tree, candles, a wedding dress), not from the date.
+-- model: weights and prompt that wrote it, e.g.
+-- "mlx-community/Qwen3-VL-4B-Instruct-4bit@<commit> describe-v1". One row per
+-- photo: a run with another model or prompt replaces it.
+CREATE TABLE IF NOT EXISTS photo_descriptions (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  model text NOT NULL,
+  data jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
