@@ -5,14 +5,18 @@ import { Plus, UserRound, UserX } from "lucide-react";
 import type { PersonSummary, PhotoFace } from "@/lib/people";
 import { Button, Input } from "@/components/ui";
 import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
+import { formatCount } from "@/lib/albums";
 import { cn } from "@/lib/cn";
 
 interface FacePopoverProps {
   face: PhotoFace;
   anchor: DOMRect;
   onClose: () => void;
-  /** After a name was given or taken back: what to tell the owner. */
-  onChanged: (message: string) => void;
+  /**
+   * After a name was given or taken back: what to tell the owner, and the
+   * look-alikes the naming put in « À trier », when there are some.
+   */
+  onChanged: (message: string, detail?: string) => void;
   onError: (message: string) => void;
 }
 
@@ -42,7 +46,11 @@ function fold(text: string): string {
     .trim();
 }
 
-async function post(faceId: number, body: Record<string, unknown>) {
+/** Look-alikes the naming proposed (0 for anything else). */
+async function post(
+  faceId: number,
+  body: Record<string, unknown>,
+): Promise<number> {
   const response = await fetch(`/api/faces/${String(faceId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -51,6 +59,7 @@ async function post(faceId: number, body: Record<string, unknown>) {
   const data = await readJsonObject(response);
   if (!response.ok || data.success !== true)
     throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
+  return typeof data.proposed === "number" ? data.proposed : 0;
 }
 
 /**
@@ -138,9 +147,14 @@ export default function FacePopover({
   ) => {
     setBusy(true);
     try {
-      await post(face.face_id, body);
+      const proposed = await post(face.face_id, body);
       if (body.action === "name" && "name" in body) peopleCache = null;
-      onChanged(message);
+      onChanged(
+        message,
+        proposed > 0
+          ? `${formatCount(proposed, "visage proche", "visages proches")} à trier`
+          : undefined,
+      );
     } catch {
       onError(failed);
       setBusy(false);

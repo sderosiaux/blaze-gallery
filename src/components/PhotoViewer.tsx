@@ -237,11 +237,20 @@ export default function PhotoViewer({
 
   const { reload: reloadFaces } = faces;
   const onFaceChanged = useCallback(
-    (message: string) => {
+    (message: string, detail?: string) => {
       setFaceMenu(null);
       reloadFaces();
-      setAnnouncement(message);
-      toast.show(message, "success");
+      setAnnouncement(detail ? `${message}. ${detail}` : message);
+      if (detail)
+        toast.show(
+          <>
+            {message}
+            <span className="text-paper/70"> · {detail}</span>
+          </>,
+          "success",
+          { duration: 5000 },
+        );
+      else toast.show(message, "success");
       onFacesChange?.(current);
     },
     [reloadFaces, toast, onFacesChange, current],
