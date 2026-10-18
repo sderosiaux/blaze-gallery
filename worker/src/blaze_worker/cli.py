@@ -1,5 +1,5 @@
-"""Command-line entry points: blaze-worker, blaze-enqueue, blaze-queue, blaze-*-preview,
-blaze-people."""
+"""Entry points: blaze-worker, blaze-enqueue, blaze-queue, blaze-embedder, blaze-people,
+blaze-*-preview."""
 
 from __future__ import annotations
 
@@ -60,6 +60,8 @@ _DEFAULTS = {
     # Downloads dominate (tens of ms of CPU per photo): many fetchers, a few
     # render/upload threads; max_side is unused (the thumbnail is 400 px)
     "thumbs": {"concurrency": 4, "fetchers": 12, "max_side": 400},
+    # Thumbnails are ~40 KB: a few fetchers feed two image towers
+    "embed": {"concurrency": 2, "fetchers": 4, "max_side": 400},
 }
 
 
@@ -117,6 +119,31 @@ def _thumbs_task(
     return [ThumbsAnalyzer(store) for _ in range(args.concurrency)], ThumbsLoader(pool, store)
 
 
+def _embed_task(
+    args: argparse.Namespace, env: dict[str, str], pool: ConnectionPool
+) -> tuple[list[Any], Any]:
+    from .embed import EmbedAnalyzer, EmbedLoader
+    from .siglip import MODEL, ImageTower, download
+    from .thumbstore import ThumbnailStore, thumbnail_settings
+
+    cores = os.cpu_count() or 4
+    threads = args.threads or max(1, cores // args.concurrency)
+    download(args.model_root)
+    store = ThumbnailStore(thumbnail_settings(env), args.fetchers + 2)
+    log.info(
+        "embed: model=%s workers=%d x %d threads, fetch=%d, thumbnails=%s",
+        MODEL,
+        args.concurrency,
+        threads,
+        args.fetchers,
+        store.location,
+    )
+    analyzers = [
+        EmbedAnalyzer(ImageTower(args.model_root, threads)) for _ in range(args.concurrency)
+    ]
+    return analyzers, EmbedLoader(pool, store)
+
+
 def run_worker() -> None:
     from .describe import DEFAULT_MODEL
     from .tasks import SUPPORTED_TASKS
@@ -143,9 +170,17 @@ def run_worker() -> None:
         default=0,
         help="poll interval (s) when the queue is empty; 0 exits instead",
     )
+    parser.add_argument(
+        "--follow",
+        metavar="TASK",
+        help="with nothing to claim, wait while TASK still runs (embed: --follow thumbs)",
+    )
     faces = parser.add_argument_group("faces")
     faces.add_argument(
-        "--threads", type=int, default=0, help="ONNX threads per worker (0: cores / concurrency)"
+        "--threads",
+        type=int,
+        default=0,
+        help="ONNX threads per worker, faces and embed (0: cores / concurrency)",
     )
     faces.add_argument("--provider", choices=("auto", "cpu", "coreml"), default="auto")
     faces.add_argument("--det-size", type=int, default=640, help="detector input (px)")
@@ -172,18 +207,25 @@ def run_worker() -> None:
 
     env = read_env(args.env_file)
     url = database_url(env)
-    # thumbs: its loader reads each photo's thumbnail state on the fetch threads
+    # thumbs, embed: their loaders read each photo's thumbnail state on the fetch threads
     pool = ConnectionPool(
         url,
         min_size=1,
-        max_size=args.writers + 3 + (args.fetchers if args.task == "thumbs" else 0),
+        max_size=args.writers + 3 + (args.fetchers if args.task in ("thumbs", "embed") else 0),
         kwargs={"autocommit": True, "prepare_threshold": None},
         configure=register_vector,
         open=True,
     )
     load = None
+    ready_sql = None
     if args.task == "thumbs":
         analyzers, load = _thumbs_task(args, env, pool)
+    elif args.task == "embed":
+        from .embed import ready_sql as embed_ready_sql
+        from .thumbstore import thumbnail_settings
+
+        analyzers, load = _embed_task(args, env, pool)
+        ready_sql = embed_ready_sql(thumbnail_settings(env).prefix)
     else:
         analyzers = (_describe_analyzers if args.task == "describe" else _faces_analyzers)(args)
     log.info("owner=%s task=%s", args.owner, args.task)
@@ -196,6 +238,8 @@ def run_worker() -> None:
         lease_seconds=args.lease,
         max_side=args.max_side,
         wait_seconds=args.wait,
+        ready_sql=ready_sql,
+        follow=args.follow,
     )
     originals = Originals(storage_settings(env), args.fetchers + 2)
     worker = Worker(options, pool, originals, analyzers, load)
@@ -284,6 +328,42 @@ def run_status() -> None:
             f"{status:8} {owner:16} {count:5} {span or '-':>7} {fetch or '-':>8} "
             f"{decode or '-':>9} {infer or '-':>8} {mb or '-':>8} {per_photo:>11}"
         )
+
+
+# -- blaze-embedder -----------------------------------------------------------
+
+
+def run_embedder() -> None:
+    """Embeds the app's search queries over HTTPS (worker/src/blaze_worker/embedder.py)."""
+    import threading
+
+    from .embedder import serve
+    from .siglip import TextTower, download
+
+    parser = argparse.ArgumentParser(description=run_embedder.__doc__)
+    parser.add_argument("--port", type=int, default=47443)
+    parser.add_argument("--cert", help="TLS certificate (PEM); without it, plain HTTP")
+    parser.add_argument("--key", help="TLS private key (PEM)")
+    parser.add_argument(
+        "--token-file", type=Path, required=True, help="file holding the Bearer token"
+    )
+    parser.add_argument("--threads", type=int, default=4, help="ONNX threads of the text tower")
+    parser.add_argument(
+        "--model-root", default=os.environ.get("BLAZE_MODEL_ROOT", "~/.blaze-models")
+    )
+    args = parser.parse_args()
+    _setup_logging()
+    token = args.token_file.read_text().strip()
+    if len(token) < 32:
+        raise SystemExit("the token must be at least 32 characters")
+    if bool(args.cert) != bool(args.key):
+        raise SystemExit("--cert and --key go together")
+    download(args.model_root)
+    stopping = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stopping.set())
+    serve(TextTower(args.model_root, args.threads), token, args.port, args.cert, args.key, stopping)
+    log.info("stopped")
 
 
 # -- blaze-faces-preview ------------------------------------------------------

@@ -1,7 +1,7 @@
 [project]
 name = "blaze-worker"
 version = "0.1.0"
-description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the faces, describe and thumbs tasks"
+description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the faces, describe, thumbs and embed tasks"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "boto3>=1.40",
@@ -17,6 +17,7 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "psycopg-pool>=3.2",
   "rawpy>=0.24",
+  "tokenizers>=0.21",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ describe = ["mlx-vlm>=0.7.8; sys_platform == 'darwin' and platform_machine == 'a
 blaze-worker = "blaze_worker.cli:run_worker"
 blaze-enqueue = "blaze_worker.cli:run_enqueue"
 blaze-queue = "blaze_worker.cli:run_status"
+blaze-embedder = "blaze_worker.cli:run_embedder"
 blaze-faces-preview = "blaze_worker.cli:run_preview"
 blaze-describe-preview = "blaze_worker.cli:run_describe_preview"
 blaze-colors-preview = "blaze_worker.cli:run_colors_preview"
