@@ -463,3 +463,43 @@ CREATE TABLE IF NOT EXISTS folder_palettes (
   swatches jsonb NOT NULL,
   computed_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- A face the machine proposes as someone the owner named, and what became of
+-- it. faces.person_id and faces.assignment stay the truth of who a face is;
+-- this table is the review queue and its memory:
+--   pending  -> shown to the owner ("À trier")
+--   accepted -> the face is person_id's: faces.assignment is auto when the
+--               similarity cleared the auto-accept threshold, manual when the
+--               owner said yes
+--   rejected -> the owner said no: never proposed again for this person
+--               (faces.assignment = 'rejected' too when the face had no one,
+--               which also keeps a faces re-run from replacing it)
+-- similarity: highest cosine between this face and the faces that define the
+-- person (seed, manual, and auto faces good enough to be cluster_eligible)
+-- taken within 18 months of it; best_seed_face_id is that face and gap_days
+-- the days between the two photos (all three NULL for a face the owner
+-- decided on in the viewer without a proposal). decided_by: owner, auto (the threshold),
+-- or agent (an AI that looked at the crop while calibrating the thresholds:
+-- worth a second look). A child's face drifts with age: matching
+-- within a window, then letting accepted faces extend it, follows her from
+-- one age to the next where a single centroid would not.
+CREATE TABLE IF NOT EXISTS face_candidates (
+  person_id bigint NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  face_id bigint NOT NULL REFERENCES faces (id) ON DELETE CASCADE,
+  similarity real,
+  best_seed_face_id bigint REFERENCES faces (id) ON DELETE SET NULL,
+  gap_days integer,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'accepted', 'rejected')),
+  decided_by text CHECK (decided_by IN ('owner', 'auto', 'agent')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  decided_at timestamptz,
+  PRIMARY KEY (person_id, face_id)
+);
+
+-- The review queue, best first; the PRIMARY KEY serves per-person lookups
+CREATE INDEX IF NOT EXISTS idx_face_candidates_queue
+  ON face_candidates (person_id, similarity DESC) WHERE status = 'pending';
+-- Deleting a face (a faces re-run) finds its candidates without a scan
+CREATE INDEX IF NOT EXISTS idx_face_candidates_face_id ON face_candidates (face_id);
