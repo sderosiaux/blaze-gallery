@@ -71,6 +71,12 @@ class Picture:
     fetch_seconds: float
     decode_seconds: float
 
+    @property
+    def size(self) -> tuple[int, int]:
+        """Width and height of the decoded original."""
+        height, width = self.full.shape[:2]
+        return width, height
+
 
 class _TimedReader:
     def __init__(self, reader: Reader) -> None:
