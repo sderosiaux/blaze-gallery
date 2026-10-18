@@ -29,12 +29,11 @@ import {
   type Hue,
 } from "./colors";
 import { foldPalette, type ColorBin, type Swatch } from "./palette";
-import { asQuarterTurn, turnBox, type Box, type QuarterTurn } from "./rotation";
+import { asQuarterTurn, type QuarterTurn } from "./rotation";
 import {
   SEMANTIC_MARGIN,
   SEMANTIC_MIN_SIMILARITY,
   SEMANTIC_REFERENCE_RANK,
-  queryNamesPerson,
   type DateRange,
 } from "./semanticQuery";
 import type {
@@ -1271,85 +1270,6 @@ export async function searchPhotosByContent(
     score: Math.round((1 - distance) * 1000) / 1000,
   }));
   return { items, next: rows.length > limit ? offset + limit : null };
-}
-
-// ---- people ---------------------------------------------------------------
-
-/** A face counts for its person unless the owner said it is someone else. */
-const PERSON_FACE = "fa.assignment IS DISTINCT FROM 'rejected'";
-
-export interface PersonMatch {
-  id: number;
-  name: string;
-  /** Photos showing them */
-  photo_count: number;
-  /** Their clearest face's photo, for an avatar */
-  cover_photo_id: number | null;
-  /** That face, [x, y, w, h] fractions of the photo as the owner sees it */
-  cover_box: Box | null;
-  cover_rotation: QuarterTurn;
-}
-
-/**
- * Named people the query is about (queryNamesPerson), most photographed
- * first. The owner names a handful of people: they are all read and matched
- * here rather than in SQL.
- */
-export async function searchPeople(
-  q: string,
-  limit: number,
-): Promise<PersonMatch[]> {
-  const named = await query<{ id: number; name: string }>(
-    "SELECT id::int AS id, name FROM people WHERE name IS NOT NULL",
-  );
-  const ids = named.rows
-    .filter((person) => queryNamesPerson(q, person.name))
-    .map((person) => person.id);
-  if (ids.length === 0) return [];
-
-  const result = await query<{
-    id: number;
-    name: string;
-    photo_count: number;
-    cover_photo_id: number | null;
-    cover_box: number[] | null;
-    cover_rotation: unknown;
-  }>(
-    `SELECT pe.id::int AS id, pe.name,
-            (SELECT COUNT(DISTINCT fa.photo_id) FROM faces fa
-             WHERE fa.person_id = pe.id AND ${PERSON_FACE})::int AS photo_count,
-            cover.photo_id::int AS cover_photo_id,
-            cover.box AS cover_box,
-            (cover.metadata->>'user_rotation')::int AS cover_rotation
-     FROM people pe
-     LEFT JOIN LATERAL (
-       SELECT fa.photo_id, fa.box, p.metadata
-       FROM faces fa JOIN photos p ON p.id = fa.photo_id
-       WHERE fa.person_id = pe.id AND ${PERSON_FACE}
-       ORDER BY fa.cluster_eligible DESC, fa.det_score DESC,
-                least(fa.width_px, fa.height_px) DESC, fa.id
-       LIMIT 1
-     ) cover ON true
-     WHERE pe.id = ANY($1::bigint[])
-     ORDER BY photo_count DESC, pe.name
-     LIMIT $2`,
-    [ids, limit],
-  );
-  return result.rows.map((row) => {
-    const rotation = asQuarterTurn(row.cover_rotation);
-    const [x, y, w, h] = row.cover_box ?? [];
-    return {
-      id: row.id,
-      name: row.name,
-      photo_count: row.photo_count,
-      cover_photo_id: row.cover_photo_id,
-      cover_box:
-        x !== undefined && y !== undefined && w !== undefined && h !== undefined
-          ? turnBox([x, y, w, h], rotation)
-          : null,
-      cover_rotation: rotation,
-    };
-  });
 }
 
 export interface FolderSuggestion {

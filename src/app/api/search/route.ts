@@ -6,11 +6,11 @@ import type { FolderSearchCursor, PhotoSearchCursor } from "@/lib/database";
 import {
   countSearchMatches,
   searchFolders,
-  searchPeople,
   searchPhotos,
 } from "@/lib/database";
+import { listPeople } from "@/lib/people";
 import { semanticSearch } from "@/lib/semanticSearch";
-import { ANY_DATE } from "@/lib/semanticQuery";
+import { ANY_DATE, queryNamesPerson } from "@/lib/semanticQuery";
 import { logger } from "@/lib/logger";
 import { isRecord } from "@/hooks/apiJson";
 import {
@@ -125,7 +125,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         limit: SEMANTIC_PAGE,
         count: true,
       }),
-      searchPeople(q, PEOPLE_LIMIT),
+      peopleNamedIn(q),
     ]);
 
     return NextResponse.json({
@@ -161,6 +161,25 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     );
   }
 });
+
+/**
+ * Named people the query is about (queryNamesPerson), most photographed
+ * first, counted and pictured as /personnes shows them.
+ */
+async function peopleNamedIn(q: string) {
+  const people = await listPeople();
+  return people
+    .filter(
+      (person) => person.name !== null && queryNamesPerson(q, person.name),
+    )
+    .slice(0, PEOPLE_LIMIT)
+    .map(({ id, name, photo_count, cover_face_id }) => ({
+      id,
+      name,
+      photo_count,
+      cover_face_id,
+    }));
+}
 
 function badCursor(param: string) {
   return NextResponse.json(

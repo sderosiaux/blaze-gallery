@@ -6,7 +6,6 @@ import {
   parseDateRange,
   queryNamesPerson,
 } from "./semanticQuery";
-import { turnBox } from "./rotation";
 
 void test("a query is keyed lower case, spaces collapsed, accents kept", () => {
   assert.equal(
@@ -68,18 +67,4 @@ void test("a query names a person by whole words, accents and case aside", () =>
   assert.equal(queryNamesPerson("suz", "Suzie"), false);
   assert.equal(queryNamesPerson("martin léa", "Léa Martin"), false);
   assert.equal(queryNamesPerson("  ", "Suzie"), false);
-});
-
-void test("a face box follows the owner's quarter turns", () => {
-  const box = [0.1, 0.2, 0.3, 0.4] as const;
-  const close = (actual: readonly number[], expected: number[]) => {
-    assert.deepEqual(
-      actual.map((v) => Math.round(v * 1000) / 1000),
-      expected,
-    );
-  };
-  close(turnBox(box, 0), [0.1, 0.2, 0.3, 0.4]);
-  close(turnBox(box, 90), [0.4, 0.1, 0.4, 0.3]);
-  close(turnBox(box, 180), [0.6, 0.4, 0.3, 0.4]);
-  close(turnBox(box, 270), [0.2, 0.6, 0.4, 0.3]);
 });

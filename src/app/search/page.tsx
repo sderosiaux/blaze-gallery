@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Library, RotateCcw, RotateCw, SearchX, UserRound } from "lucide-react";
+import { Library, RotateCcw, RotateCw, SearchX } from "lucide-react";
 import type { Folder, Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { AlbumGrid } from "@/components/photos/AlbumCard";
+import FaceThumb from "@/components/people/FaceThumb";
 import {
   Button,
   ButtonLink,
@@ -42,7 +43,6 @@ import {
   NO_COLOR_FILTER,
   type ColorFilter,
 } from "@/lib/colors";
-import { thumbnailUrl } from "@/lib/photoUrls";
 
 type SemanticStatus = "ok" | "unavailable" | "not_indexed";
 
@@ -50,9 +50,7 @@ interface PersonMatch {
   id: number;
   name: string;
   photo_count: number;
-  cover_photo_id: number | null;
-  cover_box: [number, number, number, number] | null;
-  cover_rotation: number;
+  cover_face_id: number | null;
 }
 
 interface Results {
@@ -612,7 +610,10 @@ function PeopleRow({ people }: { people: PersonMatch[] }) {
               href={`/personnes/${person.id}`}
               className="flex items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-1.5 pr-5 transition-colors hover:border-line-strong hover:bg-surface-sunken"
             >
-              <PersonAvatar person={person} />
+              <FaceThumb
+                faceId={person.cover_face_id}
+                className="h-10 w-10 rounded-full"
+              />
               <span className="flex flex-col leading-tight">
                 <span className="font-medium text-ink">{person.name}</span>
                 <span className="tabular text-xs text-ink-muted">
@@ -624,35 +625,6 @@ function PeopleRow({ people }: { people: PersonMatch[] }) {
         ))}
       </ul>
     </section>
-  );
-}
-
-function PersonAvatar({ person }: { person: PersonMatch }) {
-  if (person.cover_photo_id === null) {
-    return (
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-sunken text-ink-muted">
-        <UserRound className="h-5 w-5" aria-hidden />
-      </span>
-    );
-  }
-  const box = person.cover_box;
-  // Centers the crop on the face (exact along the axis object-cover crops)
-  const position = box
-    ? `${((box[0] + box[2] / 2) * 100).toFixed(1)}% ${((box[1] + box[3] / 2) * 100).toFixed(1)}%`
-    : "center";
-  return (
-    // eslint-disable-next-line @next/next/no-img-element -- a 40 px avatar from the thumbnail route
-    <img
-      src={thumbnailUrl(
-        person.cover_photo_id,
-        undefined,
-        person.cover_rotation,
-      )}
-      alt=""
-      className="h-10 w-10 rounded-full object-cover"
-      style={{ objectPosition: position }}
-      loading="lazy"
-    />
   );
 }
 
