@@ -87,6 +87,7 @@ class DescribeResult:
             "tokens_out": d.generated_tokens,
             "user_rotation": self.rotation,
             **({"first_errors": list(d.first_errors)} if d.first_errors else {}),
+            **({"dropped_objects": list(d.dropped_objects)} if d.dropped_objects else {}),
         }
 
     def save(self, conn: Any, owner: str, job: jobs.Job, stats: dict[str, Any]) -> int:

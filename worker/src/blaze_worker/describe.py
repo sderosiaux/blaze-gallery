@@ -31,7 +31,15 @@ import numpy as np
 from PIL import Image
 
 from .decode import Picture
-from .description import PROMPT, PROMPT_VERSION, InvalidReply, correction, read_reply, schema
+from .description import (
+    PROMPT,
+    PROMPT_VERSION,
+    InvalidReply,
+    correction,
+    read_last_reply,
+    read_reply,
+    schema,
+)
 
 DEFAULT_MODEL = "mlx-community/Qwen3-VL-4B-Instruct-4bit"
 MAX_SIDE = 768
@@ -81,6 +89,8 @@ class Description:
     generated_tokens: int
     # Errors of the first reply, when there was a retry
     first_errors: tuple[str, ...] = ()
+    # English objects the retry still gave, left out
+    dropped_objects: tuple[str, ...] = ()
 
 
 class Describer:
@@ -127,7 +137,7 @@ class Describer:
         prompt_tokens, generated = reply.prompt_tokens, reply.generation_tokens
         try:
             data = read_reply(reply.text)
-            tries, first_errors = 1, ()
+            tries, first_errors, dropped = 1, (), []
         except InvalidReply as first:
             # The model sees its answer and what is wrong with it: asked again
             # from scratch, it tends to give the same answer
@@ -141,7 +151,7 @@ class Describer:
             )
             prompt_tokens += again.prompt_tokens
             generated += again.generation_tokens
-            data = read_reply(again.text)
+            data, dropped = read_last_reply(again.text)
             tries, first_errors = 2, tuple(first.errors)
         return Description(
             data=data,
@@ -150,4 +160,5 @@ class Describer:
             prompt_tokens=prompt_tokens,
             generated_tokens=generated,
             first_errors=first_errors,
+            dropped_objects=tuple(dropped),
         )

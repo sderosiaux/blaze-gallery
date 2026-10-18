@@ -4,7 +4,12 @@ A model's reply becomes a photo_descriptions row only if it passes the JSON
 Schema (photo_description.schema.json, shared with readers of the table) and
 the checks a schema cannot express: French texts, a single sentence, a
 framing that agrees with the people count. Fluent output is not correct
-output: a reply that fails gets one retry with the errors, then the job fails.
+output: a reply that fails gets one retry with the errors, then the job fails
+(except for English objects the retry repeats: those are dropped).
+
+The language check is a heuristic: English function words, -ing forms and a
+list of nouns the models were seen slipping in. An English noun outside the
+list passes.
 """
 
 from __future__ import annotations
@@ -227,9 +232,12 @@ def problems(data: dict[str, Any]) -> list[str]:
         english = english_words(text)
         if english:
             errors.append(f"{field} doit être en français (mots anglais : {', '.join(english)})")
-    english_objects = [item for item in data["objects"] if english_words(item)]
+    english_objects = _english_objects(data["objects"])
     if english_objects:
-        errors.append(f"objects doit être en français : {', '.join(english_objects)}")
+        errors.append(
+            f"objects doit être en français : remplace {', '.join(english_objects)} par le nom "
+            "français ou retire-les"
+        )
     count, framing = data["people_count"], data["framing"]
     if count == 0 and framing in _PERSON_FRAMINGS:
         errors.append(
@@ -243,6 +251,28 @@ def problems(data: dict[str, Any]) -> list[str]:
     if data["place_type"] == "car" and data["setting"] != "vehicle":
         errors.append("place_type car demande setting vehicle")
     return errors
+
+
+def _english_objects(objects: list[Any]) -> list[str]:
+    return [item for item in objects if isinstance(item, str) and english_words(item)]
+
+
+def read_last_reply(reply: str) -> tuple[dict[str, Any], list[str]]:
+    """The retry's reply, and the objects dropped from it.
+
+    An English object left after the retry is dropped instead of failing the
+    photo: objects is a best-effort list, and the model tends to repeat a word
+    it lacks in French. Anything else wrong still fails.
+    """
+    data = normalize(parse(reply))
+    objects = data.get("objects")
+    dropped = _english_objects(objects) if isinstance(objects, list) else []
+    if dropped:
+        data["objects"] = [item for item in objects if item not in dropped]
+    errors = problems(data)
+    if errors:
+        raise InvalidReply(errors, reply)
+    return data, dropped
 
 
 def read_reply(reply: str) -> dict[str, Any]:

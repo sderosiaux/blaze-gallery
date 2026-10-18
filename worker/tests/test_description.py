@@ -16,6 +16,7 @@ from blaze_worker.description import (
     english_words,
     parse,
     problems,
+    read_last_reply,
     read_reply,
     schema,
 )
@@ -173,6 +174,21 @@ def test_framing_agrees_with_the_people_count(people_count, framing, ok):
 def test_a_car_is_a_vehicle():
     assert problems({**GOOD, "place_type": "car", "setting": "outdoor"})
     assert problems({**GOOD, "place_type": "car", "setting": "vehicle"}) == []
+
+
+def test_the_retry_drops_english_objects_rather_than_failing_the_photo():
+    with pytest.raises(InvalidReply) as error:
+        read_reply(reply(objects=["clôture", "fence", "arbre"]))
+    assert "fence" in error.value.errors[0]
+
+    data, dropped = read_last_reply(reply(objects=["clôture", "fence", "arbre"]))
+    assert data["objects"] == ["clôture", "arbre"] and dropped == ["fence"]
+    assert read_last_reply(reply()) == (GOOD, [])
+
+
+def test_the_retry_still_fails_on_anything_else():
+    with pytest.raises(InvalidReply):
+        read_last_reply(reply(objects=["fence"], people_count=0))
 
 
 def test_the_correction_lists_every_error():

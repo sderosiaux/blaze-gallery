@@ -172,7 +172,7 @@ def run_worker() -> None:
 
 
 def run_enqueue() -> None:
-    from .enqueue import enqueue_all, enqueue_ids, sample_ids
+    from .enqueue import enqueue_again, enqueue_all, enqueue_ids, sample_ids
 
     parser = argparse.ArgumentParser(description="Queue photos for analysis (images only).")
     parser.add_argument("--task", default="faces")
@@ -183,10 +183,16 @@ def run_enqueue() -> None:
     parser.add_argument(
         "--pin", help="comma-separated photo ids to put first (with --sample/--ids)"
     )
+    parser.add_argument(
+        "--again",
+        action="store_true",
+        help="with --ids/--pin: queue them again even if done or failed (new model or prompt)",
+    )
     parser.add_argument("--seed", default="blaze-sample-1", help="sample selection seed")
     _env_arg(parser)
     args = parser.parse_args()
     _setup_logging()
+    add = enqueue_again if args.again else enqueue_ids
 
     def ids(text: str | None) -> list[int]:
         return [int(v) for v in text.split(",") if v.strip()] if text else []
@@ -194,11 +200,11 @@ def run_enqueue() -> None:
     with _connect(database_url(read_env(args.env_file))) as conn:
         pinned = ids(args.pin)
         if pinned:
-            log.info("pinned: %d queued", enqueue_ids(conn, args.task, pinned, pinned=True))
+            log.info("pinned: %d queued", add(conn, args.task, pinned, pinned=True))
         if args.all:
             log.info("all images: %d queued", enqueue_all(conn, args.task))
         elif args.ids:
-            log.info("ids: %d queued", enqueue_ids(conn, args.task, ids(args.ids), pinned=False))
+            log.info("ids: %d queued", add(conn, args.task, ids(args.ids), pinned=False))
         else:
             chosen = sample_ids(conn, args.sample - len(pinned), pinned, args.seed)
             log.info("sample: %d queued", enqueue_ids(conn, args.task, chosen, pinned=False))

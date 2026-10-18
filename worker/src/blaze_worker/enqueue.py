@@ -66,6 +66,30 @@ def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: b
     return cursor.rowcount
 
 
+def enqueue_again(conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool) -> int:
+    """Given photos, queued anew even when done or failed (a new model or prompt).
+
+    A job under lease is left to its worker.
+    """
+    priority = str(PINNED_PRIORITY) if pinned else _PRIORITY
+    with conn.transaction():
+        cursor = conn.execute(
+            f"""
+            INSERT INTO analysis_jobs (photo_id, task, priority)
+            SELECT p.id, %s, {priority} FROM photos p
+            WHERE p.id = ANY(%s) AND p.mime_type LIKE 'image/%%'
+            ON CONFLICT (photo_id, task) DO UPDATE SET
+              status = 'queued', priority = EXCLUDED.priority, attempts = 0,
+              lease_owner = NULL, lease_expires_at = NULL, not_before = NULL,
+              last_error = NULL, model = NULL, stats = NULL,
+              started_at = NULL, finished_at = NULL, updated_at = now()
+              WHERE analysis_jobs.status <> 'leased'
+            """,
+            (task, list(photo_ids)),
+        )
+    return cursor.rowcount
+
+
 def sample_ids(conn: Connection, size: int, exclude: Sequence[int], seed: str) -> list[int]:
     """A fixed spread of formats and years, scaled to `size` (same seed, same photos)."""
     total = sum(count for _, _, count in _SAMPLE_STRATA)

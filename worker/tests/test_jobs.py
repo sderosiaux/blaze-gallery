@@ -10,7 +10,13 @@ import pytest
 from pgvector import HalfVector
 
 from blaze_worker import jobs
-from blaze_worker.enqueue import PINNED_PRIORITY, enqueue_all, enqueue_ids, sample_ids
+from blaze_worker.enqueue import (
+    PINNED_PRIORITY,
+    enqueue_again,
+    enqueue_all,
+    enqueue_ids,
+    sample_ids,
+)
 from blaze_worker.faces import DetectedFace
 from blaze_worker.store import LeaseLost, save_faces
 
@@ -304,6 +310,26 @@ def test_pinned_photos_jump_the_queue(conn):
         ).fetchone()[0]
         == PINNED_PRIORITY
     )
+
+
+def test_queued_again_unless_a_worker_holds_it(conn):
+    ids = queue(conn, 4, task="describe")
+    # The fourth stays queued
+    done, failed, held = jobs.claim(conn, "mac", ["describe"], 3, LEASE)
+    assert jobs.complete(conn, "mac", done.id, "vlm-1", {"tries": 1})
+    jobs.fail(conn, "mac", failed.id, "rejected: objects", permanent=True)
+    # A plain enqueue leaves finished jobs alone
+    assert enqueue_ids(conn, "describe", ids, pinned=False) == 0
+
+    assert enqueue_again(conn, "describe", ids, pinned=True) == 3
+
+    for job in (done, failed):
+        again = row(conn, job.id)
+        assert (again["status"], again["attempts"], again["lease_owner"]) == ("queued", 0, None)
+        assert (again["model"], again["stats"], again["last_error"]) == (None, None, None)
+    assert row(conn, held.id)["status"] == "leased"
+    claimed = {job.photo_id for job in jobs.claim(conn, "mac", ["describe"], 5, LEASE)}
+    assert claimed == set(ids) - {held.photo_id}
 
 
 def test_sample_is_deterministic_and_excludes_pinned(conn):
