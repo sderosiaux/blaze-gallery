@@ -40,6 +40,13 @@ import { formatTakenDay } from "./viewer/format";
 import { useAutoHide } from "./viewer/useAutoHide";
 import { useSlideshow, SLIDESHOW_INTERVAL_MS } from "./viewer/useSlideshow";
 import { useSwipe } from "./viewer/useSwipe";
+import FaceLayer from "./people/FaceLayer";
+import FacePopover from "./people/FacePopover";
+import { usePhotoFaces } from "./people/usePhotoFaces";
+import type { PhotoFace } from "@/lib/people";
+
+/** Face boxes stay on (P) from one photo, and one opening, to the next. */
+let facesShownPreference = false;
 
 interface PhotoViewerProps {
   photo: Photo;
@@ -58,6 +65,10 @@ interface PhotoViewerProps {
   allowDownload?: boolean;
   /** Password-protected shares: the session from the password gate. */
   sessionToken?: string;
+  /** A face of this photo was named or un-named. */
+  onFacesChange?: (photo: Photo) => void;
+  /** Opens with the face boxes on (the review queue), whatever P was last. */
+  showFaces?: boolean;
 }
 
 interface Keyed<T> {
@@ -98,6 +109,8 @@ export default function PhotoViewer({
   shareToken,
   allowDownload = true,
   sessionToken,
+  onFacesChange,
+  showFaces,
 }: PhotoViewerProps) {
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -133,6 +146,22 @@ export default function PhotoViewer({
   const canFavorite = !isSharedView;
   const canRotate = !isSharedView && !video;
   const canDelete = !isSharedView && Boolean(onDelete);
+  // Who is on a photo is the owner's business: never in a shared view
+  const canFaces = !isSharedView && !video;
+
+  const [facesShown, setFacesShown] = useState(
+    showFaces ?? facesShownPreference,
+  );
+  const faces = usePhotoFaces(
+    currentId,
+    turning.rotation,
+    facesShown && canFaces,
+  );
+  const [faceMenu, setFaceMenu] = useState<Keyed<{
+    face: PhotoFace;
+    anchor: DOMRect;
+  }> | null>(null);
+  const openFaceMenu = faceMenu?.id === currentId ? faceMenu.value : null;
 
   const [infoOpen, setInfoOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -185,6 +214,36 @@ export default function PhotoViewer({
     );
     favorite.toggle();
   }, [canFavorite, favorite]);
+
+  const toggleFaces = useCallback(() => {
+    if (!canFaces) return;
+    setFaceMenu(null);
+    facesShownPreference = !facesShown;
+    setFacesShown(!facesShown);
+    setAnnouncement(facesShown ? "Visages masqués" : "Visages affichés");
+  }, [canFaces, facesShown]);
+
+  const closeFaceMenu = useCallback(() => {
+    const id = faceMenu?.value.face.face_id;
+    setFaceMenu(null);
+    // Back on the face it was opened from
+    if (id !== undefined)
+      rootRef.current
+        ?.querySelector<HTMLElement>(`[data-face="${String(id)}"]`)
+        ?.focus({ preventScroll: true });
+  }, [faceMenu]);
+
+  const { reload: reloadFaces } = faces;
+  const onFaceChanged = useCallback(
+    (message: string) => {
+      setFaceMenu(null);
+      reloadFaces();
+      setAnnouncement(message);
+      toast.show(message, "success");
+      onFacesChange?.(current);
+    },
+    [reloadFaces, toast, onFacesChange, current],
+  );
 
   const { rotate: turnPhoto } = turning;
   const rotate = useCallback(
@@ -473,7 +532,8 @@ export default function PhotoViewer({
 
     if (e.key === "Escape") {
       handled();
-      if (helpOpen) setHelpOpen(false);
+      if (openFaceMenu) closeFaceMenu();
+      else if (helpOpen) setHelpOpen(false);
       else if (zoomed) setZoomedId(null);
       else onClose();
       return;
@@ -542,6 +602,12 @@ export default function PhotoViewer({
         handled();
         setInfoOpen((v) => !v);
         break;
+      case "p":
+      case "P":
+        if (!canFaces) return;
+        handled();
+        toggleFaces();
+        break;
       case "z":
       case "Z":
         handled();
@@ -578,7 +644,7 @@ export default function PhotoViewer({
 
   const chromeVisible = useAutoHide(
     rootRef,
-    infoOpen || helpOpen || confirmOpen,
+    infoOpen || helpOpen || confirmOpen || Boolean(openFaceMenu),
     mounted,
   );
   const chromeClass = cn(
@@ -586,10 +652,13 @@ export default function PhotoViewer({
     !chromeVisible && "pointer-events-none opacity-0",
   );
 
-  // A mouse click on the paper around the photo closes, as it always has.
+  // A mouse click on the paper around the photo closes, as it always has;
+  // the click that dismisses the face popover closes only that.
   const pointerType = useRef("mouse");
+  const menuOpenAtPointerDown = useRef(false);
   const onStageClick = (e: React.MouseEvent) => {
     if (pointerType.current !== "mouse") return;
+    if (menuOpenAtPointerDown.current) return;
     if (
       e.target instanceof HTMLElement &&
       e.target.hasAttribute("data-backdrop")
@@ -648,6 +717,27 @@ export default function PhotoViewer({
     return null;
   })();
 
+  // With the boxes on (P): why there are none
+  const facesState = facesShown && canFaces ? faces.state : null;
+  const facesNote =
+    facesState?.status === "error"
+      ? "Les visages n’ont pas chargé."
+      : facesState?.status === "ready" && facesState.faces.length === 0
+        ? facesState.analyzed
+          ? "Aucun visage trouvé sur cette photo."
+          : "Visages pas encore cherchés sur cette photo."
+        : null;
+  const faceOverlay =
+    facesState?.status === "ready" && facesState.faces.length > 0 ? (
+      <FaceLayer
+        faces={facesState.faces}
+        activeId={openFaceMenu?.face.face_id ?? null}
+        onPick={(face, anchor) => {
+          setFaceMenu({ id: currentId, value: { face, anchor } });
+        }}
+      />
+    ) : null;
+
   const nothingToShow =
     !video &&
     (full.status === "unavailable" || full.status === "error") &&
@@ -674,6 +764,7 @@ export default function PhotoViewer({
       onZoomedChange={onZoomedChange}
       onStatus={onStatus}
       retryKey={retryKey}
+      overlay={faceOverlay}
     />
   );
 
@@ -690,7 +781,10 @@ export default function PhotoViewer({
           "pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]",
           !chromeVisible && "cursor-none",
         )}
-        onPointerDownCapture={(e) => (pointerType.current = e.pointerType)}
+        onPointerDownCapture={(e) => {
+          pointerType.current = e.pointerType;
+          menuOpenAtPointerDown.current = openFaceMenu !== null;
+        }}
       >
         <header
           data-chrome
@@ -721,6 +815,11 @@ export default function PhotoViewer({
             favorite={
               canFavorite
                 ? { active: favorite.isFavorite, onToggle: toggleFavorite }
+                : undefined
+            }
+            faces={
+              canFaces
+                ? { shown: facesShown, onToggle: toggleFaces }
                 : undefined
             }
             info={{
@@ -889,9 +988,9 @@ export default function PhotoViewer({
                       )}
                     </p>
                   )}
-                  {note && (
+                  {(note ?? facesNote) && (
                     <p className="mt-1 truncate text-xs text-ink-muted">
-                      {note}
+                      {note ?? facesNote}
                     </p>
                   )}
                 </figcaption>
@@ -926,8 +1025,22 @@ export default function PhotoViewer({
             canFavorite={canFavorite}
             canRotate={canRotate}
             canDelete={canDelete}
+            canFaces={canFaces}
             onClose={() => {
               setHelpOpen(false);
+            }}
+          />
+        )}
+
+        {openFaceMenu && (
+          <FacePopover
+            key={openFaceMenu.face.face_id}
+            face={openFaceMenu.face}
+            anchor={openFaceMenu.anchor}
+            onClose={closeFaceMenu}
+            onChanged={onFaceChanged}
+            onError={(message) => {
+              toast.show(message, "error");
             }}
           />
         )}

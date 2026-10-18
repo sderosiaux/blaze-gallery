@@ -8,6 +8,7 @@ import {
   Pause,
   Play,
   RotateCw,
+  ScanFace,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -19,6 +20,8 @@ interface PhotoViewerControlsProps {
   slideshow?: { playing: boolean; onToggle: () => void };
   zoom?: { active: boolean; available: boolean; onToggle: () => void };
   favorite?: { active: boolean; onToggle: () => void };
+  /** Absent in shared views and for videos. */
+  faces?: { shown: boolean; onToggle: () => void };
   info: { open: boolean; panelId: string; onToggle: () => void };
   /** Absent in shared views and for videos. */
   onRotate?: () => void;
@@ -34,6 +37,7 @@ export default function PhotoViewerControls({
   slideshow,
   zoom,
   favorite,
+  faces,
   info,
   onRotate,
   onDownload,
@@ -89,6 +93,17 @@ export default function PhotoViewerControls({
             "transition-transform duration-200 ease-out-soft",
             favorite.active && "scale-110 fill-current text-favorite",
           )}
+        />
+      )}
+      {faces && (
+        <IconButton
+          icon={ScanFace}
+          label={
+            faces.shown ? "Masquer les visages (P)" : "Afficher les visages (P)"
+          }
+          aria-keyshortcuts="P"
+          active={faces.shown}
+          onClick={faces.onToggle}
         />
       )}
       <IconButton
