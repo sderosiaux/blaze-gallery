@@ -87,7 +87,9 @@ What differs from a long-running server:
   removes anything when the listing fails partway, and stops without writing
   when more than 5% of the photos would go (`--allow-mass-removal` to
   confirm). `npm run sync -- --dry-run` prints what it would change and
-  writes nothing.
+  writes nothing. After a sync, run `npm run palettes` (folder colour
+  strips) and queue the new photos for analysis (below); the worker
+  machine does all three in its weekly cron job.
 - The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
   the server process.
 
@@ -138,10 +140,12 @@ gets no database setting. The port must be open in the host firewall
 (`sudo ufw allow 47443/tcp`); until then the app tries once per minute per
 instance, for 0.8 s, and answers with names only. `GET /health` needs no
 token.
-`docker restart blaze-embedder` is safe. New photos are not queued
-automatically: `docker run --rm --env-file blaze.env --entrypoint blaze-enqueue
-blaze-worker:embed --task embed --all` queues the missing ones (running it
-again changes nothing), then start `blaze-worker-embed` again. Progress:
+`docker restart blaze-embedder` is safe. New photos: `docker run --rm
+--env-file blaze.env --entrypoint blaze-enqueue blaze-worker:embed --task <task>
+--all` for faces, thumbs and embed queues the missing ones (running it again
+changes nothing), then `docker start blaze-worker blaze-worker-thumbs
+blaze-worker-embed`. Each worker stops once its queue is empty, so the
+database can suspend; nothing polls it between runs. Progress:
 `--entrypoint blaze-queue ... --task embed`.
 
 ## Health check
