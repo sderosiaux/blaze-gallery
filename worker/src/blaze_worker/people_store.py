@@ -76,21 +76,32 @@ def create_person(conn: Connection, name: str) -> Person:
     return Person(*row)
 
 
-def largest_faces(conn: Connection, photo_ids: Sequence[int]) -> dict[int, int]:
-    """photo id -> its largest face (the owner's "the child, the biggest face")."""
+def sole_faces(conn: Connection, photo_ids: Sequence[int]) -> dict[int, int]:
+    """photo id -> its only face. A photo with several faces is refused with
+    their ids, left to right: the largest one is not always the person meant
+    (on 2026-10-18 it picked the adult next to the child)."""
     rows = conn.execute(
         """
-        SELECT DISTINCT ON (photo_id) photo_id, id FROM faces
+        SELECT photo_id, id, box[1], width_px FROM faces
         WHERE photo_id = ANY(%s)
-        ORDER BY photo_id, width_px * height_px DESC, id
+        ORDER BY photo_id, box[1], id
         """,
         (list(photo_ids),),
     ).fetchall()
-    found = dict(rows)
-    missing = [p for p in photo_ids if p not in found]
+    by_photo: dict[int, list[tuple[int, float, int]]] = {}
+    for photo_id, face_id, x, width in rows:
+        by_photo.setdefault(photo_id, []).append((face_id, x, width))
+    missing = [p for p in photo_ids if p not in by_photo]
     if missing:
         raise PeopleError(f"no face found on photo(s) {', '.join(map(str, missing))}")
-    return found
+    crowded = {p: faces for p, faces in by_photo.items() if len(faces) > 1}
+    if crowded:
+        listing = "; ".join(
+            f"photo {p}: " + ", ".join(f"face {f} ({w} px)" for f, _, w in faces)
+            for p, faces in crowded.items()
+        )
+        raise PeopleError(f"several faces, left to right; give --faces: {listing}")
+    return {p: faces[0][0] for p, faces in by_photo.items()}
 
 
 def _taken_elsewhere(conn: Connection, person_id: int, face_ids: Sequence[int]) -> list[str]:

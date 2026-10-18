@@ -17,11 +17,11 @@ from blaze_worker.people_store import (
     create_person,
     decide,
     find_person,
-    largest_faces,
     load_faces,
     person_model,
     rejected_faces,
     set_seeds,
+    sole_faces,
     summarize,
     write_expansion,
 )
@@ -110,13 +110,18 @@ def test_people_are_found_by_name_or_id_and_names_are_unique(conn):
         find_person(conn, "Nobody")
 
 
-def test_seeds_take_the_largest_face_and_hold_a_photo_once(conn):
+def test_a_seed_by_photo_needs_a_single_face_and_a_photo_holds_a_person_once(conn):
     lib = Library(conn)
     suzie = create_person(conn, "Suzie")
     photo = lib.photo("/2014-11-29 x", "2014-11-29T17:17:15.000Z")
     woman = lib.face(photo, lib.stranger(), side=376)
     child = lib.face(photo, lib.looks(6), side=518)
-    assert largest_faces(conn, [photo]) == {photo: child}
+    # Two faces: refused with both ids, whichever is larger
+    with pytest.raises(PeopleError, match=f"face {woman}.*face {child}|face {child}.*face {woman}"):
+        sole_faces(conn, [photo])
+    alone = lib.photo("/2014-11-30 y", "2014-11-30T10:00:00.000Z")
+    only = lib.face(alone, lib.looks(6), side=300)
+    assert sole_faces(conn, [alone]) == {alone: only}
     with pytest.raises(PeopleError):
         set_seeds(conn, suzie.id, [woman, child])
     assert set_seeds(conn, suzie.id, [child]) == 1
@@ -126,7 +131,7 @@ def test_seeds_take_the_largest_face_and_hold_a_photo_once(conn):
     assert face_row(conn, woman) == (suzie.id, "rejected")
     assert candidate(conn, suzie.id, woman) == ("rejected", "owner", None)
     with pytest.raises(PeopleError):
-        largest_faces(conn, [lib.photo("/empty", None)])
+        sole_faces(conn, [lib.photo("/empty", None)])
 
 
 def test_a_face_named_as_someone_else_is_not_taken_silently(conn):
