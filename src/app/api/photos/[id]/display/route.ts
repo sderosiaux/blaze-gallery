@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getPhoto } from "@/lib/database";
 import { logger } from "@/lib/logger";
-import { requireAuth } from "@/lib/auth/middleware";
+import { requireAuthOrApiKey } from "@/lib/auth/middleware";
 import { displayHeaders, getDisplayRendition } from "@/lib/displayRendition";
 import { asQuarterTurn } from "@/lib/rotation";
 
@@ -11,7 +11,8 @@ import { asQuarterTurn } from "@/lib/rotation";
  * displayRendition). No rate limiter, like the preview: the shared one costs a
  * DB write per request, and the viewer asks for neighbours ahead of time.
  */
-export const GET = requireAuth(async function GET(
+// The owner, or a machine client of the MCP tools holding the API key
+export const GET = requireAuthOrApiKey(async function GET(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
