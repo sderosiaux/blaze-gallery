@@ -4,11 +4,25 @@ import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import {
   getFolders,
   getFolderByPath,
+  getPhotoColors,
+  getPhotosByColor,
   getPhotosInFolder,
   getPhoto,
   query,
   requireRow,
 } from "@/lib/database";
+import {
+  COLOR_TONES,
+  formatRankCursor,
+  HOLDS,
+  HUES,
+  isColorTone,
+  isHue,
+  parseRankCursor,
+  TONE_LIMITS,
+  tonesOf,
+} from "@/lib/colors";
+import { parsePeriod } from "@/lib/mapArea";
 import type { Photo, Folder } from "@/types";
 import { QueryBuilder } from "@/lib/queryBuilder";
 import type { JsonObject } from "@/app/api/_lib/request";
@@ -438,6 +452,53 @@ function parseFolderSearchFilters(args: ToolArgs): FolderSearchFilters {
   };
 }
 
+const COLOR_LIMIT = { default: 50, max: 200 };
+
+/** search_photos_by_color's arguments, checked: a wrong value is an error, not a silent default. */
+function parseColorSearch(args: ToolArgs) {
+  const fail = (message: string) =>
+    new McpToolError(ErrorCode.InvalidRequest, message);
+  const optional = <T>(
+    value: unknown,
+    is: (v: unknown) => v is T,
+    message: string,
+  ): T | null => {
+    if (value === undefined || value === null) return null;
+    if (!is(value)) throw fail(message);
+    return value;
+  };
+  const color = optional(
+    args.color,
+    isHue,
+    `color must be one of ${HUES.join(", ")}`,
+  );
+  const tone = optional(
+    args.tone,
+    isColorTone,
+    `tone must be one of ${COLOR_TONES.join(", ")}`,
+  );
+  if (color === null && tone === null)
+    throw fail("give a color, a tone or both");
+  const period = parsePeriod((key) => {
+    const value = args[key];
+    return typeof value === "string" ? value : null;
+  });
+  if (!period.ok) throw fail(period.error);
+  const limit = args.limit ?? COLOR_LIMIT.default;
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > COLOR_LIMIT.max
+  )
+    throw fail(`limit must be an integer in 1..${COLOR_LIMIT.max}`);
+  const cursor =
+    typeof args.cursor === "string" ? parseRankCursor(args.cursor) : null;
+  if (args.cursor !== undefined && args.cursor !== null && !cursor)
+    throw fail("cursor must be a next_cursor from this tool");
+  return { colors: { color, tone }, period: period.value, limit, cursor };
+}
+
 function requireFolderPath(args: ToolArgs): string {
   const folderPath = optionalString(args.folder_path);
   if (folderPath === undefined) {
@@ -550,6 +611,67 @@ const toolHandlers = new Map<string, ToolHandler>([
         optionalNumber(args.limit) ?? 50,
       );
       return { recent_photos: photos, count: photos.length };
+    },
+  ],
+
+  [
+    "search_photos_by_color",
+    async (args) => {
+      const { colors, period, limit, cursor } = parseColorSearch(args);
+      const { photos, next } = await getPhotosByColor(
+        colors,
+        period,
+        cursor,
+        limit,
+      );
+      return {
+        photos,
+        count: photos.length,
+        next_cursor: next ? formatRankCursor(next) : null,
+      };
+    },
+  ],
+
+  [
+    "get_photo_colors",
+    async (args) => {
+      const photoId = optionalNumber(args.photo_id);
+      if (photoId === undefined || !Number.isSafeInteger(photoId)) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          "photo_id is required and must be an integer",
+        );
+      }
+      const [photo, colors] = await Promise.all([
+        getPhoto(photoId),
+        getPhotoColors(photoId),
+      ]);
+      if (!photo) {
+        throw new McpToolError(
+          ErrorCode.InvalidRequest,
+          `Photo with ID ${photoId} not found`,
+          404,
+        );
+      }
+      if (!colors) return { photo_id: photoId, measured: false };
+      const hues = Object.fromEntries(
+        HUES.map((hue, i) => [hue, colors.hues[i] ?? 0]),
+      );
+      return {
+        photo_id: photoId,
+        measured: true,
+        hues,
+        colors: HUES.filter((hue) => (hues[hue] ?? 0) >= HOLDS).sort(
+          (a, b) => (hues[b] ?? 0) - (hues[a] ?? 0),
+        ),
+        tones: tonesOf(colors),
+        palette: colors.palette,
+        colorfulness: colors.colorfulness,
+        chroma: colors.chroma,
+        luminance: colors.luminance,
+        monochrome: colors.monochrome,
+        model: colors.model,
+      };
     },
   ],
 
@@ -750,6 +872,57 @@ const toolSchemas = {
     },
     outputSchema: { type: "object" },
   },
+  search_photos_by_color: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        color: {
+          type: "string",
+          enum: [...HUES],
+          description:
+            "Hue family, measured on the photo as displayed and weighted toward a large center (a subject in the middle counts more than the border). teal is turquoise; brown covers skin, wood and earth tones. A photo holds a color from 3% of its picture; results are ranked by share, most first.",
+        },
+        tone: {
+          type: "string",
+          enum: [...COLOR_TONES],
+          description: `vives: vivid, colorfulness >= ${TONE_LIMITS.vives}. douces: soft, colorfulness < ${TONE_LIMITS.douces}, not black and white. lumineuse: bright, mean lightness L* > ${TONE_LIMITS.lumineuse}. sombre: dark, L* < ${TONE_LIMITS.sombre}. neutres: nearly colorless, colorfulness < ${TONE_LIMITS.neutres}, not black and white. nb: black and white. Alone, the most colorful photos of the tone first (nb: the least chroma first); with a color, only filters it.`,
+        },
+        from: {
+          type: "string",
+          description:
+            "First month or day taken, YYYY-MM or YYYY-MM-DD, included",
+        },
+        to: {
+          type: "string",
+          description:
+            "Last month or day taken, YYYY-MM or YYYY-MM-DD, included",
+        },
+        limit: {
+          type: "number",
+          description: `Photos per page, 1-${COLOR_LIMIT.max} (default: ${COLOR_LIMIT.default})`,
+        },
+        cursor: {
+          type: "string",
+          description:
+            "next_cursor of the previous page, with the same color, tone, from and to",
+        },
+      },
+    },
+    outputSchema: { type: "object" },
+  },
+  get_photo_colors: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        photo_id: {
+          type: "number",
+          description: "The ID of the photo",
+        },
+      },
+      required: ["photo_id"],
+    },
+    outputSchema: { type: "object" },
+  },
   get_gallery_stats: {
     inputSchema: {
       type: "object",
@@ -910,6 +1083,18 @@ export const POST = requireAuthOrApiKey(async function POST(
               name: "get_recent_photos",
               description: "Get recently added/modified photos",
               inputSchema: toolSchemas.get_recent_photos.inputSchema,
+            },
+            {
+              name: "search_photos_by_color",
+              description:
+                "Find photos by color: those holding `color`, most of it first, or in `tone`, most colorful first; both: the color's photos in that tone. Only dated photos (with a date taken), and only those whose colors the worker has measured. Returns { photos, count, next_cursor }. Each photo is the gallery's photo record (id, filename, folder_path, metadata, thumbnail_url, ...) plus color_score, what it is ranked by: the color's share of the picture (0-1) when a color is given, else its colorfulness (Hasler-Süsstrunk M), or its chroma for nb. next_cursor fetches the next page; null on the last.",
+              inputSchema: toolSchemas.search_photos_by_color.inputSchema,
+            },
+            {
+              name: "get_photo_colors",
+              description:
+                "The colors measured on one photo, as displayed and weighted toward a large center. Returns photo_id and measured (false until the worker has read the photo; nothing else then). When measured: hues, the share of the picture in each of 12 families (red, orange, yellow, green, teal, blue, purple, pink, brown, black, grey, white), summing to 1; colors, the families holding at least 3%, most first; tones, those of search_photos_by_color it is in; palette, up to 5 colors { hex '#rrggbb', share }, most important first, shares summing to 1; colorfulness, Hasler-Süsstrunk M (0 grey, ~33 moderately, ~59 quite, 80+ very colorful); chroma, mean C*; luminance, mean L* (0 black, 100 white); monochrome, black and white; model, the measuring algorithm's version.",
+              inputSchema: toolSchemas.get_photo_colors.inputSchema,
             },
             {
               name: "get_gallery_stats",
