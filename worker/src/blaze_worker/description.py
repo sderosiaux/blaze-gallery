@@ -23,7 +23,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 # Bump when the prompt or the checks change what a description means
-PROMPT_VERSION = "describe-v2"
+PROMPT_VERSION = "describe-v3"
 
 PROMPT = """\
 Tu indexes les photos d'une bibliothèque familiale. Regarde la photo et réponds par un seul \
@@ -42,11 +42,12 @@ Champs :
 - caption : une seule phrase factuelle en français, 25 mots au plus, qui dit ce qu'on voit \
 (qui, où, ce qui se passe), sans prénom.
 - activity : ce qui se passe, en quelques mots en français (ex. « repas de famille », \
-« ouverture des cadeaux », « promenade sur la plage ») ; si personne ne fait rien de \
-particulier : « pose pour la photo » ; sans personne : ce qu'on regarde (« vue sur la mer »).
+« ouverture des cadeaux », « promenade sur la plage »). Des gens qui ne font rien de \
+particulier : « pose pour la photo ». Aucune personne sur la photo : ce qu'on y voit \
+(« vue sur la mer », « chat au repos »).
 - setting : indoor (intérieur), outdoor (extérieur), vehicle (dans un véhicule), unknown.
 - place_type : home, garden, restaurant, beach, mountain, city, school, party_venue (salle des \
-fêtes, salle de réception), car, nature, other.
+fêtes, salle de réception), car (une voiture ; avion, train, bateau : other), nature, other.
 - occasion : christmas, birthday, wedding, holiday (vacances, voyage, tourisme), everyday, \
 party, school_event, sport, other, unknown. Seulement d'après des indices visibles (sapin, \
 bougies sur un gâteau, robe de mariée, monument...) ; sans indice : everyday ou unknown.
@@ -56,8 +57,8 @@ personnes, tête et épaules), half_body (une ou deux personnes, jusqu'à la tai
 (une ou deux personnes, en pied), group (trois personnes ou plus), landscape (le lieu domine, \
 personnes petites ou absentes), object (un objet, un plat, un animal, un document, sans \
 personne).
-- objects : jusqu'à 8 objets notables visibles, noms communs français au singulier \
-(ex. « sapin », « gâteau », « échelle », pas « ladder »).
+- objects : jusqu'à 8 objets notables visibles, noms communs français au singulier, aucun \
+mot anglais.
 - mood : l'ambiance de la scène : joyful, calm, tender, funny, tired, sad, focused, festive, \
 neutral.
 
@@ -124,6 +125,8 @@ _FRENCH_ING = frozenset(
 _WORD = re.compile(r"[a-zà-öø-ÿœæ]+")
 # A sentence end followed by another sentence
 _SECOND_SENTENCE = re.compile(r"[.!?…]\s+[A-ZÀ-ÖØ-Þ]")
+# "pose pour la photo", "posent", "poser": someone has to be there
+_POSING = re.compile(r"\bpos(e|ent|er|ant)\b", re.IGNORECASE)
 
 
 class InvalidReply(Exception):
@@ -225,8 +228,8 @@ def problems(data: dict[str, Any]) -> list[str]:
         errors.append("caption : une seule phrase")
     if activity.lower().strip(" .") in _PLACEHOLDERS:
         errors.append(
-            f"activity : quelques mots en français, pas « {activity} » (rien de particulier : "
-            "« pose pour la photo » ; sans personne : « vue sur ... »)"
+            f"activity : quelques mots en français, pas « {activity} » (des gens sans activité "
+            "particulière : « pose pour la photo » ; aucune personne : « vue sur ... »)"
         )
     for field, text in (("caption", caption), ("activity", activity)):
         english = english_words(text)
@@ -248,8 +251,16 @@ def problems(data: dict[str, Any]) -> list[str]:
         errors.append(
             f"framing group veut dire trois personnes ou plus, or people_count vaut {count}"
         )
+    if count == 0 and _POSING.search(activity):
+        errors.append(
+            "activity : personne ne pose, people_count vaut 0 : dis ce qu'on voit "
+            "(« vue sur ... ») ou corrige people_count"
+        )
     if data["place_type"] == "car" and data["setting"] != "vehicle":
-        errors.append("place_type car demande setting vehicle")
+        errors.append(
+            "place_type car (une voiture) demande setting vehicle ; pas dans une voiture : "
+            "un autre place_type"
+        )
     return errors
 
 

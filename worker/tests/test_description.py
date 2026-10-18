@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import platform
+import sys
 
 import numpy as np
 import pytest
 
 from blaze_worker.decode import Picture
-from blaze_worker.describe import rendition, user_rotation
+from blaze_worker.describe import rendition, require_apple_silicon, user_rotation
 from blaze_worker.description import (
     PROMPT,
     InvalidReply,
@@ -171,6 +173,14 @@ def test_framing_agrees_with_the_people_count(people_count, framing, ok):
     assert (errors == []) is ok, errors
 
 
+def test_nobody_poses_on_a_photo_without_people():
+    landscape = {**GOOD, "people_count": 0, "framing": "landscape"}
+    assert problems({**landscape, "activity": "pose pour la photo"})
+    assert problems({**landscape, "activity": "Personnes qui posent"})
+    assert problems({**landscape, "activity": "vue sur la montagne"}) == []
+    assert problems({**GOOD, "activity": "pose pour la photo"}) == []
+
+
 def test_a_car_is_a_vehicle():
     assert problems({**GOOD, "place_type": "car", "setting": "outdoor"})
     assert problems({**GOOD, "place_type": "car", "setting": "vehicle"}) == []
@@ -228,6 +238,14 @@ def test_the_owner_rotation_turns_the_rendition_clockwise(rotation, size, corner
     image = rendition(picture(40, 30), rotation)
     assert image.size == size
     assert image.getpixel(corner) == (0, 0, 255)
+
+
+def test_describe_refuses_to_start_off_apple_silicon(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    with pytest.raises(SystemExit, match=r"Apple silicon.*Linux x86_64"):
+        require_apple_silicon()
 
 
 def test_user_rotation_reads_only_quarter_turns():
