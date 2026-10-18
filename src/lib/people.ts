@@ -12,6 +12,12 @@ import {
   type DateSource,
   type FaceBox,
 } from "./faces";
+import { logger } from "./logger";
+import {
+  chooseLookalikes,
+  REJECTED_MARGIN,
+  REVIEW_THRESHOLD,
+} from "./lookalikes";
 import { thumbnailUrl } from "./photoUrls";
 import { userRotation } from "./rotation";
 
@@ -500,6 +506,14 @@ async function rejectFaces(
     [personId, ids],
   );
   await recordDecision(client, personId, ids, "rejected");
+  // A face proposed because it was closest to one of these is now as close
+  // to a face rejected for her as to any of hers: the worker's margin would
+  // drop it too (a face named by mistake, then corrected, leaves nothing)
+  await client.query(
+    `DELETE FROM face_candidates
+     WHERE person_id = $1 AND status = 'pending' AND best_seed_face_id = ANY($2::bigint[])`,
+    [personId, ids],
+  );
 }
 
 /** Back to the queue: the decision is forgotten, the face is nobody's again. */
@@ -569,15 +583,247 @@ async function inTransaction<T>(
   }
 }
 
-/** The review queue's yes, no and undo: never takes a face named as someone else. */
+/**
+ * The review queue's yes, no and undo: never takes a face named as someone
+ * else. A yes proposes the faces' look-alikes: returns how many.
+ */
 export async function decideFaces(
   personId: number,
   faceIds: number[],
   decision: Decision,
-): Promise<void> {
+): Promise<number> {
   await inTransaction((client) =>
     decideWith(client, personId, faceIds, decision, false),
   );
+  return decision === "accept" ? proposeAfterYes(personId, faceIds) : 0;
+}
+
+// -- look-alikes, proposed at once ----------------------------------------------------
+
+/**
+ * Nearest open faces a request reads, before the window and the other rules
+ * (lookalikes.ts) sort them; several faces named share them, at least
+ * MIN_NEIGHBOURS each. Measured on the library (2026-10): from one face of
+ * someone with thousands of faces, 500 leave 25 to 85 files in the window,
+ * and the index finds the same faces an exact scan does, in 15 to 85 ms.
+ */
+const NEIGHBOURS = 500;
+const MIN_NEIGHBOURS = 100;
+/**
+ * Faces of one request that look for look-alikes (a row accepted at once
+ * sends ten or so). Each scan costs about the same whatever its limit, as it
+ * walks past the person's own faces first: 12 faces of someone with 20 000
+ * took 0.7 s. The worker's next run covers the others.
+ */
+const MAX_REFERENCES = 4;
+
+interface DatedFileRow {
+  date_taken: string | null;
+  folder_path: string | null;
+  filename: string;
+  size: number | string;
+}
+
+interface ReferenceRow extends DatedFileRow {
+  face_id: number;
+  birth_date: string | null;
+}
+
+interface NeighbourRow extends DatedFileRow {
+  reference_id: number;
+  face_id: number;
+  similarity: number;
+  rejected: {
+    similarity: number;
+    date_taken: string | null;
+    folder_path: string | null;
+  }[];
+}
+
+/**
+ * For each face $1 named for person $2, the open faces nearest to it in its
+ * embedding space: nobody's, or rejected only for someone else. The HNSW
+ * index serves each lateral scan; iterative scan walks past the person's own
+ * faces, which the filter skips. Then, like the worker: not decided for her
+ * already (a pending one may be raised), no file that holds her or waits for
+ * her on another face (copies count as one photo), and the faces rejected for
+ * her that come about as close (the margin), for lookalikes.ts to date.
+ * Every "no" writes its face_candidates row (recordDecision, and the
+ * worker's decide), so those rows are all of them.
+ */
+const NEIGHBOURS_SQL = `
+  WITH refs AS (
+    SELECT id, embedding, model FROM faces WHERE id = ANY($1::bigint[])
+  ),
+  nearest AS (
+    SELECT r.id AS reference_id, r.model, n.id, n.photo_id, n.embedding, n.distance
+    FROM refs r
+    CROSS JOIN LATERAL (
+      SELECT f.id, f.photo_id, f.embedding, f.embedding <=> r.embedding AS distance
+      FROM faces f
+      WHERE f.model = r.model
+        AND (f.assignment IS NULL OR (f.assignment = 'rejected' AND f.person_id <> $2))
+      ORDER BY f.embedding <=> r.embedding
+      LIMIT $3
+    ) n
+  ),
+  rejected AS MATERIALIZED (
+    SELECT j.embedding, j.model, ph.metadata ->> 'date_taken' AS date_taken,
+           fo.path AS folder_path
+    FROM faces j
+    JOIN photos ph ON ph.id = j.photo_id
+    LEFT JOIN folders fo ON fo.id = ph.folder_id
+    WHERE j.id IN (SELECT face_id FROM face_candidates
+                   WHERE person_id = $2 AND status = 'rejected')
+  )
+  SELECT n.reference_id::int AS reference_id, n.id::int AS face_id,
+    1 - n.distance AS similarity,
+    ph.metadata ->> 'date_taken' AS date_taken, fo.path AS folder_path,
+    ph.filename, ph.size,
+    (SELECT coalesce(json_agg(json_build_object(
+              'similarity', 1 - (j.embedding <=> n.embedding),
+              'date_taken', j.date_taken, 'folder_path', j.folder_path)), '[]'::json)
+     FROM rejected j
+     WHERE j.model = n.model AND (j.embedding <=> n.embedding) <= n.distance + $5) AS rejected
+  FROM nearest n
+  JOIN photos ph ON ph.id = n.photo_id
+  LEFT JOIN folders fo ON fo.id = ph.folder_id
+  WHERE n.distance <= $4
+    AND NOT EXISTS (
+      SELECT 1 FROM face_candidates d
+      WHERE d.person_id = $2 AND d.face_id = n.id AND d.status <> 'pending')
+    AND NOT EXISTS (
+      SELECT 1 FROM photos cp JOIN faces o ON o.photo_id = cp.id
+      WHERE cp.filename = ph.filename AND cp.size = ph.size AND o.id <> n.id
+        AND ((o.person_id = $2 AND o.assignment IN ('seed', 'manual', 'auto'))
+          OR EXISTS (SELECT 1 FROM face_candidates oc
+                     WHERE oc.person_id = $2 AND oc.face_id = o.id AND oc.status = 'pending')))
+`;
+
+/**
+ * Pending, as the worker writes "to review", with the face named it is
+ * closest to as best seed. A face still waiting is raised when that face is
+ * closer, never lowered; a decided one is left alone. Returns a row per face
+ * written, inserted or raised.
+ */
+const PROPOSE_SQL = `
+  INSERT INTO face_candidates (person_id, face_id, similarity, best_seed_face_id, gap_days)
+  SELECT $1, f.id, x.similarity, x.best_seed_face_id, x.gap_days
+  FROM unnest($2::bigint[], $3::real[], $4::bigint[], $5::int[])
+    AS x(face_id, similarity, best_seed_face_id, gap_days)
+  JOIN faces f ON f.id = x.face_id
+  WHERE f.assignment IS NULL OR (f.assignment = 'rejected' AND f.person_id <> $1)
+  ON CONFLICT (person_id, face_id) DO UPDATE SET
+    similarity = EXCLUDED.similarity, best_seed_face_id = EXCLUDED.best_seed_face_id,
+    gap_days = EXCLUDED.gap_days, updated_at = now()
+  WHERE face_candidates.status = 'pending'
+    AND coalesce(face_candidates.similarity, -1) < EXCLUDED.similarity
+  RETURNING (xmax = 0) AS inserted
+`;
+
+/**
+ * Proposes in her « À trier » queue the look-alikes of faces just made hers
+ * (lookalikes.ts), without waiting for the worker: pending only, never
+ * accepted. Returns how many photos joined the queue.
+ */
+export async function proposeLookalikes(
+  personId: number,
+  faceIds: number[],
+): Promise<number> {
+  return runTransaction((client) =>
+    proposeLookalikesWith(client, personId, faceIds),
+  );
+}
+
+/**
+ * proposeLookalikes in the caller's transaction (SET LOCAL lasts until its
+ * end). Each statement is a round trip, and the functions may run far from
+ * the database (2026-10: Washington and London): four, however many faces.
+ */
+export async function proposeLookalikesWith(
+  client: PoolClient,
+  personId: number,
+  faceIds: number[],
+): Promise<number> {
+  const faces = await client.query<ReferenceRow>(
+    `SELECT f.id::int AS face_id, ph.metadata ->> 'date_taken' AS date_taken,
+            fo.path AS folder_path, ph.filename, ph.size,
+            (SELECT birth_date::text FROM people WHERE id = $2) AS birth_date
+     FROM faces f
+     JOIN photos ph ON ph.id = f.photo_id
+     LEFT JOIN folders fo ON fo.id = ph.folder_id
+     WHERE f.id = ANY($1::bigint[]) AND f.person_id = $2
+       AND f.assignment IN ('seed', 'manual', 'auto')
+     ORDER BY f.id`,
+    [faceIds, personId],
+  );
+  // Copies of a file dated alike find the same neighbours: one of them looks
+  const references = new Map<string, { face_id: number; taken: string }>();
+  for (const row of faces.rows) {
+    const taken = takenOn(row.date_taken, row.folder_path).taken;
+    const key = `${copyKey(row)}\u0000${taken ?? ""}`;
+    if (taken && !references.has(key))
+      references.set(key, { face_id: row.face_id, taken });
+  }
+  const chosenReferences = [...references.values()].slice(0, MAX_REFERENCES);
+  if (chosenReferences.length === 0) return 0;
+  const birthDate = faces.rows[0]?.birth_date ?? null;
+
+  const perReference = Math.max(
+    MIN_NEIGHBOURS,
+    Math.floor(NEIGHBOURS / chosenReferences.length),
+  );
+  await client.query(
+    `SET LOCAL hnsw.iterative_scan = relaxed_order; SET LOCAL hnsw.ef_search = ${String(perReference)}`,
+  );
+  const neighbours = await client.query<NeighbourRow>(NEIGHBOURS_SQL, [
+    chosenReferences.map((r) => r.face_id),
+    personId,
+    perReference,
+    1 - REVIEW_THRESHOLD,
+    REJECTED_MARGIN,
+  ]);
+  const chosen = chooseLookalikes(
+    chosenReferences,
+    neighbours.rows.map((row) => ({
+      reference_id: row.reference_id,
+      face_id: row.face_id,
+      file: copyKey(row),
+      similarity: row.similarity,
+      taken: takenOn(row.date_taken, row.folder_path).taken,
+      rejected: row.rejected.map((r) => ({
+        similarity: r.similarity,
+        taken: takenOn(r.date_taken, r.folder_path).taken,
+      })),
+    })),
+    birthDate,
+  );
+  if (chosen.length === 0) return 0;
+  const written = await client.query<{ inserted: boolean }>(PROPOSE_SQL, [
+    personId,
+    chosen.map((c) => c.face_id),
+    chosen.map((c) => c.similarity),
+    chosen.map((c) => c.best_seed_face_id),
+    chosen.map((c) => c.gap_days),
+  ]);
+  return written.rows.filter((r) => r.inserted).length;
+}
+
+/** The yes is written already: a failure here only costs its proposals. */
+async function proposeAfterYes(
+  personId: number,
+  faceIds: number[],
+): Promise<number> {
+  try {
+    return await proposeLookalikes(personId, faceIds);
+  } catch (error) {
+    logger.warn(
+      "Look-alikes not proposed",
+      { personId, faceIds },
+      error instanceof Error ? error : undefined,
+    );
+    return 0;
+  }
 }
 
 // -- faces of one photo ---------------------------------------------------------------
@@ -613,12 +859,13 @@ export function photoFace(
 /**
  * Names a face (the viewer): an existing person, or one found or created by
  * name, in one transaction, so a refused naming leaves no empty person.
+ * Then proposes its look-alikes: `proposed` says how many.
  */
 export async function nameFace(
   faceId: number,
   target: { personId: number } | { name: string },
-): Promise<PersonRow> {
-  return inTransaction(async (client) => {
+): Promise<{ person: PersonRow; proposed: number }> {
+  const named = await inTransaction(async (client) => {
     let person: PersonRow | undefined;
     if ("personId" in target) {
       const found = await client.query<PersonRow>(
@@ -643,6 +890,10 @@ export async function nameFace(
     await decideWith(client, person.id, [faceId], "accept", true);
     return person;
   });
+  return {
+    person: named,
+    proposed: await proposeAfterYes(named.id, [faceId]),
+  };
 }
 
 /** "Pas cette personne": the face is not who it was said to be. */

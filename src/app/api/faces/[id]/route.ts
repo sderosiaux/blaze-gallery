@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
  *   { action: "name", person_id }   this face is that person
  *   { action: "name", name }        this face is the person of that name (created if new)
  *   { action: "unname" }            "Pas cette personne": not who it was said to be
+ * Naming answers `proposed`: look-alikes that joined the person's « À trier ».
  */
 export const POST = requireAuth(async function POST(
   request: NextRequest,
@@ -35,8 +36,8 @@ export const POST = requireAuth(async function POST(
     if (rawPerson !== undefined) {
       const personId = positiveId(rawPerson);
       if (personId === null) return badRequest("invalid person_id");
-      const person = await nameFace(faceId, { personId });
-      return NextResponse.json({ success: true, person });
+      const named = await nameFace(faceId, { personId });
+      return NextResponse.json({ success: true, ...named });
     }
     if (
       typeof name !== "string" ||
@@ -44,8 +45,8 @@ export const POST = requireAuth(async function POST(
       name.length > MAX_NAME_LENGTH
     )
       return badRequest("give person_id or a name");
-    const person = await nameFace(faceId, { name });
-    return NextResponse.json({ success: true, person });
+    const named = await nameFace(faceId, { name });
+    return NextResponse.json({ success: true, ...named });
   } catch (error) {
     return failure(error, { method: "POST", path: "/api/faces/[id]" });
   }

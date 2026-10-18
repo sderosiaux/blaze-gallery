@@ -34,7 +34,8 @@ export const GET = requireAuth(async function GET(
 
 /**
  * POST /api/people/:id/candidates { decision: accept | reject | undo, face_ids }
- * "C'est elle", "pas elle", or back to the queue; written at once.
+ * "C'est elle", "pas elle", or back to the queue; written at once. A yes
+ * answers `proposed`: look-alikes that joined the queue.
  */
 export const POST = requireAuth(async function POST(
   request: NextRequest,
@@ -58,11 +59,12 @@ export const POST = requireAuth(async function POST(
   if (faceIds.some((f) => f === null)) return badRequest("invalid face id");
   try {
     const ids = [...new Set(faceIds as number[])];
-    await decideFaces(id, ids, chosen);
+    const proposed = await decideFaces(id, ids, chosen);
     return NextResponse.json({
       success: true,
       decision: chosen,
       face_ids: ids,
+      proposed,
     });
   } catch (error) {
     return failure(error, {
