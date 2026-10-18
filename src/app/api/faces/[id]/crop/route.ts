@@ -73,10 +73,15 @@ export const GET = requireAuthOrApiKey(async function GET(
       );
     }
 
-    const buffer = await sharp(rendition.buffer)
+    // Two passes: in one pipeline sharp turns before it extracts, and the
+    // square measured on the unturned rendition falls outside the turned one
+    const square = await sharp(rendition.buffer)
       .extract({ left, top, width: side, height: side })
-      .rotate(uprightTurn(source.detect_rotation, rotation))
       .resize(SIZE, SIZE, { fit: "cover" })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    const buffer = await sharp(square)
+      .rotate(uprightTurn(source.detect_rotation, rotation))
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
     return new NextResponse(new Uint8Array(buffer), {
