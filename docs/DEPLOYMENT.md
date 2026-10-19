@@ -156,6 +156,21 @@ is ready yet. Each worker stops once its queue is empty, so the
 database can suspend; nothing polls it between runs. Progress:
 `--entrypoint blaze-queue ... --task embed`.
 
+Faces the faces task missed (small, half hidden, in profile) can be looked
+for again on chosen photos without touching the ones stored: `blaze-enqueue
+--task faces_extra --ids <ids>`, then `blaze-worker --task faces_extra`
+(by default 2048 px, detector input 1280, min score 0.5). It only adds faces whose
+box overlaps no stored face, never changes or deletes one, so names and
+"pas elle" answers stay; it waits for each photo's faces job to be done.
+`blaze-people` then weighs the new faces like the others. To undo the pass
+on the faces nobody has named since:
+
+```sql
+DELETE FROM faces WHERE person_id IS NULL AND assignment IS NULL AND id IN (
+  SELECT jsonb_array_elements_text(stats -> 'added_ids')::bigint
+  FROM analysis_jobs WHERE task = 'faces_extra');
+```
+
 HEIC photos get their thumbnail and the viewer's 2048 px rendition from the
 thumbs worker only: the app can't decode them. Turning one by hand in the
 viewer, or bumping `VERSION` in `src/lib/displayRendition.ts`, leaves it

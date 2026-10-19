@@ -950,7 +950,7 @@ const FACE_FIELDS = `face fields:
 - face_id: stable id of this face; crop_url: GET a 256 px square JPEG of the face, upright, with some room around it.
 - box: [x, y, width, height] as fractions (0-1) of the photo AS SHOWN (EXIF orientation and the owner's hand rotation applied), origin top-left. Multiply by the shown width/height to get pixels.
 - width_px, height_px: size of the face in pixels of the original file, as shown. Rough quality guide: < 60 small, 60-150 medium, > 150 large.
-- det_score: detector confidence 0-1 (stored faces are >= 0.7).
+- det_score: detector confidence 0-1 (stored faces are >= 0.7, or >= 0.5 when a second, more sensitive pass found them).
 - sharpness: variance of the Laplacian of the aligned 112 px face crop; higher is sharper (< 50 blurry, > 150 crisp).
 - yaw, pitch, roll: head pose in degrees, 0 = facing the camera; |yaw| > 45 is a profile.
 - eye_left_open, eye_right_open: lid gap / eye width, left/right as seen in the photo (~0.3 open, < 0.15 closed). mouth_open: inner-lip gap / mouth width (~0 closed, > 0.3 wide open).

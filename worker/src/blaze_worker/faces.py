@@ -236,13 +236,15 @@ class FaceModel:
         )
         return boxes[keep], points[keep]
 
-    def analyze(self, picture: Picture) -> Analysis:
+    def analyze(self, picture: Picture, turn: int | None = None) -> Analysis:
+        """turn: detect on the image turned that much clockwise, without looking
+        for the turn that stands faces up (faces_extra: the stored faces' turn)."""
         began = time.perf_counter()
-        boxes, points = self._detect(picture.small)
+        rotation, passes = turn or 0, 1
+        boxes, points = self._detect(_rotate(picture.small, rotation))
         detected = time.perf_counter()
 
-        rotation, passes = 0, 1
-        if _best_upright(boxes, points) is None:
+        if turn is None and _best_upright(boxes, points) is None:
             # Scan the turns at low resolution, then detect again at full
             # resolution on the winning turn only (its 5 points align the face)
             best = None

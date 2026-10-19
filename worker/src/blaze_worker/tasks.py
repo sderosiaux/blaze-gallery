@@ -10,13 +10,13 @@ from .decode import Picture
 from .describe import Describer, Description, rendition, user_rotation
 from .description import InvalidReply
 from .pipeline import Rejected
-from .store import save_description, save_faces
+from .store import add_faces, save_description, save_faces
 
 if TYPE_CHECKING:
     # Not at run time: the describe task would load InsightFace for nothing
     from .faces import Analysis, FaceModel, ModelFiles
 
-SUPPORTED_TASKS = ("faces", "describe", "thumbs", "embed")
+SUPPORTED_TASKS = ("faces", "faces_extra", "describe", "thumbs", "embed")
 
 
 # -- faces --------------------------------------------------------------------
@@ -64,6 +64,57 @@ class FacesAnalyzer:
 
     def analyze(self, job: jobs.Job, picture: Picture) -> FacesResult:
         return FacesResult(self.model.analyze(picture), self.files, self.det_size)
+
+
+# -- faces_extra --------------------------------------------------------------
+
+# Claim condition (jobs.claim): the faces task is done with the photo. Its
+# stored faces are the ones to keep clear of, and a faces job still to run
+# would replace them, extra ones included.
+EXTRA_FACES_READY_SQL = """EXISTS (
+  SELECT 1 FROM analysis_jobs fj
+  WHERE fj.photo_id = analysis_jobs.photo_id AND fj.task = 'faces' AND fj.status = 'done'
+)"""
+
+
+@dataclass(frozen=True)
+class ExtraFacesResult(FacesResult):
+    """Adds the faces the photo does not hold yet; changes none of its faces."""
+
+    min_score: float = 0.0
+
+    def stats(self) -> dict[str, Any]:
+        return {**super().stats(), "min_score": self.min_score}
+
+    def save(self, conn: Any, owner: str, job: jobs.Job, stats: dict[str, Any]) -> int:
+        return add_faces(
+            conn,
+            owner,
+            job,
+            self.files.pipeline_model,
+            self.files.embedding_model,
+            self.analysis.faces,
+            stats,
+        )
+
+
+class ExtraFacesAnalyzer:
+    """The faces task again with a more sensitive detector, adding faces only."""
+
+    def __init__(
+        self, model: FaceModel, files: ModelFiles, det_size: int, min_score: float
+    ) -> None:
+        self.model = model
+        self.files = files
+        self.det_size = det_size
+        self.min_score = min_score
+
+    def analyze(self, job: jobs.Job, picture: Picture) -> ExtraFacesResult:
+        # On the turn the stored faces were found on (0 without any), with no
+        # search for another: a low-score face found on a turned photo would
+        # make it look stored on its side to the describe task
+        analysis = self.model.analyze(picture, turn=job.faces_rotation)
+        return ExtraFacesResult(analysis, self.files, self.det_size, self.min_score)
 
 
 # -- describe -----------------------------------------------------------------
