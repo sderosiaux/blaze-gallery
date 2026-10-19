@@ -1,0 +1,152 @@
+[
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 167220,
+    "s3_key": "pc-fixe/2022 iCloud/IMG_7961.HEIC",
+    "rotation": 0,
+    "key": "display/pc-fixe/2022 iCloud/IMG_7961-167220-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 167220,
+    "s3_key": "pc-fixe/2022 iCloud/IMG_7961.HEIC",
+    "rotation": 90,
+    "key": "display/pc-fixe/2022 iCloud/IMG_7961-167220-v1-r90.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 42,
+    "s3_key": "Photos/Été 2023/Plage à Nice.heic",
+    "rotation": 90,
+    "key": "display/Photos/Été 2023/Plage à Nice-42-v1-r90.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 42,
+    "s3_key": "Photos/Été 2023/Plage à Nice.heic",
+    "rotation": 180,
+    "key": "display/Photos/Été 2023/Plage à Nice-42-v1-r180.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 42,
+    "s3_key": "Photos/Été 2023/Plage à Nice.heic",
+    "rotation": 270,
+    "key": "display/Photos/Été 2023/Plage à Nice-42-v1-r270.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 43,
+    "s3_key": "Photos/Café du coin.HEIF",
+    "rotation": 0,
+    "key": "display/Photos/Café du coin-43-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 7,
+    "s3_key": "IMG_0001.HEIC",
+    "rotation": 0,
+    "key": "display/IMG_0001-7-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 8,
+    "s3_key": "//leading/slashes/x.heic",
+    "rotation": 270,
+    "key": "display/leading/slashes/x-8-v1-r270.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 9,
+    "s3_key": "dir/archive.tar.heic",
+    "rotation": 0,
+    "key": "display/dir/archive.tar-9-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 10,
+    "s3_key": "dir/.heic",
+    "rotation": 90,
+    "key": "display/dir/.heic-10-v1-r90.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 11,
+    "s3_key": "a/../b/./c.HEIC",
+    "rotation": 0,
+    "key": "display/b/c-11-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "thumbnails"
+    },
+    "id": 12,
+    "s3_key": "dir/no-extension",
+    "rotation": 0,
+    "key": "display/dir/no-extension-12-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": "a/thumbnails"
+    },
+    "id": 42,
+    "s3_key": "x/y.heic",
+    "rotation": 90,
+    "key": "a/display/x/y-42-v1-r90.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "s3",
+      "THUMBNAIL_S3_PREFIX": " /x//thumbs/ "
+    },
+    "id": 5,
+    "s3_key": "y.heic",
+    "rotation": 0,
+    "key": "x/display/y-5-v1.jpg"
+  },
+  {
+    "settings": {
+      "THUMBNAIL_STORAGE": "local",
+      "THUMBNAILS_PATH": "/tmp/blaze-display-keys/"
+    },
+    "id": 42,
+    "s3_key": "Photos/Été 2023/Plage à Nice.heic",
+    "rotation": 90,
+    "key": "/tmp/blaze-display-keys/display/42-v1-r90.jpg"
+  }
+]
