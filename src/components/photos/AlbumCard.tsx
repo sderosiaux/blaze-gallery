@@ -58,6 +58,8 @@ interface AlbumCardProps {
   size?: "md" | "lg";
   /** Position in the grid: covers load in reading order. */
   order?: number;
+  /** Says « Hors galerie » on a folder out of the gallery (excluded_folders). */
+  markExcluded?: boolean;
 }
 
 export default function AlbumCard({
@@ -68,9 +70,11 @@ export default function AlbumCard({
   href,
   size = "md",
   order,
+  markExcluded = true,
 }: AlbumCardProps) {
   const { title } = parseAlbumName(folder.name);
   const dateLabel = albumDateLabel(folder);
+  const outOfGallery = markExcluded && folder.excluded === true && !shareToken;
   const coverId = folder.cover_photo_id;
   // The nearest parents say the most; deep paths keep only the last two.
   // Parents are shown exactly as in the bucket: they locate the folder.
@@ -83,7 +87,7 @@ export default function AlbumCard({
     <Link
       href={href ?? albumHref(folder.path)}
       className="group block rounded-md focus-visible:outline-offset-4"
-      aria-label={`${title}${dateLabel ? `, ${dateLabel}` : ""}, ${countsLine(folder)}`}
+      aria-label={`${title}${dateLabel ? `, ${dateLabel}` : ""}, ${outOfGallery ? "hors galerie, " : ""}${countsLine(folder)}`}
     >
       <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-surface-sunken">
         {coverId ? (
@@ -128,6 +132,7 @@ export default function AlbumCard({
           {showPath && parent ? (
             <span className="text-ink-soft">{parent} · </span>
           ) : null}
+          {outOfGallery && "Hors galerie · "}
           {countsLine(folder)}
         </p>
       </div>
@@ -141,6 +146,7 @@ interface AlbumGridProps {
   showPath?: boolean;
   shareToken?: string;
   hrefFor?: (folder: Folder) => string;
+  markExcluded?: boolean;
 }
 
 export function AlbumGrid({
@@ -149,6 +155,7 @@ export function AlbumGrid({
   showPath,
   shareToken,
   hrefFor,
+  markExcluded,
 }: AlbumGridProps) {
   return (
     <ul className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 2xl:grid-cols-5">
@@ -165,6 +172,7 @@ export function AlbumGrid({
             shareToken={shareToken}
             href={hrefFor?.(folder)}
             order={i}
+            markExcluded={markExcluded}
           />
         </li>
       ))}

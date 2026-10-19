@@ -278,6 +278,88 @@ function textOrNull(value: string | undefined): string | null {
   return value !== undefined && value !== "" ? value : null;
 }
 
+// ---- out of the gallery ---------------------------------------------------
+// excluded_folders (db/schema.sql): folders the owner marked « pas une
+// galerie photo », each with everything below it.
+
+/**
+ * True when `key` lies in a folder out of the gallery: a photo's s3_key, or
+ * a folder's path followed by '/' (`f.path || '/'`). The one test every
+ * query makes; db/schema.sql says why it is a per-row filter.
+ */
+export function outOfGallery(key: string): string {
+  return `(${key} LIKE ANY (ARRAY(SELECT key_like FROM excluded_folders)))`;
+}
+
+/** `AND` clause keeping the photos (s3_key `key`) of the gallery. */
+export function andInGallery(key = "p.s3_key"): string {
+  return `AND NOT ${outOfGallery(key)}`;
+}
+
+/** A folder marked « pas une galerie photo ». */
+export interface ExcludedFolder {
+  path: string;
+  created_at: string;
+  /** Photos and videos in it and below it, by the folders' counts */
+  photo_count: number;
+}
+
+/** The folders marked, by path. */
+export async function listExcludedFolders(): Promise<ExcludedFolder[]> {
+  const result = await query<ExcludedFolder>(`
+    SELECT x.path, x.created_at,
+      (SELECT COALESCE(SUM(f.photo_count), 0) FROM folders f
+       WHERE (f.path || '/') LIKE x.key_like)::int AS photo_count
+    FROM excluded_folders x
+    ORDER BY x.path
+  `);
+  return result.rows;
+}
+
+/**
+ * The marked folder that puts `path` out of the gallery: itself, else the
+ * highest of its parents marked; null when it is in the gallery.
+ */
+export async function getFolderExclusion(
+  path: string,
+): Promise<{ path: string } | null> {
+  const result = await query<{ path: string }>(
+    `SELECT path FROM excluded_folders WHERE ($1::text || '/') LIKE key_like
+     ORDER BY length(path) LIMIT 1`,
+    [path],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Marks a folder « pas une galerie photo »; marking it again changes
+ * nothing. False when no folder has this path.
+ */
+export async function excludeFolder(path: string): Promise<boolean> {
+  const result = await query<{ found: boolean }>(
+    `WITH folder AS (SELECT path FROM folders WHERE path = $1),
+     marked AS (
+       INSERT INTO excluded_folders (path) SELECT path FROM folder
+       ON CONFLICT (path) DO NOTHING
+     )
+     SELECT EXISTS (SELECT 1 FROM folder) AS found`,
+    [path],
+  );
+  return requireRow(result).found;
+}
+
+/**
+ * Puts a marked folder back in the gallery: what was found in its photos
+ * shows again. False when it was not marked itself (a folder below a
+ * marked one comes back with it only).
+ */
+export async function includeFolder(path: string): Promise<boolean> {
+  const result = await query("DELETE FROM excluded_folders WHERE path = $1", [
+    path,
+  ]);
+  return (result.rowCount ?? 0) > 0;
+}
+
 // A camera wrote it: rules out scans, screenshots, album art and sprites
 const PHOTO_LIKE = `(p.mime_type IN ('image/jpeg', 'image/heic', 'image/heif')
   AND p.metadata->'camera'->>'make' IS NOT NULL
@@ -291,12 +373,14 @@ type FolderListingRow = Omit<
   | "date_from"
   | "date_to"
   | "palette"
+  | "excluded"
 > & {
   thumbnails_generated: boolean | null;
   cover_photo_id: number | null | undefined;
   date_from: string | null | undefined;
   date_to: string | null | undefined;
   palette: Swatch[] | null;
+  excluded: boolean;
 };
 
 /**
@@ -318,6 +402,10 @@ async function listFolders(
   // The path range lets the btree on folders.path serve the prefix lookup
   // (C.UTF-8 orders by code point, and '/' + 1 = '0'); starts_with keeps it
   // exact when names contain LIKE wildcards.
+  // A folder out of the gallery keeps its cover but shows no colors; one in
+  // the gallery takes no cover from a sub-folder out of it.
+  const excluded = outOfGallery("s.path || '/'");
+  const coverable = `(${excluded} OR NOT ${outOfGallery("d.path || '/'")})`;
   const sql = `
     WITH sub AS (${baseSql})
     SELECT
@@ -330,7 +418,8 @@ async function listFolders(
       (CASE WHEN own_cover.is_photo THEN own_cover.id
             ELSE COALESCE(descendant_photo.id, own_cover.id, descendant_image.id)
        END)::int AS cover_photo_id,
-      fp.swatches AS palette
+      CASE WHEN ${excluded} THEN NULL ELSE fp.swatches END AS palette,
+      ${excluded} AS excluded
     FROM sub s
     LEFT JOIN folder_palettes fp ON fp.folder_id = s.id
     LEFT JOIN LATERAL (
@@ -367,6 +456,7 @@ async function listFolders(
         AND d.path < s.path || '0'
         AND starts_with(d.path, s.path || '/')
         AND d.photo_count > 0
+        AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
         )
@@ -387,6 +477,7 @@ async function listFolders(
         AND d.path < s.path || '0'
         AND starts_with(d.path, s.path || '/')
         AND d.photo_count > 0
+        AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p
           WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
@@ -406,6 +497,7 @@ async function listFolders(
     date_from: folder.date_from ?? null,
     date_to: folder.date_to ?? null,
     palette: folder.palette ?? undefined,
+    excluded: folder.excluded ? true : undefined,
   }));
 }
 
@@ -428,6 +520,7 @@ const PALETTE_SQL = `
     CROSS JOIN LATERAL unnest(pc.palette_hex, pc.palette_share) AS e(hex, share)
     -- A colour with no share weighs nothing, and a bin of only those would divide by zero
     WHERE e.hex ~ '^#[0-9a-fA-F]{6}$' AND e.share > 0
+      ${andInGallery()}
   ),
   direct AS (
     SELECT folder_id,
@@ -757,9 +850,12 @@ function colorRank(filter: ColorFilter): ColorRank | null {
 /** Dated photos, the timeline's: leaves out sprites, album art and scans, which carry no date taken. */
 const DATED = "(p.metadata->>'date_taken') IS NOT NULL";
 
+/** The photos a list of the gallery shows: dated, and in the gallery. */
+const DATED_IN_GALLERY = `${DATED} AND NOT ${outOfGallery("p.s3_key")}`;
+
 /**
- * Dated photos passing the color filter, most marked first (see
- * colorRank), keyset-paginated on (score, id); only those showing
+ * Dated photos of the gallery passing the color filter, most marked first
+ * (see colorRank), keyset-paginated on (score, id); only those showing
  * `filter.people` and taken within `filter.dates` when given. The page is
  * picked on photo_colors through its index, then read in full.
  */
@@ -775,7 +871,7 @@ export async function getPhotosByColor(
     params.push(value);
     return `$${params.length}`;
   };
-  const where = [...rank.where, DATED];
+  const where = [...rank.where, DATED_IN_GALLERY];
   if (after)
     where.push(
       `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
@@ -832,7 +928,8 @@ export interface ColorOverview {
   bands: ColorBand[];
   /**
    * While the worker's "thumbs" task still has photos queued: dated photos
-   * whose colors are measured, of all dated photos. Null once it is done.
+   * of the gallery whose colors are measured, of all of them. Null once it
+   * is done.
    */
   coverage: { measured: number; photos: number } | null;
 }
@@ -918,7 +1015,7 @@ export async function getColorOverview(
              p.metadata->>'date_taken' AS taken
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED].join(" AND ")}
+      WHERE ${[...rank.where, DATED_IN_GALLERY].join(" AND ")}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1)`;
   });
@@ -976,9 +1073,9 @@ async function getColorCoverage(): Promise<ColorOverview["coverage"]> {
   const counts = await query<{ measured: number; photos: number }>(`
     SELECT
       (SELECT COUNT(*) FROM photo_colors pc JOIN photos p ON p.id = pc.photo_id
-       WHERE ${DATED})::int AS measured,
+       WHERE ${DATED_IN_GALLERY})::int AS measured,
       (SELECT COUNT(*) FROM photos p
-       WHERE p.mime_type LIKE 'image/%' AND ${DATED})::int AS photos
+       WHERE p.mime_type LIKE 'image/%' AND ${DATED_IN_GALLERY})::int AS photos
   `);
   return requireRow(counts, "Color coverage");
 }
@@ -995,7 +1092,7 @@ export interface PhotoColors {
   model: string;
 }
 
-/** A photo's measured colors; null until the worker has measured it. */
+/** A photo's measured colors; null until the worker has measured it, or out of the gallery. */
 export async function getPhotoColors(
   photoId: number,
 ): Promise<PhotoColors | null> {
@@ -1012,7 +1109,8 @@ export async function getPhotoColors(
   }>(
     `SELECT hues, palette_hex, palette_share, colorfulness, chroma, luminance,
             monochrome, center_sigma, model
-     FROM photo_colors WHERE photo_id = $1`,
+     FROM photo_colors pc JOIN photos p ON p.id = pc.photo_id
+     WHERE pc.photo_id = $1 ${andInGallery()}`,
     [photoId],
   );
   const row = result.rows[0];
@@ -1119,24 +1217,33 @@ export async function searchFolders(
   };
 }
 
-/** Photos whose filename or folder path matches, as (id, folder_id, filename) */
+/** Photos whose filename or folder path matches, as (id, folder_id, filename, s3_key) */
 const PHOTO_HITS = `hits AS (
-  SELECT p.id, p.folder_id, p.filename FROM photos p
+  SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
   WHERE p.folder_id IN (
     SELECT f.id FROM folders f WHERE ${containsSql("f.path", "$1")}
   )
   UNION
-  SELECT p.id, p.folder_id, p.filename FROM photos p
+  SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
   WHERE ${containsSql("p.filename", "$1")}
 )`;
+
+/**
+ * Name matches passing the color filter (hits h), null without one: names
+ * find every photo, colors only those of the gallery.
+ */
+function hitColorsSql(params: unknown[], colors: ColorFilter): string | null {
+  const sql = colorFilterSql(params, colors, "h.id");
+  return sql ? `${sql} AND NOT ${outOfGallery("h.s3_key")}` : null;
+}
 
 export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
 
 /**
  * Photos whose filename or folder path matches, folder by folder (path, then
  * filename); keyset-paginated on (folder path, filename, id); only those
- * passing the color filter when given. The page is picked on narrow rows
- * and only its photos are read in full.
+ * passing the color filter when given (hitColorsSql). The page is picked on
+ * narrow rows and only its photos are read in full.
  */
 export async function searchPhotos(
   q: string,
@@ -1150,7 +1257,7 @@ export async function searchPhotos(
     params.push(after.folderPath, after.filename, after.id);
     where.push("(f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)");
   }
-  const colorWhere = colorFilterSql(params, colors, "h.id");
+  const colorWhere = hitColorsSql(params, colors);
   if (colorWhere) where.push(colorWhere);
   const result = await query<
     DatabasePhoto & { folder_name: string; folder_path: string }
@@ -1195,7 +1302,7 @@ export async function countSearchMatches(
   colors: ColorFilter = NO_COLOR_FILTER,
 ): Promise<{ photos: number; folders: number }> {
   const params: unknown[] = [searchTerms(q).like];
-  const colorWhere = colorFilterSql(params, colors, "h.id");
+  const colorWhere = hitColorsSql(params, colors);
   const result = await query<{ photos: number; folders: number }>(
     `WITH ${PHOTO_HITS}
      SELECT
@@ -1283,9 +1390,10 @@ export type ScoredPhoto = SearchPhoto & {
 const SEMANTIC_MIN_WINDOW = 100;
 
 /**
- * Photos nearest to the query embedding, most similar first, among those
- * passing `filter`; with `cut`, only down to SEMANTIC_MARGIN below the
- * SEMANTIC_REFERENCE_RANK-th one (never under SEMANTIC_MIN_SIMILARITY);
+ * Photos of the gallery nearest to the query embedding, most similar
+ * first, among those passing `filter`; with `cut`, only down to
+ * SEMANTIC_MARGIN below the SEMANTIC_REFERENCE_RANK-th one (never under
+ * SEMANTIC_MIN_SIMILARITY);
  * offset-paginated (the ranking exists only for this query). One query
  * shape whatever the filter: the planner picks the plan from its estimates,
  * and on the library (EXPLAIN ANALYZE, 2026-10-18) its pick was the faster
@@ -1311,9 +1419,9 @@ export async function searchPhotosByContent(
     params.push(value);
     return `$${params.length}`;
   };
-  const dated = andDateFilter(params, filter.dates);
   const narrow = [
-    dated,
+    andInGallery(),
+    andDateFilter(params, filter.dates),
     andColorFilter(params, filter.colors, "e.photo_id"),
     andPeopleFilter(params, filter.people, "e.photo_id"),
   ].join("\n");
@@ -1344,7 +1452,7 @@ export async function searchPhotosByContent(
       `WITH nearest AS (
          SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
          FROM photo_embeddings e
-         ${dated === "" ? "" : "JOIN photos p ON p.id = e.photo_id"}
+         JOIN photos p ON p.id = e.photo_id
          WHERE e.model = $2
            ${narrow}
          ORDER BY e.embedding <=> $1::halfvec
@@ -1801,8 +1909,8 @@ export interface TimelineCursor {
 export type TimelinePhoto = Photo & { folder_path: string };
 
 /**
- * Photos with a date_taken, newest first, keyset-paginated on (date_taken, id);
- * only those passing `filter` when given.
+ * Photos of the gallery with a date_taken, newest first, keyset-paginated
+ * on (date_taken, id); only those passing `filter` when given.
  * Uses idx_photos_date_taken (db/schema.sql).
  */
 export async function getTimelinePhotos(
@@ -1818,6 +1926,7 @@ export async function getTimelinePhotos(
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
   const narrow = [
+    andInGallery(),
     andColorFilter(params, filter.colors),
     andDateFilter(params, filter.dates),
     andPeopleFilter(params, filter.people),
@@ -1845,7 +1954,7 @@ export async function getTimelinePhotos(
 
 export interface TimelineSummary {
   months: { month: string; count: number }[];
-  /** Every row of photos (images and videos), dated or not */
+  /** Every photo (images and videos) of the gallery, dated or not */
   total_photos: number;
 }
 
@@ -1866,6 +1975,7 @@ export async function getTimelineSummary(
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
+        ${andInGallery()}
         ${colorFilter}
         ${personFilter}
       GROUP BY 1
@@ -1874,7 +1984,7 @@ export async function getTimelineSummary(
       params,
     ),
     query<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalFilter}`,
+      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${andInGallery()} ${totalFilter}`,
       totalParams,
     ),
   ]);
@@ -1889,10 +1999,11 @@ const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
 const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
 
 /**
- * WHERE clause for photos on the map, within the period, the box and the
- * color filter when given; values go to `params`. Months and days compare
- * as text against the ISO date_taken, like the timeline's months, so
- * idx_photos_date_taken serves them: `to` stops before the day after it.
+ * WHERE clause for photos of the gallery on the map, within the period, the
+ * box and the color filter when given; values go to `params`. Months and
+ * days compare as text against the ISO date_taken, like the timeline's
+ * months, so idx_photos_date_taken serves them: `to` stops before the day
+ * after it.
  */
 function mapFilter(
   params: unknown[],
@@ -1904,7 +2015,7 @@ function mapFilter(
     params.push(value);
     return `$${params.length}`;
   };
-  const where = [ON_MAP];
+  const where = [ON_MAP, `NOT ${outOfGallery("p.s3_key")}`];
   if (period.from)
     where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
   if (period.to)

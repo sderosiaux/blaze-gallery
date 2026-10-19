@@ -1,7 +1,9 @@
-"""Puts photos in the analysis queue. Only images (mime image/*), newest years first.
+"""Puts photos in the analysis queue. Only images (mime image/*) of the gallery, newest years first.
 
-Re-running is harmless: a (photo, task) pair already queued or done is left
-as it is.
+Photos in folders out of the gallery (gallery.py) are never queued, even
+by id. Re-running is harmless: a (photo, task) pair already queued or done
+is left as it is, except a job closed because its folder was out of the
+gallery, which --all queues again once the folder is back.
 """
 
 from __future__ import annotations
@@ -9,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from psycopg import Connection
+
+from .gallery import EXCLUDED_NOTE, out_of_gallery
 
 # Year taken, 0 when unknown: the queue serves recent years first
 _PRIORITY = """
@@ -18,6 +22,17 @@ CASE WHEN p.metadata ->> 'date_taken' ~ '^[0-9]{4}'
 
 # Explicitly requested photos go before any year
 PINNED_PRIORITY = 100_000
+
+# Images of the gallery (photos p)
+_WANTED = f"p.mime_type LIKE 'image/%%' AND NOT {out_of_gallery()}"
+
+# A job queued anew: nothing of the previous runs is kept
+_RESET = """
+status = 'queued', priority = EXCLUDED.priority, attempts = 0,
+lease_owner = NULL, lease_expires_at = NULL, not_before = NULL,
+last_error = NULL, model = NULL, stats = NULL,
+started_at = NULL, finished_at = NULL, updated_at = now()
+"""
 
 # A spread of what the library holds, for measuring before running it all
 _SAMPLE_STRATA: tuple[tuple[str, str, int], ...] = (
@@ -36,28 +51,31 @@ _SAMPLE_STRATA: tuple[tuple[str, str, int], ...] = (
 
 
 def enqueue_all(conn: Connection, task: str) -> int:
+    """Every image of the gallery not queued yet; returns how many were queued."""
     with conn.transaction():
         cursor = conn.execute(
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %s, {_PRIORITY} FROM photos p
-            WHERE p.mime_type LIKE 'image/%%'
-            ON CONFLICT (photo_id, task) DO NOTHING
+            WHERE {_WANTED}
+            ON CONFLICT (photo_id, task) DO UPDATE SET {_RESET}
+              WHERE analysis_jobs.last_error = %s
+                AND analysis_jobs.status IN ('skipped', 'done')
             """,
-            (task,),
+            (task, EXCLUDED_NOTE),
         )
     return cursor.rowcount
 
 
 def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool) -> int:
-    """Given photos (images only); pinned ones jump the queue, even if already queued."""
+    """Given photos (images of the gallery only); pinned ones jump the queue, even if queued."""
     priority = str(PINNED_PRIORITY) if pinned else _PRIORITY
     with conn.transaction():
         cursor = conn.execute(
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %s, {priority} FROM photos p
-            WHERE p.id = ANY(%s) AND p.mime_type LIKE 'image/%%'
+            WHERE p.id = ANY(%s) AND {_WANTED}
             ON CONFLICT (photo_id, task) DO UPDATE SET priority = EXCLUDED.priority
               WHERE analysis_jobs.status = 'queued' AND %s
             """,
@@ -69,7 +87,7 @@ def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: b
 def enqueue_again(conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool) -> int:
     """Given photos, queued anew even when done or failed (a new model or prompt).
 
-    A job under lease is left to its worker.
+    Images of the gallery only. A job under lease is left to its worker.
     """
     priority = str(PINNED_PRIORITY) if pinned else _PRIORITY
     with conn.transaction():
@@ -77,12 +95,8 @@ def enqueue_again(conn: Connection, task: str, photo_ids: Sequence[int], pinned:
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %s, {priority} FROM photos p
-            WHERE p.id = ANY(%s) AND p.mime_type LIKE 'image/%%'
-            ON CONFLICT (photo_id, task) DO UPDATE SET
-              status = 'queued', priority = EXCLUDED.priority, attempts = 0,
-              lease_owner = NULL, lease_expires_at = NULL, not_before = NULL,
-              last_error = NULL, model = NULL, stats = NULL,
-              started_at = NULL, finished_at = NULL, updated_at = now()
+            WHERE p.id = ANY(%s) AND {_WANTED}
+            ON CONFLICT (photo_id, task) DO UPDATE SET {_RESET}
               WHERE analysis_jobs.status <> 'leased'
             """,
             (task, list(photo_ids)),
@@ -100,6 +114,7 @@ def sample_ids(conn: Connection, size: int, exclude: Sequence[int], seed: str) -
             f"""
             SELECT p.id FROM photos p
             WHERE {condition.format(year=_PRIORITY)} AND NOT (p.id = ANY(%s))
+              AND NOT {out_of_gallery()}
             ORDER BY md5(p.id::text || %s)
             LIMIT %s
             """,

@@ -17,6 +17,10 @@ only after an upload. A photo whose thumbnail is already generated at the
 key the app expects keeps it (its colors are still measured); a rendition
 already stored at its key is kept too.
 
+A photo out of the gallery (gallery.py) still gets its thumbnail and
+rendition, the Bibliothèque shows it, but no colors: its job is done with
+EXCLUDED_NOTE, or skipped before any download when both are there already.
+
 The owner can turn a photo while it is being processed (the app then clears
 thumbnail_path and deletes the object): when a thumbnail or a rendition was
 uploaded, the write checks user_rotation again under a row lock, and when it
@@ -38,7 +42,8 @@ from psycopg_pool import ConnectionPool
 from . import colors as color_analysis
 from . import display as rendition
 from . import jobs
-from .decode import Reader
+from .decode import Reader, Unsupported
+from .gallery import EXCLUDED_NOTE
 from .store import LeaseLost
 from .thumbnail import Source, encode, load_source, render, user_rotation
 from .thumbstore import ThumbnailStore
@@ -134,6 +139,9 @@ class ThumbsLoader:
             if rendition.applies(job.s3_key, job.mime_type):
                 display_path = self.store.display_path_for(job.s3_key, job.photo_id, state.rotation)
                 display = "kept" if self.store.exists(display_path) else "upload"
+        if job.excluded and not upload and display != "upload":
+            # Out of the gallery: colors are all the original would give
+            raise Unsupported(EXCLUDED_NOTE)
         original = load_source(
             reader,
             job.s3_key,
@@ -169,7 +177,7 @@ def save_thumbs(
     conn: Connection,
     owner: str,
     job: jobs.Job,
-    found: color_analysis.Colors,
+    found: color_analysis.Colors | None,
     sigma: float,
     thumbnail_path: str | None,
     rotation: int,
@@ -178,6 +186,7 @@ def save_thumbs(
 ) -> None:
     """Colors, the thumbnail pointer and the job, in one transaction.
 
+    found: None for a photo out of the gallery (no colors measured).
     thumbnail_path: set when a thumbnail was uploaded for this rotation.
     rendition_uploaded: a display rendition was uploaded for this rotation.
     Raises LeaseLost (the job is someone else's now) or RotationChanged.
@@ -189,23 +198,25 @@ def save_thumbs(
             ).fetchone()
             if row is None or user_rotation(row[0]) != rotation:
                 raise RotationChanged(job.photo_id)
-        if not jobs.complete(conn, owner, job.id, JOB_MODEL, stats):
+        note = EXCLUDED_NOTE if found is None else None
+        if not jobs.complete(conn, owner, job.id, JOB_MODEL, stats, note=note):
             raise LeaseLost(job.id)
-        conn.execute(
-            _UPSERT_COLORS,
-            (
-                job.photo_id,
-                list(found.hues),
-                list(found.palette_hex),
-                list(found.palette_share),
-                found.colorfulness,
-                found.chroma,
-                found.luminance,
-                found.monochrome,
-                sigma,
-                color_analysis.MODEL,
-            ),
-        )
+        if found is not None:
+            conn.execute(
+                _UPSERT_COLORS,
+                (
+                    job.photo_id,
+                    list(found.hues),
+                    list(found.palette_hex),
+                    list(found.palette_share),
+                    found.colorfulness,
+                    found.chroma,
+                    found.luminance,
+                    found.monochrome,
+                    sigma,
+                    color_analysis.MODEL,
+                ),
+            )
         if thumbnail_path is not None:
             conn.execute(
                 "UPDATE photos SET thumbnail_path = %s, thumbnail_status = 'generated' "
@@ -216,7 +227,8 @@ def save_thumbs(
 
 @dataclass(frozen=True)
 class ThumbsResult:
-    found: color_analysis.Colors
+    # None: out of the gallery, not measured
+    found: color_analysis.Colors | None
     sigma: float
     # Set when a thumbnail was uploaded
     path: str | None
@@ -254,11 +266,11 @@ class ThumbsResult:
                 else {}
             ),
             "user_rotation": self.rotation,
-            "chroma_p95": self.found.chroma_p95,
+            **({"chroma_p95": self.found.chroma_p95} if self.found is not None else {}),
         }
 
     def save(self, conn: Any, owner: str, job: jobs.Job, stats: dict[str, Any]) -> int:
-        """Rows written: the colors, plus the photo's thumbnail pointer when uploaded."""
+        """Rows written: the colors (none out of the gallery), the thumbnail pointer if uploaded."""
         try:
             save_thumbs(
                 conn,
@@ -275,7 +287,7 @@ class ThumbsResult:
             status = jobs.fail(conn, owner, job.id, "user_rotation changed", permanent=False)
             log.info("job %s photo %s: turned meanwhile, %s", job.id, job.photo_id, status)
             return 0
-        return 2 if self.path else 1
+        return (self.found is not None) + (self.path is not None)
 
 
 class ThumbsAnalyzer:
@@ -291,7 +303,7 @@ class ThumbsAnalyzer:
         image = render(picture.original, rotation)
         data = encode(image) if picture.upload else None
         rendered = time.perf_counter()
-        found = color_analysis.analyze(image, sigma=self.sigma)
+        found = None if job.excluded else color_analysis.analyze(image, sigma=self.sigma)
         measured = time.perf_counter()
         display = display_data = None
         if picture.display == "upload":

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Gauge,
   Heart,
+  ImageOff,
   Library,
   MapIcon,
   Menu,
@@ -95,6 +96,12 @@ const ADMIN_NAV: NavLinkItem[] = [
     label: "Audit stockage",
     icon: Gauge,
     match: (p) => p.startsWith("/audit"),
+  },
+  {
+    href: "/admin/hors-galerie",
+    label: "Hors galerie",
+    icon: ImageOff,
+    match: (p) => p.startsWith("/admin/hors-galerie"),
   },
 ];
 

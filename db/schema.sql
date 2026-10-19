@@ -549,3 +549,32 @@ CREATE TABLE IF NOT EXISTS search_query_embeddings (
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Folders the owner marked « pas une galerie photo »: storage only (books,
+-- game sprites, album art). Each row covers the folder and everything below
+-- it. Their photos stay browsable in Bibliothèque and findable by folder or
+-- file name; everywhere else (timeline, map, colors, content search,
+-- people, random picks) and in every worker task but thumbnails, they count
+-- as absent. Nothing derived from them is deleted: faces, colors,
+-- embeddings and descriptions stay, filtered out, and come back when the
+-- row goes.
+-- path: a folders.path, no leading or trailing slash, never the root.
+-- key_like: the LIKE pattern of the keys below it, path's own wildcards
+-- escaped. The one rule, for photos and folders alike: a photo is out when
+--   p.s3_key LIKE ANY (ARRAY(SELECT key_like FROM excluded_folders))
+-- and a folder when (f.path || '/') does (src/lib/database.ts
+-- outOfGallery, worker/src/blaze_worker/gallery.py). "music" covers
+-- music/... but not musique/ nor music-old/. A per-row filter, not an index
+-- lookup: every list keeps its plan. With books, music and stepmania marked
+-- (EXPLAIN ANALYZE, 2026-10-19), a page of the timeline or of Couleurs
+-- costs the same, a scan of every photo (the timeline's months) ~13% more.
+-- The ids of every folder below them (a range on folders.path) cost ~6 ms
+-- per query to gather, and turned the Couleurs page into a 2 s plan.
+CREATE TABLE IF NOT EXISTS excluded_folders (
+  path text PRIMARY KEY
+    CHECK (path <> '' AND left(path, 1) <> '/' AND right(path, 1) <> '/'),
+  key_like text GENERATED ALWAYS AS (
+    replace(replace(replace(path, '\', '\\'), '%', '\%'), '_', '\_') || '/%'
+  ) STORED,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

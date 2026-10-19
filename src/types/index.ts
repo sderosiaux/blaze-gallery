@@ -29,6 +29,8 @@ export interface Folder {
    * Listings only; absent while none of its photos has measured colors.
    */
   palette?: { hex: string; share: number }[];
+  /** Listings only: it or a folder above it is marked « pas une galerie photo » */
+  excluded?: boolean;
 }
 
 export interface Photo {

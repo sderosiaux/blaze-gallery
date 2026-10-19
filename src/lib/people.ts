@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import type { Photo, PhotoMetadata } from "@/types";
-import { query, runTransaction } from "./database";
+import { andInGallery, query, runTransaction } from "./database";
 import {
   asFaceBox,
   faceCropUrl,
@@ -26,7 +26,9 @@ import { userRotation } from "./rotation";
  * face_candidates) are the worker's too (worker/blaze_worker/people_store.py):
  * faces.person_id + assignment say who a face is; face_candidates is the
  * review queue and remembers each decision, so a face the owner turned down
- * is never proposed again for that person.
+ * is never proposed again for that person. A face on a photo out of the
+ * gallery (excluded_folders) is left out of all of it: kept, never shown,
+ * never a reference.
  */
 
 /** A request the database contradicts: the route answers with its status. */
@@ -58,6 +60,9 @@ export interface PersonSummary extends PersonRow {
 /** A proposal still worth showing: its face became nobody else's meanwhile (f = faces). */
 const STILL_OPEN = `(f.assignment IS NULL OR f.assignment = 'rejected')`;
 
+/** The face's photo (ph = photos) is in the gallery. */
+const GALLERY = andInGallery("ph.s3_key");
+
 const PERSON_COLUMNS =
   "p.id::int AS id, p.name, p.birth_date::text AS birth_date";
 
@@ -69,8 +74,10 @@ const PERSON_COLUMNS =
  * 92nd and 101st of 117, Céline's sunglasses 31st and 36th of 41).
  */
 const VALIDATED_FACES = `validated AS MATERIALIZED (
-    SELECT id, person_id, embedding FROM faces
-    WHERE person_id IS NOT NULL AND assignment IN ('seed', 'manual')
+    SELECT f.id, f.person_id, f.embedding FROM faces f
+    JOIN photos ph ON ph.id = f.photo_id
+    WHERE f.person_id IS NOT NULL AND f.assignment IN ('seed', 'manual')
+      ${GALLERY}
   ),
   typical AS MATERIALIZED (
     SELECT v.id, percent_rank() OVER (PARTITION BY v.person_id
@@ -104,22 +111,26 @@ export async function listPeople(): Promise<PersonSummary[]> {
     SELECT ${PERSON_COLUMNS},
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM faces f
         JOIN photos ph ON ph.id = f.photo_id
-        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS photo_count,
+        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
+          ${GALLERY}) AS photo_count,
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
         JOIN faces f ON f.id = c.face_id JOIN photos ph ON ph.id = f.photo_id
-        WHERE c.person_id = p.id AND c.status = 'pending' AND ${STILL_OPEN}) AS pending_count,
+        WHERE c.person_id = p.id AND c.status = 'pending' AND ${STILL_OPEN}
+          ${GALLERY}) AS pending_count,
       coalesce(
         (SELECT f.id::int FROM typical t JOIN faces f ON f.id = t.id
           JOIN photos ph ON ph.id = f.photo_id
           WHERE f.person_id = p.id
           ORDER BY ${coverOrder("t.typical")} LIMIT 1),
         (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
-          WHERE f.person_id = p.id AND f.assignment = 'auto'
+          WHERE f.person_id = p.id AND f.assignment = 'auto' ${GALLERY}
           ORDER BY ${coverOrder(null)} LIMIT 1)) AS cover_face_id,
       (SELECT min(ph.metadata ->> 'date_taken') FROM faces f JOIN photos ph ON ph.id = f.photo_id
-        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS first_taken,
+        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
+          ${GALLERY}) AS first_taken,
       (SELECT max(ph.metadata ->> 'date_taken') FROM faces f JOIN photos ph ON ph.id = f.photo_id
-        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS last_taken
+        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
+          ${GALLERY}) AS last_taken
     FROM people p
     WHERE p.name IS NOT NULL
     ORDER BY photo_count DESC, lower(p.name)
@@ -326,6 +337,7 @@ export async function personPhotos(personId: number): Promise<PersonPhoto[]> {
     LEFT JOIN folders fo ON fo.id = ph.folder_id
     LEFT JOIN face_candidates c ON c.person_id = f.person_id AND c.face_id = f.id
     WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
+      ${GALLERY}
     ORDER BY fo.path, ph.id
     `,
     [personId],
@@ -385,7 +397,7 @@ export async function pendingCandidates(
       JOIN faces f ON f.id = c.face_id
       JOIN photos ph ON ph.id = f.photo_id
       LEFT JOIN folders fo ON fo.id = ph.folder_id
-      WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN}
+      WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN} ${GALLERY}
       ORDER BY c.similarity DESC NULLS LAST, c.face_id
       LIMIT $2
       `,
@@ -396,7 +408,7 @@ export async function pendingCandidates(
        FROM face_candidates c
        JOIN faces f ON f.id = c.face_id
        JOIN photos ph ON ph.id = f.photo_id
-       WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN}`,
+       WHERE c.person_id = $1 AND c.status = 'pending' AND ${STILL_OPEN} ${GALLERY}`,
       [personId],
     ),
   ]);
@@ -699,8 +711,10 @@ const NEIGHBOURS_SQL = `
     CROSS JOIN LATERAL (
       SELECT f.id, f.photo_id, f.embedding, f.embedding <=> r.embedding AS distance
       FROM faces f
+      JOIN photos ph ON ph.id = f.photo_id
       WHERE f.model = r.model
         AND (f.assignment IS NULL OR (f.assignment = 'rejected' AND f.person_id <> $2))
+        ${GALLERY}
       ORDER BY f.embedding <=> r.embedding
       LIMIT $3
     ) n
@@ -713,6 +727,7 @@ const NEIGHBOURS_SQL = `
     LEFT JOIN folders fo ON fo.id = ph.folder_id
     WHERE j.id IN (SELECT face_id FROM face_candidates
                    WHERE person_id = $2 AND status = 'rejected')
+      ${GALLERY}
   )
   SELECT n.reference_id::int AS reference_id, n.id::int AS face_id,
     1 - n.distance AS similarity,
@@ -733,6 +748,7 @@ const NEIGHBOURS_SQL = `
     AND NOT EXISTS (
       SELECT 1 FROM photos cp JOIN faces o ON o.photo_id = cp.id
       WHERE cp.filename = ph.filename AND cp.size = ph.size AND o.id <> n.id
+        ${andInGallery("cp.s3_key")}
         AND ((o.person_id = $2 AND o.assignment IN ('seed', 'manual', 'auto'))
           OR EXISTS (SELECT 1 FROM face_candidates oc
                      WHERE oc.person_id = $2 AND oc.face_id = o.id AND oc.status = 'pending')))
@@ -791,7 +807,7 @@ export async function proposeLookalikesWith(
      JOIN photos ph ON ph.id = f.photo_id
      LEFT JOIN folders fo ON fo.id = ph.folder_id
      WHERE f.id = ANY($1::bigint[]) AND f.person_id = $2
-       AND f.assignment IN ('seed', 'manual', 'auto')
+       AND f.assignment IN ('seed', 'manual', 'auto') ${GALLERY}
      ORDER BY f.id`,
     [faceIds, personId],
   );
@@ -874,8 +890,9 @@ export interface PhotoFace extends FaceDetail {
 export async function photoFaceRows(photoIds: number[]): Promise<FaceRow[]> {
   const result = await query<FaceRow>(
     `SELECT ${FACE_COLUMNS}
-     FROM faces f LEFT JOIN people pe ON pe.id = f.person_id
-     WHERE f.photo_id = ANY($1::bigint[])
+     FROM faces f JOIN photos ph ON ph.id = f.photo_id
+     LEFT JOIN people pe ON pe.id = f.person_id
+     WHERE f.photo_id = ANY($1::bigint[]) ${GALLERY}
      ORDER BY f.photo_id, f.box[1], f.id`,
     [photoIds],
   );

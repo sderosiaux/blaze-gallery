@@ -21,6 +21,8 @@ from typing import Any
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
+from .gallery import out_of_gallery
+
 # Retry delay after the n-th failed attempt: 1 min, 4 min, 16 min...
 BACKOFF_BASE_SECONDS = 60
 
@@ -39,6 +41,8 @@ class Job:
     # Clockwise turn the faces task needed to find faces on this photo (0 when
     # upright or not analysed): a photo stored on its side without EXIF orientation
     faces_rotation: int = 0
+    # Its folder is out of the gallery (gallery.py): only thumbs has work on it
+    excluded: bool = False
 
 
 def requeue_expired(conn: Connection) -> tuple[int, int]:
@@ -102,13 +106,14 @@ def claim(
                       p.s3_key, p.mime_type, p.size, p.metadata,
                       coalesce((SELECT f.detect_rotation FROM faces f
                                 WHERE f.photo_id = p.id LIMIT 1), 0),
+                      {out_of_gallery()},
                       j.priority
             """,
             {"tasks": list(tasks), "limit": limit, "owner": owner, "lease": lease_seconds},
         ).fetchall()
     # RETURNING does not keep the ORDER BY of the CTE
-    rows.sort(key=lambda r: (-r[10], r[0]))
-    return [Job(*row[:10]) for row in rows]
+    rows.sort(key=lambda r: (-r[11], r[0]))
+    return [Job(*row[:11]) for row in rows]
 
 
 def renew(conn: Connection, owner: str, job_ids: Sequence[int], lease_seconds: int) -> set[int]:

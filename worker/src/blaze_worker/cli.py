@@ -249,6 +249,9 @@ def run_worker() -> None:
     )
     load = None
     ready_sql = None
+    # Photos out of the gallery still get thumbnails (the Bibliothèque shows
+    # them); no other task, nor --colors-only, has work on them
+    analyze_excluded = args.task == "thumbs" and not args.colors_only
     if args.task == "thumbs":
         analyzers, load = _thumbs_task(args, env, pool)
     elif args.task == "embed":
@@ -275,6 +278,7 @@ def run_worker() -> None:
         wait_seconds=args.wait,
         ready_sql=ready_sql,
         follow=args.follow,
+        analyze_excluded=analyze_excluded,
     )
     originals = Originals(storage_settings(env), args.fetchers + 2)
     worker = Worker(options, pool, originals, analyzers, load)

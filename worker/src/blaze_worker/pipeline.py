@@ -30,6 +30,7 @@ from psycopg_pool import ConnectionPool
 
 from . import jobs
 from .decode import Picture, Reader, Undecodable, Unsupported, load_picture
+from .gallery import EXCLUDED_NOTE
 from .store import LeaseLost
 
 log = logging.getLogger("blaze_worker")
@@ -99,6 +100,9 @@ class Options:
     # with nothing to claim, wait while it is still making progress
     follow: str | None = None
     follow_poll_seconds: float = 60.0
+    # The task still has work on photos out of the gallery (thumbs: their
+    # thumbnails); else their jobs close as skipped before any download
+    analyze_excluded: bool = False
 
 
 @dataclass
@@ -221,21 +225,26 @@ class Worker:
 
         self._close(job, write)
 
+    def _skip(self, job: jobs.Job, reason: str) -> None:
+        self.counters.add(skipped=1)
+        self._close(
+            job,
+            lambda conn: jobs.complete(
+                conn, self.options.owner, job.id, None, {}, status="skipped", note=reason
+            ),
+        )
+
     def _fetch(self, job: jobs.Job) -> None:
         if self._abort.is_set():
             self._release(job)
             return
+        if job.excluded and not self.options.analyze_excluded:
+            self._skip(job, EXCLUDED_NOTE)
+            return
         try:
             picture = self.load(self.originals, job)
         except Unsupported as error:
-            self.counters.add(skipped=1)
-            reason = str(error)
-            self._close(
-                job,
-                lambda conn: jobs.complete(
-                    conn, self.options.owner, job.id, None, {}, status="skipped", note=reason
-                ),
-            )
+            self._skip(job, str(error))
             return
         except Undecodable as error:
             self._fail(job, f"undecodable: {error}", permanent=True)

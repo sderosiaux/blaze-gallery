@@ -6,6 +6,8 @@ export interface AlbumData {
   folder: Folder;
   subfolders: Folder[];
   photos: Photo[];
+  /** The marked folder that puts this one out of the gallery (itself or a parent); null in the gallery */
+  exclusion?: { path: string } | null;
 }
 
 export type LoadResult<T> =
