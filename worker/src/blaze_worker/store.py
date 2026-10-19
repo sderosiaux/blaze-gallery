@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from pgvector import HalfVector
@@ -28,6 +29,32 @@ INSERT INTO faces (
   %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
 )
 """
+
+# faces_extra: a detection overlapping a stored face this much is that face
+OVERLAP_IOU = 0.3
+
+
+def _values(photo_id: int, face: DetectedFace, embedding_model: str) -> tuple[Any, ...]:
+    return (
+        photo_id,
+        list(face.box),
+        list(face.landmarks),
+        face.detect_rotation,
+        face.det_score,
+        face.width_px,
+        face.height_px,
+        face.sharpness,
+        face.yaw,
+        face.pitch,
+        face.roll,
+        face.eye_left_open,
+        face.eye_right_open,
+        face.mouth_open,
+        face.expression,
+        list(face.expression_scores),
+        HalfVector(face.embedding),
+        embedding_model,
+    )
 
 
 def save_faces(
@@ -65,32 +92,65 @@ def save_faces(
         if faces:
             with conn.cursor() as cursor:
                 cursor.executemany(
-                    _INSERT,
-                    [
-                        (
-                            job.photo_id,
-                            list(face.box),
-                            list(face.landmarks),
-                            face.detect_rotation,
-                            face.det_score,
-                            face.width_px,
-                            face.height_px,
-                            face.sharpness,
-                            face.yaw,
-                            face.pitch,
-                            face.roll,
-                            face.eye_left_open,
-                            face.eye_right_open,
-                            face.mouth_open,
-                            face.expression,
-                            list(face.expression_scores),
-                            HalfVector(face.embedding),
-                            embedding_model,
-                        )
-                        for face in faces
-                    ],
+                    _INSERT, [_values(job.photo_id, face, embedding_model) for face in faces]
                 )
     return written
+
+
+def overlap(a: Sequence[float], b: Sequence[float]) -> float:
+    """Intersection over union of two [x, y, w, h] boxes."""
+    width = min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0])
+    height = min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])
+    if width <= 0 or height <= 0:
+        return 0.0
+    shared = width * height
+    return shared / (a[2] * a[3] + b[2] * b[3] - shared)
+
+
+def add_faces(
+    conn: Connection,
+    owner: str,
+    job: jobs.Job,
+    job_model: str,
+    embedding_model: str,
+    faces: list[DetectedFace],
+    stats: dict[str, Any],
+) -> int:
+    """Adds the faces no stored face of the photo overlaps; returns how many.
+
+    The faces_extra pass: a second look at photos the faces task has done,
+    with a more sensitive detector. It never updates or deletes a faces row,
+    so whatever the owner decided (person_id, assignment, face_candidates)
+    stays as it is. A detection whose box overlaps a stored face's (any
+    model, IoU >= OVERLAP_IOU) is that face found again and is dropped. Both
+    boxes are in the displayed orientation whatever their detect_rotation,
+    and IoU does not change with the photo's aspect ratio, so fractions
+    compare as they are. The ids added go in the job's stats: what to delete
+    to undo the pass.
+    """
+    with conn.transaction():
+        stored = [
+            box
+            for (box,) in conn.execute(
+                "SELECT box FROM faces WHERE photo_id = %s", (job.photo_id,)
+            ).fetchall()
+        ]
+        new = [f for f in faces if all(overlap(f.box, box) < OVERLAP_IOU for box in stored)]
+        added = [
+            conn.execute(
+                _INSERT + " RETURNING id", _values(job.photo_id, face, embedding_model)
+            ).fetchone()[0]
+            for face in new
+        ]
+        result = {
+            **stats,
+            "faces_added": len(added),
+            "faces_skipped_overlap": len(faces) - len(added),
+            "added_ids": added,
+        }
+        if not jobs.complete(conn, owner, job.id, job_model, result):
+            raise LeaseLost(job.id)
+    return len(added)
 
 
 def save_description(

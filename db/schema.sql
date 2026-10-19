@@ -257,7 +257,10 @@ CREATE TABLE IF NOT EXISTS people (
 -- One row per face worth keeping (det_score >= 0.7 and a box side >= 25 px
 -- in the 1024 px rendition the detector sees). A photo with no such face has
 -- no row here; its analysis_jobs row (task 'faces', status 'done') says it
--- was looked at.
+-- was looked at. A 'faces_extra' job (worker/, on chosen photos) looked again
+-- with a lower floor (det_score >= 0.5 by default, 25 px in a 2048 px
+-- rendition) and only added faces that overlap none stored; the ids it added
+-- are in its stats.added_ids.
 --
 -- Geometry. box = [x, y, w, h] and landmarks = [x1, y1, ... x5, y5] (the two
 -- eyes, nose tip, two mouth corners) are fractions of the image in its

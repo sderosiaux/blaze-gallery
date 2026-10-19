@@ -53,8 +53,20 @@ def _connect(url: str) -> psycopg.Connection:
 
 
 # Per task: inference threads, download/decode threads, rendition long side
+# (faces: detector input, detection score floor; None is Thresholds' default)
 _DEFAULTS = {
-    "faces": {"concurrency": 2, "fetchers": 8, "max_side": 1024},
+    "faces": {"concurrency": 2, "fetchers": 8, "max_side": 1024, "det_size": 640},
+    # A second, more sensitive look at photos already done, adding faces only
+    # (store.add_faces). The same detector scale as faces (1280 / 2048 = 640 /
+    # 1024): the gain is the lower score floor, and the 25 px floor on the box
+    # side, measured on the rendition, standing for half as many pixels.
+    "faces_extra": {
+        "concurrency": 2,
+        "fetchers": 8,
+        "max_side": 2048,
+        "det_size": 1280,
+        "min_score": 0.5,
+    },
     # One model in GPU memory, a few seconds per photo: two fetchers keep it fed
     "describe": {"concurrency": 1, "fetchers": 2, "max_side": 768},
     # Downloads dominate (tens of ms of CPU per photo): many fetchers, a few
@@ -67,26 +79,32 @@ _DEFAULTS = {
 
 def _faces_analyzers(args: argparse.Namespace) -> list[Any]:
     from .faces import FaceModel, Thresholds, prepare_models, providers_for
-    from .tasks import FacesAnalyzer
+    from .tasks import ExtraFacesAnalyzer, FacesAnalyzer
 
     cores = os.cpu_count() or 4
     threads = args.threads or max(1, cores // args.concurrency)
     providers = providers_for(args.provider)
     files = prepare_models(args.model_root)
+    thresholds = Thresholds() if args.min_score is None else Thresholds(min_score=args.min_score)
     log.info(
-        "faces: providers=%s workers=%d x %d threads, det=%d, model=%s",
+        "%s: providers=%s workers=%d x %d threads, %d px, det=%d, min_score=%.2f, model=%s",
+        args.task,
         providers,
         args.concurrency,
         threads,
+        args.max_side,
         args.det_size,
+        thresholds.min_score,
         files.pipeline_model,
     )
-    return [
-        FacesAnalyzer(
-            FaceModel(files, providers, threads, args.det_size, Thresholds()), files, args.det_size
-        )
-        for _ in range(args.concurrency)
-    ]
+
+    def analyzer() -> Any:
+        model = FaceModel(files, providers, threads, args.det_size, thresholds)
+        if args.task == "faces_extra":
+            return ExtraFacesAnalyzer(model, files, args.det_size, thresholds.min_score)
+        return FacesAnalyzer(model, files, args.det_size)
+
+    return [analyzer() for _ in range(args.concurrency)]
 
 
 def _describe_analyzers(args: argparse.Namespace) -> list[Any]:
@@ -154,7 +172,7 @@ def run_worker() -> None:
     parser.add_argument(
         "--concurrency",
         type=int,
-        help="inference workers (faces: 2; describe: 1, the only choice; thumbs: 4)",
+        help="inference workers (faces, faces_extra: 2; describe: 1, the only choice; thumbs: 4)",
     )
     parser.add_argument("--owner", default=socket.gethostname(), help="name on the leases")
     parser.add_argument(
@@ -162,7 +180,9 @@ def run_worker() -> None:
     )
     parser.add_argument("--writers", type=int, default=4, help="database write threads")
     parser.add_argument(
-        "--max-side", type=int, help="rendition the model sees, px (faces: 1024, describe: 768)"
+        "--max-side",
+        type=int,
+        help="rendition the model sees, px (faces: 1024, faces_extra: 2048, describe: 768)",
     )
     parser.add_argument("--lease", type=int, default=600, help="lease length (s)")
     parser.add_argument(
@@ -176,7 +196,7 @@ def run_worker() -> None:
         metavar="TASK",
         help="with nothing to claim, wait while TASK still runs (embed: --follow thumbs)",
     )
-    faces = parser.add_argument_group("faces")
+    faces = parser.add_argument_group("faces, faces_extra")
     faces.add_argument(
         "--threads",
         type=int,
@@ -184,7 +204,14 @@ def run_worker() -> None:
         help="ONNX threads per worker, faces and embed (0: cores / concurrency)",
     )
     faces.add_argument("--provider", choices=("auto", "cpu", "coreml"), default="auto")
-    faces.add_argument("--det-size", type=int, default=640, help="detector input (px)")
+    faces.add_argument(
+        "--det-size", type=int, help="detector input, px (faces: 640, faces_extra: 1280)"
+    )
+    faces.add_argument(
+        "--min-score",
+        type=float,
+        help="detections scoring less are not stored (faces: 0.7, faces_extra: 0.5)",
+    )
     faces.add_argument("--model-root", default=os.environ.get("BLAZE_MODEL_ROOT", "~/.insightface"))
     describe = parser.add_argument_group("describe")
     describe.add_argument(
@@ -229,6 +256,10 @@ def run_worker() -> None:
         ready_sql = embed_ready_sql(thumbnail_settings(env).prefix)
     else:
         analyzers = (_describe_analyzers if args.task == "describe" else _faces_analyzers)(args)
+        if args.task == "faces_extra":
+            from .tasks import EXTRA_FACES_READY_SQL
+
+            ready_sql = EXTRA_FACES_READY_SQL
     log.info("owner=%s task=%s", args.owner, args.task)
     options = Options(
         owner=args.owner,
@@ -314,7 +345,8 @@ def run_status() -> None:
                                       (stats ->> 'ms_detect')::int + (stats ->> 'ms_rotate')::int
                                       + (stats ->> 'ms_faces')::int))),
                    round(avg((stats ->> 'bytes')::bigint) / 1e6, 2),
-                   round(avg((stats ->> 'faces')::int), 2)
+                   round(avg(coalesce((stats ->> 'faces')::int,
+                                      (stats ->> 'faces_added')::int)), 2)
             FROM analysis_jobs WHERE task = %s
             GROUP BY 1, 2 ORDER BY 1, 2
             """,
