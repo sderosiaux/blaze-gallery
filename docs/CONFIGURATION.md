@@ -62,7 +62,8 @@ the case for the Docker image.
 ## Thumbnails
 
 Thumbnails (400 px) and the viewer's renditions (2048 px) are made from the
-originals on first view, then stored.
+originals on first view, then stored. HEIC photos are the exception: the
+analysis worker makes and stores both (docs/DEPLOYMENT.md).
 
 | Variable | Default | Effect |
 | --- | --- | --- |

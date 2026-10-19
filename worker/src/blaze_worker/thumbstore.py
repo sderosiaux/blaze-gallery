@@ -5,13 +5,15 @@ THUMBNAILS_PATH). Unlike the app, there is no fallback to the originals
 bucket: when the THUMBNAIL_S3_* set is incomplete the app would write next to
 the originals in B2, and the worker refuses to write there.
 
-Writes are thumbnail objects only, under the thumbnail prefix: PutObject
-with the app's Content-Type and Cache-Control.
+Writes are thumbnails under the thumbnail prefix and display renditions
+under its sibling display prefix (display.py), nothing else: PutObject with
+the app's Content-Type and Cache-Control.
 """
 
 from __future__ import annotations
 
 import os
+import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,7 @@ import boto3
 import botocore.session
 from botocore.config import Config
 
+from .display import display_key, display_prefix, local_display_path
 from .thumbnail import (
     CACHE_CONTROL,
     CONTENT_TYPE,
@@ -100,16 +103,30 @@ class ThumbnailStore:
         s = self.settings
         return f"s3://{s.bucket}/{s.prefix}" if s.mode == "s3" else str(s.directory)
 
+    @property
+    def display_location(self) -> str:
+        s = self.settings
+        if s.mode == "s3":
+            return f"s3://{s.bucket}/{display_prefix(s.prefix)}"
+        return posixpath.join(str(s.directory), "display")
+
     def path_for(self, s3_key: str, photo_id: int) -> str:
         """What the app stores in photos.thumbnail_path for this photo."""
         if self.settings.mode == "s3":
             return thumbnail_key(self.settings.prefix, s3_key, photo_id)
         return local_thumbnail_path(str(self.settings.directory), photo_id)
 
+    def display_path_for(self, s3_key: str, photo_id: int, rotation: int) -> str:
+        """Where the app reads this photo's display rendition, turned by hand that far."""
+        if self.settings.mode == "s3":
+            return display_key(self.settings.prefix, s3_key, photo_id, rotation)
+        return local_display_path(str(self.settings.directory), photo_id, rotation)
+
     def put(self, path: str, data: bytes) -> None:
         if self._client is not None:
-            if not path.startswith(self.settings.prefix + "/"):
-                raise ValueError(f"refusing to write outside the thumbnail prefix: {path}")
+            prefixes = (self.settings.prefix + "/", display_prefix(self.settings.prefix) + "/")
+            if not path.startswith(prefixes):
+                raise ValueError(f"refusing to write outside the thumbnail prefixes: {path}")
             self._client.put_object(
                 Bucket=self.settings.bucket,
                 Key=path,
@@ -133,6 +150,18 @@ class ThumbnailStore:
             return response["Body"].read()
         target = Path(path)
         return target.read_bytes() if target.exists() else None
+
+    def exists(self, path: str) -> bool:
+        """Whether an object is stored at path; errors other than not found are raised."""
+        if self._client is None:
+            return Path(path).exists()
+        try:
+            self._client.head_object(Bucket=self.settings.bucket, Key=path)
+        except self._client.exceptions.ClientError as error:
+            if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        return True
 
     def head(self, path: str) -> dict[str, str | int] | None:
         """Content type, cache control and size of a stored thumbnail (s3 only)."""

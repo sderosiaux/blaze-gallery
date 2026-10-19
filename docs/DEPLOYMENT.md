@@ -156,6 +156,12 @@ is ready yet. Each worker stops once its queue is empty, so the
 database can suspend; nothing polls it between runs. Progress:
 `--entrypoint blaze-queue ... --task embed`.
 
+HEIC photos get their thumbnail and the viewer's 2048 px rendition from the
+thumbs worker only: the app can't decode them. Turning one by hand in the
+viewer, or bumping `VERSION` in `src/lib/displayRendition.ts`, leaves it
+without a rendition at its new key until it is queued again: `blaze-enqueue
+--task thumbs --again --ids <ids>`, then `docker start -a blaze-worker-thumbs`.
+
 ## Health check
 
 `GET /api/health` needs no authentication. It runs one database query and

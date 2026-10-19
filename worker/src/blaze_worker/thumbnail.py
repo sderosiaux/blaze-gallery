@@ -34,6 +34,7 @@ import functools
 import io
 import posixpath
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -200,16 +201,21 @@ def _node_basename(path: str, suffix: str) -> str:
     return "" if end == -1 else path[start:end]
 
 
-def thumbnail_key(prefix: str, s3_key: str, photo_id: int) -> str:
-    """getS3ThumbnailKey: {prefix}/{dir}/{base}-{id}.jpeg, normalized like path.posix.join."""
+def mirrored_key(prefix: str, s3_key: str, suffix: str) -> str:
+    """{prefix}/{folder of the original}/{name without extension}-{suffix}, as path.posix.join."""
     original = s3_key.lstrip("/")
     directory = _node_dirname(original)
     base = _node_basename(original, _node_extname(original))
-    segments = [normalize_prefix(prefix)]
+    segments = [prefix]
     if directory and directory != ".":
         segments.append(directory)
-    segments.append(f"{base}-{photo_id}.jpeg")
+    segments.append(f"{base}-{suffix}")
     return posixpath.normpath("/".join(s for s in segments if s))
+
+
+def thumbnail_key(prefix: str, s3_key: str, photo_id: int) -> str:
+    """getS3ThumbnailKey: {prefix}/{dir}/{base}-{id}.jpeg."""
+    return mirrored_key(normalize_prefix(prefix), s3_key, f"{photo_id}.jpeg")
 
 
 def local_thumbnail_path(directory: str, photo_id: int) -> str:
@@ -241,6 +247,8 @@ class Source:
     bytes_read: int
     fetch_seconds: float
     decode_seconds: float
+    # The viewer's rendition before the owner's turn (display.fit), when asked for
+    display: Image.Image | None = None
 
 
 class _TimedReader:
@@ -264,7 +272,13 @@ class _TimedReader:
         return data
 
 
-def load_source(reader: Reader, key: str, mime: str) -> Source:
+def load_source(
+    reader: Reader, key: str, mime: str, display: Callable[[Image.Image], Image.Image] | None = None
+) -> Source:
+    """display: makes the viewer's rendition from the full-size picture, upright and sRGB.
+
+    Only for originals decoded at full size (not RAW, not a JPEG shrunk on load).
+    """
     if mime in _UNSUPPORTED_MIME or not mime.startswith("image/"):
         raise Unsupported(f"unsupported type {mime}")
     timed = _TimedReader(reader)
@@ -274,11 +288,26 @@ def load_source(reader: Reader, key: str, mime: str) -> Source:
     else:
         image, width, height = _open(timed.get(key), orientation=None)
         source = "image"
+    rendition = None
+    if display is not None:
+        if source != "image" or image.size != (width, height):
+            raise ValueError(f"{key}: no full-size picture to make a display rendition from")
+        # Before the box reduction: the full-size picture is not kept
+        rendition = display(image)
     basis = image.size
     image, reduced = _box_reduce(image)
     decode_seconds = time.perf_counter() - began - timed.seconds
     return Source(
-        image, basis, reduced, source, width, height, timed.bytes, timed.seconds, decode_seconds
+        image,
+        basis,
+        reduced,
+        source,
+        width,
+        height,
+        timed.bytes,
+        timed.seconds,
+        decode_seconds,
+        rendition,
     )
 
 
@@ -411,17 +440,23 @@ def render(source: Source, rotation: int) -> Image.Image:
         box = (0.0, 0.0, source.basis[0] / source.reduced, source.basis[1] / source.reduced)
         # Pillow premultiplies alpha for the resampling, as libvips does
         image = image.resize(size, Image.Resampling.LANCZOS, box=box, reducing_gap=2.0)
+    return turn(image, rotation)
+
+
+def turn(image: Image.Image, rotation: int) -> Image.Image:
+    """The owner's user_rotation: clockwise quarter turns, lossless."""
     if rotation in _CLOCKWISE:
-        image = image.transpose(_CLOCKWISE[rotation])
+        return image.transpose(_CLOCKWISE[rotation])
     return image
 
 
-def flatten(image: Image.Image) -> Image.Image:
-    """Alpha onto black (libvips jpegsave), RGB/L unchanged."""
+def flatten(image: Image.Image, background: int = 0) -> Image.Image:
+    """Alpha onto a grey level, black by default (libvips jpegsave); RGB/L unchanged."""
     if image.mode != "RGBA":
         return image
     rgba = np.asarray(image, dtype=np.uint16)
-    rgb = (rgba[..., :3] * rgba[..., 3:4] + 127) // 255
+    alpha = rgba[..., 3:4]
+    rgb = (rgba[..., :3] * alpha + background * (255 - alpha) + 127) // 255
     return Image.fromarray(rgb.astype(np.uint8), "RGB")
 
 
