@@ -93,9 +93,16 @@ def segment_date(name: str) -> date | None:
 
 
 def folder_date(path: str) -> date | None:
-    """Date of the deepest folder whose name starts with one."""
-    for name in reversed([p for p in path.split("/") if p]):
-        found = segment_date(name)
+    """Date of the deepest folder whose name starts with one, or of a year
+    folder followed by a month folder ("icloud/2026/10", as icloudpd files
+    photos: images saved from WhatsApp carry no EXIF date)."""
+    names = [p for p in path.split("/") if p]
+    for i in range(len(names) - 1, -1, -1):
+        found = segment_date(names[i])
+        if found is None and i > 0 and names[i].isdigit() and len(names[i]) <= 2:
+            year = names[i - 1]
+            if len(year) == 4 and year.isdigit():
+                found = _date_of(int(year), int(names[i]), None)
         if found is not None:
             return found
     return None

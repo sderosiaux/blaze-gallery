@@ -43,6 +43,12 @@ LIMITS = Thresholds(auto=0.6, review=0.4)
         ("a/2018-13-01 nope", None),
         ("pc-fixe/Backup Windows Phone", None),
         ("2015-06-01 parent/IMG 2016", date(2015, 6, 1)),
+        # icloudpd files photos by year then month: WhatsApp images have no EXIF date
+        ("icloud/2026/10", date(2026, 10, 1)),
+        ("icloud/2019/3", date(2019, 3, 1)),
+        ("icloud/2026/13", None),
+        ("photos/10", None),
+        ("a/2018-01 ski/05", date(2018, 1, 1)),
     ],
 )
 def test_folder_date_is_the_deepest_dated_folder(path, expected):
