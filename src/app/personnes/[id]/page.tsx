@@ -63,8 +63,9 @@ function byYear(photos: PersonPhoto[]): YearGroup[] {
 
 /** "6 ans", "6–7 ans" over a year; nothing while the birth date is unknown. */
 function ageLabel(birthDate: string | null, group: YearGroup): string | null {
-  const first = group.photos[0]?.taken;
-  const last = group.photos[group.photos.length - 1]?.taken;
+  // The group runs newest first: its last photo is the earliest
+  const first = group.photos[group.photos.length - 1]?.taken;
+  const last = group.photos[0]?.taken;
   if (!birthDate || !first || !last) return null;
   const from = ageOn(birthDate, first);
   const to = ageOn(birthDate, last);
@@ -191,9 +192,15 @@ function PersonContent() {
     if (next === "photos" && stale.current) void load();
   };
 
+  // Newest first, like Chronologie; undated photos stay at the end
+  const ordered = useMemo(() => {
+    const dated = photos.filter((p) => p.taken);
+    return [...dated.reverse(), ...photos.filter((p) => !p.taken)];
+  }, [photos]);
+
   // -- viewer ---------------------------------------------------------------
   const [viewerList, setViewerList] = useState<Photo[] | null>(null);
-  const list = viewerList ?? photos;
+  const list = viewerList ?? ordered;
   const selected = selectedPhotoId
     ? (list.find((p) => String(p.id) === selectedPhotoId) ?? null)
     : null;
@@ -245,9 +252,9 @@ function PersonContent() {
     stale.current = true;
   }, []);
 
-  const groups = useMemo(() => byYear(photos), [photos]);
+  const groups = useMemo(() => byYear(ordered), [ordered]);
 
-  // The year index of Chronologie, oldest first like the photos
+  // The year index of Chronologie, newest first like the photos
   const years = useMemo(
     () => groups.flatMap((g) => (g.year === null ? [] : [g.year])),
     [groups],
