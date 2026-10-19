@@ -57,9 +57,12 @@ def _connect(url: str) -> psycopg.Connection:
 _DEFAULTS = {
     "faces": {"concurrency": 2, "fetchers": 8, "max_side": 1024, "det_size": 640},
     # A second, more sensitive look at photos already done, adding faces only
-    # (store.add_faces). The same detector scale as faces (1280 / 2048 = 640 /
-    # 1024): the gain is the lower score floor, and the 25 px floor on the box
-    # side, measured on the rendition, standing for half as many pixels.
+    # (store.add_faces). The detector sees the whole photo shrunk to det_size
+    # px: at 1280 faces are twice as large as at faces' 640, for four times
+    # the detection cost. Photo 117889: a half-hidden face scores 0.57 at 1280,
+    # 0.41 at 640 (at 0.35 a 1280 pass also keeps a 0.41 false positive).
+    # max_side only needs to be at least det_size; 2048 also halves what the
+    # 25 px floor on the box side (measured on the rendition) stands for.
     "faces_extra": {
         "concurrency": 2,
         "fetchers": 8,
