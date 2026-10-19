@@ -63,6 +63,9 @@ export async function parseImageHead(buffer: Buffer): Promise<ParsedImageHead> {
   }
 
   const truncatedExif = isJpeg(buffer) && jpegExifSegmentTruncated(buffer);
+  // HEIC/HEIF (iPhone): the Exif item sits where the container's item table
+  // points, often past 64 KB, so a window without a date is read again larger
+  const isobmff = isIsoBmff(buffer);
 
   let tags: unknown;
   try {
@@ -81,7 +84,7 @@ export async function parseImageHead(buffer: Buffer): Promise<ParsedImageHead> {
       ...(metadata ? { metadata } : {}),
       ...(preview ? { preview } : {}),
     },
-    needsMore: truncatedExif,
+    needsMore: truncatedExif || (isobmff && !metadata?.date_taken),
   };
 }
 
@@ -263,6 +266,11 @@ export async function orientJpeg(
       break;
   }
   return pipeline.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+}
+
+/** An ISO base media file (HEIC, HEIF, AVIF): a "ftyp" box first. */
+export function isIsoBmff(buffer: Buffer): boolean {
+  return buffer.length >= 12 && buffer.toString("latin1", 4, 8) === "ftyp";
 }
 
 function isJpeg(buffer: Buffer): boolean {
