@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { andInGallery, query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
@@ -24,6 +24,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
           f.path as folder_path
         FROM photos p
         LEFT JOIN folders f ON p.folder_id = f.id
+        WHERE true ${andInGallery()}
         ORDER BY RANDOM()
         LIMIT $1
       `,

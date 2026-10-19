@@ -1326,13 +1326,13 @@ Each photo: the photo fields below, plus:
 - copies: photo_ids of the same file elsewhere in the library (not returned again); usually empty.
 ${PHOTO_FIELDS}
 ${FACE_FIELDS}
-Coverage: only photos the face analysis has looked at can appear; it runs over the whole library, newest years first.`,
+Coverage: only photos the face analysis has looked at can appear; it runs over the whole library, newest years first, except folders the owner marked as not a photo gallery, whose photos never appear here or in list_people.`,
     inputSchema: toolSchemas.get_person_photos.inputSchema,
   },
   {
     name: "get_photo_faces",
     description: `All faces found on one photo, with who each one is.
-Returns the photo fields below, plus analyzed (false: the face analysis has not looked at this photo yet, so "no faces" means nothing) and faces: [...], each with the face fields below, person ({person_id, name}, or null when nobody named it) and assignment (seed/manual/auto as in get_person_photos; "rejected" means the owner said it is NOT the person in person_id, so treat the face as unnamed; null: never reviewed).
+Returns the photo fields below, plus analyzed (false: the face analysis has not looked at this photo yet, so "no faces" means nothing) and faces: [...] (none, and no description, on a photo in a folder the owner marked as not a photo gallery), each with the face fields below, person ({person_id, name}, or null when nobody named it) and assignment (seed/manual/auto as in get_person_photos; "rejected" means the owner said it is NOT the person in person_id, so treat the face as unnamed; null: never reviewed).
 ${PHOTO_FIELDS}
 ${FACE_FIELDS}`,
     inputSchema: toolSchemas.get_photo_faces.inputSchema,
@@ -1445,13 +1445,13 @@ export const POST = requireAuthOrApiKey(async function POST(
             {
               name: "search_photos_by_color",
               description:
-                "Find photos by color: those holding `color`, most of it first, or in `tone`, most colorful first; both: the color's photos in that tone. Only dated photos (with a date taken), and only those whose colors the worker has measured. Returns { photos, count, next_cursor }. Each photo is the gallery's photo record (id, filename, folder_path, metadata, thumbnail_url, ...) plus color_score, what it is ranked by: the color's share of the picture (0-1) when a color is given, else its colorfulness (Hasler-Süsstrunk M), or its chroma for nb. next_cursor fetches the next page; null on the last.",
+                "Find photos by color: those holding `color`, most of it first, or in `tone`, most colorful first; both: the color's photos in that tone. Only dated photos (with a date taken), and only those whose colors the worker has measured; never those in folders the owner marked as not a photo gallery (storage: books, game files, album art), which search_photos and the folder tools still list. Returns { photos, count, next_cursor }. Each photo is the gallery's photo record (id, filename, folder_path, metadata, thumbnail_url, ...) plus color_score, what it is ranked by: the color's share of the picture (0-1) when a color is given, else its colorfulness (Hasler-Süsstrunk M), or its chroma for nb. next_cursor fetches the next page; null on the last.",
               inputSchema: toolSchemas.search_photos_by_color.inputSchema,
             },
             {
               name: "get_photo_colors",
               description:
-                "The colors measured on one photo, as displayed and weighted toward a large center. Returns photo_id and measured (false until the worker has read the photo; nothing else then). When measured: hues, the share of the picture in each of 12 families (red, orange, yellow, green, teal, blue, purple, pink, brown, black, grey, white), summing to 1; colors, the families holding at least 3%, most first; tones, those of search_photos_by_color it is in; palette, up to 5 colors { hex '#rrggbb', share }, most important first, shares summing to 1; colorfulness, Hasler-Süsstrunk M (0 grey, ~33 moderately, ~59 quite, 80+ very colorful); chroma, mean C*; luminance, mean L* (0 black, 100 white); monochrome, black and white; model, the measuring algorithm's version.",
+                "The colors measured on one photo, as displayed and weighted toward a large center. Returns photo_id and measured (false until the worker has read the photo, or when its folder is marked as not a photo gallery; nothing else then). When measured: hues, the share of the picture in each of 12 families (red, orange, yellow, green, teal, blue, purple, pink, brown, black, grey, white), summing to 1; colors, the families holding at least 3%, most first; tones, those of search_photos_by_color it is in; palette, up to 5 colors { hex '#rrggbb', share }, most important first, shares summing to 1; colorfulness, Hasler-Süsstrunk M (0 grey, ~33 moderately, ~59 quite, 80+ very colorful); chroma, mean C*; luminance, mean L* (0 black, 100 white); monochrome, black and white; model, the measuring algorithm's version.",
               inputSchema: toolSchemas.get_photo_colors.inputSchema,
             },
             {
@@ -1475,7 +1475,7 @@ export const POST = requireAuthOrApiKey(async function POST(
             {
               name: "semantic_search",
               description:
-                'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet).',
+                'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet). Photos in folders the owner marked as not a photo gallery are never returned.',
               inputSchema: toolSchemas.semantic_search.inputSchema,
             },
           ],

@@ -1,5 +1,5 @@
 import type { PhotoMetadata } from "@/types";
-import { getPhoto, query } from "./database";
+import { andInGallery, getPhoto, query } from "./database";
 import { faceCropUrl, isOwned, takenOn, type DateSource } from "./faces";
 import {
   faceDetail,
@@ -50,7 +50,7 @@ export async function resolvePerson(ref: string | number): Promise<PersonRow> {
   return person;
 }
 
-/** photo_descriptions rows (task 'describe'): what the image shows, by photo id. */
+/** photo_descriptions rows (task 'describe'): what the image shows, by photo id; none out of the gallery. */
 async function descriptionsOf(
   photoIds: number[],
 ): Promise<Map<number, Record<string, unknown>>> {
@@ -60,8 +60,9 @@ async function descriptionsOf(
     model: string;
     data: Record<string, unknown>;
   }>(
-    `SELECT photo_id::int AS photo_id, model, data FROM photo_descriptions
-     WHERE photo_id = ANY($1::bigint[])`,
+    `SELECT d.photo_id::int AS photo_id, d.model, d.data
+     FROM photo_descriptions d JOIN photos p ON p.id = d.photo_id
+     WHERE d.photo_id = ANY($1::bigint[]) ${andInGallery()}`,
     [photoIds],
   );
   return new Map(

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
   getFolderByPath,
+  getFolderExclusion,
   getFolders,
   getPhotosInFolder,
   updateFolderLastVisited,
@@ -26,9 +27,12 @@ export const GET = requireAuth(async function GET(
       );
     }
 
-    const [subfolders, photos] = await Promise.all([
+    // exclusion: the marked folder that puts this one out of the gallery
+    // (itself or a parent), null when it is in the gallery
+    const [subfolders, photos, exclusion] = await Promise.all([
       getFolders(decodedPath),
       getPhotosInFolder(folder.id),
+      getFolderExclusion(decodedPath),
     ]);
 
     // No on-demand sync - rely on background full sync for up-to-date data
@@ -48,6 +52,7 @@ export const GET = requireAuth(async function GET(
       folder,
       subfolders,
       photos,
+      exclusion,
     });
   } catch (error) {
     logger.apiError("Error in GET /api/folders/[...path]", error as Error, {

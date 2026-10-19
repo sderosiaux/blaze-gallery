@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { outOfGallery, query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,7 @@ export const GET = requireAuth(async function GET() {
           COUNT(p.id) as photo_count
         FROM folders f
         INNER JOIN photos p ON f.id = p.folder_id
+        WHERE NOT ${outOfGallery("f.path || '/'")}
         GROUP BY f.id, f.name, f.path
         HAVING COUNT(p.id) > 0
         ORDER BY RANDOM()
