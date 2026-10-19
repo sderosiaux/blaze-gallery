@@ -4,7 +4,9 @@ The rules of who a face is (see db/schema.sql, faces and face_candidates):
 faces.person_id + faces.assignment are the truth; face_candidates is the
 review queue and remembers every decision, so a face the owner rejected is
 never proposed again for that person. The app's review routes follow the
-same rules (src/lib/people.ts).
+same rules (src/lib/people.ts). Faces on photos out of the gallery
+(gallery.py) are not loaded: neither references nor candidates, and their
+rows stay as they are.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from datetime import date
 import numpy as np
 from psycopg import Connection
 
+from .gallery import out_of_gallery
 from .people import (
     Expansion,
     Faces,
@@ -263,7 +266,7 @@ class Loaded:
 
 
 def load_faces(conn: Connection, model: str) -> Loaded:
-    """Every face of the model, with the date its photo was taken."""
+    """Every face of the model in the gallery, with the date its photo was taken."""
     ids: list[int] = []
     photo_ids: list[int] = []
     taken: list[date | None] = []
@@ -273,13 +276,13 @@ def load_faces(conn: Connection, model: str) -> Loaded:
     assignments: list[str | None] = []
     with conn.cursor(binary=True) as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT f.id, f.photo_id, f.embedding, f.cluster_eligible, f.person_id, f.assignment,
                    p.metadata ->> 'date_taken', fo.path
             FROM faces f
             JOIN photos p ON p.id = f.photo_id
             JOIN folders fo ON fo.id = p.folder_id
-            WHERE f.model = %s
+            WHERE f.model = %s AND NOT {out_of_gallery()}
             ORDER BY f.id
             """,
             (model,),
@@ -329,6 +332,8 @@ def write_expansion(
 
     Only touches what nobody decided: a face the owner named or rejected
     meanwhile keeps his decision, a decided candidate row is never rewritten.
+    A pending one on a photo out of the gallery was not loaded, so not
+    weighed: it stays, unseen, for when its folder comes back.
     Returns (accepted, pending, dropped).
     """
 
@@ -404,9 +409,10 @@ def write_expansion(
                     ],
                 )
         dropped = conn.execute(
-            """
-            DELETE FROM face_candidates
-            WHERE person_id = %s AND status = 'pending' AND NOT (face_id = ANY(%s))
+            f"""
+            DELETE FROM face_candidates c USING faces f, photos p
+            WHERE c.person_id = %s AND c.status = 'pending' AND NOT (c.face_id = ANY(%s))
+              AND f.id = c.face_id AND p.id = f.photo_id AND NOT {out_of_gallery()}
             """,
             (person_id, [r[0] for r in pending]),
         ).rowcount
@@ -423,16 +429,19 @@ class Summary:
 
 
 def summarize(conn: Connection, person_id: int) -> Summary:
+    """The person's faces and candidates on photos of the gallery."""
     rows = conn.execute(
-        """
+        f"""
         SELECT 'face', f.assignment, p.metadata ->> 'date_taken', fo.path
         FROM faces f JOIN photos p ON p.id = f.photo_id JOIN folders fo ON fo.id = p.folder_id
         WHERE f.person_id = %(person)s AND f.assignment IN ('seed', 'manual', 'auto')
+          AND NOT {out_of_gallery()}
         UNION ALL
         SELECT 'candidate', c.status, p.metadata ->> 'date_taken', fo.path
         FROM face_candidates c JOIN faces f ON f.id = c.face_id
         JOIN photos p ON p.id = f.photo_id JOIN folders fo ON fo.id = p.folder_id
         WHERE c.person_id = %(person)s AND c.status IN ('pending', 'rejected')
+          AND NOT {out_of_gallery()}
         """,
         {"person": person_id},
     ).fetchall()

@@ -74,8 +74,8 @@ def connect(url: str) -> psycopg.Connection:
 def conn(schema: str) -> Iterator[psycopg.Connection]:
     with connect(schema) as connection:
         connection.execute(
-            "TRUNCATE faces, people, photo_descriptions, analysis_jobs, photos, folders "
-            "RESTART IDENTITY CASCADE"
+            "TRUNCATE faces, people, photo_descriptions, analysis_jobs, photos, folders, "
+            "excluded_folders RESTART IDENTITY CASCADE"
         )
         yield connection
 
