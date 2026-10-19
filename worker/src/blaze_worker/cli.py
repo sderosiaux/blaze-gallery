@@ -111,10 +111,11 @@ def _thumbs_task(
         None if args.colors_only else ThumbnailStore(thumbnail_settings(env), args.concurrency + 4)
     )
     log.info(
-        "thumbs: render=%d fetch=%d thumbnails=%s",
+        "thumbs: render=%d fetch=%d thumbnails=%s display (HEIC)=%s",
         args.concurrency,
         args.fetchers,
         store.location if store else "off (colors only)",
+        store.display_location if store else "off",
     )
     return [ThumbsAnalyzer(store) for _ in range(args.concurrency)], ThumbsLoader(pool, store)
 
