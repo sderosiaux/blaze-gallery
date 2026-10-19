@@ -171,6 +171,15 @@ DELETE FROM faces WHERE person_id IS NULL AND assignment IS NULL AND id IN (
   FROM analysis_jobs WHERE task = 'faces_extra');
 ```
 
+A folder marked « pas une galerie photo » (folder page, « ⋯ »; the list is
+under Admin, Hors galerie) keeps its photos in the Bibliothèque and in name
+search only. `blaze-enqueue` never queues them, a job already queued closes
+as skipped, and the thumbs task still makes their thumbnails, without
+colors. A parent folder's colour strip counts them until the next `npm run
+palettes`. Put back in the gallery, the folder shows again what was found
+in it; what was skipped while it was out waits for the next `blaze-enqueue
+--task <task> --all`.
+
 HEIC photos get their thumbnail and the viewer's 2048 px rendition from the
 thumbs worker only: the app can't decode them. Turning one by hand in the
 viewer, or bumping `VERSION` in `src/lib/displayRendition.ts`, leaves it
