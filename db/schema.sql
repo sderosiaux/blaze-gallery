@@ -244,6 +244,10 @@ CREATE INDEX IF NOT EXISTS idx_analysis_jobs_claim
   ON analysis_jobs (task, priority DESC, id) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS idx_analysis_jobs_lease
   ON analysis_jobs (lease_expires_at) WHERE status = 'leased';
+-- Whether a task still has work, without reading every done row (Couleurs
+-- asks it of 'thumbs' at each visit); the predicate is the query's
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_pending
+  ON analysis_jobs (task) WHERE status IN ('queued', 'leased');
 
 -- People the owner names. The system proposes groups of faces; a row may
 -- exist unnamed until he names it.
