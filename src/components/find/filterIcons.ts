@@ -1,15 +1,12 @@
 import {
-  Angry,
   CalendarDays,
   EyeOff,
   Frown,
-  Ghost,
   Laugh,
   Mountain,
   Palette,
   PawPrint,
   Smile,
-  Sparkles,
   Type,
   UserX,
   type LucideIcon,
@@ -21,9 +18,6 @@ export const EXPRESSION_ICONS: Record<Expression, LucideIcon> = {
   sourit: Smile,
   rit: Laugh,
   triste: Frown,
-  colere: Angry,
-  surpris: Sparkles,
-  peur: Ghost,
   yeux_fermes: EyeOff,
 };
 

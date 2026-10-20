@@ -25,14 +25,11 @@ export interface Completion {
   expression?: Expression;
 }
 
-/** How each look is best written after a name: « Céline a peur », « Suzie en colère ». */
+/** How each look is best written after a name: « Céline sourit », « Suzie les yeux fermés ». */
 const LOOK_WORDS: Record<Expression, string> = {
   sourit: "sourit",
   rit: "rit",
   triste: "triste",
-  colere: "en colère",
-  surpris: "surpris",
-  peur: "a peur",
   yeux_fermes: "les yeux fermés",
 };
 

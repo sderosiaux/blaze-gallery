@@ -110,9 +110,14 @@ void test("the word being typed is finished by a person, a look, a scene or a co
   // Too short, or already whole
   assert.deepEqual(labels("c"), []);
   assert.deepEqual(labels("Suzie triste"), []);
-  const [look] = completionsFor("Suzie en col", VOCABULARY);
-  assert.ok(look);
-  assert.equal(complete("Suzie en col", look), "Suzie en colère ");
+  // Anger is not offered (lib/database.ts EXPRESSION_SQL)
+  assert.deepEqual(labels("Suzie en col"), []);
+  const [eyes] = completionsFor("Céline les yeux fer", VOCABULARY);
+  assert.ok(eyes);
+  assert.equal(
+    complete("Céline les yeux fer", eyes),
+    "Céline les yeux fermés ",
+  );
   const [laugh] = completionsFor("Céline qui ri", VOCABULARY);
   assert.ok(laugh);
   assert.equal(complete("Céline qui ri", laugh), "Céline qui rit ");
