@@ -1,5 +1,5 @@
 import type { PhotoMetadata } from "@/types";
-import { andInGallery, getPhoto, query } from "./database";
+import { andInGallery, getPhoto, query, type PhotoFilter } from "./database";
 import { faceCropUrl, isOwned, takenOn, type DateSource } from "./faces";
 import {
   faceDetail,
@@ -161,6 +161,8 @@ export interface PersonPhotosQuery {
   person: string | number;
   from?: string;
   to?: string;
+  /** What else the photos must show (src/app/api/mcp/route.ts filterArgs) */
+  filter: PhotoFilter;
   limit: number;
   cursor?: string;
 }
@@ -183,7 +185,7 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
         : new Date(v).toISOString();
   const from = instant(q.from, false);
   const to = instant(q.to, true);
-  const all = (await personPhotos(person.id)).filter(
+  const all = (await personPhotos(person.id, q.filter)).filter(
     (p) =>
       (!from || (p.taken !== null && p.taken >= from)) &&
       (!to || (p.taken !== null && p.taken <= to)),

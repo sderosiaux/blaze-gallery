@@ -97,7 +97,7 @@ export const NO_URL_FILTER: UrlFilter = {
 export const MAX_QUERY = 500;
 const MAX_DATE_WORDS = 60;
 /** More conditions than anyone types: a URL past them is not a filter. */
-const MAX_VALUES = 12;
+export const MAX_VALUES = 12;
 
 const PERSON = /^(-?)(\d{1,15})(?:\.([a-z_]+))?$/;
 const TAG = /^(-?)([a-z0-9_]{1,40})$/;
