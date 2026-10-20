@@ -9,9 +9,10 @@ import {
   onlyLabel,
   readDate,
   removeParts,
-  understandQuery,
   type QueryPart,
+  type UnderstoodQuery,
 } from "@/lib/searchQuery";
+import { understood as understoodBy } from "./understood";
 import type { FilterVocabulary } from "./useFilterVocabulary";
 
 /** One condition of the filter as the filter bar shows it, and the filter without it. */
@@ -55,8 +56,9 @@ export function filterChips(
   const chips: FilterChip[] = [];
 
   const { q } = filter;
-  if (q.trim() !== "") {
-    const understood = understandQuery(q, people, vocabulary?.tags ?? []);
+  const understood: UnderstoodQuery | null =
+    q.trim() !== "" ? understoodBy(q, vocabulary) : null;
+  if (understood) {
     const withQ = (parts: readonly QueryPart[]) => (f: UrlFilter) => ({
       ...f,
       q: removeParts(f.q, parts),
@@ -222,10 +224,16 @@ export function filterChips(
         tags: f.tags.filter((other) => other.tag !== tag.tag),
       }),
     });
+  // As the server reads it: the people and looks of the words count too
   if (filter.only)
     chips.push({
       key: "only",
-      label: onlyLabel(shown.size > 0, filter.faces),
+      label: onlyLabel(
+        shown.size > 0 ||
+          (understood?.people.length ?? 0) > 0 ||
+          (understood?.faces.some((face) => face.person !== null) ?? false),
+        [...filter.faces, ...(understood?.faces ?? [])],
+      ),
       kind: "only",
       remove: (f) => ({ ...f, only: false }),
     });

@@ -76,11 +76,18 @@ function readVocabulary(data: Record<string, unknown>): FilterVocabulary {
   };
 }
 
-// One request per tab: the filter bar, the chips and the search box share it
-let loading: Promise<FilterVocabulary> | null = null;
+/**
+ * One request a minute per tab: the filter bar, the chips and the search
+ * box share it, and a person named or a tag that got its first photos
+ * shows in the next view opened after that.
+ */
+const FRESH_MS = 60_000;
+let loading: { at: number; vocabulary: Promise<FilterVocabulary> } | null =
+  null;
 
 function loadVocabulary(): Promise<FilterVocabulary> {
-  loading ??= fetch("/api/filters/vocabulary")
+  if (loading && Date.now() - loading.at < FRESH_MS) return loading.vocabulary;
+  const vocabulary = fetch("/api/filters/vocabulary")
     .then(async (response) => {
       const data = await readJsonObject(response);
       if (!response.ok || data.success !== true)
@@ -89,25 +96,42 @@ function loadVocabulary(): Promise<FilterVocabulary> {
     })
     .catch((error: unknown) => {
       // The next one asks again
-      loading = null;
+      if (loading?.vocabulary === vocabulary) loading = null;
       throw error;
     });
-  return loading;
+  loading = { at: Date.now(), vocabulary };
+  return vocabulary;
 }
 
-/** The vocabulary, null until it comes (or when it could not be had: chips then show what the URL says). */
-export function useFilterVocabulary(): FilterVocabulary | null {
-  const [vocabulary, setVocabulary] = useState<FilterVocabulary | null>(null);
+/**
+ * The vocabulary, null until it comes or when it could not be had (chips
+ * then show what the URL says); `settled` once it came or failed.
+ */
+export function useFilterVocabularyState(): {
+  vocabulary: FilterVocabulary | null;
+  settled: boolean;
+} {
+  const [state, setState] = useState<{
+    vocabulary: FilterVocabulary | null;
+    settled: boolean;
+  }>({ vocabulary: null, settled: false });
   useEffect(() => {
     let live = true;
     loadVocabulary()
-      .then((loaded) => {
-        if (live) setVocabulary(loaded);
+      .then((vocabulary) => {
+        if (live) setState({ vocabulary, settled: true });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (live) setState({ vocabulary: null, settled: true });
+      });
     return () => {
       live = false;
     };
   }, []);
-  return vocabulary;
+  return state;
+}
+
+/** The vocabulary, null until it comes (or when it could not be had: chips then show what the URL says). */
+export function useFilterVocabulary(): FilterVocabulary | null {
+  return useFilterVocabularyState().vocabulary;
 }

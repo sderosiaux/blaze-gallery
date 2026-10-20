@@ -18,7 +18,7 @@ export function FilterNotice({ notes }: { notes: FilterNotes }) {
       ? `Les ${formatNumber(notes.contentLimit)} photos les plus proches des mots.`
       : null,
     notes.taggedShare !== null && notes.taggedShare < PARTLY_TAGGED
-      ? `Scènes lues sur ${String(Math.floor(notes.taggedShare * 100))} % des photos pour l’instant.`
+      ? `Scènes reconnues sur ${String(Math.floor(notes.taggedShare * 100))} % des photos pour l’instant.`
       : null,
   ].filter((line): line is string => line !== null);
   if (lines.length === 0) return null;

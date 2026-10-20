@@ -8,6 +8,8 @@ import { Button, ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
 import { FilterNotice } from "@/components/find/FilterNotice";
 import FilterBar from "@/components/find/FilterBar";
+import { understood } from "@/components/find/understood";
+import type { FilterVocabulary } from "@/components/find/useFilterVocabulary";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import {
@@ -17,7 +19,7 @@ import {
   type ColorFilter,
 } from "@/lib/colors";
 import { filterSearch, type UrlFilter } from "@/lib/photoFilter";
-import { removeParts, understandQuery } from "@/lib/searchQuery";
+import { removeParts } from "@/lib/searchQuery";
 import { useColorPhotos } from "./useColorPhotos";
 
 /** How far below the viewport the next page starts loading. */
@@ -33,18 +35,21 @@ const VIEWER_PREFETCH = 6;
 export default function ColorGrid({
   colors,
   filter,
+  vocabulary,
   onFilterChange,
 }: {
   /** The color and tone shown: the URL's, else those the words say */
   colors: ColorFilter;
   filter: UrlFilter;
+  /** The words are read with it: a person named like a color is the person */
+  vocabulary: FilterVocabulary | null;
   onFilterChange: (next: UrlFilter) => void;
 }) {
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const [attempt, setAttempt] = useState(0);
   const { feed, loadMore, remove } = useColorPhotos(filter, attempt);
   const onColorsChange = (next: ColorFilter) => {
-    const said = understandQuery(filter.q, []).parts.filter(
+    const said = understood(filter.q, vocabulary).parts.filter(
       (part) => part.kind === "color" || part.kind === "tone",
     );
     onFilterChange({ ...filter, q: removeParts(filter.q, said), colors: next });

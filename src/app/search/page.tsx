@@ -38,6 +38,7 @@ import { asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
 import {
   filterKey,
+  filterQuery,
   hasUrlFilter,
   NO_URL_FILTER,
   type UrlFilter,
@@ -424,7 +425,7 @@ function PhotoResults({
   onClearFilter: () => void;
 }) {
   // Later pages repeat the URL's filter: the server reads the query again
-  const params = Object.fromEntries(new URLSearchParams(filterKey(filter)));
+  const params = filterQuery(filter);
   const photos = useSearchFeed(
     searchListSource<Photo>(filter, "photos"),
     results.photos,

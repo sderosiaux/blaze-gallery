@@ -67,7 +67,6 @@ export function SearchPalette({
   const [value, setValue] = useState("");
   // What the user typed: suggestions follow it, not the value taken from the URL.
   const [typed, setTyped] = useState("");
-  const [active, setActive] = useState(-1);
   const folders = useFolderSuggestions(typed);
   const completions = useMemo(
     () => (typed ? completionsFor(value, vocabulary) : []),
@@ -76,6 +75,21 @@ export function SearchPalette({
   const listId = useId();
   const completionsId = useId();
   const count = completions.length + folders.length;
+  // The highlighted suggestion, kept by what it is: it stays as the list
+  // changes (the folders come after the words' suggestions), and nothing is
+  // highlighted once it is gone. -1 is the field itself.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const keys = useMemo(
+    () => [
+      ...completions.map((c) => `completion:${c.kind}:${c.label}`),
+      ...folders.map((folder) => `folder:${folder.path}`),
+    ],
+    [completions, folders],
+  );
+  const active = activeKey === null ? -1 : keys.indexOf(activeKey);
+  const setActive = (index: number) => {
+    setActiveKey(keys[index] ?? null);
+  };
   const view = PHOTO_VIEWS.find((v) => v.match(pathname));
   const pageFilter = readUrlFilter(new URLSearchParams(search.toString()));
   // Read when the palette opens, not followed while it is open.
@@ -87,7 +101,7 @@ export function SearchPalette({
     if (!open) return;
     setValue(startRef.current);
     setTyped("");
-    setActive(-1);
+    setActiveKey(null);
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const frame = requestAnimationFrame(() => {
       inputRef.current?.focus();
@@ -102,10 +116,32 @@ export function SearchPalette({
     };
   }, [open]);
 
-  // A new list starts with nothing highlighted: Enter runs the search.
+  // Tab past the palette's last control comes back to its first
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setActive(-1);
-  }, [completions, folders]);
+    const dialog = dialogRef.current;
+    if (!open || !dialog) return;
+    const keepFocusIn = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const stops = [
+        ...dialog.querySelectorAll<HTMLElement>("input, button"),
+      ].filter((el) => el.tabIndex >= 0 && el.offsetParent !== null);
+      const first = stops[0];
+      const last = stops.at(-1);
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", keepFocusIn);
+    return () => {
+      dialog.removeEventListener("keydown", keepFocusIn);
+    };
+  }, [open]);
 
   const preview = useMemo(
     () => filterChips({ ...NO_URL_FILTER, q: value }, vocabulary),
@@ -149,10 +185,10 @@ export function SearchPalette({
       e.preventDefault();
       const down = e.key === "ArrowDown";
       // -1 is the field itself, between the last option and the first.
-      setActive((i) =>
+      setActive(
         down
-          ? ((i + 2) % (count + 1)) - 1
-          : ((i + count + 1) % (count + 1)) - 1,
+          ? ((active + 2) % (count + 1)) - 1
+          : ((active + count + 1) % (count + 1)) - 1,
       );
     } else if (e.key === "Enter") {
       const completion = completions[active];
@@ -170,11 +206,14 @@ export function SearchPalette({
       e.preventDefault();
       e.stopPropagation();
       onClose();
-    } else if (e.key === "Tab") {
-      // The field is the only stop; Tab finishes the word with the first suggestion.
-      e.preventDefault();
+    } else if (e.key === "Tab" && !e.shiftKey) {
+      // Tab finishes the word with the highlighted or first suggestion;
+      // without one it moves on, to « Effacer » and « Chercher partout »
       const first = completions[active] ?? completions[0];
-      if (first && !e.shiftKey) accept(first);
+      if (first) {
+        e.preventDefault();
+        accept(first);
+      }
     }
   };
 
@@ -196,6 +235,7 @@ export function SearchPalette({
         role="dialog"
         aria-modal="true"
         aria-label="Rechercher"
+        ref={dialogRef}
         className="relative h-max w-full max-w-xl animate-rise-in overflow-hidden rounded-xl bg-surface shadow-pop"
       >
         <form role="search" onSubmit={submit} className="relative">

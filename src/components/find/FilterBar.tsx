@@ -30,16 +30,18 @@ import {
 import {
   EXPRESSION_LABELS,
   EXPRESSIONS,
+  filterKey,
   NO_URL_FILTER,
   type Expression,
   type UrlFilter,
 } from "@/lib/photoFilter";
 import type { TagGroup } from "@/lib/sceneTags";
-import { removeParts, understandQuery } from "@/lib/searchQuery";
+import { removeParts } from "@/lib/searchQuery";
 import { normalizeTextForSearch } from "@/lib/textUtils";
 import { HUE_SWATCH } from "./ColorFilterBar";
 import { filterChips, type FilterChip } from "./filterChips";
 import { chipIcon, EXPRESSION_ICONS } from "./filterIcons";
+import { understood } from "./understood";
 import {
   useFilterVocabulary,
   type FilterVocabulary,
@@ -74,22 +76,47 @@ export default function FilterBar({
   className,
 }: FilterBarProps) {
   const vocabulary = useFilterVocabulary();
-  const chips = filterChips(filter, vocabulary).filter(
+  const key = filterKey(filter);
+  const all = useMemo(
+    () => filterChips(filter, vocabulary),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the key says when the filter changed
+    [key, vocabulary],
+  );
+  const chips = all.filter(
     (chip) =>
       !noChips.includes(chip.kind) &&
       !(person && chip.key === `p-${String(person.id)}`),
   );
+
+  // A chip removed, focus goes to the one that took its place, else to
+  // « Filtre »: not lost on the page
+  const groupRef = useRef<HTMLDivElement>(null);
+  const refocus = useRef<number | null>(null);
+  useEffect(() => {
+    const at = refocus.current;
+    const group = groupRef.current;
+    if (at === null || !group) return;
+    refocus.current = null;
+    const removes = group.querySelectorAll<HTMLElement>("[data-chip-remove]");
+    (
+      removes[Math.min(at, removes.length - 1)] ??
+      group.querySelector<HTMLElement>("[data-add-filter]")
+    )?.focus();
+  }, [key]);
+
   return (
     <div
+      ref={groupRef}
       role="group"
       aria-label="Filtres"
       className={cn("flex flex-wrap items-center gap-2", className)}
     >
-      {chips.map((chip) => (
+      {chips.map((chip, i) => (
         <Chip
           key={chip.key}
           chip={chip}
           onRemove={() => {
+            refocus.current = i;
             onChange(chip.remove(filter));
           }}
         />
@@ -106,6 +133,7 @@ export default function FilterBar({
         <button
           type="button"
           onClick={() => {
+            refocus.current = 0;
             onChange(NO_URL_FILTER);
           }}
           className="touch-target inline-flex h-7 items-center rounded-full px-2 text-[13px] font-medium text-ink-muted underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
@@ -142,6 +170,7 @@ function Chip({ chip, onRemove }: { chip: FilterChip; onRemove: () => void }) {
         type="button"
         aria-label={`Retirer « ${chip.label} »`}
         title="Retirer"
+        data-chip-remove
         onClick={onRemove}
         className="touch-target inline-flex h-6 w-6 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-line hover:text-ink"
       >
@@ -163,6 +192,9 @@ type Panel =
 const SCENE_GROUPS: readonly TagGroup[] = ["scene", "lieu", "moment", "chose"];
 
 const SEASONS = ["Printemps", "Été", "Automne", "Hiver", "Noël"];
+const isSeason = (dates: string) =>
+  SEASONS.some((season) => season.toLowerCase() === dates);
+const isYear = (dates: string) => /^\d{4}$/.test(dates);
 
 /** The people the filter already puts on the photos, by its URL and its words. */
 function peopleOf(filter: UrlFilter, vocabulary: FilterVocabulary | null) {
@@ -173,11 +205,7 @@ function peopleOf(filter: UrlFilter, vocabulary: FilterVocabulary | null) {
     ),
   ]);
   if (vocabulary && filter.q)
-    for (const part of understandQuery(
-      filter.q,
-      vocabulary.people,
-      vocabulary.tags,
-    ).parts)
+    for (const part of understood(filter.q, vocabulary).parts)
       if (part.kind === "person") ids.add(part.personId);
   return [...ids];
 }
@@ -223,13 +251,17 @@ function AddFilter({
     };
   }, [open]);
 
-  // Each panel starts on its first control
+  // Each panel starts on the control it marks, else its first one (not « Retour »)
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
-      rootRef.current
-        ?.querySelector<HTMLElement>("[data-autofocus], [role=dialog] button")
-        ?.focus();
+      const root = rootRef.current;
+      (
+        root?.querySelector<HTMLElement>("[data-autofocus]") ??
+        root?.querySelector<HTMLElement>(
+          "[role=dialog] button:not([data-back])",
+        )
+      )?.focus();
     });
     return () => {
       cancelAnimationFrame(frame);
@@ -262,6 +294,7 @@ function AddFilter({
       <button
         ref={triggerRef}
         type="button"
+        data-add-filter
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? dialogId : undefined}
@@ -293,6 +326,7 @@ function AddFilter({
                 <button
                   type="button"
                   aria-label="Retour"
+                  data-back
                   onClick={() => {
                     setPanel(null);
                   }}
@@ -565,9 +599,7 @@ function LooksPanel({
   const add = (expression: Expression) => {
     // Her look says she is there: one chip, not two. Her name in the words
     // goes, the looks they bound to her come along.
-    const parts = vocabulary
-      ? understandQuery(filter.q, vocabulary.people, vocabulary.tags).parts
-      : [];
+    const parts = vocabulary ? understood(filter.q, vocabulary).parts : [];
     const named = parts.filter(
       (part) =>
         (part.kind === "person" && part.personId === whose) ||
@@ -781,8 +813,13 @@ function DatesPanel({
       (_, i) => span.to - i,
     );
   }, [vocabulary]);
-  const add = (words: string) => {
-    onApply({ ...filter, dates: [...filter.dates, words] });
+  // Each date must hold: a year picked replaces the year before, a season
+  // the season before, or together they would keep no photo
+  const add = (words: string, same: (dates: string) => boolean) => {
+    onApply({
+      ...filter,
+      dates: [...filter.dates.filter((dates) => !same(dates)), words],
+    });
   };
   const pill =
     "touch-target inline-flex h-8 items-center justify-center rounded-md border border-line px-2.5 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-ink-muted hover:text-ink";
@@ -795,7 +832,7 @@ function DatesPanel({
             type="button"
             className={pill}
             onClick={() => {
-              add(season.toLowerCase());
+              add(season.toLowerCase(), isSeason);
             }}
           >
             {season}
@@ -809,7 +846,7 @@ function DatesPanel({
             type="button"
             className={cn(pill, "tabular")}
             onClick={() => {
-              add(String(year));
+              add(String(year), isYear);
             }}
           >
             {year}

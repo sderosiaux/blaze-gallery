@@ -6,6 +6,7 @@ import { NO_URL_FILTER, type UrlFilter } from "@/lib/photoFilter";
 import { readTagVocabulary } from "@/lib/sceneTags";
 import { complete, completionsFor } from "./completions";
 import { filterChips } from "./filterChips";
+import { understood } from "./understood";
 import type { FilterVocabulary } from "./useFilterVocabulary";
 
 /** The worker's vocabulary, every tag with photos but cheval */
@@ -121,4 +122,29 @@ void test("the word being typed is finished by a person, a look, a scene or a co
   const [laugh] = completionsFor("Céline qui ri", VOCABULARY);
   assert.ok(laugh);
   assert.equal(complete("Céline qui ri", laugh), "Céline qui rit ");
+});
+
+void test("the words are read with the people: « Rose en bleu » is Rose in blue", () => {
+  const withRose: FilterVocabulary = {
+    ...VOCABULARY,
+    people: [...VOCABULARY.people, { id: 9, name: "Rose", coverFaceId: null }],
+  };
+  const read = understood("Rose en bleu", withRose);
+  assert.deepEqual(read.people, [9]);
+  assert.deepEqual(read.colors, { color: "blue", tone: null });
+  // Before the vocabulary, « rose » is a color
+  assert.equal(understood("Rose en bleu", null).people.length, 0);
+  // Once per words and vocabulary
+  assert.equal(understood("Rose en bleu", withRose), read);
+});
+
+void test("only, with people in the words, is « Personne d'autre » as the server reads it", () => {
+  const label = (filter: Partial<UrlFilter>) =>
+    chipsOf(filter).find((chip) => chip.kind === "only")?.label;
+  assert.equal(label({ q: "Suzie", only: true }), "Personne d'autre");
+  assert.equal(label({ only: true }), "Sans personne");
+  assert.equal(
+    label({ q: "quelqu'un qui sourit", only: true }),
+    "Tout le monde",
+  );
 });

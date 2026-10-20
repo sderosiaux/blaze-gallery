@@ -224,6 +224,7 @@ function PersonContent() {
     key,
     startYear,
     attempt,
+    selectedPhotoId,
   );
   const refresh = useCallback(() => {
     stale.current = false;
@@ -650,12 +651,29 @@ function PersonContent() {
           )}
         </>
       ) : (
-        <ReviewQueue
-          personId={person.id}
-          name={name}
-          onChange={onQueueChange}
-          onOpenPhoto={openFromQueue}
-        />
+        <>
+          {/* The queue is every face to review: the filter waits on Photos */}
+          {filtered && (
+            <p className="mt-6 flex flex-wrap items-center gap-x-1 text-sm text-ink-muted">
+              Le filtre ne vaut que pour l’onglet Photos.
+              <button
+                type="button"
+                onClick={() => {
+                  setFilter(NO_URL_FILTER);
+                }}
+                className="touch-target inline-flex h-7 items-center rounded-full px-1 font-medium text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
+              >
+                Effacer le filtre
+              </button>
+            </p>
+          )}
+          <ReviewQueue
+            personId={person.id}
+            name={name}
+            onChange={onQueueChange}
+            onOpenPhoto={openFromQueue}
+          />
+        </>
       )}
 
       {selected && (

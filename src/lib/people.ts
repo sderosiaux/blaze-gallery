@@ -469,13 +469,16 @@ export interface PersonPhotoPage {
  * follows takenOn, which reads folder names: every photo of the list is
  * read in narrow rows (id, name, size, path, date) to sort them, then only
  * the page in full. 24k faces for the most photographed person: about 1 MB
- * of narrow rows, where the page used to load every photo in full.
+ * of narrow rows, where the page used to load every photo in full. Without
+ * `after`, `around` (a photo a link opens) starts the list at the page
+ * of `limit` holding it, the newer ones left out.
  */
 export async function personPhotoPage(
   personId: number,
   filter: PhotoFilter,
   after: PersonPhotoCursor | null,
   limit: number,
+  around: number | null = null,
 ): Promise<PersonPhotoPage> {
   const params: unknown[] = [personId];
   const narrow = andPhotoFilter(params, filter);
@@ -496,7 +499,12 @@ export async function personPhotoPage(
   const rest = after
     ? sorted.filter((photo) => newestFirst(photo, after) > 0)
     : sorted;
-  const page = rest.slice(0, limit);
+  const at =
+    after !== null || around === null
+      ? -1
+      : rest.findIndex((photo) => photo.id === around);
+  const start = at < 0 ? 0 : at - (at % limit);
+  const page = rest.slice(start, start + limit);
   const rows = await query<PersonFaceRow>(
     `
     SELECT ph.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
@@ -534,7 +542,9 @@ export async function personPhotoPage(
   return {
     photos,
     next:
-      rest.length > limit && last ? { taken: last.taken, id: last.id } : null,
+      rest.length > start + limit && last
+        ? { taken: last.taken, id: last.id }
+        : null,
     total: sorted.length,
     years: [...years].map(([year, count]) => ({ year, count })),
   };

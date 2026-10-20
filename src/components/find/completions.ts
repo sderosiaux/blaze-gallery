@@ -123,8 +123,8 @@ export function completionsFor(
 
 /**
  * `value` with the word being typed replaced by the completion, a space
- * after; words of it typed already are not written twice (« Suzie en col »
- * is « Suzie en colère »).
+ * after; words of it typed already are not written twice (« Céline les
+ * yeux fer » is « Céline les yeux fermés »).
  */
 export function complete(value: string, completion: Completion): string {
   const { start } = typedWord(value);

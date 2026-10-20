@@ -46,13 +46,14 @@ function readYears(value: unknown): PersonFeed["years"] {
 async function fetchPage(
   personId: number,
   filter: UrlFilter,
-  after: string | { year: number } | null,
+  after: string | { year: number } | { around: string } | null,
   signal: AbortSignal,
 ) {
   const params = filterQuery(filter);
   params.set("limit", String(PAGE_SIZE));
   if (typeof after === "string") params.set("after", after);
-  else if (after) params.set("year", String(after.year));
+  else if (after && "year" in after) params.set("year", String(after.year));
+  else if (after) params.set("around", after.around);
   const response = await fetch(
     `/api/people/${String(personId)}/photos?${params.toString()}`,
     { signal },
@@ -75,6 +76,8 @@ async function fetchPage(
  * filter (by `filterKey`), the year or `attempt` changes; `loadMore`
  * appends the next page (one request at a time, again after a failure only
  * with `retry`). The first page brings the counts of the whole list.
+ * `opening`, the photo the URL opens as the page loads: the first list
+ * starts at the page holding it, so the viewer has it however old it is.
  */
 export function usePersonPhotos(
   personId: number | null,
@@ -82,6 +85,7 @@ export function usePersonPhotos(
   filterKey: string,
   startYear: number | null,
   attempt: number,
+  opening: string | null = null,
 ) {
   const [feed, setFeed] = useState<PersonFeed>(START);
   const feedRef = useRef(feed);
@@ -89,6 +93,8 @@ export function usePersonPhotos(
   const filterRef = useRef(filter);
   filterRef.current = filter;
   const inFlight = useRef<AbortController | null>(null);
+  // Once: a later start (another filter, a year) is the newest photos again
+  const around = useRef(opening);
 
   useEffect(() => {
     inFlight.current?.abort();
@@ -96,13 +102,19 @@ export function usePersonPhotos(
     if (personId === null) return;
     const controller = new AbortController();
     inFlight.current = controller;
+    const photo = around.current;
     fetchPage(
       personId,
       filterRef.current,
-      startYear === null ? null : { year: startYear },
+      startYear !== null
+        ? { year: startYear }
+        : photo
+          ? { around: photo }
+          : null,
       controller.signal,
     )
       .then(({ photos, next, total, years, notes }) => {
+        around.current = null;
         setFeed({
           items: photos,
           next,

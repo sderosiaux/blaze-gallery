@@ -59,23 +59,32 @@ function FavoritesContent() {
   const viewerOpenRef = useRef(viewerOpen);
   viewerOpenRef.current = viewerOpen;
 
+  // The answer for a filter the user has since changed is dropped, however late
+  const inFlight = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
     setStatus("loading");
     try {
-      const response = await fetch(`/api/favorites?${key}`);
+      const response = await fetch(`/api/favorites?${key}`, {
+        signal: controller.signal,
+      });
       const data = await readJsonObject(response);
+      if (controller.signal.aborted) return;
       if (!response.ok || !data.success) throw new Error(asString(data.error));
       if (!Array.isArray(data.photos)) throw new Error("invalid_photos");
       setPhotos([...(data.photos as Photo[])].sort(newestFirst));
       setNotes(readFilterNotes(data));
       setStatus("ready");
     } catch {
-      setStatus("error");
+      if (!controller.signal.aborted) setStatus("error");
     }
   }, [key]);
 
   useEffect(() => {
     void load();
+    return () => inFlight.current?.abort();
   }, [load]);
 
   useEffect(() => {

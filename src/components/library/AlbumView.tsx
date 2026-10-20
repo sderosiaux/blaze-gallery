@@ -394,7 +394,8 @@ function AlbumContents({
         }
       />
 
-      {!empty && (
+      {/* An empty folder still shows the filter the link carried */}
+      {(!empty || filtered) && (
         <FilterBar filter={filter} onChange={onFilterChange} className="mb-6" />
       )}
 

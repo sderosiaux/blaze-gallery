@@ -654,6 +654,21 @@ void describe("together, through every list", () => {
     assert.ok(copy && [101, 110].includes(copy.id));
     assert.equal(copy.copies.length, 1);
 
+    // A link to 112: the list starts at the page holding it
+    const opened = await people.personPhotoPage(
+      CELINE,
+      filter({}),
+      null,
+      2,
+      112,
+    );
+    assert.deepEqual(
+      opened.photos.map((p) => p.id),
+      rest.photos.map((p) => p.id),
+    );
+    assert.equal(opened.next, null);
+    assert.equal(opened.total, 4);
+
     const smiling = await people.personPhotoPage(
       CELINE,
       filter({ faces: [{ person: CELINE, expression: "sourit" }] }),
