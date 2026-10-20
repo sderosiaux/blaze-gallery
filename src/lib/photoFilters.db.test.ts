@@ -3,6 +3,8 @@
  * condition alone, then together, through every list that runs it.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { Client } from "pg";
 import type * as Database from "./database";
@@ -10,9 +12,13 @@ import type { PhotoFilter, TagFilter } from "./database";
 import type * as Resolver from "./filterResolver";
 import type * as People from "./people";
 import { NO_URL_FILTER } from "./photoFilter";
-import { readTagVocabulary } from "./sceneTags";
-import { TAGS_FIXTURE } from "./sceneTags.fixture";
+import { NO_TAGS, readTagVocabulary } from "./sceneTags";
 import { startTestDatabase, type TestDatabase } from "./testDatabase";
+
+/** The worker's vocabulary, as the app reads it */
+const VOCABULARY = readTagVocabulary(
+  JSON.parse(readFileSync(path.join(process.cwd(), "db", "tags.json"), "utf8")),
+);
 
 let db: TestDatabase;
 let sql: Client;
@@ -72,20 +78,28 @@ async function face(
   photoId: number,
   person: number | null,
   scores: number[],
-  look: { eyes?: number; mouth?: number; assignment?: string } = {},
+  look: {
+    eyes?: number;
+    /** The left eye's, when it differs; null: not measured */
+    leftEye?: number | null;
+    mouth?: number;
+    assignment?: string;
+  } = {},
 ) {
+  // Sharp and facing the camera: cluster_eligible, a face the looks read on
   await sql.query(
     `INSERT INTO faces (photo_id, box, landmarks, det_score, width_px, height_px,
-       embedding, model, person_id, assignment, expression_scores,
-       eye_left_open, eye_right_open, mouth_open)
+       sharpness, yaw, pitch, embedding, model, person_id, assignment,
+       expression_scores, eye_left_open, eye_right_open, mouth_open)
      VALUES ($1, '{0.1,0.1,0.2,0.2}', '{0,0,0,0,0,0,0,0,0,0}', 0.9, 200, 200,
-       $2, 'arcface', $3, $4, $5, $6, $6, $7)`,
+       100, 0, 0, $2, 'arcface', $3, $4, $5, $6, $7, $8)`,
     [
       photoId,
       vector(512, () => 0.04),
       person,
       person === null ? null : (look.assignment ?? "manual"),
       scores,
+      look.leftEye === undefined ? (look.eyes ?? 0.3) : look.leftEye,
       look.eyes ?? 0.3,
       look.mouth ?? 0.02,
     ],
@@ -112,12 +126,20 @@ async function colors(photoId: number, blue: number) {
   );
 }
 
+/**
+ * A photo as the tagger leaves it (db/schema.sql): interieur and exterieur
+ * always, the other tags from 0.05 only.
+ */
 async function tags(photoId: number, scores: Record<string, number>) {
-  for (const [tag, score] of Object.entries(scores))
+  const indoors = scores.interieur ?? 0.5;
+  const all = { interieur: indoors, exterieur: 1 - indoors, ...scores };
+  for (const [tag, score] of Object.entries(all)) {
+    if (score < 0.05 && tag !== "interieur" && tag !== "exterieur") continue;
     await sql.query(
-      `INSERT INTO photo_tags (photo_id, tag, score, vocab_version) VALUES ($1, $2, $3, 1)`,
-      [photoId, tag, score],
+      `INSERT INTO photo_tags (photo_id, tag, score, vocab_version) VALUES ($1, $2, $3, $4)`,
+      [photoId, tag, score, VOCABULARY.version],
     );
+  }
 }
 
 async function embedded(photoId: number, similarity: number) {
@@ -154,19 +176,19 @@ before(async () => {
   await photo(101, BEACH, "a.jpg", "2015-07-10", { location: true, size: 777 });
   await face(101, CELINE, SMILING);
   await face(101, STEPHANE, NEUTRAL);
-  await tags(101, { plage: 0.9, exterieur: 0.8, chat: 0.1 });
+  await tags(101, { plage: 0.9, interieur: 0.2, chat: 0.1 });
   await colors(101, 0.5);
   await embedded(101, 0.9);
   // 102: Céline neutral, Stéphane smiling: not « Céline qui sourit »; barely blue, a beach under the threshold
   await photo(102, BEACH, "b.jpg", "2015-07-11");
   await face(102, CELINE, NEUTRAL);
   await face(102, STEPHANE, SMILING);
-  await tags(102, { plage: 0.3, chat: 0.05 });
+  await tags(102, { plage: 0.3, chat: 0.02 });
   await colors(102, 0.05);
   await embedded(102, 0.89);
   // 103: kittens and nobody, looked at
   await photo(103, BEACH, "c.jpg", "2015-08-01");
-  await tags(103, { chaton: 0.9, chat: 0.8 });
+  await tags(103, { chaton: 0.9, chat: 0.8, interieur: 0.7 });
   await embedded(103, 0.5);
   // 104: Suzie sad with her eyes closed, Christmas, a favorite
   await photo(104, XMAS, "d.jpg", "2016-12-24", {
@@ -179,18 +201,20 @@ before(async () => {
   await embedded(104, 0.88);
   // 105: Suzie laughing next to someone not named
   await photo(105, XMAS, "e.jpg", "2016-12-25");
-  await face(105, SUZIE, [0, 0, 0, 0, 0.9, 0.1, 0, 0], { mouth: 0.4 });
+  await face(105, SUZIE, [0, 0, 0, 0, 0.92, 0.08, 0, 0], { mouth: 0.4 });
   await face(105, null, NEUTRAL);
   await embedded(105, 0.87);
+  await tags(105, { interieur: 0.8 });
   // 106: Céline smiling in the folder whose name starts like the beach's
   await photo(106, BEACH_TOO, "f.jpg", "2015-07-12");
   await face(106, CELINE, SMILING);
-  await tags(106, { plage: 0.9 });
+  // No chat row: under 0.05, the tagger stores none
+  await tags(106, { plage: 0.9, interieur: 0.1 });
   await embedded(106, 0.86);
   // 107: out of the gallery: never listed, whatever it matches
   await photo(107, BOOKS, "g.jpg", "2015-07-13", { favorite: true });
   await face(107, CELINE, SMILING);
-  await tags(107, { plage: 0.95 });
+  await tags(107, { plage: 0.95, interieur: 0.1 });
   await colors(107, 0.9);
   await embedded(107, 0.95);
   // 108: no face row, but the faces pass has not looked at it
@@ -198,6 +222,7 @@ before(async () => {
   // 109: Suzie alone
   await photo(109, ALBUMS, "i.jpg", "2014-01-05");
   await face(109, SUZIE, NEUTRAL);
+  await tags(109, { interieur: 0.9 });
   await embedded(109, 0.4);
   // 110: a copy of 101 (same name and size) elsewhere
   await photo(110, BEACH_TOO, "a.jpg", "2015-07-10", { size: 777 });
@@ -209,8 +234,11 @@ before(async () => {
   // 112: undated
   await photo(112, ALBUMS, "k.jpg", null);
   await face(112, CELINE, SMILING);
+  // 113: one eye closed, the other not measured: no « yeux fermés »
+  await photo(113, ALBUMS, "l.jpg", "2013-05-05");
+  await face(113, null, NEUTRAL, { eyes: 0.05, leftEye: null });
 
-  await looked(101, 102, 103, 104, 105, 106, 107, 109, 110, 111, 112);
+  await looked(101, 102, 103, 104, 105, 106, 107, 109, 110, 111, 112, 113);
 });
 
 after(async () => {
@@ -227,6 +255,7 @@ const tag = (name: string, negated = false): TagFilter => ({
   tag: name,
   negated,
   threshold: 0.5,
+  version: VOCABULARY.version,
 });
 
 /** The timeline's photo ids for `parts`, newest first. */
@@ -239,7 +268,7 @@ void describe("each condition", () => {
   void test("no filter: every dated photo of the gallery, newest first", async () => {
     assert.deepEqual(
       await timeline({}),
-      [105, 104, 103, 108, 106, 102, 110, 101, 111, 109],
+      [105, 104, 103, 108, 106, 102, 110, 101, 111, 109, 113],
     );
   });
 
@@ -280,6 +309,7 @@ void describe("each condition", () => {
       await timeline({ faces: [{ person: null, expression: "rit" }] }),
       [105],
     );
+    // 113: one eye not measured, the other closed: not « yeux fermés »
     assert.deepEqual(
       await timeline({ faces: [{ person: null, expression: "yeux_fermes" }] }),
       [104],
@@ -305,14 +335,42 @@ void describe("each condition", () => {
       }),
       [104],
     );
+    // With a look on anyone's face: every face looks so
+    assert.deepEqual(
+      await timeline({
+        only: true,
+        faces: [{ person: null, expression: "sourit" }],
+      }),
+      [106, 110, 111],
+    );
   });
 
-  void test("tags: from their threshold; negated, tagged below it", async () => {
+  void test("tags: from their threshold; negated, a tagged photo without it", async () => {
     assert.deepEqual(await timeline({ tags: [tag("plage")] }), [106, 101]);
     assert.deepEqual(await timeline({ tags: [tag("chaton")] }), [103]);
+    // 106 has no chat row at all, 101 one under the threshold
     assert.deepEqual(
       await timeline({ tags: [tag("plage"), tag("chat", true)] }),
-      [101],
+      [106, 101],
+    );
+    // 108 was never tagged: it is not « sans chat », it is unknown
+    assert.deepEqual(
+      await timeline({ tags: [tag("chat", true)] }),
+      [105, 104, 106, 102, 101, 109],
+    );
+    // Rows of another vocabulary do not count
+    assert.deepEqual(
+      await timeline({
+        tags: [{ ...tag("plage"), version: VOCABULARY.version + 1 }],
+      }),
+      [],
+    );
+  });
+
+  void test("people not on the photos", async () => {
+    assert.deepEqual(
+      await timeline({ people: [CELINE], withoutPeople: [STEPHANE] }),
+      [106, 110],
     );
   });
 
@@ -371,7 +429,7 @@ void describe("each condition", () => {
       await timeline({ folder: "albums/2015 Plage" }),
       [103, 108, 102, 101],
     );
-    assert.equal((await timeline({ folder: "albums" })).length, 10);
+    assert.equal((await timeline({ folder: "albums" })).length, 11);
   });
 
   void test("favorites of the gallery", async () => {
@@ -379,23 +437,21 @@ void describe("each condition", () => {
   });
 
   void test("content: within the floor measured among the filter's photos", async () => {
-    const all = await database.contentFloor(QUERY, filter({}));
-    // 5th nearest of the gallery at 0.86, plus the margin
-    assert.ok(Math.abs(all - (1 - 0.86 + 0.035)) < 1e-3, String(all));
+    // 5th nearest of the gallery at 0.86, plus the margin: down to 0.825
+    const all = await database.contentPhotos(QUERY, filter({}));
+    assert.deepEqual([...all.ids].sort(), [101, 102, 104, 105, 106]);
+    assert.equal(all.complete, true);
     assert.deepEqual(
-      await timeline({ content: { ...QUERY, maxDistance: all } }),
+      await timeline({ content: { ids: all.ids } }),
       [105, 104, 106, 102, 101],
     );
     // Among Suzie's photos the reference is her own farthest: 109 comes in
-    const hers = await database.contentFloor(
+    const hers = await database.contentPhotos(
       QUERY,
       filter({ people: [SUZIE] }),
     );
     assert.deepEqual(
-      await timeline({
-        people: [SUZIE],
-        content: { ...QUERY, maxDistance: hers },
-      }),
+      await timeline({ people: [SUZIE], content: { ids: hers.ids } }),
       [105, 104, 109],
     );
   });
@@ -586,7 +642,8 @@ void describe("together, through every list", () => {
 });
 
 void describe("from a URL", () => {
-  const vocabulary = readTagVocabulary(TAGS_FIXTURE);
+  const vocabulary = VOCABULARY;
+  const plage = vocabulary.tags.find((t) => t.tag === "plage");
 
   void test("the query and the parameters make one filter", async () => {
     const resolved = await resolver.resolveFilter(
@@ -604,8 +661,16 @@ void describe("from a URL", () => {
     assert.deepEqual(f.faces, [{ person: CELINE, expression: "sourit" }]);
     // Two photos show it: read from them (rareTags)
     assert.deepEqual(f.tags, [
-      { tag: "plage", negated: false, threshold: 0.5, rare: true },
+      {
+        tag: "plage",
+        negated: false,
+        threshold: plage?.threshold,
+        version: vocabulary.version,
+        rare: true,
+      },
     ]);
+    // With tags, how much of the gallery the tagger has read: 7 of 12
+    assert.equal(resolved.value.taggedShare, 7 / 12);
     assert.deepEqual(f.colors, { color: "blue", tone: null });
     assert.equal(content, null);
     assert.deepEqual(dateLabels, ["Été"]);
@@ -615,11 +680,11 @@ void describe("from a URL", () => {
     );
   });
 
-  void test("a tag no photo has yet is read as its words", async () => {
+  void test("a tag no photo has yet is read as its words, typed or not", async () => {
     const resolved = await resolver.resolveFilter(
       {
         ...NO_URL_FILTER,
-        q: "des chiots",
+        q: "des chiens",
         tags: [{ tag: "cheval", negated: false }],
       },
       {},
@@ -627,9 +692,38 @@ void describe("from a URL", () => {
     );
     assert.ok(resolved.ok);
     assert.deepEqual(resolved.value.filter.tags, []);
-    assert.deepEqual(resolved.value.untagged, ["cheval"]);
-    assert.equal(resolved.value.content, "chiots cheval");
+    assert.deepEqual(resolved.value.untagged, ["chien", "cheval"]);
+    assert.equal(resolved.value.content, "chiens cheval");
     assert.equal(resolved.value.cut, true);
+    assert.equal(resolved.value.taggedShare, null);
+  });
+
+  void test("without the vocabulary file, tags are ignored, not refused", async () => {
+    const resolved = await resolver.resolveFilter(
+      { ...NO_URL_FILTER, tags: [{ tag: "plage", negated: false }] },
+      {},
+      NO_TAGS,
+    );
+    assert.ok(resolved.ok);
+    assert.deepEqual(resolved.value.filter.tags, []);
+    assert.deepEqual(resolved.value.untagged, ["plage"]);
+  });
+
+  void test("a folder with slashes around it, people not on the photos", async () => {
+    const resolved = await resolver.resolveFilter(
+      { ...NO_URL_FILTER, q: "Céline sans Stéphane" },
+      { folder: "/albums/2015 Plage bis/" },
+      vocabulary,
+    );
+    assert.ok(resolved.ok);
+    assert.equal(resolved.value.filter.folder, "albums/2015 Plage bis");
+    assert.deepEqual(resolved.value.filter.withoutPeople, [STEPHANE]);
+    assert.deepEqual(
+      (await database.getTimelinePhotos(null, 10, resolved.value.filter)).map(
+        (p) => Number(p.id),
+      ),
+      [106, 110],
+    );
   });
 
   void test("what does not read is refused", async () => {

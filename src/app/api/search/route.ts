@@ -220,7 +220,9 @@ function understoodPart(part: QueryPart) {
     kind: part.kind,
     label: part.label,
     spans: part.spans,
-    ...(part.kind === "person" ? { person_id: part.personId } : {}),
+    ...(part.kind === "person" || part.kind === "without"
+      ? { person_id: part.personId }
+      : {}),
     ...(part.kind === "color" ? { color: part.hue } : {}),
     ...(part.kind === "tone" ? { tone: part.tone } : {}),
     ...(part.kind === "expression"

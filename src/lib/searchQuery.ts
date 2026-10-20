@@ -67,13 +67,17 @@ export type QueryPart =
       negated: boolean;
       spans: Span[];
     }
-  | { kind: "only"; label: string; spans: Span[] };
+  | { kind: "only"; label: string; spans: Span[] }
+  /** A person not on the photos: « sans Céline », « ni Stéphane » */
+  | { kind: "without"; label: string; personId: number; spans: Span[] };
 
 export interface UnderstoodQuery {
   /** In query order */
   parts: QueryPart[];
   /** Photos showing all of them, whatever their face says */
   people: number[];
+  /** Photos showing none of them */
+  withoutPeople: number[];
   /** Faces the photos show, each on its own: a person smiling, someone crying */
   faces: FaceCondition[];
   tags: TagCondition[];
@@ -157,6 +161,8 @@ const STOPWORDS = new Set([
   ...words("avec chez pour par vers ce cet cette ces tout tous toute toutes"),
   ...words("mes mon ma nos notre ses son sa leur leurs qui que qu' j' m' t'"),
   ...words("s' c' n' moi toi nous vous lui elle eux , &"),
+  // Say what the photos do not show: never what they show
+  ...words("sans pas ni ne"),
   // Every result is one
   ...words("photo photos image images cliche cliches"),
   ...words("the an of in on and at with my our picture pictures pic pics"),
@@ -685,6 +691,22 @@ const ALONE = [
   "toutes seules",
 ].map((phrase) => ({ keys: phraseKeys(phrase), value: true }));
 
+/** Between a negation and what it negates: « sans un parasol », « pas de vent ». */
+const NEGATED_ARTICLES = new Set(words("de d' du des la le les l' un une"));
+
+/** Whether token `i` is what a negation just before it negates. */
+function negatedAt(tokens: Token[], i: number): boolean {
+  let n = i - 1;
+  while (n >= 0 && NEGATED_ARTICLES.has(tokens[n]?.key ?? "")) n -= 1;
+  return NEGATIONS.has(tokens[n]?.key ?? "") || tokens[n]?.key === "ni";
+}
+
+/** Before a person: she is not on the photos. */
+const PERSON_NEGATIONS = new Set(words("sans ni pas"));
+
+/** "il n'y a que des chats": "que" says only after these, or at the start. */
+const BEFORE_ONLY_QUE = new Set(words("ne n' rien juste"));
+
 /** "que des chatons", "que Suzie": "que" says only when one of these follows it. */
 const AFTER_ONLY_QUE = new Set(
   words("des les du de d' la le l' un une mon ma mes"),
@@ -776,7 +798,8 @@ function tagAt(
 
 // ---- the query ----------------------------------------------------------------
 
-type Role = "part" | "content" | "stop";
+/** "negated": what a negation negates (negatedAt), left out of every text */
+type Role = "part" | "content" | "stop" | "negated";
 
 const spanOf = (tokens: Token[], first: number, end: number): Span => [
   tokens[first]?.start ?? 0,
@@ -862,6 +885,7 @@ export function understandQuery(
   const dates: DateFilter = { ranges: [], annual: [] };
   const colors: ColorFilter = { color: null, tone: null };
   const personIds: number[] = [];
+  const withoutIds: number[] = [];
   const faces: FaceCondition[] = [];
   const tagConditions: TagCondition[] = [];
   let only = false;
@@ -887,18 +911,42 @@ export function understandQuery(
   let i = 0;
   while (i < tokens.length) {
     const key = tokens[i]?.key ?? "";
+    // « que » alone is a relative pronoun (« le chat que la voisine a
+    // adopté »): it says only at the start or after « ne », « rien », « juste »
+    const onlyQue =
+      (key === "que" || key === "qu'") &&
+      (i === 0 ||
+        [1, 2, 3].some((back) =>
+          BEFORE_ONLY_QUE.has(tokens[i - back]?.key ?? ""),
+        )) &&
+      (AFTER_ONLY_QUE.has(tokens[i + 1]?.key ?? "") ||
+        personAt(tokens, i + 1, named) !== null);
     const nobody =
       phraseAt(tokens, i, NOBODY) ??
       phraseAt(tokens, i, ONLY_WORDS) ??
-      ((key === "que" || key === "qu'") &&
-      (AFTER_ONLY_QUE.has(tokens[i + 1]?.key ?? "") ||
-        personAt(tokens, i + 1, named))
-        ? { end: i + 1, value: true }
-        : null) ??
+      (onlyQue ? { end: i + 1, value: true } : null) ??
       (run?.end === i ? phraseAt(tokens, i, ALONE) : null);
     if (nobody) {
       markOnly(i, nobody.end);
       i = nobody.end;
+      continue;
+    }
+
+    const absent = PERSON_NEGATIONS.has(key)
+      ? personAt(tokens, i + 1, named)
+      : null;
+    if (absent) {
+      mark(i, absent.end);
+      const { id, name } = absent.value;
+      parts.push({
+        kind: "without",
+        label: name,
+        personId: id,
+        spans: [spanOf(tokens, i, absent.end)],
+      });
+      if (!withoutIds.includes(id)) withoutIds.push(id);
+      run = null;
+      i = absent.end;
       continue;
     }
 
@@ -1052,11 +1100,19 @@ export function understandQuery(
       continue;
     }
 
-    roles[i] = STOPWORDS.has(tokens[i]?.key ?? "") ? "stop" : "content";
+    // A thing the photos must not show and no filter says (« plage sans
+    // parasol »): the embedder cannot read « not », so it is no content
+    roles[i] = STOPWORDS.has(tokens[i]?.key ?? "")
+      ? "stop"
+      : negatedAt(tokens, i)
+        ? "negated"
+        : "content";
     i += 1;
   }
 
-  const left = tokens.flatMap((_, n) => (roles[n] === "part" ? [] : [n]));
+  const left = tokens.flatMap((_, n) =>
+    roles[n] === "part" || roles[n] === "negated" ? [] : [n],
+  );
   const text = textOf(q, tokens, left);
   const withHints = [
     ...left,
@@ -1065,19 +1121,22 @@ export function understandQuery(
   ].sort((a, b) => a - b);
   const content =
     parts.length === 0
-      ? (text ?? (q.trim() === "" ? null : q.trim().replace(/\s+/g, " ")))
+      ? (text ??
+        (q.trim() === "" || roles.includes("negated")
+          ? null
+          : q.trim().replace(/\s+/g, " ")))
       : textOf(q, tokens, withHints, hints);
   // A face's person is on the photo: no need to ask it twice
   const lookers = new Set(faces.map((face) => face.person));
   const plain = personIds.filter((id) => !lookers.has(id));
-  const withPeople = personIds.length > 0;
   return {
     parts: parts.map((part) =>
       part.kind === "only"
-        ? { ...part, label: withPeople ? "Personne d'autre" : "Sans personne" }
+        ? { ...part, label: onlyLabel(personIds.length > 0, faces) }
         : part,
     ),
     people: plain,
+    withoutPeople: withoutIds,
     faces,
     tags: tagConditions,
     only,
@@ -1087,6 +1146,18 @@ export function understandQuery(
     content,
     cut: parts.length === 0 || text !== null,
   };
+}
+
+/**
+ * What « nobody else » reads as: nobody but the people named; with a look
+ * on anyone's face (« que des enfants qui sourient »), every face looks so.
+ */
+export function onlyLabel(
+  withPeople: boolean,
+  faces: readonly FaceCondition[],
+): string {
+  if (faces.some((face) => face.person === null)) return "Tout le monde";
+  return withPeople ? "Personne d'autre" : "Sans personne";
 }
 
 /**

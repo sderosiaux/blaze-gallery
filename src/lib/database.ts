@@ -743,24 +743,28 @@ function colorFilterSql(
 /** A tag condition, with the score its tag needs (db/tags.json threshold). */
 export interface TagFilter extends TagCondition {
   threshold: number;
+  /** The db/tags.json version the threshold is for: rows of another one do not count */
+  version: number;
   /** Few photos show it (rareTags): the list starts from them */
   rare?: boolean;
 }
 
-/** What the photos show: an embedded query and the farthest a photo may be from it (contentFloor). */
-export interface ContentFilter extends QueryEmbedding {
-  maxDistance: number;
+/** What the photos show: the ids of the photos close enough to it (contentPhotos). */
+export interface ContentFilter {
+  ids: readonly number[];
 }
 
 /**
  * What a list of photos keeps: the gallery's photos showing all of
- * `people`, each face of `faces`, each tag of `tags` (or not, negated),
+ * `people` and none of `withoutPeople`, each face of `faces`, each tag of `tags` (or not, negated),
  * nobody else with `only`, taken within each of `dates`, holding `colors`,
  * under `folder` (its sub-folders too), favorites with `favorites`, close
  * enough to `content`.
  */
 export interface PhotoFilter {
   people: readonly number[];
+  /** None of them on the photos */
+  withoutPeople: readonly number[];
   faces: readonly FaceCondition[];
   tags: readonly TagFilter[];
   only: boolean;
@@ -773,6 +777,7 @@ export interface PhotoFilter {
 
 export const NO_PHOTO_FILTER: PhotoFilter = {
   people: [],
+  withoutPeople: [],
   faces: [],
   tags: [],
   only: false,
@@ -787,6 +792,7 @@ export const NO_PHOTO_FILTER: PhotoFilter = {
 export function hasPhotoFilter(filter: PhotoFilter): boolean {
   return (
     filter.people.length > 0 ||
+    filter.withoutPeople.length > 0 ||
     filter.faces.length > 0 ||
     filter.tags.length > 0 ||
     filter.only ||
@@ -802,33 +808,59 @@ export function hasPhotoFilter(filter: PhotoFilter): boolean {
 const OWNED = "('seed', 'manual', 'auto')";
 
 /**
+ * A face good enough to read how it looks: cluster_eligible (det_score >=
+ * 0.8, a side >= 112 px, sharp, at most 45° from the camera). On smaller,
+ * blurred or turned faces the expression model guesses.
+ */
+const READABLE = (f: string) => `${f}.cluster_eligible`;
+
+/**
  * Each expression over a face f, from the faces pass's measures
  * (db/schema.sql): expression_scores in the order anger, contempt,
  * disgust, fear, happiness, neutral, sadness, surprise (1-based), the eyes
- * (lid gap over eye width, ~0.3 open, < 0.15 closed) and the mouth (inner
- * lip gap over mouth width, ~0 closed).
- * PROVISIONAL (2026-10-19): read off the score distributions only, until
- * the owner's answers to the calibration gallery give each expression the
- * score from which 90% of the faces look so.
+ * (lid gap over eye width, ~0.3 open, < 0.15 closed; both measured) and the
+ * mouth (inner lip gap over mouth width, ~0 closed), compared as real, as
+ * stored (0.9 as a double is above the stored 0.9). Set for precision
+ * rather than recall, as the owner asked (2026-10-19): a smile reads on
+ * any face of 60 px or more; the other looks only on READABLE faces.
+ * triste and rit: from the owner's answers on faces around these scores
+ * (/tmp/blaze-expr-r2). colere, surpris and peur: the scores at which most
+ * of a dozen faces looked so (checked by eye, 2026-10-19: frowning 9 of
+ * 12 at 0.9; « oh! » mouths 6 of 12 at 0.9, the rest grimaces and dolls;
+ * fear 4 of 12 at 0.75, the rest grimaces): the least sure of the looks.
  */
 const EXPRESSION_SQL: Record<Expression, (f: string) => string> = {
-  sourit: (f) => `${f}.expression_scores[5] >= 0.8`,
-  rit: (f) => `${f}.expression_scores[5] >= 0.8 AND ${f}.mouth_open >= 0.25`,
-  triste: (f) => `${f}.expression_scores[7] >= 0.6`,
-  colere: (f) => `${f}.expression_scores[1] >= 0.6`,
-  surpris: (f) => `${f}.expression_scores[8] >= 0.6`,
-  peur: (f) => `${f}.expression_scores[4] >= 0.5`,
+  sourit: (f) =>
+    `${f}.expression_scores[5] >= 0.9::real AND least(${f}.width_px, ${f}.height_px) >= 60`,
+  rit: (f) =>
+    `${f}.expression_scores[5] >= 0.8::real AND ${f}.mouth_open >= 0.25::real AND ${READABLE(f)}`,
+  triste: (f) => `${f}.expression_scores[7] >= 0.6::real AND ${READABLE(f)}`,
+  colere: (f) => `${f}.expression_scores[1] >= 0.9::real AND ${READABLE(f)}`,
+  surpris: (f) => `${f}.expression_scores[8] >= 0.9::real AND ${READABLE(f)}`,
+  peur: (f) => `${f}.expression_scores[4] >= 0.75::real AND ${READABLE(f)}`,
   yeux_fermes: (f) =>
-    `greatest(${f}.eye_left_open, ${f}.eye_right_open) < 0.12`,
+    `${f}.eye_left_open IS NOT NULL AND ${f}.eye_right_open IS NOT NULL
+      AND greatest(${f}.eye_left_open, ${f}.eye_right_open) < 0.10::real AND ${READABLE(f)}`,
 };
 
 /**
- * Looks few faces have (2026-10-19, at EXPRESSION_SQL's thresholds: 600 to
- * 3,400 faces of 146,000; smiling, 50,000). On anyone's face, the planner
- * walks the timeline's date index probing each photo's faces: 92,000
- * photos read to find 200 sad ones (2.4 s on the library). Given the ids of
- * the photos showing the look, as excluded_folders' patterns are given
- * (outOfGallery), it reads those 2,300 photos and sorts them: 89 ms on the
+ * Looks that, on anyone's face, count on faces named as someone only:
+ * at their scores, dolls, statues, figurines and the grimaces of passers-by
+ * are most of the rest.
+ */
+const NAMED_LOOKS: ReadonlySet<Expression> = new Set([
+  "colere",
+  "surpris",
+  "peur",
+]);
+
+/**
+ * Looks few faces have (2026-10-19: 100 to 850 faces of 146,000 at
+ * EXPRESSION_SQL; smiling, 40,000). On anyone's face, the planner walks the
+ * timeline's date index probing each photo's faces: 92,000 photos read to
+ * find 200 sad ones (2.4 s on the library). Given the ids of the photos
+ * showing the look, as excluded_folders' patterns are given
+ * (outOfGallery), it reads those photos and sorts them: 89 ms on the
  * library, most of it a scan of the faces for the ids.
  */
 const RARE_LOOKS: ReadonlySet<Expression> = new Set([
@@ -840,13 +872,22 @@ const RARE_LOOKS: ReadonlySet<Expression> = new Set([
   "yeux_fermes",
 ]);
 
+/** A face looking `expression` as anyone's look counts it (NAMED_LOOKS). */
+function anyoneLooks(f: string, expression: Expression): string {
+  const named = NAMED_LOOKS.has(expression)
+    ? ` AND ${f}.person_id IS NOT NULL AND ${f}.assignment IN ${OWNED}`
+    : "";
+  return `${EXPRESSION_SQL[expression](f)}${named}`;
+}
+
 /**
  * Conditions over photos p keeping the photos passing `filter`, values in
  * `params`; always the gallery's photos (outOfGallery). Each is an EXISTS
  * the planner can drive from its own index when it is the narrowest: a
  * person's faces (idx_faces_person_once_per_photo), a tag
  * (photo_tags_tag_score), a color (idx_photo_colors_*); otherwise it probes
- * each photo of the list's own order by photo id.
+ * each photo of the list's own order by photo id. Rare looks and rare
+ * tags come as the ids of their photos (RARE_LOOKS, rareTags).
  */
 function filterConditions(
   params: unknown[],
@@ -863,36 +904,50 @@ function filterConditions(
     conditions.push(`EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = ${id}
       AND pf.person_id = ${add(personId)}::bigint AND pf.assignment IN ${OWNED})`);
 
+  if (filter.withoutPeople.length > 0)
+    conditions.push(`NOT EXISTS (SELECT 1 FROM faces xf WHERE xf.photo_id = ${id}
+      AND xf.person_id = ANY(${add(filter.withoutPeople)}::bigint[])
+      AND xf.assignment IN ${OWNED})`);
+
+  const anyone = filter.faces.flatMap((face) =>
+    face.person === null ? [face.expression] : [],
+  );
   for (const face of filter.faces) {
-    const looks = EXPRESSION_SQL[face.expression];
-    if (face.person === null && RARE_LOOKS.has(face.expression))
+    if (face.person === null) {
+      const looks = anyoneLooks("ef", face.expression);
       conditions.push(
-        `${id} = ANY (ARRAY(SELECT ef.photo_id FROM faces ef WHERE ${looks("ef")}))`,
+        RARE_LOOKS.has(face.expression)
+          ? `${id} = ANY (ARRAY(SELECT ef.photo_id FROM faces ef WHERE ${looks}))`
+          : `EXISTS (SELECT 1 FROM faces ef WHERE ef.photo_id = ${id} AND ${looks})`,
       );
-    else {
-      const whose =
-        face.person === null
-          ? ""
-          : `AND ef.person_id = ${add(face.person)}::bigint AND ef.assignment IN ${OWNED}`;
+    } else
       conditions.push(`EXISTS (SELECT 1 FROM faces ef WHERE ef.photo_id = ${id}
-        ${whose} AND ${looks("ef")})`);
-    }
+        AND ef.person_id = ${add(face.person)}::bigint AND ef.assignment IN ${OWNED}
+        AND ${EXPRESSION_SQL[face.expression]("ef")})`);
   }
 
   if (filter.only) {
     // Nobody but the filter's people: a face of anyone else, or of no one
-    // named, rules the photo out. The faces pass must have looked at it:
-    // a photo it has not read yet has no face rows either.
+    // named, rules the photo out; with looks on anyone's face (« que des
+    // enfants qui sourient »), every other face must look so. The faces
+    // pass must have looked at the photo: one it has not read yet has no
+    // face rows either.
     const ours = [
       ...filter.people,
       ...filter.faces.flatMap((face) =>
         face.person === null ? [] : [face.person],
       ),
     ];
-    const other =
+    const others = [
       ours.length === 0
-        ? "true"
-        : `NOT coalesce(nf.assignment IN ${OWNED} AND nf.person_id = ANY(${add(ours)}::bigint[]), false)`;
+        ? null
+        : `NOT coalesce(nf.assignment IN ${OWNED} AND nf.person_id = ANY(${add(ours)}::bigint[]), false)`,
+      ...anyone.map(
+        (expression) =>
+          `NOT coalesce((${anyoneLooks("nf", expression)}), false)`,
+      ),
+    ].filter((clause) => clause !== null);
+    const other = others.length === 0 ? "true" : others.join(" AND ");
     conditions.push(
       `NOT EXISTS (SELECT 1 FROM faces nf WHERE nf.photo_id = ${id} AND ${other})`,
       `EXISTS (SELECT 1 FROM analysis_jobs fj WHERE fj.photo_id = ${id}
@@ -903,16 +958,20 @@ function filterConditions(
   for (const tag of filter.tags) {
     const name = add(tag.tag);
     const threshold = add(tag.threshold);
+    const version = add(tag.version);
+    const shows = (t: string) => `${t}.tag = ${name}::text
+      AND ${t}.score >= ${threshold}::real AND ${t}.vocab_version = ${version}::int`;
     conditions.push(
       tag.negated
-        ? `EXISTS (SELECT 1 FROM photo_tags nt WHERE nt.photo_id = ${id}
-            AND nt.tag = ${name}::text AND nt.score < ${threshold}::real)`
+        ? // Rows under 0.05 are not stored (db/schema.sql): a tagged photo
+          // (its interieur row) without a row at the threshold is without it
+          `EXISTS (SELECT 1 FROM photo_tags mt WHERE mt.photo_id = ${id}
+            AND mt.tag = 'interieur' AND mt.vocab_version = ${version}::int)
+          AND NOT EXISTS (SELECT 1 FROM photo_tags nt WHERE nt.photo_id = ${id} AND ${shows("nt")})`
         : tag.rare
           ? // As RARE_LOOKS: the ids of the photos showing it, from photo_tags_tag_score
-            `${id} = ANY (ARRAY(SELECT pt.photo_id FROM photo_tags pt
-              WHERE pt.tag = ${name}::text AND pt.score >= ${threshold}::real))`
-          : `EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = ${id}
-              AND pt.tag = ${name}::text AND pt.score >= ${threshold}::real)`,
+            `${id} = ANY (ARRAY(SELECT pt.photo_id FROM photo_tags pt WHERE ${shows("pt")}))`
+          : `EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = ${id} AND ${shows("pt")})`,
     );
   }
 
@@ -933,10 +992,7 @@ function filterConditions(
   if (filter.favorites) conditions.push("p.is_favorite");
 
   if (filter.content) {
-    const { embedding, model, maxDistance } = filter.content;
-    conditions.push(`EXISTS (SELECT 1 FROM photo_embeddings ce WHERE ce.photo_id = ${id}
-      AND ce.model = ${add(model)}::text
-      AND (ce.embedding <=> ${add(embedding)}::halfvec) <= ${add(maxDistance)}::float8)`);
+    conditions.push(`${id} = ANY (${add(filter.content.ids)}::bigint[])`);
   }
   return conditions;
 }
@@ -1227,8 +1283,26 @@ export async function getColorOverview(
     ]),
   ];
   const params: unknown[] = [perBand * BAND_CANDIDATES];
-  // The same conditions, and values, for every band
-  const narrow = andPhotoFilter(params, withoutColors(filter));
+  // A filter of few photos given by their ids (a rare look or tag, a
+  // content): its
+  // photos once for all the bands. Inline, each of the 18 bands repeated
+  // the filter's scans (a rare look: 1.5 s on the library); kept for a
+  // filter of many photos, each band read them all (outdoors, 165,000
+  // photos: 7.5 s), where inline it stops at the band's first 48.
+  const narrowed = withoutColors(filter);
+  const byIds =
+    narrowed.faces.some(
+      (face) => face.person === null && RARE_LOOKS.has(face.expression),
+    ) ||
+    narrowed.tags.some((tag) => tag.rare && !tag.negated) ||
+    narrowed.content !== null;
+  const kept = byIds
+    ? `WITH kept AS MATERIALIZED (
+         SELECT p.id FROM photos p WHERE ${DATED} ${andPhotoFilter(params, narrowed)})`
+    : "";
+  const keep = kept
+    ? "pc.photo_id IN (SELECT id FROM kept)"
+    : `${DATED_IN_GALLERY} ${andPhotoFilter(params, narrowed)}`;
   // Band numbers, not keys, go into the SQL; the rank expressions are this file's.
   const tops = filters.map(([, , colors], band) => {
     const rank = colorRank(colors);
@@ -1239,8 +1313,7 @@ export async function getColorOverview(
              p.metadata->>'date_taken' AS taken
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED].join(" AND ")}
-        ${narrow}
+      WHERE ${[...rank.where, DATED, keep].join(" AND ")}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1)`;
   });
@@ -1254,7 +1327,8 @@ export async function getColorOverview(
       look: string;
       taken: string;
     }>(
-      `SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look, taken
+      `${kept}
+       SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look, taken
        FROM (${tops.join("\nUNION ALL\n")}) t`,
       params,
     ),
@@ -1593,16 +1667,25 @@ export async function listPersonNames(): Promise<
 }
 
 /**
- * Those of `tags` the worker has tagged a photo with (one probe of
- * photo_tags_tag_score each). Before the photo_tags migration, none.
+ * Those of `tags` the worker has scored a photo of the gallery for, with
+ * the vocabulary `version` (photo_tags_tag_score, the first such photo).
+ * Before the photo_tags migration, none.
  */
-export async function tagsWithPhotos(tags: string[]): Promise<Set<string>> {
+export async function tagsWithPhotos(
+  tags: string[],
+  version: number,
+): Promise<Set<string>> {
   if (tags.length === 0) return new Set();
   try {
     const result = await query<{ tag: string }>(
+      // In score order, the first row is enough; an EXISTS took the tag's
+      // whole bitmap first (1.7 s, cold, for 25 tags of 800,000 rows)
       `SELECT t.tag FROM unnest($1::text[]) AS t(tag)
-       WHERE EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.tag = t.tag)`,
-      [tags],
+       CROSS JOIN LATERAL (
+         SELECT 1 FROM photo_tags pt JOIN photos p ON p.id = pt.photo_id
+         WHERE pt.tag = t.tag AND pt.vocab_version = $2::int ${andInGallery()}
+         ORDER BY pt.score DESC LIMIT 1) found`,
+      [tags, version],
     );
     return new Set(result.rows.map((row) => row.tag));
   } catch (error) {
@@ -1619,11 +1702,13 @@ export async function tagsWithPhotos(tags: string[]): Promise<Set<string>> {
  * on 0.2% of the photos (450) took 1.0 s for a page of the timeline, 3.1 s
  * of the color list and 5.6 s of the Couleurs bands; on half of them, 9 ms.
  */
-const RARE_TAG = 5_000;
+const RARE_TAG = 20_000;
 
 /**
  * Those of `tags` fewer than RARE_TAG photos show: one count, stopped at
- * RARE_TAG, on photo_tags_tag_score for each.
+ * RARE_TAG, on photo_tags_tag_score alone for each (the index holds tag
+ * and score; the version would read the table, and every row of a tagged
+ * photo has the same one).
  */
 export async function rareTags(
   tags: readonly { tag: string; threshold: number }[],
@@ -1637,6 +1722,25 @@ export async function rareTags(
     [tags.map((t) => t.tag), tags.map((t) => t.threshold), RARE_TAG],
   );
   return new Set(result.rows.map((row) => row.tag));
+}
+
+/**
+ * The share of the gallery's photos the worker has scored for the scene
+ * tags of `version` (their interieur row, db/schema.sql), 0..1. While a run
+ * goes on, a tag keeps only the photos read so far.
+ */
+export async function taggedShare(version: number): Promise<number> {
+  const result = await query<{ tagged: number; photos: number }>(
+    `SELECT
+       (SELECT count(*) FROM photo_tags pt JOIN photos p ON p.id = pt.photo_id
+        WHERE pt.tag = 'interieur' AND pt.vocab_version = $1::int
+          ${andInGallery()})::int AS tagged,
+       (SELECT count(*) FROM photos p
+        WHERE p.mime_type LIKE 'image/%' ${andInGallery()})::int AS photos`,
+    [version],
+  );
+  const { tagged, photos } = requireRow(result, "Tagged share");
+  return photos === 0 ? 1 : Math.min(1, tagged / photos);
 }
 
 /** How many photos semantic search can find (an index-only count of the key). */
@@ -1722,7 +1826,7 @@ export async function searchPhotosByContent(
          SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
          FROM photo_embeddings e
          JOIN photos p ON p.id = e.photo_id
-         WHERE e.model = $2
+         WHERE e.model = $2 AND p.mime_type LIKE 'image/%'
            ${narrow}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
@@ -1750,21 +1854,31 @@ export async function searchPhotosByContent(
 }
 
 /**
- * How far from `q` a photo may be and still show it, among the photos
- * passing `filter`: the cut searchPhotosByContent ranks with, SEMANTIC_MARGIN
- * past the SEMANTIC_REFERENCE_RANK-th nearest and never past
- * 1 - SEMANTIC_MIN_SIMILARITY. The lists kept in their own order (timeline,
- * colors, map, a person's photos) keep the photos within it
- * (PhotoFilter.content), so a query keeps the same photos in every view.
+ * Most photos a content keeps in the lists kept in their own order. Their
+ * ids are given to the planner, as the rare looks' (RARE_LOOKS): the
+ * distance to the content measured on each photo of a list instead took
+ * 3.9 s for the months of the timeline and 3.2 s for the Couleurs bands
+ * with « plage » (2026-10-19, the library).
  */
-export async function contentFloor(
+const CONTENT_LIMIT = 5_000;
+
+/**
+ * The photos showing `q` among those passing `filter`: within the cut
+ * searchPhotosByContent ranks with (SEMANTIC_MARGIN past the
+ * SEMANTIC_REFERENCE_RANK-th nearest, never past 1 - SEMANTIC_MIN_SIMILARITY),
+ * at most CONTENT_LIMIT, the nearest. The lists kept in their own order
+ * (timeline, colors, map, a person's photos) keep those
+ * (PhotoFilter.content), so a query keeps the same photos in every view.
+ * `complete`: false when the limit cut the list.
+ */
+export async function contentPhotos(
   q: QueryEmbedding,
   filter: PhotoFilter,
-): Promise<number> {
+): Promise<{ ids: number[]; complete: boolean }> {
   const params: unknown[] = [
     q.embedding,
     q.model,
-    SEMANTIC_MIN_WINDOW,
+    CONTENT_LIMIT,
     1 - SEMANTIC_MIN_SIMILARITY,
     SEMANTIC_REFERENCE_RANK,
     SEMANTIC_MARGIN,
@@ -1777,28 +1891,38 @@ export async function contentFloor(
   const row = await runTransaction(async (client) => {
     await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
     await client.query("SET LOCAL jit = off");
-    await client.query(`SET LOCAL hnsw.ef_search = ${SEMANTIC_MIN_WINDOW}`);
-    const result = await client.query<{ floor: number }>(
-      `WITH nearest AS (
-         SELECT e.embedding <=> $1::halfvec AS distance
+    await client.query("SET LOCAL hnsw.ef_search = 1000");
+    const result = await client.query<{ ids: string[]; nearest: number }>(
+      `WITH nearest AS MATERIALIZED (
+         SELECT e.photo_id, e.embedding <=> $1::halfvec AS distance
          FROM photo_embeddings e
          JOIN photos p ON p.id = e.photo_id
-         WHERE e.model = $2
+         WHERE e.model = $2 AND p.mime_type LIKE 'image/%'
            ${narrow}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
-       )
+       ),
        -- Every row of nearest sorted, not the first ones the relaxed scan
        -- returns; least() skips a NULL: no photo leaves the absolute floor
-       SELECT least($4::float8,
-         coalesce((array_agg(distance ORDER BY distance))[$5::int],
-                  max(distance)) + $6::float8) AS floor
-       FROM nearest`,
+       cut AS (
+         SELECT least($4::float8,
+           coalesce((array_agg(distance ORDER BY distance))[$5::int],
+                    max(distance)) + $6::float8) AS distance
+         FROM nearest
+       )
+       SELECT coalesce(array_agg(n.photo_id) FILTER (WHERE n.distance <= cut.distance),
+                       '{}') AS ids,
+              count(*)::int AS nearest
+       FROM nearest n CROSS JOIN cut`,
       params,
     );
-    return requireRow(result, "Content floor");
+    return requireRow(result, "Content photos");
   });
-  return row.floor;
+  const ids = row.ids.map(Number);
+  return {
+    ids,
+    complete: !(row.nearest === CONTENT_LIMIT && ids.length === CONTENT_LIMIT),
+  };
 }
 
 export interface FolderSuggestion {

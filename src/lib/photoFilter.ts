@@ -60,7 +60,8 @@ export interface TagCondition {
 /**
  * The filter as a URL carries it, each view's and the API's:
  *   q      the words typed, read again on every request (lib/searchQuery.ts)
- *   p      a person on the photos, repeated for each; "4.sourit": person 4, smiling
+ *   p      a person on the photos, repeated for each; "4.sourit": person 4,
+ *          smiling; "-4": person 4 not on them
  *   expr   someone on the photos looking so ("triste")
  *   tag    a scene tag ("plage"); "-voiture": not that
  *   only   "1": nobody else on the photos, nobody at all without people
@@ -72,6 +73,7 @@ export interface TagCondition {
 export interface UrlFilter {
   q: string;
   people: number[];
+  withoutPeople: number[];
   faces: FaceCondition[];
   tags: TagCondition[];
   only: boolean;
@@ -93,6 +95,7 @@ export const FILTER_KEYS = [
 export const NO_URL_FILTER: UrlFilter = {
   q: "",
   people: [],
+  withoutPeople: [],
   faces: [],
   tags: [],
   only: false,
@@ -106,13 +109,14 @@ const MAX_DATE_WORDS = 60;
 /** More conditions than anyone types: a URL past them is not a filter. */
 const MAX_VALUES = 12;
 
-const PERSON = /^(\d{1,15})(?:\.([a-z_]+))?$/;
+const PERSON = /^(-?)(\d{1,15})(?:\.([a-z_]+))?$/;
 const TAG = /^(-?)([a-z0-9_]{1,40})$/;
 
 export function hasUrlFilter(filter: UrlFilter): boolean {
   return (
     filter.q.trim() !== "" ||
     filter.people.length > 0 ||
+    filter.withoutPeople.length > 0 ||
     filter.faces.length > 0 ||
     filter.tags.length > 0 ||
     filter.only ||
@@ -138,6 +142,7 @@ export function parseUrlFilter(
     return { ok: false, error: `q must be at most ${MAX_QUERY} characters` };
 
   const people: number[] = [];
+  const withoutPeople: number[] = [];
   const faces: FaceCondition[] = [];
   const personValues = getAll("p");
   const exprValues = getAll("expr");
@@ -152,14 +157,22 @@ export function parseUrlFilter(
 
   for (const value of personValues) {
     const match = PERSON.exec(value);
-    const id = match ? Number(match[1]) : NaN;
-    if (!match || !Number.isSafeInteger(id) || id <= 0)
+    const id = match ? Number(match[2]) : NaN;
+    const without = match?.[1] === "-";
+    const expression = match?.[3];
+    if (
+      !match ||
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      (without && expression !== undefined)
+    )
       return {
         ok: false,
-        error: "p must be a person id, or <id>.<expression>",
+        error: "p must be a person id, <id>.<expression> or -<id>",
       };
-    const expression = match[2];
-    if (expression === undefined) {
+    if (without) {
+      if (!withoutPeople.includes(id)) withoutPeople.push(id);
+    } else if (expression === undefined) {
       if (!people.includes(id)) people.push(id);
     } else if (!isExpression(expression)) {
       return {
@@ -204,6 +217,7 @@ export function parseUrlFilter(
     value: {
       q,
       people,
+      withoutPeople,
       faces: dedupeFaces(faces),
       tags: dedupeTags(tags),
       only: only === "1",
@@ -231,7 +245,10 @@ export function readUrlFilter(params: URLSearchParams): UrlFilter {
     ...keep("q", (v) => v.trim().length <= MAX_QUERY),
     ...keep("p", (v) => {
       const m = PERSON.exec(v);
-      return m !== null && (m[2] === undefined || isExpression(m[2]));
+      return (
+        m !== null &&
+        (m[3] === undefined ? true : m[1] === "" && isExpression(m[3]))
+      );
     }),
     ...keep("expr", isExpression),
     ...keep("tag", (v) => TAG.test(v)),
@@ -262,6 +279,7 @@ export function writeUrlFilter(
   for (const key of FILTER_KEYS) params.delete(key);
   if (filter.q.trim() !== "") params.set("q", filter.q.trim());
   for (const id of filter.people) params.append("p", String(id));
+  for (const id of filter.withoutPeople) params.append("p", `-${String(id)}`);
   for (const face of filter.faces) {
     if (face.person === null) params.append("expr", face.expression);
     else params.append("p", `${String(face.person)}.${face.expression}`);

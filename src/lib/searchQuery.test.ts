@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { readTagVocabulary } from "./sceneTags";
-import { TAGS_FIXTURE } from "./sceneTags.fixture";
 import {
   expressionPhrases,
   isStopword,
@@ -21,7 +22,10 @@ const PEOPLE: NamedPerson[] = [
   { id: 7, name: "Isa" },
 ];
 
-const TAGS = readTagVocabulary(TAGS_FIXTURE).tags;
+/** The worker's vocabulary, as the app reads it */
+const TAGS = readTagVocabulary(
+  JSON.parse(readFileSync(path.join(process.cwd(), "db", "tags.json"), "utf8")),
+).tags;
 
 const read = (q: string, people: NamedPerson[] = PEOPLE) =>
   understandQuery(q, people);
@@ -494,7 +498,7 @@ void test("a tag's words join the content when other words are left", () => {
 });
 
 void test("« sans » or « pas de » before a tag: not that", () => {
-  assert.deepEqual(withTags("plage sans voiture").tags, [
+  assert.deepEqual(withTags("plage sans véhicule").tags, [
     { tag: "plage", negated: false },
     { tag: "vehicule", negated: true },
   ]);
@@ -503,7 +507,57 @@ void test("« sans » or « pas de » before a tag: not that", () => {
     { tag: "jardin", negated: false },
     { tag: "chien", negated: true },
   ]);
-  assert.equal(without("plage sans voiture", "Véhicule"), "plage");
+  assert.equal(
+    without("plage sans véhicule", "En voiture, train, avion"),
+    "plage",
+  );
+});
+
+void test("what a negation says is never what the photos show", () => {
+  // No tag says « parasol »: no content, and certainly not « parasol »
+  const u = withTags("plage sans parasol");
+  assert.deepEqual(u.tags, [{ tag: "plage", negated: false }]);
+  assert.equal(u.content, null);
+  assert.equal(read("sans").content, "sans");
+  assert.equal(read("un chien pas de laisse").content, "chien");
+  assert.equal(read("ni vent ni pluie").content, null);
+});
+
+void test("« sans » or « ni » before a name: not on the photos", () => {
+  const u = read("Suzie sans Céline");
+  assert.deepEqual(labels(u.parts), ["person:Suzie", "without:Céline"]);
+  assert.deepEqual(u.people, [1]);
+  assert.deepEqual(u.withoutPeople, [4]);
+  assert.equal(u.content, null);
+  assert.deepEqual(read("Céline ni Stéphane ni Suzie").withoutPeople, [5, 1]);
+  assert.deepEqual(read("pas Isa").withoutPeople, [7]);
+  assert.equal(without("Suzie sans Céline", "Céline"), "Suzie");
+});
+
+void test("« que » says only at the start or after « ne », « rien », « juste »", () => {
+  for (const q of [
+    "la maison que les enfants ont construite",
+    "le chat que la voisine a adopté",
+    "Suzie et le gâteau que Mamie a fait",
+  ])
+    assert.equal(withTags(q).only, false, q);
+  for (const q of [
+    "que des chats",
+    "il n'y a que des chats",
+    "juste que Suzie",
+  ])
+    assert.equal(withTags(q).only, true, q);
+});
+
+void test("only with a look on anyone's face: everyone looks so", () => {
+  const u = read("que des enfants qui sourient");
+  assert.equal(u.only, true);
+  assert.deepEqual(u.faces, [{ person: null, expression: "sourit" }]);
+  assert.deepEqual(labels(u.parts), [
+    "only:Tout le monde",
+    "expression:Sourit",
+  ]);
+  assert.equal(read("seulement des gens qui rient").only, true);
 });
 
 void test("nobody on the photos, or nobody else than the people named", () => {

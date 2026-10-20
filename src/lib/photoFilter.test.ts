@@ -25,6 +25,7 @@ void test("every condition of the URL, and back", () => {
   const filter: UrlFilter = {
     q: "au jardin",
     people: [5],
+    withoutPeople: [],
     faces: [
       { person: 4, expression: "sourit" },
       { person: null, expression: "triste" },
