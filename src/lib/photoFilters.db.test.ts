@@ -83,6 +83,8 @@ async function face(
     /** The left eye's, when it differs; null: not measured */
     leftEye?: number | null;
     mouth?: number;
+    /** Degrees, below 0 looking down */
+    pitch?: number;
     assignment?: string;
   } = {},
 ) {
@@ -92,7 +94,7 @@ async function face(
        sharpness, yaw, pitch, embedding, model, person_id, assignment,
        expression_scores, eye_left_open, eye_right_open, mouth_open)
      VALUES ($1, '{0.1,0.1,0.2,0.2}', '{0,0,0,0,0,0,0,0,0,0}', 0.9, 200, 200,
-       100, 0, 0, $2, 'arcface', $3, $4, $5, $6, $7, $8)`,
+       100, 0, $9, $2, 'arcface', $3, $4, $5, $6, $7, $8)`,
     [
       photoId,
       vector(512, () => 0.04),
@@ -102,6 +104,7 @@ async function face(
       look.leftEye === undefined ? (look.eyes ?? 0.3) : look.leftEye,
       look.eyes ?? 0.3,
       look.mouth ?? 0.02,
+      look.pitch ?? 0,
     ],
   );
 }
@@ -234,10 +237,11 @@ before(async () => {
   // 112: undated
   await photo(112, ALBUMS, "k.jpg", null);
   await face(112, CELINE, SMILING);
-  // 113: one eye closed, the other not measured: no « yeux fermés »; a sad
-  // face named as no one
+  // 113: one eye closed, the other not measured, and lids low on a face
+  // looking down: no « yeux fermés »; a sad face named as no one
   await photo(113, ALBUMS, "l.jpg", "2013-05-05");
   await face(113, null, NEUTRAL, { eyes: 0.05, leftEye: null });
+  await face(113, null, NEUTRAL, { eyes: 0.05, pitch: -30 });
   await face(113, null, SAD);
 
   await looked(101, 102, 103, 104, 105, 106, 107, 109, 110, 111, 112, 113);
@@ -312,7 +316,7 @@ void describe("each condition", () => {
       await timeline({ faces: [{ person: null, expression: "rit" }] }),
       [105],
     );
-    // 113: one eye not measured, the other closed: not « yeux fermés »
+    // 113: one eye not measured, or looking down: not « yeux fermés »
     assert.deepEqual(
       await timeline({ faces: [{ person: null, expression: "yeux_fermes" }] }),
       [104],

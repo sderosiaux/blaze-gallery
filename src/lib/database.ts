@@ -821,18 +821,20 @@ const READABLE = (f: string) => `${f}.cluster_eligible`;
  * (lid gap over eye width, ~0.3 open, < 0.15 closed; both measured) and the
  * mouth (inner lip gap over mouth width, ~0 closed), compared as real, as
  * stored (0.9 as a double is above the stored 0.9). Set for precision
- * rather than recall, as the owner asked (2026-10-19): a smile reads on
- * any face of 60 px or more; the other looks only on READABLE faces.
+ * rather than recall, as the owner asked (2026-10-19): 9 in 10 right or
+ * not offered. A smile reads on any face of 60 px or more; the other looks
+ * only on READABLE faces.
  * The owner's answers (2026-10-19, 15 readable faces each, 5 per band):
  *   rit: a strong smile, the mouth open from 0.25: 10 of 10 laughing
  *     (0.20 to 0.25: 4 of 5);
  *   triste: from 0.6 on faces named as someone, 6 of 6 sad (under 0.6,
  *     1 of 2); on the others, 1 of 4: anyone's sad face counts named ones
  *     only (NAMED_LOOKS).
- * colere, surpris and peur: the scores at which most of a dozen faces
- * looked so (checked by eye, not by the owner: frowning 9 of 12 at 0.9;
- * « oh! » mouths 6 of 12 at 0.9, the rest grimaces and dolls; fear 4 of
- * 12 at 0.75, the rest grimaces): the least sure of the looks.
+ * Checked by eye, 12 faces at random: sourit 12 of 12; yeux_fermes 12 of
+ * 12 with the head level, 6 of 12 without (the others look down).
+ * Not offered: anger, surprise and fear (by eye at 0.9: 9, 6 and 4 of 12,
+ * the rest grimaces, statues and dolls; from 0.95, 7, 1 and 2 faces in
+ * the library).
  * Partial indexes (db/schema.sql idx_faces_look_*) repeat the rare looks'
  * predicates as anyoneLooks writes them: change both together.
  */
@@ -842,28 +844,20 @@ const EXPRESSION_SQL: Record<Expression, (f: string) => string> = {
   rit: (f) =>
     `${f}.expression_scores[5] >= 0.8::real AND ${f}.mouth_open >= 0.25::real AND ${READABLE(f)}`,
   triste: (f) => `${f}.expression_scores[7] >= 0.6::real AND ${READABLE(f)}`,
-  colere: (f) => `${f}.expression_scores[1] >= 0.9::real AND ${READABLE(f)}`,
-  surpris: (f) => `${f}.expression_scores[8] >= 0.9::real AND ${READABLE(f)}`,
-  peur: (f) => `${f}.expression_scores[4] >= 0.75::real AND ${READABLE(f)}`,
   yeux_fermes: (f) =>
     `${f}.eye_left_open IS NOT NULL AND ${f}.eye_right_open IS NOT NULL
-      AND greatest(${f}.eye_left_open, ${f}.eye_right_open) < 0.10::real AND ${READABLE(f)}`,
+      AND greatest(${f}.eye_left_open, ${f}.eye_right_open) < 0.10::real
+      AND ${f}.pitch >= -5::real AND ${READABLE(f)}`,
 };
 
 /**
- * Looks that, on anyone's face, count on faces named as someone only:
- * at their scores, dolls, statues, figurines, the grimaces of passers-by
- * and faces in a crowd that only look sad are most of the rest.
+ * Looks that, on anyone's face, count on faces named as someone only: at
+ * their scores, faces in a crowd that only look sad are most of the rest.
  */
-const NAMED_LOOKS: ReadonlySet<Expression> = new Set([
-  "triste",
-  "colere",
-  "surpris",
-  "peur",
-]);
+const NAMED_LOOKS: ReadonlySet<Expression> = new Set(["triste"]);
 
 /**
- * Looks few faces have (2026-10-19, as anyone's look: 12 to 800 faces of
+ * Looks few faces have (2026-10-19, as anyone's look: 150 to 700 faces of
  * 146,000; smiling, 40,000). On anyone's face, the planner walks the
  * timeline's date index probing each photo's faces: 92,000 photos read to
  * find 200 sad ones (2.4 s on the library). Given the ids of the photos
@@ -875,9 +869,6 @@ const NAMED_LOOKS: ReadonlySet<Expression> = new Set([
 const RARE_LOOKS: ReadonlySet<Expression> = new Set([
   "rit",
   "triste",
-  "colere",
-  "surpris",
-  "peur",
   "yeux_fermes",
 ]);
 
