@@ -92,7 +92,9 @@ What differs from a long-running server:
   confirm). `npm run sync -- --dry-run` prints what it would change and
   writes nothing. After a sync, run `npm run palettes` (folder colour
   strips) and queue the new photos for analysis (below); the worker
-  machine does all three in its weekly cron job.
+  machine does all three in its weekly cron job, `worker/weekly.sh`
+  (`30 3 * * 0`, with a clone of the repo in `~/blaze-sync/repo` and the
+  env files in `~/blaze-worker/`).
 - The daily S3 audit-log cleanup never runs: it is a `node-cron` job inside
   the server process.
 
