@@ -11,7 +11,7 @@ import type * as Database from "./database";
 import type { PhotoFilter, TagFilter } from "./database";
 import type * as Resolver from "./filterResolver";
 import type * as People from "./people";
-import { NO_URL_FILTER } from "./photoFilter";
+import { EXPRESSIONS, NO_URL_FILTER } from "./photoFilter";
 import { NO_TAGS, readTagVocabulary } from "./sceneTags";
 import { startTestDatabase, type TestDatabase } from "./testDatabase";
 
@@ -234,9 +234,11 @@ before(async () => {
   // 112: undated
   await photo(112, ALBUMS, "k.jpg", null);
   await face(112, CELINE, SMILING);
-  // 113: one eye closed, the other not measured: no « yeux fermés »
+  // 113: one eye closed, the other not measured: no « yeux fermés »; a sad
+  // face named as no one
   await photo(113, ALBUMS, "l.jpg", "2013-05-05");
   await face(113, null, NEUTRAL, { eyes: 0.05, leftEye: null });
+  await face(113, null, SAD);
 
   await looked(101, 102, 103, 104, 105, 106, 107, 109, 110, 111, 112, 113);
 });
@@ -301,6 +303,7 @@ void describe("each condition", () => {
   });
 
   void test("anyone's look", async () => {
+    // 113's sad face is named as no one: not counted (NAMED_LOOKS)
     assert.deepEqual(
       await timeline({ faces: [{ person: null, expression: "triste" }] }),
       [104],
@@ -319,6 +322,32 @@ void describe("each condition", () => {
       await timeline({ faces: [{ person: CELINE, expression: "rit" }] }),
       [],
     );
+  });
+
+  void test("anyone's rare look, read from its partial index", async () => {
+    // db/schema.sql idx_faces_look_*, used only while its predicate says
+    // what the look's SQL says; smiling, on 40,000 faces, has none
+    await sql.query("SET enable_seqscan = off");
+    try {
+      for (const expression of EXPRESSIONS.filter((e) => e !== "sourit")) {
+        const params: unknown[] = [];
+        const where = database.andPhotoFilter(
+          params,
+          filter({ faces: [{ person: null, expression }] }),
+        );
+        const plan = await sql.query<{ "QUERY PLAN": string }>(
+          `EXPLAIN SELECT p.id FROM photos p WHERE true ${where}`,
+          params,
+        );
+        assert.match(
+          plan.rows.map((row) => row["QUERY PLAN"]).join("\n"),
+          new RegExp(`idx_faces_look_${expression}\\b`),
+          expression,
+        );
+      }
+    } finally {
+      await sql.query("RESET enable_seqscan");
+    }
   });
 
   void test("only: no face, on a photo the faces pass has looked at", async () => {

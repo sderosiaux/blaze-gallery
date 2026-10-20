@@ -823,11 +823,18 @@ const READABLE = (f: string) => `${f}.cluster_eligible`;
  * stored (0.9 as a double is above the stored 0.9). Set for precision
  * rather than recall, as the owner asked (2026-10-19): a smile reads on
  * any face of 60 px or more; the other looks only on READABLE faces.
- * triste and rit: from the owner's answers on faces around these scores
- * (/tmp/blaze-expr-r2). colere, surpris and peur: the scores at which most
- * of a dozen faces looked so (checked by eye, 2026-10-19: frowning 9 of
- * 12 at 0.9; « oh! » mouths 6 of 12 at 0.9, the rest grimaces and dolls;
- * fear 4 of 12 at 0.75, the rest grimaces): the least sure of the looks.
+ * The owner's answers (2026-10-19, 15 readable faces each, 5 per band):
+ *   rit: a strong smile, the mouth open from 0.25: 10 of 10 laughing
+ *     (0.20 to 0.25: 4 of 5);
+ *   triste: from 0.6 on faces named as someone, 6 of 6 sad (under 0.6,
+ *     1 of 2); on the others, 1 of 4: anyone's sad face counts named ones
+ *     only (NAMED_LOOKS).
+ * colere, surpris and peur: the scores at which most of a dozen faces
+ * looked so (checked by eye, not by the owner: frowning 9 of 12 at 0.9;
+ * « oh! » mouths 6 of 12 at 0.9, the rest grimaces and dolls; fear 4 of
+ * 12 at 0.75, the rest grimaces): the least sure of the looks.
+ * Partial indexes (db/schema.sql idx_faces_look_*) repeat the rare looks'
+ * predicates as anyoneLooks writes them: change both together.
  */
 const EXPRESSION_SQL: Record<Expression, (f: string) => string> = {
   sourit: (f) =>
@@ -845,23 +852,25 @@ const EXPRESSION_SQL: Record<Expression, (f: string) => string> = {
 
 /**
  * Looks that, on anyone's face, count on faces named as someone only:
- * at their scores, dolls, statues, figurines and the grimaces of passers-by
- * are most of the rest.
+ * at their scores, dolls, statues, figurines, the grimaces of passers-by
+ * and faces in a crowd that only look sad are most of the rest.
  */
 const NAMED_LOOKS: ReadonlySet<Expression> = new Set([
+  "triste",
   "colere",
   "surpris",
   "peur",
 ]);
 
 /**
- * Looks few faces have (2026-10-19: 100 to 850 faces of 146,000 at
- * EXPRESSION_SQL; smiling, 40,000). On anyone's face, the planner walks the
+ * Looks few faces have (2026-10-19, as anyone's look: 12 to 800 faces of
+ * 146,000; smiling, 40,000). On anyone's face, the planner walks the
  * timeline's date index probing each photo's faces: 92,000 photos read to
  * find 200 sad ones (2.4 s on the library). Given the ids of the photos
  * showing the look, as excluded_folders' patterns are given
- * (outOfGallery), it reads those photos and sorts them: 89 ms on the
- * library, most of it a scan of the faces for the ids.
+ * (outOfGallery), it reads those photos and sorts them, the ids from the
+ * look's partial index (db/schema.sql idx_faces_look_*): 7 ms for the sad
+ * ones, 82 ms for the laughing ones, on a copy of the library.
  */
 const RARE_LOOKS: ReadonlySet<Expression> = new Set([
   "rit",

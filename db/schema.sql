@@ -340,6 +340,29 @@ CREATE INDEX IF NOT EXISTS idx_faces_person_id
   ON faces (person_id) WHERE person_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_faces_embedding
   ON faces USING hnsw (embedding halfvec_cosine_ops);
+-- The photos of the rare looks on anyone's face (RARE_LOOKS in
+-- src/lib/database.ts), a few hundred faces each, without reading every
+-- face. Each predicate is that look's SQL as anyoneLooks writes it: the
+-- planner uses the index only while the look implies it (a looser look
+-- needs its index rebuilt).
+CREATE INDEX IF NOT EXISTS idx_faces_look_rit ON faces (photo_id)
+  WHERE expression_scores[5] >= 0.8::real AND mouth_open >= 0.25::real
+    AND cluster_eligible;
+CREATE INDEX IF NOT EXISTS idx_faces_look_triste ON faces (photo_id)
+  WHERE expression_scores[7] >= 0.6::real AND cluster_eligible
+    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
+CREATE INDEX IF NOT EXISTS idx_faces_look_colere ON faces (photo_id)
+  WHERE expression_scores[1] >= 0.9::real AND cluster_eligible
+    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
+CREATE INDEX IF NOT EXISTS idx_faces_look_surpris ON faces (photo_id)
+  WHERE expression_scores[8] >= 0.9::real AND cluster_eligible
+    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
+CREATE INDEX IF NOT EXISTS idx_faces_look_peur ON faces (photo_id)
+  WHERE expression_scores[4] >= 0.75::real AND cluster_eligible
+    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
+CREATE INDEX IF NOT EXISTS idx_faces_look_yeux_fermes ON faces (photo_id)
+  WHERE eye_left_open IS NOT NULL AND eye_right_open IS NOT NULL
+    AND greatest(eye_left_open, eye_right_open) < 0.10::real AND cluster_eligible;
 
 -- What a photo shows, in the words of a vision-language model run on the
 -- owner's Mac (task 'describe'). Only what the pixels show: the date and the
