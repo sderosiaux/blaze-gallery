@@ -192,3 +192,16 @@ chaton, jeune_animal), which are stored in the scores. Anything else that
 changes a score (a prompt, a bias, a rival, a mapped threshold) changes
 the job's model, and `blaze-enqueue --task tags --all` queues every photo
 again. Bump `version` with it so the rows say which vocabulary made them.
+
+A new version goes out in this order:
+
+1. Merge `db/tags.json`.
+2. Re-tag the whole library: rebuild the image, `blaze-enqueue --task tags
+   --all`, run the worker (about 3 minutes).
+3. Only then deploy the app, which reads the rows of its own version only.
+
+The primary key is (photo_id, tag): each photo's new rows replace its old
+ones. During the run, and until the app is deployed, the tags the app sees
+are partial; the UI shows it through tagged_share. Keeping vocab_version
+out of the key is deliberate: a run replaces each photo's rows in place, and
+no older version is left to clean up.
