@@ -141,7 +141,7 @@ threshold, and the photos of Céline (person 4) tagged, before and after:
 
 | tag | photos with faces, v2 | v3 | Céline, v2 | v3 | v3 band check | v3 drawn from all above |
 |---|---|---|---|---|---|---|
-| plage | 0.00% | 1.25% | 0 | 451 | 20/24 | 22/24 |
+| plage (v4) | 0.00% | 0.70% | 0 | 210 | 24/24 | 23/24 |
 | mer | 0.56% | 2.46% | 184 | 1,060 | 20/24 | 24/24 |
 | montagne | 0.82% | 6.75% | 335 | 2,766 | 21/24 | 24/24 |
 | neige | 0.19% | 0.42% | 74 | 155 | 22/24 | 24/24 |
@@ -158,6 +158,20 @@ went from 2 photos to 206 (Qwen's garden label: precision 1.00, recall
 random and among the lowest scored: most errors there are seaside promenades
 read as beaches, fjords and lakes read as sea, and parks read as gardens.
 Photos without faces barely move (plage 0.48% to 1.13% of them).
+
+The owner's side (filters) then checked plage on the photos with people,
+strictly: sand or pebbles at the water, not just the sea behind. "Céline et
+Stéphane à la plage en été" gave 107 photos, 16 to 22 of 30 on a beach:
+my v3 checks had counted a selfie in front of the sea as a beach. In v4 the
+people description of plage must also beat "a selfie by the sea" and "a
+photo of people by the sea" (`versus` inside `also`, with `versus_bias`
+-4: a rival must win clearly), with a bias of -9.0. On 108 photos with
+faces I labelled the same strict way (60 to set it, 48 to check it), 0.91
+of the photos above the threshold are on a beach, against about 0.60 in
+v3. The price is recall: 396 photos with faces tagged instead of 702, 11 of
+filters' 20 obvious beaches instead of 13, and all 8 of the false positives
+filters found are now under the threshold. Photos without faces are
+unchanged (1,834 against 1,846), and so is every other tag.
 
 anniversaire, noel and mariage keep their v2 prompts. Their photos are
 already full of people, and people prompts made them worse: on the Qwen

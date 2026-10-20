@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "tags": [
     {
       "tag": "interieur",
@@ -198,7 +198,12 @@
               "a selfie at the beach",
               "children playing on the beach"
             ],
-            "bias": -9.72
+            "bias": -9.0,
+            "versus": [
+              ["a selfie by the sea"],
+              ["a photo of people by the sea"]
+            ],
+            "versus_bias": -4.0
           }
         ]
       }

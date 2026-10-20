@@ -11,8 +11,10 @@ How a tag is scored (db/tags.json, "prompts"):
   logit(t)  = SCALE * cos(photo, match) + bias        match: its descriptions,
                                                       averaged then normalized
   plain     = sigmoid(logit(t)) * beats(t)
-  also      = other descriptions with their own bias ("people at the beach"
-              next to "a photo of a beach"): the largest of the logits counts
+  also      = other descriptions, each with its own bias and rivals ("people
+              at the beach", which must beat "a selfie by the sea"), scored
+              like match; versus_bias is added to its rivals' logits (below
+              0: a rival must win clearly); the tag takes the largest score
   beats(t)  = softmax(SCALE * cos(photo, d) for d in [match] + versus)[match]
               ("a dog" must also look more like a dog than like a cat);
               1 without versus
@@ -42,7 +44,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -71,6 +73,14 @@ def vocabulary_path() -> Path:
 
 
 @dataclass(frozen=True)
+class Also:
+    match: tuple[str, ...]
+    bias: float
+    versus: tuple[tuple[str, ...], ...] = ()
+    versus_bias: float = 0.0
+
+
+@dataclass(frozen=True)
 class Tag:
     tag: str
     label: str
@@ -86,8 +96,8 @@ class Tag:
     any: tuple[str, ...] = ()
     # Stored whatever its score (indoors and outdoors: every photo is one or the other)
     always: bool = False
-    # (descriptions, bias) scored like match: the tag takes the largest logit
-    also: tuple[tuple[tuple[str, ...], float], ...] = ()
+    # Scored like match, the tag takes the largest: see Also
+    also: tuple[Also, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -119,7 +129,12 @@ class Vocabulary:
                     any=tuple(prompts.get("any", ())),
                     always=bool(prompts.get("always", False)),
                     also=tuple(
-                        (tuple(_list(alt["match"])), float(alt["bias"]))
+                        Also(
+                            tuple(_list(alt["match"])),
+                            float(alt["bias"]),
+                            tuple(tuple(_list(v)) for v in alt.get("versus", ())),
+                            float(alt.get("versus_bias", 0.0)),
+                        )
                         for alt in prompts.get("also", ())
                     ),
                 )
@@ -162,7 +177,11 @@ class Vocabulary:
         texts = [
             p
             for t in self.tags
-            for group in (t.match, *t.versus, *(alt for alt, _ in t.also))
+            for group in (
+                t.match,
+                *t.versus,
+                *(g for alt in t.also for g in (alt.match, *alt.versus)),
+            )
             for p in group
         ]
         return list(dict.fromkeys(texts))
@@ -179,7 +198,8 @@ class Vocabulary:
         # `any` maps thresholds into scores: theirs count for those tags
         mapped = {name for t in self.tags if t.any for name in (t.tag, *t.any)}
         scoring = [
-            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always, t.also)
+            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always)
+            + tuple(astuple(alt) for alt in t.also)
             + ((t.threshold,) if t.tag in mapped else ())
             for t in self.tags
         ]
@@ -233,17 +253,18 @@ class Scorer:
         self.index = {t.tag: i for i, t in enumerate(vocabulary.tags)}
         self.thresholds = {t.tag: t.threshold for t in vocabulary.tags}
         concepts: list[np.ndarray] = []
-        # Per tag: its match column, then its versus columns; its also columns
+
+        def column(prompts: Iterable[str]) -> int:
+            concepts.append(_concept(vectors, prompts))
+            return len(concepts) - 1
+
+        # Per tag: its match column and its versus columns; per also: the same, with its bias
         self.columns: list[tuple[int, list[int]]] = []
-        self.also: list[list[tuple[int, float]]] = []
+        self.also: list[list[tuple[Also, int, list[int]]]] = []
         for t in vocabulary.tags:
-            columns = []
-            for prompts in (t.match, *t.versus, *(a for a, _ in t.also)):
-                concepts.append(_concept(vectors, prompts))
-                columns.append(len(concepts) - 1)
-            self.columns.append((columns[0], columns[1 : 1 + len(t.versus)]))
+            self.columns.append((column(t.match), [column(v) for v in t.versus]))
             self.also.append(
-                [(c, b) for c, (_, b) in zip(columns[1 + len(t.versus) :], t.also, strict=True)]
+                [(alt, column(alt.match), [column(v) for v in alt.versus]) for alt in t.also]
             )
         self.matrix = np.stack(concepts, axis=1)
 
@@ -267,18 +288,21 @@ class Scorer:
             if t.softmax:
                 continue
             match, versus = self.columns[i]
-            beats = np.ones(len(embeddings), np.float32)
-            if versus:
-                rivals = logits[:, versus] - logits[:, [match]]
-                beats = 1.0 / (1.0 + np.exp(rivals).sum(axis=1))
+
+            def beats(match: int, versus: list[int], handicap: float = 0.0) -> np.ndarray:
+                if not versus:
+                    return np.ones(len(embeddings), np.float32)
+                rivals = logits[:, versus] - logits[:, [match]] + handicap
+                return 1.0 / (1.0 + np.exp(rivals).sum(axis=1))
+
             if t.of:
-                base = out[:, self.index[t.of]]
+                out[:, i] = out[:, self.index[t.of]] * beats(match, versus)
             else:
-                logit = logits[:, match] + (t.bias or 0.0)
-                for column, bias in self.also[i]:
-                    logit = np.maximum(logit, logits[:, column] + bias)
-                base = _sigmoid(logit)
-            out[:, i] = base * beats
+                out[:, i] = _sigmoid(logits[:, match] + (t.bias or 0.0)) * beats(match, versus)
+                for alt, column, rivals in self.also[i]:
+                    scored = _sigmoid(logits[:, column] + alt.bias)
+                    scored = scored * beats(column, rivals, alt.versus_bias)
+                    out[:, i] = np.maximum(out[:, i], scored)
             for other in t.any:
                 shift = _logit(t.threshold) - _logit(self.thresholds[other])
                 mapped = _sigmoid(_logit(out[:, self.index[other]]) + shift)
