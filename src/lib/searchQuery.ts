@@ -591,11 +591,6 @@ const EXPRESSION_PHRASES: Record<Expression, string> = {
   rit: "rit rient rire rires rigole rigolent hilare hilares eclate_de_rire eclatent_de_rire eclat_de_rire eclats_de_rire mort_de_rire morte_de_rire morts_de_rire mortes_de_rire fou_rire",
   triste:
     "triste tristes pleure pleurent pleurs larmes en_larmes chagrin malheureux malheureuse malheureuses",
-  colere:
-    "colere en_colere fache fachee faches fachees enerve enervee enerves enervees boude boudent boudeur boudeuse boudeurs boudeuses grognon grognons grognonne furieux furieuse furieuses",
-  surpris:
-    "surpris surprise surprises etonne etonnee etonnes etonnees stupefait stupefaite",
-  peur: "a_peur ont_peur peur effraye effrayee effrayes effrayees apeure apeuree apeures apeurees terrifie terrifiee",
   yeux_fermes:
     "yeux_fermes les_yeux_fermes yeux_clos les_yeux_clos ferme_les_yeux ferment_les_yeux",
 };
@@ -621,10 +616,10 @@ export function expressionPhrases(): {
 }
 
 /**
- * Alone, these say something else ("un film qui fait peur", "le contenu"):
- * they only read as a face's look after a person or "quelqu'un".
+ * Alone, these say something else ("le contenu"): they only read as a
+ * face's look after a person or "quelqu'un".
  */
-const BOUND_ONLY = new Set(words("peur content contente contents contentes"));
+const BOUND_ONLY = new Set(words("content contente contents contentes"));
 
 /** Between a person and how they look: "Céline qui sourit", "Suzie est triste". */
 const EXPRESSION_LEADS = new Set(words("qui est sont a ont avec"));
@@ -645,7 +640,7 @@ const SUBJECTS = [
   "visages",
 ].map((phrase) => ({ keys: phraseKeys(phrase), value: true }));
 
-/** How a face looks at `i`, its leading words included ("qui a peur"). */
+/** How a face looks at `i`, its leading words included ("qui a les yeux fermés"). */
 function expressionAt(
   tokens: Token[],
   i: number,

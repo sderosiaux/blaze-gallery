@@ -351,18 +351,10 @@ CREATE INDEX IF NOT EXISTS idx_faces_look_rit ON faces (photo_id)
 CREATE INDEX IF NOT EXISTS idx_faces_look_triste ON faces (photo_id)
   WHERE expression_scores[7] >= 0.6::real AND cluster_eligible
     AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_colere ON faces (photo_id)
-  WHERE expression_scores[1] >= 0.9::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_surpris ON faces (photo_id)
-  WHERE expression_scores[8] >= 0.9::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_peur ON faces (photo_id)
-  WHERE expression_scores[4] >= 0.75::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
 CREATE INDEX IF NOT EXISTS idx_faces_look_yeux_fermes ON faces (photo_id)
   WHERE eye_left_open IS NOT NULL AND eye_right_open IS NOT NULL
-    AND greatest(eye_left_open, eye_right_open) < 0.10::real AND cluster_eligible;
+    AND greatest(eye_left_open, eye_right_open) < 0.10::real
+    AND pitch >= -5::real AND cluster_eligible;
 
 -- What a photo shows, in the words of a vision-language model run on the
 -- owner's Mac (task 'describe'). Only what the pixels show: the date and the

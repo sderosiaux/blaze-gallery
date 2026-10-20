@@ -17,17 +17,10 @@ import {
 /**
  * How a face looks, as the faces pass measures it (db/schema.sql, faces):
  * the 8 expression probabilities, the eyes and the mouth. The thresholds
- * are lib/database.ts's EXPRESSION_SQL.
+ * are lib/database.ts's EXPRESSION_SQL; the looks it cannot read right 9
+ * times in 10 are not offered.
  */
-export const EXPRESSIONS = [
-  "sourit",
-  "rit",
-  "triste",
-  "colere",
-  "surpris",
-  "peur",
-  "yeux_fermes",
-] as const;
+export const EXPRESSIONS = ["sourit", "rit", "triste", "yeux_fermes"] as const;
 
 export type Expression = (typeof EXPRESSIONS)[number];
 
@@ -35,9 +28,6 @@ export const EXPRESSION_LABELS: Record<Expression, string> = {
   sourit: "Sourit",
   rit: "Rit",
   triste: "Triste",
-  colere: "En colère",
-  surpris: "Surpris",
-  peur: "A peur",
   yeux_fermes: "Yeux fermés",
 };
 

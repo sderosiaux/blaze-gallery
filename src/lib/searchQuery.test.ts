@@ -359,14 +359,6 @@ void test("every word of each look, after a name", () => {
     ["Suzie triste", "triste"],
     ["Suzie qui pleure", "triste"],
     ["Suzie en larmes", "triste"],
-    ["Suzie en colère", "colere"],
-    ["Suzie fâchée", "colere"],
-    ["Suzie qui boude", "colere"],
-    ["Suzie surprise", "surpris"],
-    ["Suzie étonnée", "surpris"],
-    ["Suzie a peur", "peur"],
-    ["Suzie qui a peur", "peur"],
-    ["Suzie effrayée", "peur"],
     ["Céline les yeux fermés", "yeux_fermes"],
     ["Céline qui a les yeux fermés", "yeux_fermes"],
     ["Céline yeux clos", "yeux_fermes"],
@@ -409,9 +401,6 @@ void test("a look with nobody named is anyone's", () => {
     assert.deepEqual(u.faces, [{ person: null, expression: "triste" }], q);
     assert.equal(u.content, null, q);
   }
-  assert.deepEqual(read("quelqu'un qui a peur").faces, [
-    { person: null, expression: "peur" },
-  ]);
   assert.deepEqual(read("tout le monde rit").faces, [
     { person: null, expression: "rit" },
   ]);
@@ -420,9 +409,21 @@ void test("a look with nobody named is anyone's", () => {
 void test("a look right after a thing, or a word that says something else, stays content", () => {
   assert.deepEqual(read("un chien heureux").parts, []);
   assert.equal(read("un chien heureux").content, "chien heureux");
-  // Alone, « peur » is not a face
   assert.deepEqual(read("un film qui fait peur").faces, []);
   assert.deepEqual(read("gâteau surprise").faces, []);
+});
+
+void test("the looks not offered (anger, surprise, fear) are content", () => {
+  for (const [q, content] of [
+    ["Suzie en colère", "colère"],
+    ["Suzie surprise", "surprise"],
+    ["Suzie qui a peur", "peur"],
+  ] as const) {
+    const u = read(q);
+    assert.deepEqual(u.faces, [], q);
+    assert.deepEqual(u.people, [1], q);
+    assert.equal(u.content, content, q);
+  }
 });
 
 void test("scene tags: their words, plurals and leading words", () => {
