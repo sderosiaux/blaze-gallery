@@ -19,11 +19,16 @@ few short English prompts per tag, once per vocabulary.
   scores p = 0.013 on an obvious cat ("a cat lying on a shoe" gets 0.90).
   So I kept the model's slope and gave each tag its own bias. Every tag then
   spreads over 0..1, and one storage floor (0.05) works for all of them.
-- Indoors, outdoors, in a vehicle and screen or document share one
-  softmax. On the 2,061 photos Qwen3-VL described (used to measure, never to
-  tag), the softmax ranks indoor against outdoor at AUC 0.9993, against 0.978
-  for each prompt's sigmoid alone. Without the screen/document class,
-  screenshots fell on either side at random.
+- Indoors, outdoors and screen or document share one softmax. On the 2,061
+  photos Qwen3-VL described (used to measure, never to tag), the softmax
+  ranks indoor against outdoor at AUC 0.9993, against 0.978 for each
+  prompt's sigmoid alone. Without the screen/document class, screenshots
+  fell on either side at random.
+- "In a vehicle" is a tag of its own, scored against those three. It was a
+  fourth class of the softmax until the owner's answers: he files a car's or
+  a plane's interior as indoors and the view through the windscreen as
+  outdoors (5 photos out of 5), so a vehicle class must not take their
+  share.
 - Prompts are short and plain. Ensembles of content-laden paraphrases
   ("inside a restaurant", "a street outside") pulled the scene ranking down
   (AUC 0.998) and the cat ranking too (AP 0.75 against 0.81). French prompts
@@ -46,10 +51,8 @@ few short English prompts per tag, once per vocabulary.
 Target: at least 90% precision at the threshold, as much recall as that
 leaves.
 
-The owner judges indoor/outdoor (24 photos picked among the traps:
-verandas, covered terraces, vehicles), "chaton" and "jeune_animal"; their
-thresholds stay at 0.5 until his answers are in. I set the others by eye, on
-two samples per tag:
+The owner judged indoor/outdoor, "chaton" and "jeune_animal" on 40 photos.
+I set the others by eye, on two samples per tag:
 
 - A stratified sample: 30 photos drawn across score bands, each standing
   for its band's population. It gives a weighted precision and a recall.
@@ -60,8 +63,8 @@ two samples per tag:
 
 | tag | threshold | photos | band check | sample precision | sample recall |
 |---|---|---|---|---|---|
-| vehicule | 0.85 | 695 | 24/24 | 0.92 | 0.38 |
-| ecran_document | 0.88 | 1,795 | 24/24 | 1.00 | 0.66 |
+| vehicule | 0.85 | 689 | 24/24 | 0.92 | 0.38 |
+| ecran_document | 0.88 | 1,961 | 24/24 | 1.00 | 0.66 |
 | chat | 0.60 | 6,955 | 24/24 | 0.96 | 0.95 |
 | chien | 0.65 | 108 | 22/24 | 1.00 | 0.35 |
 | cheval | 0.80 | 131 | 24/24 | 1.00 | 0.55 |
@@ -83,7 +86,27 @@ two samples per tag:
 | nourriture | 0.65 | 636 | 21/24 | 1.00 | 0.36 |
 
 The nuit and noel band checks were drawn a little below their final
-thresholds (0.80 and 0.75), before I raised them.
+thresholds (0.80 and 0.75), before I raised them. Taking "In a vehicle" out
+of the softmax moved 166 more photos above the ecran_document threshold; 24
+of them checked, all screens or documents.
+
+The owner's thresholds:
+
+| tag | threshold | photos | his answers | other measure |
+|---|---|---|---|---|
+| interieur | 0.50 | 47,949 | 9/10 above the threshold | Qwen labels: precision 0.984, recall 0.993 |
+| exterieur | 0.60 | 165,651 | 8/10 above the threshold | Qwen labels: precision 0.996, recall 0.937 |
+| chaton | 0.80 | 433 | 4/4 above 0.75 | my band check at 0.75 to 0.85: about 20/24 |
+| jeune_animal | 0.75 | 597 | 4/4 non-cat young animals, scored 0.30 to 0.65 | my band check: about 23/24 above 0.75, 17/24 from 0.60 to 0.75 |
+
+His 24 indoor/outdoor photos were the traps: 10 near the boundary, 9 covered
+terraces, verandas or glass roofs, 5 inside a vehicle. The errors left are
+covered terraces, which he files on both sides, and a dark arcade read as
+indoors. A photo below both thresholds (5,989 of 219,589) has neither tag.
+
+For chaton and jeune_animal his answers were too few to set a threshold
+alone, so my band checks raised them. All four non-cat young animals he said
+yes to sit below 0.75, so jeune_animal finds kittens, chicks and little else.
 
 Where precision is weak:
 

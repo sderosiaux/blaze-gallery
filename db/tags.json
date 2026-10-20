@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tags": [
     {
       "tag": "interieur",
@@ -28,7 +28,7 @@
         "plein air",
         "en plein air"
       ],
-      "threshold": 0.5,
+      "threshold": 0.6,
       "prompts": {
         "match": [
           "a photo taken outdoors",
@@ -61,7 +61,19 @@
           "une photo prise dans une voiture"
         ],
         "bias": 0.0,
-        "softmax": "scene"
+        "versus": [
+          [
+            "a photo taken indoors",
+            "an indoor photo",
+            "une photo prise en intérieur"
+          ],
+          [
+            "a photo taken outdoors",
+            "an outdoor photo",
+            "une photo prise en extérieur"
+          ],
+          ["a screenshot", "a scanned document", "a page of text", "a receipt"]
+        ]
       }
     },
     {
@@ -130,7 +142,7 @@
       "label": "Chaton",
       "group": "animal",
       "words": ["chaton", "chatons"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo of a kitten"],
         "of": "chat",
@@ -161,7 +173,7 @@
         "petit animal",
         "petits animaux"
       ],
-      "threshold": 0.5,
+      "threshold": 0.75,
       "prompts": {
         "match": ["a photo of a baby animal"],
         "of": "animal",
