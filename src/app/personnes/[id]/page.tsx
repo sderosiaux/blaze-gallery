@@ -109,6 +109,7 @@ function YearSection({
   count,
   onOpen,
   onToggleFavorite,
+  onDeleted,
 }: {
   group: YearGroup;
   birthDate: string | null;
@@ -116,6 +117,7 @@ function YearSection({
   count: number;
   onOpen: (photo: Photo) => void;
   onToggleFavorite: (photo: Photo) => void;
+  onDeleted: (photo: Photo) => void;
 }) {
   const age = ageLabel(birthDate, group);
   const headingId = `year-${group.key}`;
@@ -146,6 +148,7 @@ function YearSection({
             height={size.height}
             onOpen={onOpen}
             onToggleFavorite={onToggleFavorite}
+            onDeleted={onDeleted}
           />
         )}
       />
@@ -272,6 +275,21 @@ function PersonContent() {
       }
     },
     [patch, toast],
+  );
+
+  const removeDeleted = useCallback(
+    (deleted: Photo) => {
+      setFeed((f) => ({
+        ...f,
+        items: f.items.filter((p) => String(p.id) !== String(deleted.id)),
+      }));
+      setViewerList(
+        (all) =>
+          all?.filter((p) => String(p.id) !== String(deleted.id)) ?? null,
+      );
+      stale.current = true;
+    },
+    [setFeed],
   );
 
   const openFromGrid = useCallback(
@@ -600,6 +618,7 @@ function PersonContent() {
                       }
                       onOpen={openFromGrid}
                       onToggleFavorite={(photo) => void toggleFavorite(photo)}
+                      onDeleted={removeDeleted}
                     />
                   ))}
                   <div ref={sentinel} aria-hidden />

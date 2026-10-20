@@ -247,6 +247,16 @@ function TimelineContent() {
     [patch, toast],
   );
 
+  const removeDeleted = useCallback(
+    (deleted: Photo) => {
+      setFeed((f) => ({
+        ...f,
+        items: f.items.filter((p) => !sameId(p, deleted)),
+      }));
+    },
+    [setFeed],
+  );
+
   // The viewer opens at once; the URL follows so Back closes it.
   const [openId, setOpenId] = useState<string | null>(selectedPhotoId);
   useEffect(() => {
@@ -397,6 +407,7 @@ function TimelineContent() {
                 eagerCount={i === 0 ? 12 : 0}
                 onOpen={openPhoto}
                 onToggleFavorite={(photo) => void toggleFavorite(photo)}
+                onDeleted={removeDeleted}
               />
             );
           })}
@@ -458,12 +469,7 @@ function TimelineContent() {
           onClose={closePhoto}
           onPhotoChange={changePhoto}
           onPhotoUpdate={patch}
-          onDelete={(deleted) => {
-            setFeed((f) => ({
-              ...f,
-              items: f.items.filter((p) => !sameId(p, deleted)),
-            }));
-          }}
+          onDelete={removeDeleted}
         />
       )}
     </>

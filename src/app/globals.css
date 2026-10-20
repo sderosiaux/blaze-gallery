@@ -126,6 +126,18 @@
 }
 
 @layer components {
+  .hold-delete-progress {
+    animation: hold-delete-fill linear forwards;
+    /* This measures the confirmation delay, even with reduced motion. */
+    animation-duration: var(--hold-delete-duration) !important;
+  }
+
+  @keyframes hold-delete-fill {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
   .kicker {
     @apply font-sans text-kicker font-semibold uppercase text-ink-muted;
   }

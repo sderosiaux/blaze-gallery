@@ -319,8 +319,13 @@ export default function PhotoViewer({
         method: "DELETE",
       });
       const data = await readJsonObject(response);
-      if (!response.ok || data.success === false)
-        throw new Error(asString(data.error));
+      if (!response.ok || data.success !== true) {
+        toast.show(
+          asString(data.error) ?? "La photo n’a pas été supprimée",
+          "error",
+        );
+        return;
+      }
       onDelete?.(current);
       toast.show("Photo supprimée", "success");
       setConfirmOpen(false);
