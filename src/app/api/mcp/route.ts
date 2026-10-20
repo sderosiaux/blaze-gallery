@@ -10,13 +10,14 @@ import {
   getPhoto,
   query,
   requireRow,
-  type PhotoFilter,
+  CONTENT_LIMIT,
 } from "@/lib/database";
 import {
   resolveFilter,
   sceneTagVocabulary,
   withContent,
   type ContentStatus,
+  type ResolvedFilter,
 } from "@/lib/filterResolver";
 import {
   EXPRESSIONS,
@@ -568,9 +569,12 @@ function requirePositiveInt(args: ToolArgs, name: string): number {
   return value;
 }
 
-/** `people`: person_ids or exact names, each resolved; absent is nobody. */
-async function parsePeople(args: ToolArgs): Promise<number[]> {
-  const people = args.people;
+/** `people` (or `name`): person_ids or exact names, each resolved; absent is nobody. */
+async function parsePeople(
+  args: ToolArgs,
+  name: "people" | "without_people" = "people",
+): Promise<number[]> {
+  const people = args[name];
   if (people === undefined || people === null) return [];
   if (
     !Array.isArray(people) ||
@@ -582,7 +586,7 @@ async function parsePeople(args: ToolArgs): Promise<number[]> {
   ) {
     throw new McpToolError(
       ErrorCode.InvalidParams,
-      "people must be an array of person_ids (numbers) or exact names (strings)",
+      `${name} must be an array of person_ids (numbers) or exact names (strings)`,
     );
   }
   const refs = people as (string | number)[];
@@ -640,20 +644,15 @@ function parseTags(args: ToolArgs): TagCondition[] {
 /**
  * The filter arguments the photo tools share (FILTER_PROPERTIES), read the
  * way the app reads its URL (lib/filterResolver.ts), plus the tool's own
- * dates. A tag no photo has yet reads as words: kept as a condition on
- * content when the embedder answers (`content`), reported in `untagged`.
+ * dates. A tag no photo has yet reads as words (`content`), reported in
+ * `untagged`.
  */
 async function filterArgs(
   args: ToolArgs,
   dates: DateFilter[],
   /** The person a tool lists the photos of: on them, and not "somebody else" */
   person: number | null = null,
-): Promise<{
-  filter: PhotoFilter;
-  untagged: string[];
-  /** The words read for the untagged tags */
-  words: string | null;
-}> {
+): Promise<ResolvedFilter> {
   const only = args.only;
   if (only !== undefined && only !== null && typeof only !== "boolean")
     throw new McpToolError(ErrorCode.InvalidParams, "only must be a boolean");
@@ -663,14 +662,16 @@ async function filterArgs(
       ErrorCode.InvalidParams,
       "folder must be a folder path",
     );
-  const [people, faces] = await Promise.all([
+  const [people, withoutPeople, faces] = await Promise.all([
     parsePeople(args),
+    parsePeople(args, "without_people"),
     parseExpressions(args),
   ]);
   const resolved = await resolveFilter(
     {
       ...NO_URL_FILTER,
       people,
+      withoutPeople,
       faces,
       tags: parseTags(args),
       only: only === true,
@@ -684,27 +685,20 @@ async function filterArgs(
   );
   if (!resolved.ok)
     throw new McpToolError(ErrorCode.InvalidParams, resolved.error);
-  return {
-    filter: resolved.value.filter,
-    untagged: resolved.value.untagged,
-    words: resolved.value.content,
-  };
+  return resolved.value;
 }
 
-/** The filter with the words of its untagged tags kept as content, when they can be. */
-async function withTagWords(
-  read: Awaited<ReturnType<typeof filterArgs>>,
-): Promise<{ filter: PhotoFilter; content: ContentStatus | null }> {
-  if (read.words === null) return { filter: read.filter, content: null };
-  return withContent({
-    filter: read.filter,
-    text: null,
-    content: read.words,
-    cut: true,
-    parts: [],
-    dateLabels: [],
+/** What a tool answers about its filter, as the app's lists do (src/app/api/_lib/filter.ts). */
+function filterNotesOf(
+  read: ResolvedFilter,
+  content: { content: ContentStatus | null; complete: boolean },
+) {
+  return {
     untagged: read.untagged,
-  });
+    ...(content.content ? { content: content.content } : {}),
+    ...(content.complete ? {} : { content_limited: CONTENT_LIMIT }),
+    ...(read.taggedShare === null ? {} : { tagged_share: read.taggedShare }),
+  };
 }
 
 /** People errors carry an HTTP status: 404 for an unknown person or photo. */
@@ -845,14 +839,17 @@ const toolHandlers = new Map<string, ToolHandler>([
     async (args) => {
       const { period, limit, cursor } = parseColorSearch(args);
       const read = await filterArgs(args, [periodFilter(period)]);
-      const { filter, content } = await withTagWords(read);
-      const { photos, next } = await getPhotosByColor(filter, cursor, limit);
+      const content = await withContent(read);
+      const { photos, next } = await getPhotosByColor(
+        content.filter,
+        cursor,
+        limit,
+      );
       return {
         photos,
         count: photos.length,
         next_cursor: next ? formatRankCursor(next) : null,
-        untagged: read.untagged,
-        ...(content ? { content } : {}),
+        ...filterNotesOf(read, content),
       };
     },
   ],
@@ -992,22 +989,18 @@ const toolHandlers = new Map<string, ToolHandler>([
       }
       const subject = await peopleCall(() => resolvePerson(person));
       const read = await filterArgs(args, [], subject.id);
-      const { filter, content } = await withTagWords(read);
+      const content = await withContent(read);
       const result = await peopleCall(() =>
         mcpPersonPhotos({
           person,
           from: optionalDate(args, "from"),
           to: optionalDate(args, "to"),
-          filter,
+          filter: content.filter,
           limit: Math.min(limit, MAX_PERSON_PHOTOS),
           cursor,
         }),
       );
-      return {
-        ...result,
-        untagged: read.untagged,
-        ...(content ? { content } : {}),
-      };
+      return { ...result, ...filterNotesOf(read, content) };
     },
   ],
 
@@ -1056,7 +1049,7 @@ const toolHandlers = new Map<string, ToolHandler>([
       }
       const read = await filterArgs(args, [rangeFilter(range.value)]);
       // An untagged tag's words join the query, ranked by meaning with it
-      const words = [query, read.words].filter(Boolean).join(" ");
+      const words = [query, read.content].filter(Boolean).join(" ");
       if (normalizeSemanticQuery(words) === null)
         throw new McpToolError(ErrorCode.InvalidRequest, "query is too long");
       const result = await semanticSearch(words, {
@@ -1082,6 +1075,9 @@ const toolHandlers = new Map<string, ToolHandler>([
         next_cursor:
           result.next === null ? null : encodeCursor({ offset: result.next }),
         untagged: read.untagged,
+        ...(read.taggedShare === null
+          ? {}
+          : { tagged_share: read.taggedShare }),
       };
     },
   ],
@@ -1137,6 +1133,12 @@ const COLOR_PROPERTIES = {
 
 /** The filters every photo tool takes, read as the app reads its URL (lib/photoFilter.ts). */
 const FILTER_PROPERTIES = {
+  without_people: {
+    type: "array",
+    items: { type: ["number", "string"] },
+    description:
+      "Only photos where none of these people is: person_id or exact name, as in people",
+  },
   expressions: {
     type: "array",
     items: {
