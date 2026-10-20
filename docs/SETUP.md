@@ -148,6 +148,14 @@ storage connection test at the first page load ("S3 connection failed"
 followed by the reason). Check the endpoint (with `https://`), the bucket
 name and the key's list permission.
 
+Deleting a photo returns 403 (`not entitled` on Backblaze B2): check the
+storage key configured on the running server. Production environment
+variables can differ from your local `.env.local`. B2's S3 API needs
+`writeFiles` to delete by name and `deleteFiles` to delete a specific version;
+use an application key with both capabilities, restricted to your photo
+bucket. Update `BACKBLAZE_ACCESS_KEY` and `BACKBLAZE_SECRET_KEY` together,
+then restart or redeploy the app. See [Backblaze's key requirements](https://www.backblaze.com/docs/cloud-storage-s3-compatible-app-keys).
+
 Folders are there but the timeline is empty: dates come from the photos'
 EXIF and are read when a folder's photos are first displayed. Photos without
 EXIF dates never appear on the timeline.

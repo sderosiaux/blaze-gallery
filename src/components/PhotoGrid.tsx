@@ -144,6 +144,14 @@ export default function PhotoGrid({
     [saveFavorite],
   );
 
+  const removeDeleted = useCallback(
+    (removed: Photo) => {
+      setDeleted((all) => new Set(all).add(String(removed.id)));
+      onPhotoDeleted?.(removed);
+    },
+    [onPhotoDeleted],
+  );
+
   if (loading) return <PhotoGridSkeleton />;
   if (items.length === 0) return null;
 
@@ -162,6 +170,7 @@ export default function PhotoGrid({
             sessionToken={isSharedView ? sessionToken : undefined}
             onOpen={open}
             onToggleFavorite={isSharedView ? undefined : toggleFavorite}
+            onDeleted={isSharedView ? undefined : removeDeleted}
           />
         )}
       />
@@ -177,14 +186,7 @@ export default function PhotoGrid({
             setSelectedPhoto(next);
             onPhotoUrlChange?.(String(next.id));
           }}
-          onDelete={
-            isSharedView
-              ? undefined
-              : (removed) => {
-                  setDeleted((all) => new Set(all).add(String(removed.id)));
-                  onPhotoDeleted?.(removed);
-                }
-          }
+          onDelete={isSharedView ? undefined : removeDeleted}
           isSharedView={isSharedView}
           shareToken={shareToken}
           allowDownload={allowDownload}

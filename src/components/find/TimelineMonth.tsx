@@ -46,6 +46,7 @@ interface TimelineMonthProps {
   eagerCount?: number;
   onOpen: (photo: Photo) => void;
   onToggleFavorite: (photo: Photo) => void;
+  onDeleted: (photo: Photo) => void;
 }
 
 function TimelineMonth({
@@ -54,6 +55,7 @@ function TimelineMonth({
   eagerCount = 0,
   onOpen,
   onToggleFavorite,
+  onDeleted,
 }: TimelineMonthProps) {
   const folders = useMemo(() => foldersOf(group), [group]);
   const shown = folders.slice(0, FOLDERS_SHOWN);
@@ -104,6 +106,7 @@ function TimelineMonth({
             eager={index < eagerCount}
             onOpen={onOpen}
             onToggleFavorite={onToggleFavorite}
+            onDeleted={onDeleted}
           />
         )}
       />

@@ -6,6 +6,7 @@ import { thumbnailService } from "@/lib/thumbnails";
 import { getConfig } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
+import { prop } from "@/lib/narrow";
 
 export const GET = requireAuth(async function GET(
   _request: NextRequest,
@@ -111,12 +112,17 @@ export const DELETE = requireAuth(async function DELETE(
       path: "/api/photos/[id]",
       photoId: photoId,
     });
+    const storageDenied =
+      prop(prop(error, "$metadata"), "httpStatusCode") === 403;
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Delete failed",
+        code: storageDenied ? "STORAGE_DELETE_FORBIDDEN" : "DELETE_FAILED",
+        error: storageDenied
+          ? "Le stockage refuse la suppression. La clé d’accès du serveur doit autoriser l’écriture et la suppression des fichiers."
+          : "La photo n’a pas pu être supprimée. Réessayez.",
       },
-      { status: 500 },
+      { status: storageDenied ? 403 : 500 },
     );
   }
 });

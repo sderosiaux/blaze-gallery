@@ -9,6 +9,7 @@ import { formatFileSize } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { previewUrl, thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
+import PhotoDeleteButton from "./PhotoDeleteButton";
 
 const RAW_EXTENSIONS = [
   ".nef",
@@ -44,6 +45,7 @@ interface PhotoTileProps {
   sessionToken?: string;
   onOpen: (photo: Photo) => void;
   onToggleFavorite?: (photo: Photo) => void;
+  onDeleted?: (photo: Photo) => void;
 }
 
 function PhotoTile({
@@ -56,6 +58,7 @@ function PhotoTile({
   sessionToken,
   onOpen,
   onToggleFavorite,
+  onDeleted,
 }: PhotoTileProps) {
   const [failed, setFailed] = useState(false);
   // A thumbnail built later (folder warm-up) replaces the "no preview" state.
@@ -130,31 +133,40 @@ function PhotoTile({
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
 
-      {onToggleFavorite && (
-        <button
-          type="button"
-          onClick={() => {
-            onToggleFavorite(photo);
-          }}
-          aria-label={
-            photo.is_favorite
-              ? `Retirer ${photo.filename} des favoris`
-              : `Ajouter ${photo.filename} aux favoris`
-          }
-          aria-pressed={photo.is_favorite}
-          className={cn(
-            "absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-full transition-[opacity,background-color,transform] duration-200 active:scale-90",
-            photo.is_favorite
-              ? "bg-surface/90 text-favorite opacity-100 shadow-lift"
-              : "bg-scrim/35 text-on-photo opacity-0 backdrop-blur-sm hover:bg-scrim/55 focus-visible:opacity-100 group-hover:opacity-100",
-          )}
-        >
-          <Heart
-            className={cn("h-4 w-4", photo.is_favorite && "fill-current")}
-            aria-hidden
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+        {onToggleFavorite && (
+          <button
+            type="button"
+            onClick={() => {
+              onToggleFavorite(photo);
+            }}
+            aria-label={
+              photo.is_favorite
+                ? `Retirer ${photo.filename} des favoris`
+                : `Ajouter ${photo.filename} aux favoris`
+            }
+            aria-pressed={photo.is_favorite}
+            className={cn(
+              "touch-target flex h-8 w-8 items-center justify-center rounded-full transition-[opacity,background-color,transform] duration-200 active:scale-90 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100",
+              photo.is_favorite
+                ? "bg-surface/90 text-favorite opacity-100 shadow-lift"
+                : "bg-scrim/35 text-on-photo opacity-0 backdrop-blur-sm hover:bg-scrim/55 focus-visible:opacity-100 group-hover:opacity-100",
+            )}
+          >
+            <Heart
+              className={cn("h-4 w-4", photo.is_favorite && "fill-current")}
+              aria-hidden
+            />
+          </button>
+        )}
+        {onDeleted && !shareToken && (
+          <PhotoDeleteButton
+            key={String(photo.id)}
+            photo={photo}
+            onDeleted={onDeleted}
           />
-        </button>
-      )}
+        )}
+      </div>
     </div>
   );
 }
