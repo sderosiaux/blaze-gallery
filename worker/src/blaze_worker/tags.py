@@ -292,19 +292,21 @@ def load_embeddings(conn: psycopg.Connection, photo_ids: Sequence[int]) -> dict[
 def dry_run(
     conn: psycopg.Connection, scorer: Scorer, limit: int, batch: int = 1000
 ) -> tuple[int, dict[str, tuple[int, int]]]:
-    """Scores up to `limit` photos the task would claim, writes nothing.
+    """Scores up to `limit` photos of the gallery with an embedding, writes nothing.
 
-    Returns (photos scored, {tag: (rows it would store, photos at or above its threshold)}).
+    Before anything is queued: what `blaze-enqueue --all` then a run would
+    store. Returns (photos scored, {tag: (rows stored, photos at or above
+    its threshold)}).
     """
     photo_ids = [
         row[0]
         for row in conn.execute(
             f"""
-            SELECT analysis_jobs.photo_id FROM analysis_jobs JOIN photos p ON p.id = photo_id
-            WHERE task = %s AND status = 'queued' AND {ready_sql()} AND NOT {out_of_gallery()}
-            ORDER BY priority DESC, analysis_jobs.id LIMIT %s
+            SELECT e.photo_id FROM photo_embeddings e JOIN photos p ON p.id = e.photo_id
+            WHERE e.model = %s AND p.mime_type LIKE 'image/%%' AND NOT {out_of_gallery()}
+            ORDER BY e.photo_id LIMIT %s
             """,
-            (TASK, limit),
+            (MODEL, limit),
         ).fetchall()
     ]
     tags = scorer.vocabulary.tags

@@ -247,7 +247,7 @@ def run_worker() -> None:
         "--dry-run",
         type=int,
         metavar="N",
-        help="tags: score N queued photos and print what would be stored, write nothing",
+        help="tags: score N photos with an embedding, print what would be stored, write nothing",
     )
     faces = parser.add_argument_group("faces, faces_extra")
     faces.add_argument(

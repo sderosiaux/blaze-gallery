@@ -395,12 +395,9 @@ def test_a_dry_run_counts_what_would_be_written_and_writes_nothing(conn):
             out: photo(**{"a cat": 0.15}),
         },
     )
-    enqueue_all(conn, TASK)
-    # Out of the gallery since it was queued
     conn.execute("UPDATE photos SET s3_key = 'books/' || id WHERE id = %s", (out,))
     conn.execute("INSERT INTO excluded_folders (path) VALUES ('books')")
-    jobs_now = "SELECT md5(array_agg(j ORDER BY id)::text) FROM analysis_jobs j"
-    before = conn.execute(jobs_now).fetchone()
+    # Nothing queued yet: a dry run comes first
 
     scored, counts = dry_run(conn, scorer(), 10)
 
@@ -408,7 +405,7 @@ def test_a_dry_run_counts_what_would_be_written_and_writes_nothing(conn):
     assert counts["interieur"][0] == 2 and counts["interieur"][1] == 1
     assert counts["chat"] == (1, 1) and counts["plage"] == (1, 1)
     assert conn.execute("SELECT count(*) FROM photo_tags").fetchone()[0] == 0
-    assert conn.execute(jobs_now).fetchone() == before
+    assert conn.execute("SELECT count(*) FROM analysis_jobs").fetchone()[0] == 0
 
 
 def test_a_photo_that_has_a_tag_has_the_tags_built_on_it():
