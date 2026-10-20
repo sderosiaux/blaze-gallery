@@ -1155,7 +1155,7 @@ const FILTER_PROPERTIES = {
       ],
     },
     description:
-      'Only photos with a face looking so, each one: a string for anyone\'s face, or { person, expression } for that person\'s own face (person as in people), e.g. [{"person": "Céline", "expression": "sourit"}]. sourit: smiling; rit: laughing, mouth open; triste: sad or crying; colere: angry, sulking; surpris: surprised; peur: afraid; yeux_fermes: both eyes closed. Read from the face analysis (an 8-emotion model, eye and mouth openness) at thresholds checked by the owner; a small or blurry face reads less surely',
+      'Only photos with a face looking so, each one: a string for anyone\'s face, or { person, expression } for that person\'s own face (person as in people), e.g. [{"person": "Céline", "expression": "sourit"}]. sourit: smiling; rit: laughing, mouth open; triste: sad or crying (on anyone\'s face, a face named as someone); yeux_fermes: both eyes closed, the head level. Read from the face analysis (an 8-emotion model, eye and mouth openness) at thresholds set to be right 9 times in 10; anger, surprise and fear are not offered, the analysis does not read them that surely: search their words with semantic_search',
   },
   tags: {
     type: "array",
