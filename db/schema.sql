@@ -244,6 +244,10 @@ CREATE INDEX IF NOT EXISTS idx_analysis_jobs_claim
   ON analysis_jobs (task, priority DESC, id) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS idx_analysis_jobs_lease
   ON analysis_jobs (lease_expires_at) WHERE status = 'leased';
+-- Whether a task still has work, without reading every done row (Couleurs
+-- asks it of 'thumbs' at each visit); the predicate is the query's
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_pending
+  ON analysis_jobs (task) WHERE status IN ('queued', 'leased');
 
 -- People the owner names. The system proposes groups of faces; a row may
 -- exist unnamed until he names it.
@@ -279,7 +283,8 @@ CREATE TABLE IF NOT EXISTS people (
 -- Quality. width_px/height_px: the box in pixels of the decoded original
 -- (displayed orientation; half-size for the rare RAW without a preview).
 -- sharpness: variance of the Laplacian of the aligned 112 px face crop
--- (higher = sharper). yaw/pitch/roll: degrees, 0 = facing the camera.
+-- (higher = sharper). yaw/pitch/roll: degrees, 0 = facing the camera;
+-- pitch below 0 looks down, above 0 up (InsightFace's pose).
 -- cluster_eligible: good enough to define who someone is (clustering seeds);
 -- the other faces can still be matched to a person.
 --
@@ -351,18 +356,10 @@ CREATE INDEX IF NOT EXISTS idx_faces_look_rit ON faces (photo_id)
 CREATE INDEX IF NOT EXISTS idx_faces_look_triste ON faces (photo_id)
   WHERE expression_scores[7] >= 0.6::real AND cluster_eligible
     AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_colere ON faces (photo_id)
-  WHERE expression_scores[1] >= 0.9::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_surpris ON faces (photo_id)
-  WHERE expression_scores[8] >= 0.9::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
-CREATE INDEX IF NOT EXISTS idx_faces_look_peur ON faces (photo_id)
-  WHERE expression_scores[4] >= 0.75::real AND cluster_eligible
-    AND person_id IS NOT NULL AND assignment IN ('seed', 'manual', 'auto');
 CREATE INDEX IF NOT EXISTS idx_faces_look_yeux_fermes ON faces (photo_id)
   WHERE eye_left_open IS NOT NULL AND eye_right_open IS NOT NULL
-    AND greatest(eye_left_open, eye_right_open) < 0.10::real AND cluster_eligible;
+    AND greatest(eye_left_open, eye_right_open) < 0.10::real
+    AND pitch >= -5::real AND cluster_eligible;
 
 -- What a photo shows, in the words of a vision-language model run on the
 -- owner's Mac (task 'describe'). Only what the pixels show: the date and the
