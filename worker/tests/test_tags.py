@@ -55,6 +55,7 @@ AXES = {
     "an animal": 6,
     "a beach": 7,
     "people at the beach": 8,
+    "a selfie by the sea": 9,
 }
 
 VOCABULARY = {
@@ -499,3 +500,24 @@ def test_also_takes_the_largest_logit_of_its_descriptions():
 def test_also_goes_with_a_plain_tag_only(change):
     with pytest.raises(ValueError, match="also"):
         vocab(**change)
+
+
+def test_an_also_description_must_beat_its_own_rivals():
+    rival = {"versus": [["a selfie by the sea"]], "versus_bias": -2.0}
+    s = scorer(plage={"also": [{"match": ["people at the beach"], "bias": -9.0, **rival}]})
+    beach = [t.tag for t in s.vocabulary.tags].index("plage")
+    on_sand = photo(**{"people at the beach": 0.12, "a selfie by the sea": 0.10})
+    by_the_sea = photo(**{"people at the beach": 0.12, "a selfie by the sea": 0.14})
+    got = s.scores(np.stack([on_sand, by_the_sea]))[:, beach]
+    people = sigmoid(SCALE * 0.12 - 9.0)
+    assert got[0] == pytest.approx(people * sigmoid(SCALE * (0.12 - 0.10) + 2.0), rel=1e-4)
+    assert got[1] == pytest.approx(people * sigmoid(SCALE * (0.12 - 0.14) + 2.0), rel=1e-4)
+    assert got[1] < 0.5 * got[0]
+    # The rivals hold for the people description only: an empty beach is untouched
+    empty = photo(**{"a beach": 0.14, "a selfie by the sea": 0.2})
+    assert s.scores(empty[np.newaxis])[0, beach] == pytest.approx(
+        sigmoid(SCALE * 0.14 - 11.0), rel=1e-4
+    )
+    assert "a selfie by the sea" in s.vocabulary.prompts
+    without = scorer(plage={"also": [{"match": ["people at the beach"], "bias": -9.0}]})
+    assert s.vocabulary.model != without.vocabulary.model
