@@ -316,6 +316,28 @@ void describe("each condition", () => {
     );
   });
 
+  void test("a rare tag, read from its photos, keeps the same ones", async () => {
+    assert.deepEqual(
+      [...(await database.rareTags([{ tag: "plage", threshold: 0.5 }]))],
+      ["plage"],
+    );
+    for (const parts of [
+      { tags: [tag("plage")] },
+      { tags: [tag("chaton")], only: true },
+      {
+        tags: [tag("plage")],
+        faces: [{ person: CELINE, expression: "sourit" as const }],
+      },
+    ])
+      assert.deepEqual(
+        await timeline({
+          ...parts,
+          tags: parts.tags.map((t) => ({ ...t, rare: true })),
+        }),
+        await timeline(parts),
+      );
+  });
+
   void test("dates: each filter must hold", async () => {
     const summer = { ranges: [], annual: [{ from: "06-01", to: "08-31" }] };
     const y2015 = {
@@ -580,8 +602,9 @@ void describe("from a URL", () => {
     assert.ok(resolved.ok);
     const { filter: f, content, dateLabels } = resolved.value;
     assert.deepEqual(f.faces, [{ person: CELINE, expression: "sourit" }]);
+    // Two photos show it: read from them (rareTags)
     assert.deepEqual(f.tags, [
-      { tag: "plage", negated: false, threshold: 0.5 },
+      { tag: "plage", negated: false, threshold: 0.5, rare: true },
     ]);
     assert.deepEqual(f.colors, { color: "blue", tone: null });
     assert.equal(content, null);

@@ -267,6 +267,23 @@ export async function query<R extends QueryResultRow = QueryResultRow>(
   return pool.query<R>(text, params);
 }
 
+/**
+ * A query of a list of photos, JIT off. Their plans are cheap but
+ * estimated dear once a filter is in them: each band of Couleurs repeats
+ * the filter's lists of ids, and with jit on (as on the production
+ * database) compiling the bands' query took 2.6 s and running it 0.1 s, on
+ * a copy of the library, 2026-10-19.
+ */
+export async function listQuery<R extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[],
+): Promise<QueryResult<R>> {
+  return runTransaction(async (client) => {
+    await client.query("SET LOCAL jit = off");
+    return client.query<R>(text, params);
+  });
+}
+
 /** First row of an aggregate query that always yields one */
 /** First row of a query that always yields one (a bare aggregate); throws if the driver returned none. */
 export function requireRow<R>(
@@ -726,6 +743,8 @@ function colorFilterSql(
 /** A tag condition, with the score its tag needs (db/tags.json threshold). */
 export interface TagFilter extends TagCondition {
   threshold: number;
+  /** Few photos show it (rareTags): the list starts from them */
+  rare?: boolean;
 }
 
 /** What the photos show: an embedded query and the farthest a photo may be from it (contentFloor). */
@@ -888,8 +907,12 @@ function filterConditions(
       tag.negated
         ? `EXISTS (SELECT 1 FROM photo_tags nt WHERE nt.photo_id = ${id}
             AND nt.tag = ${name}::text AND nt.score < ${threshold}::real)`
-        : `EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = ${id}
-            AND pt.tag = ${name}::text AND pt.score >= ${threshold}::real)`,
+        : tag.rare
+          ? // As RARE_LOOKS: the ids of the photos showing it, from photo_tags_tag_score
+            `${id} = ANY (ARRAY(SELECT pt.photo_id FROM photo_tags pt
+              WHERE pt.tag = ${name}::text AND pt.score >= ${threshold}::real))`
+          : `EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = ${id}
+              AND pt.tag = ${name}::text AND pt.score >= ${threshold}::real)`,
     );
   }
 
@@ -1077,7 +1100,7 @@ export async function getPhotosByColor(
       `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
     );
   const narrow = andPhotoFilter(params, withoutColors(filter));
-  const result = await query<
+  const result = await listQuery<
     DatabasePhoto & { folder_path: string; color_score: number }
   >(
     `
@@ -1222,7 +1245,7 @@ export async function getColorOverview(
       LIMIT $1)`;
   });
   const [bands, coverage] = await Promise.all([
-    query<{
+    listQuery<{
       band: number;
       id: number;
       folder_id: string;
@@ -1589,6 +1612,33 @@ export async function tagsWithPhotos(tags: string[]): Promise<Set<string>> {
   }
 }
 
+/**
+ * Photos a tag may show and still count as rare: a list walked in its own
+ * order (by date, by color) then probes each photo for it. A copy of the
+ * library with photo_tags filled for every (photo, tag), 2026-10-19: a tag
+ * on 0.2% of the photos (450) took 1.0 s for a page of the timeline, 3.1 s
+ * of the color list and 5.6 s of the Couleurs bands; on half of them, 9 ms.
+ */
+const RARE_TAG = 5_000;
+
+/**
+ * Those of `tags` fewer than RARE_TAG photos show: one count, stopped at
+ * RARE_TAG, on photo_tags_tag_score for each.
+ */
+export async function rareTags(
+  tags: readonly { tag: string; threshold: number }[],
+): Promise<Set<string>> {
+  if (tags.length === 0) return new Set();
+  const result = await query<{ tag: string }>(
+    `SELECT t.tag FROM unnest($1::text[], $2::real[]) AS t(tag, threshold)
+     WHERE (SELECT count(*) FROM (
+       SELECT 1 FROM photo_tags pt
+       WHERE pt.tag = t.tag AND pt.score >= t.threshold LIMIT $3) few) < $3`,
+    [tags.map((t) => t.tag), tags.map((t) => t.threshold), RARE_TAG],
+  );
+  return new Set(result.rows.map((row) => row.tag));
+}
+
 /** How many photos semantic search can find (an index-only count of the key). */
 export async function countPhotoEmbeddings(): Promise<number> {
   const result = await query<{ n: number }>(
@@ -1656,6 +1706,7 @@ export async function searchPhotosByContent(
 
   const rows = await runTransaction(async (client) => {
     await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
+    await client.query("SET LOCAL jit = off");
     // ef_search is capped at 1000; iterative scan goes on past it anyway
     await client.query(
       `SET LOCAL hnsw.ef_search = ${Math.min(1000, Math.max(100, window))}`,
@@ -1725,6 +1776,7 @@ export async function contentFloor(
   );
   const row = await runTransaction(async (client) => {
     await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
+    await client.query("SET LOCAL jit = off");
     await client.query(`SET LOCAL hnsw.ef_search = ${SEMANTIC_MIN_WINDOW}`);
     const result = await client.query<{ floor: number }>(
       `WITH nearest AS (
@@ -2196,7 +2248,7 @@ export async function getTimelinePhotos(
   }
   const narrow = andPhotoFilter(params, filter);
 
-  const result = await query<DatabasePhoto & { folder_path: string }>(
+  const result = await listQuery<DatabasePhoto & { folder_path: string }>(
     `
     SELECT p.*, f.path AS folder_path
     FROM photos p
@@ -2231,7 +2283,7 @@ export async function getTimelineSummary(
   const totalParams: unknown[] = [];
   const totalNarrow = andPhotoFilter(totalParams, filter);
   const [months, total] = await Promise.all([
-    query<{ month: string; count: number }>(
+    listQuery<{ month: string; count: number }>(
       `
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
@@ -2242,7 +2294,7 @@ export async function getTimelineSummary(
     `,
       params,
     ),
-    query<{ total: number }>(
+    listQuery<{ total: number }>(
       `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalNarrow}`,
       totalParams,
     ),
@@ -2300,7 +2352,7 @@ export async function getMapPoints(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<[number, number, number][]> {
   const params: unknown[] = [CELLS_PER_DEGREE];
-  const result = await query<{ lat: number; lng: number; count: number }>(
+  const result = await listQuery<{ lat: number; lng: number; count: number }>(
     `
     SELECT round(AVG(${LATITUDE})::numeric, 4)::float8 AS lat,
            round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
@@ -2327,7 +2379,7 @@ export async function getMapDates(
   dates: { date: string; count: number }[];
 }> {
   const params: unknown[] = [DAY_SPAN];
-  const result = await query<{ date: string; count: number }>(
+  const result = await listQuery<{ date: string; count: number }>(
     `
     WITH days AS (
       SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
@@ -2373,7 +2425,7 @@ export async function getMapPhotos(
     params.push(after.dateTaken, after.id);
     seek = `AND ((p.metadata->>'date_taken'), p.id) < ($${params.length - 1}::text, $${params.length}::bigint)`;
   }
-  const result = await query<DatabasePhoto & { folder_path: string }>(
+  const result = await listQuery<DatabasePhoto & { folder_path: string }>(
     `
     WITH page AS (
       SELECT p.id, (p.metadata->>'date_taken') AS taken
@@ -2404,7 +2456,7 @@ export async function countMapPhotos(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<number> {
   const params: unknown[] = [];
-  const result = await query<{ total: number }>(
+  const result = await listQuery<{ total: number }>(
     `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, filter, period, box)}`,
     params,
   );

@@ -3,6 +3,7 @@ import type { Photo, PhotoMetadata } from "@/types";
 import {
   andInGallery,
   andPhotoFilter,
+  listQuery,
   query,
   runTransaction,
   type PhotoFilter,
@@ -478,7 +479,7 @@ export async function personPhotoPage(
 ): Promise<PersonPhotoPage> {
   const params: unknown[] = [personId];
   const narrow = andPhotoFilter(params, filter);
-  const keys = await query<CopyRow>(
+  const keys = await listQuery<CopyRow>(
     `
     SELECT p.id::int AS id, p.filename, p.size::text AS size,
            fo.path AS folder_path, p.metadata->>'date_taken' AS date_taken

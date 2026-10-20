@@ -14,6 +14,7 @@ import {
   contentFloor,
   listPersonNames,
   NO_PHOTO_FILTER,
+  rareTags,
   tagsWithPhotos,
   type PhotoFilter,
   type TagFilter,
@@ -69,6 +70,29 @@ export async function taggedTags(
   const tags = await tagsWithPhotos(known.tags.map((entry) => entry.tag));
   tagged = { at: Date.now(), tags };
   return tags;
+}
+
+/** How long a tag counts as rare or not (rareTags): the worker tags as the app runs. */
+const RARE_TTL_MS = 60_000;
+const rarity = new Map<string, { at: number; rare: boolean }>();
+
+/** Each tag with whether few photos show it, asked again after RARE_TTL_MS. */
+async function withRarity(tags: TagFilter[]): Promise<TagFilter[]> {
+  const keyOf = (t: TagFilter) => `${t.tag}@${String(t.threshold)}`;
+  const now = Date.now();
+  const unknown = tags.filter((t) => {
+    const known = rarity.get(keyOf(t));
+    return !t.negated && (!known || now - known.at >= RARE_TTL_MS);
+  });
+  if (unknown.length > 0) {
+    const rare = await rareTags(unknown);
+    for (const t of unknown)
+      rarity.set(keyOf(t), { at: now, rare: rare.has(t.tag) });
+  }
+  return tags.map((t) => ({
+    ...t,
+    rare: !t.negated && rarity.get(keyOf(t))?.rare === true,
+  }));
 }
 
 /** What a view adds to the URL's filter: a person's page, a folder, the favorites, the map's period. */
@@ -173,7 +197,7 @@ export async function resolveFilter(
         ...NO_PHOTO_FILTER,
         people,
         faces,
-        tags,
+        tags: await withRarity(tags),
         only: url.only || understood.only,
         dates: [...dates, ...(scope.dates ?? [])],
         colors,
