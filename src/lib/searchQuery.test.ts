@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
+import { readTagVocabulary } from "./sceneTags";
 import {
+  expressionPhrases,
   isStopword,
+  readDate,
   removeParts,
   understandQuery,
   type NamedPerson,
@@ -17,6 +22,11 @@ const PEOPLE: NamedPerson[] = [
   { id: 7, name: "Isa" },
 ];
 
+/** The worker's vocabulary, as the app reads it */
+const TAGS = readTagVocabulary(
+  JSON.parse(readFileSync(path.join(process.cwd(), "db", "tags.json"), "utf8")),
+).tags;
+
 const read = (q: string, people: NamedPerson[] = PEOPLE) =>
   understandQuery(q, people);
 
@@ -24,7 +34,9 @@ const labels = (parts: QueryPart[]) => parts.map((p) => `${p.kind}:${p.label}`);
 
 /** The query once the chip labelled `label` is removed */
 function without(q: string, label: string, people = PEOPLE): string {
-  const part = read(q, people).parts.find((p) => p.label === label);
+  const part = understandQuery(q, people, TAGS).parts.find(
+    (p) => p.label === label,
+  );
   assert.ok(part, `no part ${label} in ${q}`);
   return removeParts(q, [part]);
 }
@@ -319,4 +331,329 @@ void test("stopwords say nothing a photo shows", () => {
   assert.equal(isStopword("à"), true);
   assert.equal(isStopword("Photos"), true);
   assert.equal(isStopword("plage"), false);
+});
+
+// ---- how faces look, scene tags, nobody else ---------------------------------
+
+const withTags = (q: string, people: NamedPerson[] = PEOPLE) =>
+  understandQuery(q, people, TAGS);
+
+void test("a person and how her face looks: that face, not anyone's", () => {
+  const u = read("Céline qui sourit");
+  assert.deepEqual(labels(u.parts), ["person:Céline", "expression:Sourit"]);
+  assert.deepEqual(u.faces, [{ person: 4, expression: "sourit" }]);
+  // Her smiling face says she is on the photo
+  assert.deepEqual(u.people, []);
+  assert.equal(u.content, null);
+  assert.equal(without("Céline qui sourit", "Sourit"), "Céline");
+  assert.equal(without("Céline qui sourit", "Céline"), "qui sourit");
+});
+
+void test("every word of each look, after a name", () => {
+  const cases: [string, string][] = [
+    ["Céline souriante", "sourit"],
+    ["Céline heureuse", "sourit"],
+    ["Stéphane qui rit", "rit"],
+    ["Stéphane éclate de rire", "rit"],
+    ["Stéphane mort de rire", "rit"],
+    ["Suzie triste", "triste"],
+    ["Suzie qui pleure", "triste"],
+    ["Suzie en larmes", "triste"],
+    ["Suzie en colère", "colere"],
+    ["Suzie fâchée", "colere"],
+    ["Suzie qui boude", "colere"],
+    ["Suzie surprise", "surpris"],
+    ["Suzie étonnée", "surpris"],
+    ["Suzie a peur", "peur"],
+    ["Suzie qui a peur", "peur"],
+    ["Suzie effrayée", "peur"],
+    ["Céline les yeux fermés", "yeux_fermes"],
+    ["Céline qui a les yeux fermés", "yeux_fermes"],
+    ["Céline yeux clos", "yeux_fermes"],
+  ];
+  for (const [q, expression] of cases) {
+    const u = read(q);
+    assert.equal(u.faces.length, 1, q);
+    assert.equal(u.faces[0]?.expression, expression, q);
+    assert.notEqual(u.faces[0]?.person, null, q);
+    assert.equal(u.content, null, q);
+  }
+});
+
+void test("a look after several names is each one's", () => {
+  const u = read("Céline et Stéphane qui sourient");
+  assert.deepEqual(u.faces, [
+    { person: 4, expression: "sourit" },
+    { person: 5, expression: "sourit" },
+  ]);
+  assert.deepEqual(u.people, []);
+  // Only the names just before it
+  const two = read("Céline qui sourit et Stéphane");
+  assert.deepEqual(two.faces, [{ person: 4, expression: "sourit" }]);
+  assert.deepEqual(two.people, [5]);
+  // Two looks of one face
+  assert.deepEqual(read("Céline qui sourit les yeux fermés").faces, [
+    { person: 4, expression: "sourit" },
+    { person: 4, expression: "yeux_fermes" },
+  ]);
+});
+
+void test("a look with nobody named is anyone's", () => {
+  for (const q of [
+    "quelqu'un qui pleure",
+    "photos tristes",
+    "des gens qui pleurent",
+    "triste",
+  ]) {
+    const u = read(q);
+    assert.deepEqual(u.faces, [{ person: null, expression: "triste" }], q);
+    assert.equal(u.content, null, q);
+  }
+  assert.deepEqual(read("quelqu'un qui a peur").faces, [
+    { person: null, expression: "peur" },
+  ]);
+  assert.deepEqual(read("tout le monde rit").faces, [
+    { person: null, expression: "rit" },
+  ]);
+});
+
+void test("a look right after a thing, or a word that says something else, stays content", () => {
+  assert.deepEqual(read("un chien heureux").parts, []);
+  assert.equal(read("un chien heureux").content, "chien heureux");
+  // Alone, « peur » is not a face
+  assert.deepEqual(read("un film qui fait peur").faces, []);
+  assert.deepEqual(read("gâteau surprise").faces, []);
+});
+
+void test("scene tags: their words, plurals and leading words", () => {
+  const cats = withTags("photos de chats");
+  assert.deepEqual(labels(cats.parts), ["tag:Chat"]);
+  assert.deepEqual(cats.tags, [{ tag: "chat", negated: false }]);
+  assert.equal(cats.content, null);
+  assert.deepEqual(withTags("des oiseaux").tags, [
+    { tag: "oiseau", negated: false },
+  ]);
+  assert.deepEqual(withTags("chevaux").tags, [
+    { tag: "cheval", negated: false },
+  ]);
+  assert.deepEqual(withTags("un coucher de soleil").tags, [
+    { tag: "coucher_de_soleil", negated: false },
+  ]);
+  assert.deepEqual(withTags("que des jeunes animaux").tags, [
+    { tag: "jeune_animal", negated: false },
+  ]);
+  assert.deepEqual(withTags("un jeune animal").tags, [
+    { tag: "jeune_animal", negated: false },
+  ]);
+  // Without the vocabulary, the words are what the photos show
+  assert.equal(read("photos de chats").content, "chats");
+});
+
+void test("a person in a scene, in a color", () => {
+  const u = withTags("Suzie en extérieur dans les tons bleus");
+  assert.deepEqual(labels(u.parts), [
+    "person:Suzie",
+    "tag:Extérieur",
+    "color:Bleu",
+  ]);
+  assert.deepEqual(u.people, [1]);
+  assert.deepEqual(u.colors, { color: "blue", tone: null });
+  assert.equal(u.content, null);
+  assert.equal(
+    without("Suzie en extérieur dans les tons bleus", "Bleu"),
+    "Suzie en extérieur",
+  );
+  assert.equal(
+    without("Suzie en extérieur dans les tons bleus", "Extérieur"),
+    "Suzie dans les tons bleus",
+  );
+});
+
+void test("two people at the beach in summer", () => {
+  const u = withTags("Céline et Stéphane à la plage en été");
+  assert.deepEqual(labels(u.parts), [
+    "person:Céline",
+    "person:Stéphane",
+    "tag:Plage",
+    "date:Été",
+  ]);
+  assert.deepEqual(u.people, [4, 5]);
+  assert.deepEqual(u.tags, [{ tag: "plage", negated: false }]);
+  assert.deepEqual(u.dates.annual, [{ from: "06-01", to: "08-31" }]);
+  assert.equal(u.content, null);
+});
+
+void test("a tag's words join the content when other words are left", () => {
+  const u = withTags("un chat qui court sur la plage");
+  assert.deepEqual(u.tags, [
+    { tag: "chat", negated: false },
+    { tag: "plage", negated: false },
+  ]);
+  assert.equal(u.text, "court");
+  assert.equal(u.content, "chat qui court sur la plage");
+  // A color after a tag's thing is that thing's
+  const black = withTags("un chat noir");
+  assert.deepEqual(black.colors, { color: null, tone: null });
+  assert.equal(black.content, "chat noir");
+});
+
+void test("« sans » or « pas de » before a tag: not that", () => {
+  assert.deepEqual(withTags("plage sans véhicule").tags, [
+    { tag: "plage", negated: false },
+    { tag: "vehicule", negated: true },
+  ]);
+  const dog = withTags("jardin pas de chien");
+  assert.deepEqual(dog.tags, [
+    { tag: "jardin", negated: false },
+    { tag: "chien", negated: true },
+  ]);
+  assert.equal(
+    without("plage sans véhicule", "En voiture, train, avion"),
+    "plage",
+  );
+});
+
+void test("what a negation says is never what the photos show", () => {
+  // No tag says « parasol »: no content, and certainly not « parasol »
+  const u = withTags("plage sans parasol");
+  assert.deepEqual(u.tags, [{ tag: "plage", negated: false }]);
+  assert.equal(u.content, null);
+  assert.equal(read("sans").content, "sans");
+  assert.equal(read("un chien pas de laisse").content, "chien");
+  assert.equal(read("ni vent ni pluie").content, null);
+});
+
+void test("« sans » or « ni » before a name: not on the photos", () => {
+  const u = read("Suzie sans Céline");
+  assert.deepEqual(labels(u.parts), ["person:Suzie", "without:Céline"]);
+  assert.deepEqual(u.people, [1]);
+  assert.deepEqual(u.withoutPeople, [4]);
+  assert.equal(u.content, null);
+  assert.deepEqual(read("Céline ni Stéphane ni Suzie").withoutPeople, [5, 1]);
+  assert.deepEqual(read("pas Isa").withoutPeople, [7]);
+  assert.equal(without("Suzie sans Céline", "Céline"), "Suzie");
+});
+
+void test("« que » says only at the start or after « ne », « rien », « juste »", () => {
+  for (const q of [
+    "la maison que les enfants ont construite",
+    "le chat que la voisine a adopté",
+    "Suzie et le gâteau que Mamie a fait",
+  ])
+    assert.equal(withTags(q).only, false, q);
+  for (const q of [
+    "que des chats",
+    "il n'y a que des chats",
+    "juste que Suzie",
+  ])
+    assert.equal(withTags(q).only, true, q);
+});
+
+void test("only with a look on anyone's face: everyone looks so", () => {
+  const u = read("que des enfants qui sourient");
+  assert.equal(u.only, true);
+  assert.deepEqual(u.faces, [{ person: null, expression: "sourit" }]);
+  assert.deepEqual(labels(u.parts), [
+    "only:Tout le monde",
+    "expression:Sourit",
+  ]);
+  assert.equal(read("seulement des gens qui rient").only, true);
+});
+
+void test("nobody on the photos, or nobody else than the people named", () => {
+  const kittens = withTags("que des chatons");
+  assert.deepEqual(labels(kittens.parts), ["only:Sans personne", "tag:Chaton"]);
+  assert.equal(kittens.only, true);
+  assert.deepEqual(kittens.tags, [{ tag: "chaton", negated: false }]);
+  assert.equal(without("que des chatons", "Sans personne"), "des chatons");
+  for (const q of [
+    "seulement des chats",
+    "uniquement des chats",
+    "chats sans personne",
+    "chats, personne d'autre",
+  ]) {
+    const u = withTags(q);
+    assert.equal(u.only, true, q);
+    assert.deepEqual(u.tags, [{ tag: "chat", negated: false }], q);
+  }
+  const alone = read("Suzie seule");
+  assert.deepEqual(labels(alone.parts), [
+    "person:Suzie",
+    "only:Personne d'autre",
+  ]);
+  assert.deepEqual(alone.people, [1]);
+  assert.equal(read("que Suzie").only, true);
+  assert.equal(read("rien que Suzie et Céline").only, true);
+  // « que » alone says nothing
+  assert.equal(read("ce que j'aime").only, false);
+});
+
+void test("a date as the URL carries it", () => {
+  assert.deepEqual(readDate("2015"), {
+    label: "2015",
+    dates: {
+      ranges: [{ from: "2015-01-01", before: "2016-01-01" }],
+      annual: [],
+    },
+  });
+  assert.equal(readDate("été 2015")?.label, "Été 2015");
+  assert.deepEqual(readDate("en été")?.dates.annual, [
+    { from: "06-01", to: "08-31" },
+  ]);
+  assert.equal(readDate("noël")?.label, "Noël");
+  assert.equal(readDate("2010-2012")?.label, "2010–2012");
+  // No date, or more than one
+  assert.equal(readDate("plage"), null);
+  assert.equal(readDate("2015 plage"), null);
+  assert.equal(readDate(""), null);
+});
+
+void test("every phrase of every look reads after a name", () => {
+  for (const { phrase, expression } of expressionPhrases()) {
+    const u = read(`Suzie ${phrase}`);
+    assert.deepEqual(u.faces, [{ person: 1, expression }], phrase);
+    assert.equal(u.content, null, phrase);
+  }
+});
+
+void test("every word of every tag reads as it", () => {
+  for (const entry of TAGS)
+    for (const word of entry.words)
+      for (const q of [word, `photos de ${word}`, `sans ${word}`]) {
+        // Noël is a date first: the tag only comes from the menu
+        if (entry.tag === "noel") continue;
+        const u = withTags(q);
+        assert.deepEqual(
+          u.tags,
+          [{ tag: entry.tag, negated: q.startsWith("sans") }],
+          q,
+        );
+      }
+});
+
+void test("every way to say nobody else", () => {
+  for (const q of [
+    "sans personne",
+    "sans personnes",
+    "sans gens",
+    "sans visage",
+    "sans humains",
+    "personne d'autre",
+    "sans personne d'autre",
+    "seulement des chats",
+    "uniquement des chats",
+    "rien que des chats",
+    "que des chats",
+    "que les chats",
+  ])
+    assert.equal(withTags(q).only, true, q);
+  for (const q of [
+    "Suzie seule",
+    "Suzie toute seule",
+    "Suzie et Lucia seules",
+    "Stéphane tout seul",
+  ])
+    assert.equal(read(q).only, true, q);
+  // « seul » with no name before it is no one
+  assert.equal(read("seul").only, false);
 });

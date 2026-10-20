@@ -1,9 +1,12 @@
 /**
  * How the search box reads a query, French first, accents and case aside:
- * named people, dates, colors and tones become filters, and what is left
- * says what the photos show. « Suzie à la plage en 2015 » is Suzie's
- * photos of 2015 ranked by « plage ». Pure: the named people come from the
- * caller, and the page uses removeParts to drop what a chip stands for.
+ * named people and how they look, dates, scene tags, colors and tones
+ * become filters, and what is left says what the photos show. « Suzie à la
+ * plage en 2015 » is Suzie's photos of 2015 ranked by « plage » (or, with
+ * the tag plage, those the worker tagged so); « Céline qui sourit », the
+ * photos where Céline's face smiles; « que des chatons », kittens and
+ * nobody. Pure: the named people and the tags come from the caller, and
+ * the page uses removeParts to drop what a chip stands for.
  */
 import {
   HUE_LABELS,
@@ -13,6 +16,12 @@ import {
   type Hue,
 } from "./colors";
 import { addDays, isDay, isMonth, lastDay } from "./mapArea";
+import {
+  EXPRESSION_LABELS,
+  type Expression,
+  type FaceCondition,
+  type TagCondition,
+} from "./photoFilter";
 import type { AnnualWindow, DateFilter, DateRange } from "./semanticQuery";
 import { normalizeTextForSearch } from "./textUtils";
 
@@ -25,29 +34,63 @@ export interface NamedPerson {
   name: string;
 }
 
+/** A scene tag as the parser reads it (lib/sceneTags.ts SceneTag). */
+export interface TagWords {
+  tag: string;
+  label: string;
+  words: readonly string[];
+}
+
 /**
  * Something the query was understood to ask, as a chip shows it: `spans`
  * covers its words and the ones that only lead to it ("en" of "en 2015",
- * "et" before a second name), so removing them leaves a query that reads.
+ * "et" before a second name, "qui" before "sourit"), so removing them
+ * leaves a query that reads.
  */
 export type QueryPart =
   | { kind: "person"; label: string; personId: number; spans: Span[] }
   | { kind: "date"; label: string; spans: Span[] }
   | { kind: "color"; label: string; hue: Hue; spans: Span[] }
-  | { kind: "tone"; label: string; tone: ColorTone; spans: Span[] };
+  | { kind: "tone"; label: string; tone: ColorTone; spans: Span[] }
+  | {
+      kind: "expression";
+      label: string;
+      expression: Expression;
+      /** The people whose face looks so; none: anyone's */
+      people: number[];
+      spans: Span[];
+    }
+  | {
+      kind: "tag";
+      label: string;
+      tag: string;
+      negated: boolean;
+      spans: Span[];
+    }
+  | { kind: "only"; label: string; spans: Span[] }
+  /** A person not on the photos: « sans Céline », « ni Stéphane » */
+  | { kind: "without"; label: string; personId: number; spans: Span[] };
 
 export interface UnderstoodQuery {
   /** In query order */
   parts: QueryPart[];
-  /** Photos showing all of them */
+  /** Photos showing all of them, whatever their face says */
   people: number[];
+  /** Photos showing none of them */
+  withoutPeople: number[];
+  /** Faces the photos show, each on its own: a person smiling, someone crying */
+  faces: FaceCondition[];
+  tags: TagCondition[];
+  /** Nobody else on the photos than `people` and the faces' people; nobody at all without them */
+  only: boolean;
   dates: DateFilter;
   colors: ColorFilter;
   /** The words left for the content, as typed; null when none are left */
   text: string | null;
   /**
    * What the photos should show, for the embedder: `text`, plus the words a
-   * date also means ("Noël"). Null when only filters remain.
+   * date also means ("Noël") and those of the tags around it ("un chat qui
+   * court sur la plage" reads whole). Null when only filters remain.
    */
   content: string | null;
   /**
@@ -118,6 +161,8 @@ const STOPWORDS = new Set([
   ...words("avec chez pour par vers ce cet cette ces tout tous toute toutes"),
   ...words("mes mon ma nos notre ses son sa leur leurs qui que qu' j' m' t'"),
   ...words("s' c' n' moi toi nous vous lui elle eux , &"),
+  // Say what the photos do not show: never what they show
+  ...words("sans pas ni ne"),
   // Every result is one
   ...words("photo photos image images cliche cliches"),
   ...words("the an of in on and at with my our picture pictures pic pics"),
@@ -451,8 +496,9 @@ const TONE_WORDS = wordsFor<ColorTone>({
   nb: "nb n&b n/b noir-et-blanc monochrome monochromes",
 });
 
-/** Words that make the color the photo's, not a thing's: "en rouge", "aux couleurs vives". */
-const COLOR_LEADS = new Set(words("en aux a"));
+/** Words that make the color the photo's, not a thing's: "en rouge", "aux couleurs vives", "dans les tons bleus". */
+const COLOR_LEADS = new Set(words("en aux a dans"));
+const COLOR_ARTICLES = new Set(words("les des la le l' de d'"));
 const COLOR_NOUNS = new Set(
   words("couleur couleurs ton tons teinte teintes dominante"),
 );
@@ -508,9 +554,252 @@ function personAt(
   return byFirstName.length === 1 && only ? { end: i + 1, value: only } : null;
 }
 
+// ---- phrases ------------------------------------------------------------------
+
+/** A phrase as keys: "éclate de rire" is ["eclate", "de", "rire"]. */
+function phraseKeys(phrase: string): string[] {
+  return tokenize(phrase).map((t) => t.key);
+}
+
+/** The longest of `phrases` at `i`. */
+function phraseAt<V>(
+  tokens: Token[],
+  i: number,
+  phrases: readonly { keys: readonly string[]; value: V }[],
+): Match<V> | null {
+  let best: Match<V> | null = null;
+  for (const { keys, value } of phrases) {
+    if (
+      keys.length > 0 &&
+      keys.every((k, n) => tokens[i + n]?.key === k) &&
+      (!best || i + keys.length > best.end)
+    )
+      best = { end: i + keys.length, value };
+  }
+  return best;
+}
+
+// ---- how a face looks -----------------------------------------------------------
+
+/**
+ * Masculine, feminine and plural, verb and adjective, accents dropped. Each
+ * says one Expression of lib/photoFilter.ts.
+ */
+const EXPRESSION_PHRASES: Record<Expression, string> = {
+  sourit:
+    "sourit sourient souriant souriante souriants souriantes sourire sourires heureux heureuse heureuses content contente contents contentes joyeux joyeuse joyeuses",
+  rit: "rit rient rire rires rigole rigolent hilare hilares eclate_de_rire eclatent_de_rire eclat_de_rire eclats_de_rire mort_de_rire morte_de_rire morts_de_rire mortes_de_rire fou_rire",
+  triste:
+    "triste tristes pleure pleurent pleurs larmes en_larmes chagrin malheureux malheureuse malheureuses",
+  colere:
+    "colere en_colere fache fachee faches fachees enerve enervee enerves enervees boude boudent boudeur boudeuse boudeurs boudeuses grognon grognons grognonne furieux furieuse furieuses",
+  surpris:
+    "surpris surprise surprises etonne etonnee etonnes etonnees stupefait stupefaite",
+  peur: "a_peur ont_peur peur effraye effrayee effrayes effrayees apeure apeuree apeures apeurees terrifie terrifiee",
+  yeux_fermes:
+    "yeux_fermes les_yeux_fermes yeux_clos les_yeux_clos ferme_les_yeux ferment_les_yeux",
+};
+
+const EXPRESSION_KEYS = (
+  Object.keys(EXPRESSION_PHRASES) as Expression[]
+).flatMap((expression) =>
+  words(EXPRESSION_PHRASES[expression]).map((phrase) => ({
+    keys: phrase.split("_"),
+    value: expression,
+  })),
+);
+
+/** Every phrase read as a look, its keys joined by spaces ("eclate de rire"): what the search box suggests from. */
+export function expressionPhrases(): {
+  phrase: string;
+  expression: Expression;
+}[] {
+  return EXPRESSION_KEYS.map(({ keys, value }) => ({
+    phrase: keys.join(" "),
+    expression: value,
+  }));
+}
+
+/**
+ * Alone, these say something else ("un film qui fait peur", "le contenu"):
+ * they only read as a face's look after a person or "quelqu'un".
+ */
+const BOUND_ONLY = new Set(words("peur content contente contents contentes"));
+
+/** Between a person and how they look: "Céline qui sourit", "Suzie est triste". */
+const EXPRESSION_LEADS = new Set(words("qui est sont a ont avec"));
+
+/** Anyone, as the subject of a look: "quelqu'un qui pleure", "des gens qui rient". */
+const SUBJECTS = [
+  "quelqu'un",
+  "qqn",
+  "gens",
+  "personnes",
+  "tout le monde",
+  "tous",
+  "enfant",
+  "enfants",
+  "bebe",
+  "bebes",
+  "visage",
+  "visages",
+].map((phrase) => ({ keys: phraseKeys(phrase), value: true }));
+
+/** How a face looks at `i`, its leading words included ("qui a peur"). */
+function expressionAt(
+  tokens: Token[],
+  i: number,
+): (Match<Expression> & { first: number }) | null {
+  for (let lead = 0; lead <= 2; lead += 1) {
+    if (lead > 0 && !EXPRESSION_LEADS.has(tokens[i + lead - 1]?.key ?? ""))
+      return null;
+    const match = phraseAt(tokens, i + lead, EXPRESSION_KEYS);
+    if (match) return { ...match, first: i + lead };
+  }
+  return null;
+}
+
+// ---- nobody else ------------------------------------------------------------------
+
+/** Nobody on the photos: "sans personne", "personne d'autre". */
+const NOBODY = [
+  "sans personne",
+  "sans personnes",
+  "sans gens",
+  "sans visage",
+  "sans visages",
+  "sans humain",
+  "sans humains",
+  "sans personne d'autre",
+  "personne d'autre",
+].map((phrase) => ({ keys: phraseKeys(phrase), value: true }));
+
+/** Only what follows: "seulement des chats", "uniquement Suzie", "rien que Suzie". */
+const ONLY_WORDS = ["seulement", "uniquement", "rien que", "rien qu'"].map(
+  (phrase) => ({ keys: phraseKeys(phrase), value: true }),
+);
+
+/** After people: they are alone on the photos. */
+const ALONE = [
+  "seul",
+  "seule",
+  "seuls",
+  "seules",
+  "tout seul",
+  "toute seule",
+  "tous seuls",
+  "toutes seules",
+].map((phrase) => ({ keys: phraseKeys(phrase), value: true }));
+
+/** Between a negation and what it negates: « sans un parasol », « pas de vent ». */
+const NEGATED_ARTICLES = new Set(words("de d' du des la le les l' un une"));
+
+/** Whether token `i` is what a negation just before it negates. */
+function negatedAt(tokens: Token[], i: number): boolean {
+  let n = i - 1;
+  while (n >= 0 && NEGATED_ARTICLES.has(tokens[n]?.key ?? "")) n -= 1;
+  return NEGATIONS.has(tokens[n]?.key ?? "") || tokens[n]?.key === "ni";
+}
+
+/** Before a person: she is not on the photos. */
+const PERSON_NEGATIONS = new Set(words("sans ni pas"));
+
+/** "il n'y a que des chats": "que" says only after these, or at the start. */
+const BEFORE_ONLY_QUE = new Set(words("ne n' rien juste"));
+
+/** "que des chatons", "que Suzie": "que" says only when one of these follows it. */
+const AFTER_ONLY_QUE = new Set(
+  words("des les du de d' la le l' un une mon ma mes"),
+);
+
+// ---- scene tags -------------------------------------------------------------------
+
+/** Words that lead to a tag: "à la plage", "en extérieur", "avec un chat", "photos de chats". */
+const TAG_LEADS = new Set(
+  words(
+    "en a au aux la le les l' dans sur sous avec de des du d' un une chez pres",
+  ),
+);
+
+/** Leading a tag, it says the photos do not show it: "sans voiture", "pas de chien". */
+const NEGATIONS = new Set(words("sans pas aucun aucune"));
+
+interface TagKeys {
+  keys: readonly string[];
+  value: TagWords;
+}
+
+/** A word's plural the way French writes most of them: chat, chats; oiseau, oiseaux; cheval, chevaux. */
+function pluralOf(key: string): string[] {
+  if (STOPWORDS.has(key) || /[sxz]$/.test(key)) return [];
+  if (/(au|eu)$/.test(key)) return [`${key}x`];
+  if (key.endsWith("al")) return [`${key.slice(0, -2)}aux`, `${key}s`];
+  return [`${key}s`];
+}
+
+/**
+ * Each tag's words, and their plurals: of the last word ("chats"), of the
+ * first ("couchers de soleil") and of every word ("jeunes animaux").
+ */
+function tagKeysOf(tags: readonly TagWords[]): TagKeys[] {
+  return tags.flatMap((tag) =>
+    tag.words.flatMap((word) => {
+      const keys = phraseKeys(word);
+      const pluralAt = (at: number[]) =>
+        at.reduce<string[][]>(
+          (variants, n) =>
+            variants.flatMap((variant) => {
+              const plurals = pluralOf(variant[n] ?? "");
+              return plurals.length === 0
+                ? [variant]
+                : plurals.map((plural) =>
+                    variant.map((k, m) => (m === n ? plural : k)),
+                  );
+            }),
+          [keys],
+        );
+      const last = keys.length - 1;
+      const variants = [
+        keys,
+        ...pluralAt([last]),
+        ...pluralAt([0]),
+        ...pluralAt(keys.map((_, n) => n)),
+      ];
+      const seen = new Set<string>();
+      return variants
+        .filter((variant) => {
+          const id = variant.join(" ");
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        })
+        .map((variant) => ({ keys: variant, value: tag }));
+    }),
+  );
+}
+
+/** A tag at `i`, led by up to three words ("pas de", "à la"), maybe negated. */
+function tagAt(
+  tokens: Token[],
+  i: number,
+  tags: readonly TagKeys[],
+): (Match<TagWords> & { negated: boolean; first: number }) | null {
+  if (tags.length === 0) return null;
+  const negated = NEGATIONS.has(tokens[i]?.key ?? "");
+  const start = negated ? i + 1 : i;
+  for (let lead = 0; lead <= 3; lead += 1) {
+    if (lead > 0 && !TAG_LEADS.has(tokens[start + lead - 1]?.key ?? ""))
+      return null;
+    const match = phraseAt(tokens, start + lead, tags);
+    if (match) return { ...match, negated, first: start + lead };
+  }
+  return null;
+}
+
 // ---- the query ----------------------------------------------------------------
 
-type Role = "part" | "content" | "stop";
+/** "negated": what a negation negates (negatedAt), left out of every text */
+type Role = "part" | "content" | "stop" | "negated";
 
 const spanOf = (tokens: Token[], first: number, end: number): Span => [
   tokens[first]?.start ?? 0,
@@ -558,19 +847,25 @@ function textOf(
 }
 
 /**
- * Reads `q` against the named `people`. Left to right, at each word: a name
- * (the longest), then a date with the words leading to it, then a color or
- * a tone. A color counts for the photo at the start, after a filter or a
- * stopword ("photos rouges"), or led by "en" or "couleurs" ("plage en noir
- * et blanc"); right after another word it describes that thing and stays
- * content ("un chat noir"). One color and one tone at most: a second one is
- * content. A year is a whole word: "IMG_2015" is no date. Dates combine as
- * DateFilter says. Nothing understood: the whole query is the content, as
- * typed.
+ * Reads `q` against the named `people` and the scene `tags`. Left to right,
+ * at each word: "sans personne", "seulement", "que des" (nobody else on the
+ * photos); a name (the longest), and "seul" right after names; a date with
+ * the words leading to it; how a face looks, bound to the names just
+ * before it ("Céline et Stéphane qui sourient": each of them smiles) or to
+ * anyone ("quelqu'un qui pleure", "photos tristes"); a tag with the words
+ * leading to it, "sans" or "pas de" before it to say not that; a color or
+ * a tone. A color or a look counts for the photo at the start, after a
+ * filter or a stopword ("photos rouges"), or led by "en" or "couleurs"
+ * ("plage en noir et blanc"); right after another word it describes that
+ * thing and stays content ("un chat noir", "un chien heureux"). One color
+ * and one tone at most: a second one is content. A year is a whole word:
+ * "IMG_2015" is no date. Dates combine as DateFilter says. Nothing
+ * understood: the whole query is the content, as typed.
  */
 export function understandQuery(
   q: string,
   people: readonly NamedPerson[],
+  tags: readonly TagWords[] = [],
 ): UnderstoodQuery {
   const tokens = tokenize(q);
   const named: PersonKeys[] = people.map(({ id, name }) => ({
@@ -578,25 +873,90 @@ export function understandQuery(
     name,
     keys: tokenize(name).map((t) => t.key),
   }));
+  const tagKeys = tagKeysOf(tags);
   const roles: Role[] = [];
   // A date's own word that also says what the photos show: "Noël"
   const hints = new Map<number, string>();
+  // A tag's words: content again when other words are ("un chat qui court")
+  const tagHints: number[] = [];
+  // Tokens naming a thing (a tag): a color or a look right after describes it
+  const things = new Set<number>();
   const parts: QueryPart[] = [];
   const dates: DateFilter = { ranges: [], annual: [] };
   const colors: ColorFilter = { color: null, tone: null };
   const personIds: number[] = [];
+  const withoutIds: number[] = [];
+  const faces: FaceCondition[] = [];
+  const tagConditions: TagCondition[] = [];
+  let only = false;
+  // The names just read ("Céline et Stéphane") and the token after them
+  let run: { ids: number[]; end: number } | null = null;
   const mark = (from: number, end: number) => {
     for (let n = from; n < end; n += 1) roles[n] = "part";
+  };
+  const describes = (n: number) => roles[n] === "content" || things.has(n);
+  const markOnly = (from: number, end: number) => {
+    mark(from, end);
+    only = true;
+    const known = parts.find((p) => p.kind === "only");
+    if (known) known.spans.push(spanOf(tokens, from, end));
+    else
+      parts.push({
+        kind: "only",
+        label: "",
+        spans: [spanOf(tokens, from, end)],
+      });
   };
 
   let i = 0;
   while (i < tokens.length) {
+    const key = tokens[i]?.key ?? "";
+    // « que » alone is a relative pronoun (« le chat que la voisine a
+    // adopté »): it says only at the start or after « ne », « rien », « juste »
+    const onlyQue =
+      (key === "que" || key === "qu'") &&
+      (i === 0 ||
+        [1, 2, 3].some((back) =>
+          BEFORE_ONLY_QUE.has(tokens[i - back]?.key ?? ""),
+        )) &&
+      (AFTER_ONLY_QUE.has(tokens[i + 1]?.key ?? "") ||
+        personAt(tokens, i + 1, named) !== null);
+    const nobody =
+      phraseAt(tokens, i, NOBODY) ??
+      phraseAt(tokens, i, ONLY_WORDS) ??
+      (onlyQue ? { end: i + 1, value: true } : null) ??
+      (run?.end === i ? phraseAt(tokens, i, ALONE) : null);
+    if (nobody) {
+      markOnly(i, nobody.end);
+      i = nobody.end;
+      continue;
+    }
+
+    const absent = PERSON_NEGATIONS.has(key)
+      ? personAt(tokens, i + 1, named)
+      : null;
+    if (absent) {
+      mark(i, absent.end);
+      const { id, name } = absent.value;
+      parts.push({
+        kind: "without",
+        label: name,
+        personId: id,
+        spans: [spanOf(tokens, i, absent.end)],
+      });
+      if (!withoutIds.includes(id)) withoutIds.push(id);
+      run = null;
+      i = absent.end;
+      continue;
+    }
+
     const person = personAt(tokens, i, named);
     if (person) {
       const spans: Span[] = [spanOf(tokens, i, person.end)];
       // "Céline et Stéphane": the "et" goes with the second name
       const joiner = tokens[i - 1];
       const before = parts[parts.length - 1];
+      let joined = false;
       if (
         joiner &&
         PEOPLE_JOINERS.has(joiner.key) &&
@@ -607,6 +967,7 @@ export function understandQuery(
       ) {
         spans.unshift([joiner.start, joiner.end]);
         roles[i - 1] = "part";
+        joined = true;
       }
       mark(i, person.end);
       const { id, name } = person.value;
@@ -616,6 +977,10 @@ export function understandQuery(
         parts.push({ kind: "person", label: name, personId: id, spans });
         personIds.push(id);
       }
+      run =
+        run && (run.end === i || (joined && run.end === i - 1))
+          ? { ids: [...run.ids, id], end: person.end }
+          : { ids: [id], end: person.end };
       i = person.end;
       continue;
     }
@@ -641,12 +1006,70 @@ export function understandQuery(
       continue;
     }
 
+    const subject = phraseAt(tokens, i, SUBJECTS);
+    const look = expressionAt(tokens, subject ? subject.end : i);
+    if (look) {
+      const bound = !subject && run?.end === i ? run.ids : [];
+      const word = tokens[look.first]?.key ?? "";
+      const alone = look.end - look.first === 1 && BOUND_ONLY.has(word);
+      if (
+        bound.length > 0 ||
+        subject !== null ||
+        (!alone && !describes(i - 1))
+      ) {
+        mark(i, look.end);
+        parts.push({
+          kind: "expression",
+          label: EXPRESSION_LABELS[look.value],
+          expression: look.value,
+          people: bound,
+          spans: [spanOf(tokens, i, look.end)],
+        });
+        if (bound.length === 0)
+          faces.push({ person: null, expression: look.value });
+        for (const id of bound)
+          faces.push({ person: id, expression: look.value });
+        // "Céline qui sourit les yeux fermés": the next look is hers too
+        if (run && bound.length > 0) run = { ...run, end: look.end };
+        i = look.end;
+        continue;
+      }
+    }
+
+    const tag = tagAt(tokens, i, tagKeys);
+    if (tag) {
+      mark(i, tag.end);
+      for (let n = tag.first; n < tag.end; n += 1) things.add(n);
+      // "sans voiture" says nothing the photos show
+      if (!tag.negated) for (let n = i; n < tag.end; n += 1) tagHints.push(n);
+      const spans: Span[] = [spanOf(tokens, i, tag.end)];
+      const known = parts.find(
+        (p) => p.kind === "tag" && p.tag === tag.value.tag,
+      );
+      if (known) known.spans.push(...spans);
+      else {
+        parts.push({
+          kind: "tag",
+          label: tag.value.label,
+          tag: tag.value.tag,
+          negated: tag.negated,
+          spans,
+        });
+        tagConditions.push({ tag: tag.value.tag, negated: tag.negated });
+      }
+      i = tag.end;
+      continue;
+    }
+
     let color: Match<ColorValue> | null = null;
     let colorFrom = i;
-    if (COLOR_LEADS.has(tokens[i]?.key ?? "")) colorFrom += 1;
+    if (COLOR_LEADS.has(tokens[i]?.key ?? "")) {
+      colorFrom += 1;
+      if (COLOR_ARTICLES.has(tokens[colorFrom]?.key ?? "")) colorFrom += 1;
+    }
     if (COLOR_NOUNS.has(tokens[colorFrom]?.key ?? "")) colorFrom += 1;
     const led = colorFrom > i;
-    if (led || roles[i - 1] !== "content") color = colorAt(tokens, colorFrom);
+    if (led || !describes(i - 1)) color = colorAt(tokens, colorFrom);
     if (
       color &&
       (color.value.kind === "hue"
@@ -677,26 +1100,87 @@ export function understandQuery(
       continue;
     }
 
-    roles[i] = STOPWORDS.has(tokens[i]?.key ?? "") ? "stop" : "content";
+    // A thing the photos must not show and no filter says (« plage sans
+    // parasol »): the embedder cannot read « not », so it is no content
+    roles[i] = STOPWORDS.has(tokens[i]?.key ?? "")
+      ? "stop"
+      : negatedAt(tokens, i)
+        ? "negated"
+        : "content";
     i += 1;
   }
 
-  const left = tokens.flatMap((_, n) => (roles[n] === "part" ? [] : [n]));
+  const left = tokens.flatMap((_, n) =>
+    roles[n] === "part" || roles[n] === "negated" ? [] : [n],
+  );
   const text = textOf(q, tokens, left);
-  const withHints = [...left, ...hints.keys()].sort((a, b) => a - b);
+  const withHints = [
+    ...left,
+    ...hints.keys(),
+    ...(text === null ? [] : tagHints),
+  ].sort((a, b) => a - b);
   const content =
     parts.length === 0
-      ? (text ?? (q.trim() === "" ? null : q.trim().replace(/\s+/g, " ")))
+      ? (text ??
+        (q.trim() === "" || roles.includes("negated")
+          ? null
+          : q.trim().replace(/\s+/g, " ")))
       : textOf(q, tokens, withHints, hints);
+  // A face's person is on the photo: no need to ask it twice
+  const lookers = new Set(faces.map((face) => face.person));
+  const plain = personIds.filter((id) => !lookers.has(id));
   return {
-    parts,
-    people: personIds,
+    parts: parts.map((part) =>
+      part.kind === "only"
+        ? { ...part, label: onlyLabel(personIds.length > 0, faces) }
+        : part,
+    ),
+    people: plain,
+    withoutPeople: withoutIds,
+    faces,
+    tags: tagConditions,
+    only,
     dates,
     colors,
     text: parts.length === 0 ? null : text,
     content,
     cut: parts.length === 0 || text !== null,
   };
+}
+
+/**
+ * What « nobody else » reads as: nobody but the people named; with a look
+ * on anyone's face (« que des enfants qui sourient »), every face looks so.
+ */
+export function onlyLabel(
+  withPeople: boolean,
+  faces: readonly FaceCondition[],
+): string {
+  if (faces.some((face) => face.person === null)) return "Tout le monde";
+  return withPeople ? "Personne d'autre" : "Sans personne";
+}
+
+/**
+ * `text` read as one date, as the `date` filter of a URL carries it
+ * ("2015", "été 2015", "en décembre", "noël"): its label and days. Null
+ * when it is no date, or more than one.
+ */
+export function readDate(
+  text: string,
+): { label: string; dates: DateFilter } | null {
+  const tokens = tokenize(text);
+  for (let lead = 0; lead <= 2; lead += 1) {
+    if (lead > 0 && !DATE_LEADS.has(tokens[lead - 1]?.key ?? "")) return null;
+    const date = dateAt(tokens, lead);
+    if (date)
+      return date.end === tokens.length
+        ? {
+            label: date.value.label,
+            dates: { ranges: date.value.ranges, annual: date.value.annual },
+          }
+        : null;
+  }
+  return null;
 }
 
 /**

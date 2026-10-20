@@ -5,7 +5,9 @@ const nextConfig = {
   // uses. `next start` does not support that output, so it stays opt-in.
   output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
   experimental: {
-    serverComponentsExternalPackages: ['pg']
+    serverComponentsExternalPackages: ['pg'],
+    // The scene tags' vocabulary, read at run time (src/lib/filterResolver.ts)
+    outputFileTracingIncludes: { '/api/**/*': ['./db/tags.json'] }
   },
   images: {
     domains: [],

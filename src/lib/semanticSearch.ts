@@ -58,24 +58,16 @@ export async function semanticSearch(
     indexed,
   });
   try {
-    const config = embedderConfig();
     const text = normalizeSemanticQuery(q);
     // The count and the embedding, each a round trip, go together
     const [count, embedding] = await Promise.all([
       options.count ? countPhotoEmbeddings() : null,
-      // Without an embedder, no waiting: the text results come alone
-      config === null || text === null ? null : embedQuery(config, text),
+      text === null ? null : embedQuery(embedderConfig(), text),
     ]);
     indexed = count;
     if (indexed === 0)
       return { status: "not_indexed", photos: [], next: null, indexed };
-    if (config === null || text === null) return unavailable();
-    if (!embedding) {
-      logger.warn("Semantic search: the embedder did not answer", {
-        query: text,
-      });
-      return unavailable();
-    }
+    if (!embedding) return unavailable();
     const page = await searchPhotosByContent(
       embedding,
       options.filter,
@@ -95,18 +87,46 @@ export async function semanticSearch(
 }
 
 /**
+ * The embedding of what the photos should show, for the lists that keep
+ * the photos close enough to it (lib/filterResolver.ts). Null when it
+ * could not be had: nothing to embed, no embedder, no answer in time.
+ * Never throws, like semanticSearch.
+ */
+export async function embedContent(q: string): Promise<QueryEmbedding | null> {
+  const text = normalizeSemanticQuery(q);
+  if (text === null) return null;
+  try {
+    return await embedQuery(embedderConfig(), text);
+  } catch (error) {
+    logger.error(
+      "Embedding the content failed",
+      { query: text },
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return null;
+  }
+}
+
+/**
  * A normalized query's embedding: stored when asked before, else asked of
- * the embedder (EMBEDDER_LIMITS) and stored. Null when the embedder did not
- * answer in time.
+ * the embedder (EMBEDDER_LIMITS) and stored. Null when it was never asked
+ * and no embedder is configured (a stored one needs none), or when the
+ * embedder did not answer in time.
  */
 async function embedQuery(
-  config: EmbedderConfig,
+  config: EmbedderConfig | null,
   text: string,
 ): Promise<QueryEmbedding | null> {
   const cached = await cachedQueryEmbedding(text);
   if (cached) return cached;
+  if (config === null) return null;
   const answer = await requestTextEmbedding(config, text);
-  if (!answer) return null;
+  if (!answer) {
+    logger.warn("Semantic search: the embedder did not answer", {
+      query: text,
+    });
+    return null;
+  }
   const embedding = {
     embedding: vectorLiteral(answer.embedding),
     model: answer.model,

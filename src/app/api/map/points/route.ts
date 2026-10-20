@@ -4,7 +4,7 @@ import { getMapPoints } from "@/lib/database";
 import { CELLS_PER_DEGREE, parsePeriod } from "@/lib/mapArea";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
-import { parseColorFilter } from "@/lib/colors";
+import { filterNotes, listFilter } from "@/app/api/_lib/filter";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * Where the photos taken in the period (`from`, `to`: YYYY-MM or
  * YYYY-MM-DD, both optional and included) were taken: `points` holds
  * [latitude, longitude, count] per cell of `cell` degrees, at the mean
- * position of its photos. `color` / `tone` count only the photos holding
- * that color, in that tone.
+ * position of its photos. The filter parameters (lib/photoFilter.ts) count
+ * only the photos passing them.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const get = (key: string) => request.nextUrl.searchParams.get(key);
@@ -24,18 +24,17 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
-  const colors = parseColorFilter(get);
-  if (!colors.ok) {
-    return NextResponse.json(
-      { success: false, error: colors.error },
-      { status: 400 },
-    );
-  }
-
   try {
-    const points = await getMapPoints(period.value, colors.value);
+    const list = await listFilter(request);
+    if (!list.ok) return list.response;
+    const points = await getMapPoints(period.value, list.filter);
     return NextResponse.json(
-      { success: true, cell: 1 / CELLS_PER_DEGREE, points },
+      {
+        success: true,
+        cell: 1 / CELLS_PER_DEGREE,
+        points,
+        ...filterNotes(list),
+      },
       // A sync adds photos now and then: a minute old is fine.
       { headers: { "Cache-Control": "private, max-age=60" } },
     );

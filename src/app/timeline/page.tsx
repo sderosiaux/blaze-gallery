@@ -84,7 +84,7 @@ async function fetchPage(
     colors,
   );
   if (before) params.set("before", before);
-  if (person) params.set("person", person);
+  if (person) params.set("p", person);
   const response = await fetch(`/api/timeline?${params.toString()}`, {
     signal,
   });

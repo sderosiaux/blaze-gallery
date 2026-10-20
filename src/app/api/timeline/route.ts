@@ -1,11 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import type { TimelineCursor } from "@/lib/database";
-import { getTimelinePhotos, NO_PHOTO_FILTER } from "@/lib/database";
+import { getTimelinePhotos } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
-import { parseColorFilter } from "@/lib/colors";
-import { positiveId } from "@/app/api/_lib/people";
+import { filterNotes, listFilter } from "@/app/api/_lib/filter";
+import { folderScope } from "@/app/api/_lib/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -16,19 +16,12 @@ const MAX_LIMIT = 500;
  * Photos by date taken, newest first.
  * `before` takes either a plain ISO date (photos strictly older) or the
  * opaque `next_before` of the previous page ("<ISO>|<id>", ties broken by id).
- * `color` (a hue of lib/colors.ts) and `tone` keep only the photos holding
- * that color, in that tone; `person` (an id) only those where that person is.
+ * The filter parameters of lib/photoFilter.ts keep only the photos passing
+ * them (`content`, `untagged`: what became of the words and the tags);
+ * `folder` (a path) only those in it and below it.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-
-  const colors = parseColorFilter((key) => searchParams.get(key));
-  if (!colors.ok) {
-    return NextResponse.json(
-      { success: false, error: colors.error },
-      { status: 400 },
-    );
-  }
 
   const limitParam = searchParams.get("limit");
   const limit = limitParam === null ? DEFAULT_LIMIT : Number(limitParam);
@@ -51,29 +44,22 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     );
   }
 
-  // ?person=<id>: only the photos where that person is
-  const personParam = searchParams.get("person");
-  const personId = personParam === null ? null : positiveId(personParam);
-  if (personParam !== null && personId === null) {
-    return NextResponse.json(
-      { success: false, error: "person must be a person id" },
-      { status: 400 },
-    );
-  }
-
   try {
-    const photos = await getTimelinePhotos(before, limit, {
-      ...NO_PHOTO_FILTER,
-      colors: colors.value,
-      people: personId === null ? [] : [personId],
-    });
+    const list = await listFilter(request, folderScope(searchParams));
+    if (!list.ok) return list.response;
+    const photos = await getTimelinePhotos(before, limit, list.filter);
     const last = photos[photos.length - 1];
     const next_before =
       photos.length === limit && last?.metadata?.date_taken
         ? `${last.metadata.date_taken}|${last.id}`
         : null;
 
-    return NextResponse.json({ success: true, photos, next_before });
+    return NextResponse.json({
+      success: true,
+      photos,
+      next_before,
+      ...filterNotes(list),
+    });
   } catch (error) {
     logger.apiError("Error in GET /api/timeline", error as Error, {
       method: "GET",

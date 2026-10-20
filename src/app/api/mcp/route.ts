@@ -713,7 +713,7 @@ const toolHandlers = new Map<string, ToolHandler>([
     async (args) => {
       const { colors, period, limit, cursor } = parseColorSearch(args);
       const { photos, next } = await getPhotosByColor(
-        { ...NO_PHOTO_FILTER, colors, dates: periodFilter(period) },
+        { ...NO_PHOTO_FILTER, colors, dates: [periodFilter(period)] },
         cursor,
         limit,
       );
@@ -915,8 +915,9 @@ const toolHandlers = new Map<string, ToolHandler>([
       }
       const result = await semanticSearch(query, {
         filter: {
+          ...NO_PHOTO_FILTER,
           people: await parsePeople(args),
-          dates: rangeFilter(range.value),
+          dates: [rangeFilter(range.value)],
           colors: parseColors(args),
         },
         cut: true,
