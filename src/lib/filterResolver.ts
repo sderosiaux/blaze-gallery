@@ -81,8 +81,12 @@ export async function taggedTags(
   return tags;
 }
 
-/** A run of the tagger takes hours: how far it has got is asked again after this long. */
-const SHARE_TTL_MS = 10 * 60_000;
+/**
+ * How far the tagger has got, asked again after this long: a re-tag
+ * replaces a version's rows in a few minutes (docs/TAGS.md), and the
+ * notice must show while it runs. One count of the gallery, ~0.45 s.
+ */
+const SHARE_TTL_MS = 60_000;
 let share: { at: number; version: number; share: number } | null = null;
 
 /** taggedShare of the vocabulary's version, cached SHARE_TTL_MS. */

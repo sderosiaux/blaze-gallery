@@ -283,7 +283,8 @@ CREATE TABLE IF NOT EXISTS people (
 -- Quality. width_px/height_px: the box in pixels of the decoded original
 -- (displayed orientation; half-size for the rare RAW without a preview).
 -- sharpness: variance of the Laplacian of the aligned 112 px face crop
--- (higher = sharper). yaw/pitch/roll: degrees, 0 = facing the camera.
+-- (higher = sharper). yaw/pitch/roll: degrees, 0 = facing the camera;
+-- pitch below 0 looks down, above 0 up (InsightFace's pose).
 -- cluster_eligible: good enough to define who someone is (clustering seeds);
 -- the other faces can still be matched to a person.
 --
