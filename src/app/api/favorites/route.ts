@@ -1,16 +1,30 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query } from "@/lib/database";
+import { andPhotoFilter, hasPhotoFilter, query } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
+import { filterNotes, listFilter } from "@/app/api/_lib/filter";
 
 // Force dynamic rendering for routes using auth
 export const dynamic = "force-dynamic";
 
-export const GET = requireAuth(async function GET() {
+/**
+ * Every favorite, by filename; with the filter parameters of
+ * lib/photoFilter.ts, only those of the gallery passing them (a favorite in
+ * a folder out of the gallery shows unfiltered only, like in Bibliothèque).
+ */
+export const GET = requireAuth(async function GET(request: NextRequest) {
   try {
-    const result = await query<PhotoWithFolderRow>(`
+    const list = await listFilter(request, { favorites: true });
+    if (!list.ok) return list.response;
+    const params: unknown[] = [];
+    const filtered =
+      hasPhotoFilter({ ...list.filter, favorites: false }) &&
+      andPhotoFilter(params, list.filter);
+    const result = await query<PhotoWithFolderRow>(
+      `
       SELECT
         p.*,
         f.name as folder_name,
@@ -18,8 +32,11 @@ export const GET = requireAuth(async function GET() {
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
       WHERE p.is_favorite = true
+        ${filtered || ""}
       ORDER BY p.filename
-    `);
+    `,
+      params,
+    );
 
     // Add thumbnail URLs
     const photosWithThumbnails = result.rows.map(withThumbnailUrl);
@@ -27,6 +44,7 @@ export const GET = requireAuth(async function GET() {
     return NextResponse.json({
       success: true,
       photos: photosWithThumbnails,
+      ...filterNotes(list),
     });
   } catch (error) {
     logger.apiError("Error fetching favorite photos", error as Error, {

@@ -598,3 +598,17 @@ CREATE TABLE IF NOT EXISTS excluded_folders (
   ) STORED,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- What scene each photo shows, from the worker's tagging task: one row per
+-- (photo, tag) of the vocabulary in db/tags.json, whose `version` the row
+-- carries. A photo shows a tag when score >= that tag's threshold in the
+-- same file. The app filters on it (src/lib/database.ts filterConditions);
+-- a tag no row has yet is read as words instead (src/lib/filterResolver.ts).
+CREATE TABLE IF NOT EXISTS photo_tags (
+  photo_id bigint NOT NULL REFERENCES photos (id) ON DELETE CASCADE,
+  tag text NOT NULL,
+  score real NOT NULL,
+  vocab_version int NOT NULL,
+  PRIMARY KEY (photo_id, tag)
+);
+CREATE INDEX IF NOT EXISTS photo_tags_tag_score ON photo_tags (tag, score DESC);

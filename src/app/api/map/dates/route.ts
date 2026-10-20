@@ -4,7 +4,7 @@ import { getMapDates } from "@/lib/database";
 import { parseBox } from "@/lib/mapArea";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
-import { parseColorFilter } from "@/lib/colors";
+import { filterNotes, listFilter } from "@/app/api/_lib/filter";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,8 @@ export const dynamic = "force-dynamic";
  * "day", `date` YYYY-MM-DD) when they span at most DAY_SPAN days, else per
  * month ("month", YYYY-MM). With a box (`south`, `west`, `north`, `east`),
  * only the photos taken inside it: the period brush then shows when that
- * place was photographed, a single trip day by day. `color` / `tone` count
- * only the photos holding that color, in that tone.
+ * place was photographed, a single trip day by day. The filter parameters
+ * (lib/photoFilter.ts) count only the photos passing them.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const get = (key: string) => request.nextUrl.searchParams.get(key);
@@ -29,16 +29,12 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       { success: false, error: box.error },
       { status: 400 },
     );
-  const colors = parseColorFilter(get);
-  if (!colors.ok)
-    return NextResponse.json(
-      { success: false, error: colors.error },
-      { status: 400 },
-    );
   try {
-    const { unit, dates } = await getMapDates(box.value, colors.value);
+    const list = await listFilter(request);
+    if (!list.ok) return list.response;
+    const { unit, dates } = await getMapDates(box.value, list.filter);
     return NextResponse.json(
-      { success: true, unit, dates },
+      { success: true, unit, dates, ...filterNotes(list) },
       { headers: { "Cache-Control": "private, max-age=60" } },
     );
   } catch (error) {

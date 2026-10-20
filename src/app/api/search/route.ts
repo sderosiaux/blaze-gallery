@@ -1,11 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import {
-  hasColorFilter,
-  parseColorFilter,
-  type ColorFilter,
-} from "@/lib/colors";
+import { hasColorFilter } from "@/lib/colors";
 import type {
   FolderSearchCursor,
   PhotoFilter,
@@ -15,13 +11,14 @@ import {
   countSearchMatches,
   getPhotosByColor,
   getTimelinePhotos,
-  listPersonNames,
+  hasPhotoFilter,
   searchFolders,
   searchPhotos,
 } from "@/lib/database";
+import { resolveFilter, type ResolvedFilter } from "@/lib/filterResolver";
 import { listPeople } from "@/lib/people";
-import { understandQuery, type UnderstoodQuery } from "@/lib/searchQuery";
-import { hasDateFilter } from "@/lib/semanticQuery";
+import { hasUrlFilter, parseUrlFilter } from "@/lib/photoFilter";
+import type { QueryPart } from "@/lib/searchQuery";
 import { semanticSearch, type SemanticResults } from "@/lib/semanticSearch";
 import { logger } from "@/lib/logger";
 import { isRecord } from "@/hooks/apiJson";
@@ -43,39 +40,44 @@ const PEOPLE_LIMIT = 6;
  * Folders and photos matching `q`, accent- and case-insensitively, the
  * photos showing what `q` describes (`semantic`, ranked by similarity), and
  * how `q` was understood (`understood`, lib/searchQuery.ts): the named
- * people, dates, colors and tones it asks for narrow `semantic` to the
- * photos showing all those people, taken then, holding that color; the
- * people are also in `people`, as /personnes shows them. When nothing is
- * left to rank by (« Suzie en 2015 »), or the content could not be ranked
- * (semantic unavailable), `filtered` lists what the filters keep: by share
- * of the color when there is one ("color"), else newest first ("taken").
- * Folder and file names match the query as typed.
+ * people and how they look, dates, scene tags, colors and tones it asks
+ * for narrow `semantic` to the photos passing them, with the filter
+ * parameters of lib/photoFilter.ts besides `q`; the people are also in
+ * `people`, as /personnes shows them. When nothing is left to rank by
+ * (« Suzie en 2015 »), or the content could not be ranked (semantic
+ * unavailable), `filtered` lists what the filters keep: by share of the
+ * color when there is one ("color"), else newest first ("taken"). Tags no
+ * photo has yet are read as words to rank by (`untagged`). Folder and file
+ * names match the query as typed.
  * Without a cursor: the first page of each list, the totals of the name
  * matches and the cursors (`next_photos`, `next_folders`, `semantic.next`,
  * `filtered.next`; null on the last page). With `photos_after`,
  * `folders_after`, `semantic_after` or `filtered_after` set to one of those
  * opaque cursors: only the next page of that list and its following cursor.
- * `color` / `tone` narrow the photos, name matches included (not the
- * folders); each overrides the one the query says, whose chip goes away. A
- * cursor goes with the same query and filter.
+ * The filter parameters narrow the photos, name matches included (not the
+ * folders); `color` / `tone` each override the one the query says, whose
+ * chip goes away. A cursor goes with the same query and filter.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const q = (searchParams.get("q") ?? "").trim();
+  const url = parseUrlFilter(
+    (key) => searchParams.get(key),
+    (key) => searchParams.getAll(key),
+  );
+  if (!url.ok) {
+    return NextResponse.json(
+      { success: false, error: url.error },
+      { status: 400 },
+    );
+  }
+  const { q } = url.value;
   const photosAfter = searchParams.get("photos_after");
   const foldersAfter = searchParams.get("folders_after");
   const semanticAfter = searchParams.get("semantic_after");
   const filteredAfter = searchParams.get("filtered_after");
-  const parsedColors = parseColorFilter((key) => searchParams.get(key));
-  if (!parsedColors.ok) {
-    return NextResponse.json(
-      { success: false, error: parsedColors.error },
-      { status: 400 },
-    );
-  }
 
   try {
-    if (q === "") {
+    if (!hasUrlFilter(url.value)) {
       return NextResponse.json({
         success: true,
         photos: [],
@@ -107,7 +109,14 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       });
     }
 
-    const search = understand(q, await listPersonNames(), parsedColors.value);
+    const resolution = await resolveFilter(url.value);
+    if (!resolution.ok) {
+      return NextResponse.json(
+        { success: false, error: resolution.error },
+        { status: 400 },
+      );
+    }
+    const search = resolution.value;
 
     if (semanticAfter !== null) {
       const after = decodeCursor(semanticAfter, toOffsetCursor);
@@ -136,12 +145,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     if (photosAfter !== null) {
       const after = decodeCursor(photosAfter, toPhotoCursor);
       if (!after) return badCursor("photos_after");
-      const page = await searchPhotos(
-        q,
-        after,
-        PHOTO_PAGE,
-        search.filter.colors,
-      );
+      const page = await searchPhotos(q, after, PHOTO_PAGE, search.filter);
       return NextResponse.json({
         success: true,
         photos: page.items,
@@ -150,19 +154,22 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     }
 
     const ranked = search.content !== null;
+    const named = q !== "";
     const [photos, folders, totals, semantic, filtered, people] =
       await Promise.all([
-        searchPhotos(q, null, PHOTO_PAGE, search.filter.colors),
-        searchFolders(q, null, FOLDER_PAGE),
-        countSearchMatches(q, search.filter.colors),
+        named ? searchPhotos(q, null, PHOTO_PAGE, search.filter) : null,
+        named ? searchFolders(q, null, FOLDER_PAGE) : null,
+        named ? countSearchMatches(q, search.filter) : null,
         semanticPage(search, 0, true),
         // Nothing to rank by: the filters' photos
-        !ranked && filters(search.filter) ? filteredPage(search.filter) : null,
-        peopleOf(search.people),
+        !ranked && hasPhotoFilter(search.filter)
+          ? filteredPage(search.filter)
+          : null,
+        peopleOf(peopleIn(search.filter)),
       ]);
     // The content could not be ranked: the filters still apply
     const fallback =
-      ranked && semantic.status !== "ok" && search.parts.length > 0
+      ranked && semantic.status !== "ok" && hasPhotoFilter(search.filter)
         ? await filteredPage(search.filter)
         : filtered;
 
@@ -170,23 +177,17 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       success: true,
       query: q,
       understood: {
-        parts: search.parts.map((part) => ({
-          kind: part.kind,
-          label: part.label,
-          spans: part.spans,
-          ...(part.kind === "person" ? { person_id: part.personId } : {}),
-          ...(part.kind === "color" ? { color: part.hue } : {}),
-          ...(part.kind === "tone" ? { tone: part.tone } : {}),
-        })),
+        parts: search.parts.map(understoodPart),
         text: search.text,
         content: search.content,
       },
-      photos: photos.items,
-      photo_total: totals.photos,
-      next_photos: encodeCursor(photos.next),
-      folders: folders.items,
-      folder_total: totals.folders,
-      next_folders: encodeCursor(folders.next),
+      untagged: search.untagged,
+      photos: photos?.items ?? [],
+      photo_total: totals?.photos ?? 0,
+      next_photos: encodeCursor(photos?.next ?? null),
+      folders: folders?.items ?? [],
+      folder_total: totals?.folders ?? 0,
+      next_folders: encodeCursor(folders?.next ?? null),
       semantic: {
         ...semantic,
         next:
@@ -213,45 +214,37 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   }
 });
 
-type Search = UnderstoodQuery & { filter: PhotoFilter };
-
-/**
- * The query as understood, with the color and the tone of the URL (the
- * color bar) in place of those the query says: their chips go away.
- */
-function understand(
-  q: string,
-  names: { id: number; name: string }[],
-  urlColors: ColorFilter,
-): Search {
-  const understood = understandQuery(q, names);
-  const colors: ColorFilter = {
-    color: urlColors.color ?? understood.colors.color,
-    tone: urlColors.tone ?? understood.colors.tone,
-  };
+/** A part of the query as the page's chips read it (components/find/QueryChips.tsx). */
+function understoodPart(part: QueryPart) {
   return {
-    ...understood,
-    parts: understood.parts.filter(
-      (part) =>
-        !(part.kind === "color" && urlColors.color) &&
-        !(part.kind === "tone" && urlColors.tone),
-    ),
-    colors,
-    filter: { people: understood.people, dates: understood.dates, colors },
+    kind: part.kind,
+    label: part.label,
+    spans: part.spans,
+    ...(part.kind === "person" ? { person_id: part.personId } : {}),
+    ...(part.kind === "color" ? { color: part.hue } : {}),
+    ...(part.kind === "tone" ? { tone: part.tone } : {}),
+    ...(part.kind === "expression"
+      ? { expression: part.expression, people: part.people }
+      : {}),
+    ...(part.kind === "tag" ? { tag: part.tag, negated: part.negated } : {}),
   };
 }
 
-function filters(filter: PhotoFilter): boolean {
-  return (
-    filter.people.length > 0 ||
-    hasDateFilter(filter.dates) ||
-    hasColorFilter(filter.colors)
-  );
+/** Everyone the filter puts on the photos, plainly or by a face's look. */
+function peopleIn(filter: PhotoFilter): number[] {
+  return [
+    ...new Set([
+      ...filter.people,
+      ...filter.faces.flatMap((face) =>
+        face.person === null ? [] : [face.person],
+      ),
+    ]),
+  ];
 }
 
 /** Nothing to embed reads as unavailable, without asking the embedder. */
 function semanticPage(
-  search: Search,
+  search: ResolvedFilter,
   offset: number,
   count: boolean,
 ): Promise<SemanticResults> {

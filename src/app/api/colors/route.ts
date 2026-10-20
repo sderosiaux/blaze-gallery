@@ -1,14 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getPhotosByColor, NO_PHOTO_FILTER } from "@/lib/database";
+import { getPhotosByColor } from "@/lib/database";
 import {
   formatRankCursor,
   hasColorFilter,
-  parseColorFilter,
   parseRankCursor,
 } from "@/lib/colors";
 import { logger } from "@/lib/logger";
 import { requireAuth } from "@/lib/auth/middleware";
+import { filterNotes, listFilter } from "@/app/api/_lib/filter";
 
 export const dynamic = "force-dynamic";
 
@@ -18,16 +18,13 @@ const MAX_LIMIT = 200;
 /**
  * Dated photos holding `color` (a hue of lib/colors.ts), most of it first,
  * or in `tone`, most colorful first; both: the color's photos in that tone.
- * In the timeline's shape plus `color_score`. With `after` set to the
- * previous page's `next_after`: the next page.
+ * Only those passing the other filter parameters (lib/photoFilter.ts); a
+ * color or tone the query says counts as the parameter. In the timeline's
+ * shape plus `color_score`. With `after` set to the previous page's
+ * `next_after`: the next page.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const get = (key: string) => request.nextUrl.searchParams.get(key);
-
-  const colors = parseColorFilter(get);
-  if (!colors.ok) return badRequest(colors.error);
-  if (!hasColorFilter(colors.value))
-    return badRequest("color or tone is required");
 
   const limitParam = get("limit");
   const limit = limitParam === null ? DEFAULT_LIMIT : Number(limitParam);
@@ -40,15 +37,16 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     return badRequest("after must be a next_after cursor");
 
   try {
-    const { photos, next } = await getPhotosByColor(
-      { ...NO_PHOTO_FILTER, colors: colors.value },
-      after,
-      limit,
-    );
+    const list = await listFilter(request);
+    if (!list.ok) return list.response;
+    if (!hasColorFilter(list.filter.colors))
+      return badRequest("color or tone is required");
+    const { photos, next } = await getPhotosByColor(list.filter, after, limit);
     return NextResponse.json({
       success: true,
       photos,
       next_after: next ? formatRankCursor(next) : null,
+      ...filterNotes(list),
     });
   } catch (error) {
     logger.apiError("Error in GET /api/colors", error as Error, {

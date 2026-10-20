@@ -6,11 +6,9 @@ import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
 import {
-  addDays,
   CELLS_PER_DEGREE,
   DAY_SPAN,
   isDay,
-  lastDay,
   type MapBox,
   type MapPeriod,
 } from "./mapArea";
@@ -31,7 +29,14 @@ import {
 import { foldPalette, type ColorBin, type Swatch } from "./palette";
 import { asQuarterTurn, type QuarterTurn } from "./rotation";
 import {
-  ANY_DATE,
+  EXPRESSIONS,
+  type Expression,
+  type FaceCondition,
+  type TagCondition,
+} from "./photoFilter";
+import {
+  hasDateFilter,
+  periodFilter,
   SEMANTIC_MARGIN,
   SEMANTIC_MIN_SIMILARITY,
   SEMANTIC_REFERENCE_RANK,
@@ -713,56 +718,244 @@ function colorFilterSql(
   return `EXISTS (SELECT 1 FROM photo_colors pc WHERE ${where.join(" AND ")})`;
 }
 
-/** `AND <filter>` for a WHERE clause, or nothing. */
-function andColorFilter(
-  params: unknown[],
-  filter: ColorFilter,
-  photoId?: string,
-): string {
-  const sql = colorFilterSql(params, filter, photoId);
-  return sql ? `AND ${sql}` : "";
+// ---- photo filters --------------------------------------------------------
+// One filter for every list of photos (lib/photoFilter.ts says what each
+// part means; lib/filterResolver.ts builds it from a URL or MCP arguments)
+// and one place, filterConditions, that writes it as SQL over photos p.
+
+/** A tag condition, with the score its tag needs (db/tags.json threshold). */
+export interface TagFilter extends TagCondition {
+  threshold: number;
 }
 
-// ---- photo filters --------------------------------------------------------
+/** What the photos show: an embedded query and the farthest a photo may be from it (contentFloor). */
+export interface ContentFilter extends QueryEmbedding {
+  maxDistance: number;
+}
 
-/** What a list of photos keeps: those showing all of `people`, taken within `dates`, holding `colors`. */
+/**
+ * What a list of photos keeps: the gallery's photos showing all of
+ * `people`, each face of `faces`, each tag of `tags` (or not, negated),
+ * nobody else with `only`, taken within each of `dates`, holding `colors`,
+ * under `folder` (its sub-folders too), favorites with `favorites`, close
+ * enough to `content`.
+ */
 export interface PhotoFilter {
   people: readonly number[];
-  dates: DateFilter;
+  faces: readonly FaceCondition[];
+  tags: readonly TagFilter[];
+  only: boolean;
+  dates: readonly DateFilter[];
   colors: ColorFilter;
+  folder: string | null;
+  favorites: boolean;
+  content: ContentFilter | null;
 }
 
 export const NO_PHOTO_FILTER: PhotoFilter = {
   people: [],
-  dates: ANY_DATE,
+  faces: [],
+  tags: [],
+  only: false,
+  dates: [],
   colors: NO_COLOR_FILTER,
+  folder: null,
+  favorites: false,
+  content: null,
+};
+
+/** Whether `filter` keeps fewer photos than the whole gallery could. */
+export function hasPhotoFilter(filter: PhotoFilter): boolean {
+  return (
+    filter.people.length > 0 ||
+    filter.faces.length > 0 ||
+    filter.tags.length > 0 ||
+    filter.only ||
+    filter.dates.some(hasDateFilter) ||
+    hasColorFilter(filter.colors) ||
+    filter.folder !== null ||
+    filter.favorites ||
+    filter.content !== null
+  );
+}
+
+/** A face named as its person: seed, manual or auto ("rejected" says it is not). */
+const OWNED = "('seed', 'manual', 'auto')";
+
+/**
+ * Each expression over a face f, from the faces pass's measures
+ * (db/schema.sql): expression_scores in the order anger, contempt,
+ * disgust, fear, happiness, neutral, sadness, surprise (1-based), the eyes
+ * (lid gap over eye width, ~0.3 open, < 0.15 closed) and the mouth (inner
+ * lip gap over mouth width, ~0 closed).
+ * PROVISIONAL (2026-10-19): read off the score distributions only, until
+ * the owner's answers to the calibration gallery give each expression the
+ * score from which 90% of the faces look so.
+ */
+const EXPRESSION_SQL: Record<Expression, (f: string) => string> = {
+  sourit: (f) => `${f}.expression_scores[5] >= 0.8`,
+  rit: (f) => `${f}.expression_scores[5] >= 0.8 AND ${f}.mouth_open >= 0.25`,
+  triste: (f) => `${f}.expression_scores[7] >= 0.6`,
+  colere: (f) => `${f}.expression_scores[1] >= 0.6`,
+  surpris: (f) => `${f}.expression_scores[8] >= 0.6`,
+  peur: (f) => `${f}.expression_scores[4] >= 0.5`,
+  yeux_fermes: (f) =>
+    `greatest(${f}.eye_left_open, ${f}.eye_right_open) < 0.12`,
 };
 
 /**
- * AND clauses keeping the photos (id `photoId`) where every one of `people`
- * is (a face named as that person: seed, manual or auto; the partial unique
- * index idx_faces_person_once_per_photo serves each); ids go to `params`.
+ * Looks few faces have (2026-10-19, at EXPRESSION_SQL's thresholds: 600 to
+ * 3,400 faces of 146,000; smiling, 50,000). On anyone's face, the planner
+ * walks the timeline's date index probing each photo's faces: 92,000
+ * photos read to find 200 sad ones (2.4 s on the library). Given the ids of
+ * the photos showing the look, as excluded_folders' patterns are given
+ * (outOfGallery), it reads those 2,300 photos and sorts them: 89 ms on the
+ * library, most of it a scan of the faces for the ids.
  */
-function andPeopleFilter(
+const RARE_LOOKS: ReadonlySet<Expression> = new Set([
+  "rit",
+  "triste",
+  "colere",
+  "surpris",
+  "peur",
+  "yeux_fermes",
+]);
+
+/**
+ * Conditions over photos p keeping the photos passing `filter`, values in
+ * `params`; always the gallery's photos (outOfGallery). Each is an EXISTS
+ * the planner can drive from its own index when it is the narrowest: a
+ * person's faces (idx_faces_person_once_per_photo), a tag
+ * (photo_tags_tag_score), a color (idx_photo_colors_*); otherwise it probes
+ * each photo of the list's own order by photo id.
+ */
+function filterConditions(
   params: unknown[],
-  people: readonly number[],
-  photoId = "p.id",
+  filter: PhotoFilter,
+  id = "p.id",
+): string[] {
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const conditions = [`NOT ${outOfGallery("p.s3_key")}`];
+
+  for (const personId of filter.people)
+    conditions.push(`EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = ${id}
+      AND pf.person_id = ${add(personId)}::bigint AND pf.assignment IN ${OWNED})`);
+
+  for (const face of filter.faces) {
+    const looks = EXPRESSION_SQL[face.expression];
+    if (face.person === null && RARE_LOOKS.has(face.expression))
+      conditions.push(
+        `${id} = ANY (ARRAY(SELECT ef.photo_id FROM faces ef WHERE ${looks("ef")}))`,
+      );
+    else {
+      const whose =
+        face.person === null
+          ? ""
+          : `AND ef.person_id = ${add(face.person)}::bigint AND ef.assignment IN ${OWNED}`;
+      conditions.push(`EXISTS (SELECT 1 FROM faces ef WHERE ef.photo_id = ${id}
+        ${whose} AND ${looks("ef")})`);
+    }
+  }
+
+  if (filter.only) {
+    // Nobody but the filter's people: a face of anyone else, or of no one
+    // named, rules the photo out. The faces pass must have looked at it:
+    // a photo it has not read yet has no face rows either.
+    const ours = [
+      ...filter.people,
+      ...filter.faces.flatMap((face) =>
+        face.person === null ? [] : [face.person],
+      ),
+    ];
+    const other =
+      ours.length === 0
+        ? "true"
+        : `NOT coalesce(nf.assignment IN ${OWNED} AND nf.person_id = ANY(${add(ours)}::bigint[]), false)`;
+    conditions.push(
+      `NOT EXISTS (SELECT 1 FROM faces nf WHERE nf.photo_id = ${id} AND ${other})`,
+      `EXISTS (SELECT 1 FROM analysis_jobs fj WHERE fj.photo_id = ${id}
+        AND fj.task = 'faces' AND fj.status = 'done')`,
+    );
+  }
+
+  for (const tag of filter.tags) {
+    const name = add(tag.tag);
+    const threshold = add(tag.threshold);
+    conditions.push(
+      tag.negated
+        ? `EXISTS (SELECT 1 FROM photo_tags nt WHERE nt.photo_id = ${id}
+            AND nt.tag = ${name}::text AND nt.score < ${threshold}::real)`
+        : `EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = ${id}
+            AND pt.tag = ${name}::text AND pt.score >= ${threshold}::real)`,
+    );
+  }
+
+  for (const dates of filter.dates) {
+    const clause = dateClause(params, dates);
+    if (clause) conditions.push(clause);
+  }
+
+  const colors = colorFilterSql(params, filter.colors, id);
+  if (colors) conditions.push(colors);
+
+  if (filter.folder !== null) {
+    const path = add(filter.folder);
+    conditions.push(`p.folder_id IN (SELECT fo.id FROM folders fo
+      WHERE fo.path = ${path}::text OR starts_with(fo.path, ${path}::text || '/'))`);
+  }
+
+  if (filter.favorites) conditions.push("p.is_favorite");
+
+  if (filter.content) {
+    const { embedding, model, maxDistance } = filter.content;
+    conditions.push(`EXISTS (SELECT 1 FROM photo_embeddings ce WHERE ce.photo_id = ${id}
+      AND ce.model = ${add(model)}::text
+      AND (ce.embedding <=> ${add(embedding)}::halfvec) <= ${add(maxDistance)}::float8)`);
+  }
+  return conditions;
+}
+
+/**
+ * The looks a person has on some photo of the gallery, in EXPRESSIONS
+ * order: what their page offers to filter by. One scan of their faces.
+ */
+export async function personExpressions(
+  personId: number,
+): Promise<Expression[]> {
+  const result = await query<Record<Expression, boolean>>(
+    `SELECT ${EXPRESSIONS.map(
+      (expression) =>
+        `bool_or(${EXPRESSION_SQL[expression]("f")}) AS ${expression}`,
+    ).join(", ")}
+     FROM faces f JOIN photos p ON p.id = f.photo_id
+     WHERE f.person_id = $1 AND f.assignment IN ${OWNED}
+       AND NOT ${outOfGallery("p.s3_key")}`,
+    [personId],
+  );
+  const row = requireRow(result, "Person expressions");
+  return EXPRESSIONS.filter((expression) => row[expression]);
+}
+
+/** filterConditions as `AND` lines for a WHERE clause over photos p. */
+export function andPhotoFilter(
+  params: unknown[],
+  filter: PhotoFilter,
+  id?: string,
 ): string {
-  return people
-    .map((personId) => {
-      params.push(personId);
-      return `AND EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = ${photoId}
-        AND pf.person_id = $${params.length} AND pf.assignment IN ('seed', 'manual', 'auto'))`;
-    })
+  return filterConditions(params, filter, id)
+    .map((condition) => `AND ${condition}`)
     .join("\n");
 }
 
 /**
- * AND clauses keeping the photos (photos p) taken within `dates`, compared
- * as text with the ISO date_taken like the timeline and the map; the days
- * of the year are its "MM-DD". Nothing for any date.
+ * The photos (photos p) taken within `dates`, compared as text with the
+ * ISO date_taken like the timeline and the map; the days of the year are
+ * its "MM-DD". Null for any date.
  */
-function andDateFilter(params: unknown[], dates: DateFilter): string {
+function dateClause(params: unknown[], dates: DateFilter): string | null {
   const add = (value: unknown) => {
     params.push(value);
     return `$${params.length}::text`;
@@ -794,7 +987,9 @@ function andDateFilter(params: unknown[], dates: DateFilter): string {
         )
         .join(" OR "),
     );
-  return clauses.map((clause) => `AND (${clause})`).join("\n");
+  return clauses.length > 0
+    ? clauses.map((clause) => `(${clause})`).join(" AND ")
+    : null;
 }
 
 export type ColorRankedPhoto = TimelinePhoto & {
@@ -853,11 +1048,16 @@ const DATED = "(p.metadata->>'date_taken') IS NOT NULL";
 /** The photos a list of the gallery shows: dated, and in the gallery. */
 const DATED_IN_GALLERY = `${DATED} AND NOT ${outOfGallery("p.s3_key")}`;
 
+/** The filter of a list ranked by color: its rank says the color (HOLDS, not NARROWS). */
+function withoutColors(filter: PhotoFilter): PhotoFilter {
+  return { ...filter, colors: NO_COLOR_FILTER };
+}
+
 /**
  * Dated photos of the gallery passing the color filter, most marked first
- * (see colorRank), keyset-paginated on (score, id); only those showing
- * `filter.people` and taken within `filter.dates` when given. The page is
- * picked on photo_colors through its index, then read in full.
+ * (see colorRank), keyset-paginated on (score, id); only those passing the
+ * rest of `filter`. The page is picked on photo_colors through its index,
+ * then read in full.
  */
 export async function getPhotosByColor(
   filter: PhotoFilter,
@@ -871,15 +1071,12 @@ export async function getPhotosByColor(
     params.push(value);
     return `$${params.length}`;
   };
-  const where = [...rank.where, DATED_IN_GALLERY];
+  const where = [...rank.where, DATED];
   if (after)
     where.push(
       `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
     );
-  const narrow = [
-    andDateFilter(params, filter.dates),
-    andPeopleFilter(params, filter.people),
-  ].join("\n");
+  const narrow = andPhotoFilter(params, withoutColors(filter));
   const result = await query<
     DatabasePhoto & { folder_path: string; color_score: number }
   >(
@@ -986,12 +1183,13 @@ function spreadAcrossFolders<T extends BandCandidate>(
 
 /**
  * The Couleurs page: per color, then per tone, `perBand` of its most marked
- * dated photos (colorRank's order, spread across folders), and how far the
- * measuring has got. One indexed top-N per band (db/schema.sql); the
- * counts, two scans, only while the measuring goes on.
+ * dated photos passing `filter` (colorRank's order, spread across
+ * folders), and how far the measuring has got. One indexed top-N per band
+ * (db/schema.sql); the counts, two scans, only while the measuring goes on.
  */
 export async function getColorOverview(
   perBand: number,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<ColorOverview> {
   const filters: [ColorBand["kind"], Hue | ColorTone, ColorFilter][] = [
     ...HUES.map((hue): [ColorBand["kind"], Hue, ColorFilter] => [
@@ -1005,9 +1203,12 @@ export async function getColorOverview(
       { color: null, tone },
     ]),
   ];
+  const params: unknown[] = [perBand * BAND_CANDIDATES];
+  // The same conditions, and values, for every band
+  const narrow = andPhotoFilter(params, withoutColors(filter));
   // Band numbers, not keys, go into the SQL; the rank expressions are this file's.
-  const tops = filters.map(([, , filter], band) => {
-    const rank = colorRank(filter);
+  const tops = filters.map(([, , colors], band) => {
+    const rank = colorRank(colors);
     if (!rank) throw new Error("A band needs a color or a tone");
     return `(SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
              pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
@@ -1015,7 +1216,8 @@ export async function getColorOverview(
              p.metadata->>'date_taken' AS taken
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED_IN_GALLERY].join(" AND ")}
+      WHERE ${[...rank.where, DATED].join(" AND ")}
+        ${narrow}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1)`;
   });
@@ -1031,7 +1233,7 @@ export async function getColorOverview(
     }>(
       `SELECT band, id::int AS id, folder_id::text AS folder_id, hex, rotation, look, taken
        FROM (${tops.join("\nUNION ALL\n")}) t`,
-      [perBand * BAND_CANDIDATES],
+      params,
     ),
     getColorCoverage(),
   ]);
@@ -1229,12 +1431,13 @@ const PHOTO_HITS = `hits AS (
 )`;
 
 /**
- * Name matches passing the color filter (hits h), null without one: names
- * find every photo, colors only those of the gallery.
+ * Name matches passing `filter` (hits h), null without one: names find
+ * every photo, filters only those of the gallery.
  */
-function hitColorsSql(params: unknown[], colors: ColorFilter): string | null {
-  const sql = colorFilterSql(params, colors, "h.id");
-  return sql ? `${sql} AND NOT ${outOfGallery("h.s3_key")}` : null;
+function hitFilterSql(params: unknown[], filter: PhotoFilter): string | null {
+  return hasPhotoFilter(filter)
+    ? `EXISTS (SELECT 1 FROM photos p WHERE p.id = h.id ${andPhotoFilter(params, filter)})`
+    : null;
 }
 
 export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
@@ -1242,14 +1445,14 @@ export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
 /**
  * Photos whose filename or folder path matches, folder by folder (path, then
  * filename); keyset-paginated on (folder path, filename, id); only those
- * passing the color filter when given (hitColorsSql). The page is picked on
- * narrow rows and only its photos are read in full.
+ * passing `filter` when given (hitFilterSql). The page is picked on narrow
+ * rows and only its photos are read in full.
  */
 export async function searchPhotos(
   q: string,
   after: PhotoSearchCursor | null,
   limit: number,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<SearchPage<SearchPhoto, PhotoSearchCursor>> {
   const params: unknown[] = [searchTerms(q).like, limit + 1];
   const where: string[] = [];
@@ -1257,8 +1460,8 @@ export async function searchPhotos(
     params.push(after.folderPath, after.filename, after.id);
     where.push("(f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)");
   }
-  const colorWhere = hitColorsSql(params, colors);
-  if (colorWhere) where.push(colorWhere);
+  const filterWhere = hitFilterSql(params, filter);
+  if (filterWhere) where.push(filterWhere);
   const result = await query<
     DatabasePhoto & { folder_name: string; folder_path: string }
   >(
@@ -1299,10 +1502,10 @@ export async function searchPhotos(
 /** How many photos and folders searchPhotos and searchFolders page through */
 export async function countSearchMatches(
   q: string,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<{ photos: number; folders: number }> {
   const params: unknown[] = [searchTerms(q).like];
-  const colorWhere = hitColorsSql(params, colors);
+  const colorWhere = hitFilterSql(params, filter);
   const result = await query<{ photos: number; folders: number }>(
     `WITH ${PHOTO_HITS}
      SELECT
@@ -1366,6 +1569,26 @@ export async function listPersonNames(): Promise<
   return result.rows;
 }
 
+/**
+ * Those of `tags` the worker has tagged a photo with (one probe of
+ * photo_tags_tag_score each). Before the photo_tags migration, none.
+ */
+export async function tagsWithPhotos(tags: string[]): Promise<Set<string>> {
+  if (tags.length === 0) return new Set();
+  try {
+    const result = await query<{ tag: string }>(
+      `SELECT t.tag FROM unnest($1::text[]) AS t(tag)
+       WHERE EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.tag = t.tag)`,
+      [tags],
+    );
+    return new Set(result.rows.map((row) => row.tag));
+  } catch (error) {
+    // undefined_table: db/schema.sql not applied yet
+    if ((error as { code?: unknown }).code === "42P01") return new Set();
+    throw error;
+  }
+}
+
 /** How many photos semantic search can find (an index-only count of the key). */
 export async function countPhotoEmbeddings(): Promise<number> {
   const result = await query<{ n: number }>(
@@ -1419,12 +1642,7 @@ export async function searchPhotosByContent(
     params.push(value);
     return `$${params.length}`;
   };
-  const narrow = [
-    andInGallery(),
-    andDateFilter(params, filter.dates),
-    andColorFilter(params, filter.colors, "e.photo_id"),
-    andPeopleFilter(params, filter.people, "e.photo_id"),
-  ].join("\n");
+  const narrow = andPhotoFilter(params, filter, "e.photo_id");
   const floor = cut
     ? `AND n.distance <= least(
                ${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
@@ -1478,6 +1696,57 @@ export async function searchPhotosByContent(
     score: Math.round((1 - distance) * 1000) / 1000,
   }));
   return { items, next: rows.length > limit ? offset + limit : null };
+}
+
+/**
+ * How far from `q` a photo may be and still show it, among the photos
+ * passing `filter`: the cut searchPhotosByContent ranks with, SEMANTIC_MARGIN
+ * past the SEMANTIC_REFERENCE_RANK-th nearest and never past
+ * 1 - SEMANTIC_MIN_SIMILARITY. The lists kept in their own order (timeline,
+ * colors, map, a person's photos) keep the photos within it
+ * (PhotoFilter.content), so a query keeps the same photos in every view.
+ */
+export async function contentFloor(
+  q: QueryEmbedding,
+  filter: PhotoFilter,
+): Promise<number> {
+  const params: unknown[] = [
+    q.embedding,
+    q.model,
+    SEMANTIC_MIN_WINDOW,
+    1 - SEMANTIC_MIN_SIMILARITY,
+    SEMANTIC_REFERENCE_RANK,
+    SEMANTIC_MARGIN,
+  ];
+  const narrow = andPhotoFilter(
+    params,
+    { ...filter, content: null },
+    "e.photo_id",
+  );
+  const row = await runTransaction(async (client) => {
+    await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
+    await client.query(`SET LOCAL hnsw.ef_search = ${SEMANTIC_MIN_WINDOW}`);
+    const result = await client.query<{ floor: number }>(
+      `WITH nearest AS (
+         SELECT e.embedding <=> $1::halfvec AS distance
+         FROM photo_embeddings e
+         JOIN photos p ON p.id = e.photo_id
+         WHERE e.model = $2
+           ${narrow}
+         ORDER BY e.embedding <=> $1::halfvec
+         LIMIT $3
+       )
+       -- Every row of nearest sorted, not the first ones the relaxed scan
+       -- returns; least() skips a NULL: no photo leaves the absolute floor
+       SELECT least($4::float8,
+         coalesce((array_agg(distance ORDER BY distance))[$5::int],
+                  max(distance)) + $6::float8) AS floor
+       FROM nearest`,
+      params,
+    );
+    return requireRow(result, "Content floor");
+  });
+  return row.floor;
 }
 
 export interface FolderSuggestion {
@@ -1925,12 +2194,7 @@ export async function getTimelinePhotos(
     // Row comparison so the btree on (date_taken, id) serves the seek
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
-  const narrow = [
-    andInGallery(),
-    andColorFilter(params, filter.colors),
-    andDateFilter(params, filter.dates),
-    andPeopleFilter(params, filter.people),
-  ].join("\n");
+  const narrow = andPhotoFilter(params, filter);
 
   const result = await query<DatabasePhoto & { folder_path: string }>(
     `
@@ -1954,37 +2218,32 @@ export async function getTimelinePhotos(
 
 export interface TimelineSummary {
   months: { month: string; count: number }[];
-  /** Every photo (images and videos) of the gallery, dated or not */
+  /** Every photo (images and videos) of the gallery passing the filter, dated or not */
   total_photos: number;
 }
 
-/** Months as getTimelinePhotos pages through them, color filter included. */
+/** Months as getTimelinePhotos pages through them, with the same filter. */
 export async function getTimelineSummary(
-  colors: ColorFilter = NO_COLOR_FILTER,
-  personId: number | null = null,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
-  const people = personId === null ? [] : [personId];
-  const colorFilter = andColorFilter(params, colors);
-  const personFilter = andPeopleFilter(params, people);
+  const narrow = andPhotoFilter(params, filter);
   const totalParams: unknown[] = [];
-  const totalFilter = andPeopleFilter(totalParams, people);
+  const totalNarrow = andPhotoFilter(totalParams, filter);
   const [months, total] = await Promise.all([
     query<{ month: string; count: number }>(
       `
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
-        ${andInGallery()}
-        ${colorFilter}
-        ${personFilter}
+        ${narrow}
       GROUP BY 1
       ORDER BY 1 DESC
     `,
       params,
     ),
     query<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${andInGallery()} ${totalFilter}`,
+      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalNarrow}`,
       totalParams,
     ),
   ]);
@@ -1999,37 +2258,35 @@ const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
 const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
 
 /**
- * WHERE clause for photos of the gallery on the map, within the period, the
- * box and the color filter when given; values go to `params`. Months and
- * days compare as text against the ISO date_taken, like the timeline's
- * months, so idx_photos_date_taken serves them: `to` stops before the day
- * after it.
+ * WHERE clause for photos of the gallery on the map passing `filter`,
+ * within the period and the box when given; values go to `params`. The
+ * period is one more date range of the filter (periodFilter): months and
+ * days compare as text against the ISO date_taken, so idx_photos_date_taken
+ * serves them.
  */
 function mapFilter(
   params: unknown[],
+  filter: PhotoFilter,
   period: MapPeriod,
   box: MapBox | null,
-  colors: ColorFilter,
 ): string {
   const add = (value: unknown) => {
     params.push(value);
     return `$${params.length}`;
   };
-  const where = [ON_MAP, `NOT ${outOfGallery("p.s3_key")}`];
-  if (period.from)
-    where.push(`(p.metadata->>'date_taken') >= ${add(period.from)}::text`);
-  if (period.to)
-    where.push(
-      `(p.metadata->>'date_taken') < ${add(addDays(lastDay(period.to), 1))}::text`,
-    );
+  const where = [
+    ON_MAP,
+    ...filterConditions(params, {
+      ...filter,
+      dates: [...filter.dates, periodFilter(period)],
+    }),
+  ];
   if (box) {
     where.push(
       `${LATITUDE} BETWEEN ${add(box.south)}::float8 AND ${add(box.north)}::float8`,
       `${LONGITUDE} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
     );
   }
-  const colorWhere = colorFilterSql(params, colors);
-  if (colorWhere) where.push(colorWhere);
   return where.join("\n  AND ");
 }
 
@@ -2040,7 +2297,7 @@ function mapFilter(
  */
 export async function getMapPoints(
   period: MapPeriod,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<[number, number, number][]> {
   const params: unknown[] = [CELLS_PER_DEGREE];
   const result = await query<{ lat: number; lng: number; count: number }>(
@@ -2049,7 +2306,7 @@ export async function getMapPoints(
            round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
            COUNT(*)::int AS count
     FROM photos p
-    WHERE ${mapFilter(params, period, null, colors)}
+    WHERE ${mapFilter(params, filter, period, null)}
     GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
   `,
     params,
@@ -2064,7 +2321,7 @@ export async function getMapPoints(
  */
 export async function getMapDates(
   box: MapBox | null,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<{
   unit: "day" | "month";
   dates: { date: string; count: number }[];
@@ -2075,7 +2332,7 @@ export async function getMapDates(
     WITH days AS (
       SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
       FROM photos p
-      WHERE ${mapFilter(params, { from: null, to: null }, box, colors)}
+      WHERE ${mapFilter(params, filter, { from: null, to: null }, box)}
       GROUP BY 1
     ), span AS (
       SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
@@ -2107,10 +2364,10 @@ export async function getMapPhotos(
   period: MapPeriod,
   after: TimelineCursor | null,
   limit: number,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<TimelinePhoto[]> {
   const params: unknown[] = [limit];
-  const where = mapFilter(params, period, box, colors);
+  const where = mapFilter(params, filter, period, box);
   let seek = "";
   if (after) {
     params.push(after.dateTaken, after.id);
@@ -2144,11 +2401,11 @@ export async function getMapPhotos(
 export async function countMapPhotos(
   box: MapBox,
   period: MapPeriod,
-  colors: ColorFilter = NO_COLOR_FILTER,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<number> {
   const params: unknown[] = [];
   const result = await query<{ total: number }>(
-    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, period, box, colors)}`,
+    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, filter, period, box)}`,
     params,
   );
   return requireRow(result).total;

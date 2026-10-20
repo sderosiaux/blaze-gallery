@@ -39,7 +39,7 @@ export async function fetchTimelineSummary(
   person: string | null = null,
 ): Promise<TimelineSummary> {
   const params = setColorParams(new URLSearchParams(), colors);
-  if (person) params.set("person", person);
+  if (person) params.set("p", person);
   const query = params.toString();
   const response = await fetch(
     `/api/timeline/summary${query ? `?${query}` : ""}`,

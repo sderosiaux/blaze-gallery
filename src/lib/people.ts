@@ -1,6 +1,12 @@
 import type { PoolClient } from "pg";
 import type { Photo, PhotoMetadata } from "@/types";
-import { andInGallery, query, runTransaction } from "./database";
+import {
+  andInGallery,
+  andPhotoFilter,
+  query,
+  runTransaction,
+  type PhotoFilter,
+} from "./database";
 import {
   asFaceBox,
   faceCropUrl,
@@ -134,6 +140,39 @@ export async function listPeople(): Promise<PersonSummary[]> {
     FROM people p
     WHERE p.name IS NOT NULL
     ORDER BY photo_count DESC, lower(p.name)
+    `,
+  );
+  return result.rows;
+}
+
+/** A named person as the filters offer them: name, a face, how many photos. */
+export interface PersonChoice {
+  id: number;
+  name: string;
+  cover_face_id: number | null;
+  /** Faces named as them: their photos, copies counted */
+  faces: number;
+}
+
+/**
+ * The named people for the filter menus and the search box, most
+ * photographed first. Lighter than listPeople (3 s on the library,
+ * 2026-10-19, against 0.23 s): the face shown is the best of the owner's
+ * faces by coverOrder, without the typicality pass.
+ */
+export async function listPersonChoices(): Promise<PersonChoice[]> {
+  const result = await query<PersonChoice>(
+    `
+    SELECT p.id::int AS id, p.name,
+      (SELECT f.id::int FROM faces f JOIN photos ph ON ph.id = f.photo_id
+        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
+          ${GALLERY}
+        ORDER BY (f.assignment <> 'auto') DESC, ${coverOrder(null)} LIMIT 1) AS cover_face_id,
+      (SELECT count(*)::int FROM faces f
+        WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')) AS faces
+    FROM people p
+    WHERE p.name IS NOT NULL
+    ORDER BY faces DESC, lower(p.name)
     `,
   );
   return result.rows;
@@ -322,10 +361,56 @@ function copyKey(photo: { filename: string; size: number | string }): string {
   return `${photo.filename}\u0000${String(photo.size)}`;
 }
 
+/** Newest first, undated last: the order of a person's page. */
+function newestFirst<T extends { taken: string | null; id: number }>(
+  a: T,
+  b: T,
+) {
+  if (a.taken && b.taken && a.taken !== b.taken)
+    return a.taken > b.taken ? -1 : 1;
+  if (a.taken && !b.taken) return -1;
+  if (!a.taken && b.taken) return 1;
+  return b.id - a.id;
+}
+
+/** What a set of copies is told apart and dated by. */
+interface CopyRow {
+  id: number;
+  filename: string;
+  size: number | string;
+  folder_path: string | null;
+  date_taken: string | null | undefined;
+}
+
+type Dated<T> = T & {
+  taken: string | null;
+  date_source: DateSource | null;
+  copies: number[];
+};
+
+/**
+ * One photo per set of copies, rows in path order: the one whose folder
+ * dates it when the camera clock disagrees (takenOn), else the first by
+ * path; the others are its `copies`.
+ */
+function onePerCopy<T extends CopyRow>(rows: T[]): Dated<T>[] {
+  const kept = new Map<string, Dated<T>>();
+  for (const row of rows) {
+    const { taken, source } = takenOn(row.date_taken, row.folder_path);
+    const photo: Dated<T> = { ...row, taken, date_source: source, copies: [] };
+    const key = copyKey(row);
+    const first = kept.get(key);
+    if (!first) kept.set(key, photo);
+    else if (first.date_source !== "folder" && source === "folder")
+      kept.set(key, { ...photo, copies: [...first.copies, first.id] });
+    else first.copies.push(photo.id);
+  }
+  return [...kept.values()];
+}
+
 /**
  * Every photo of the person, oldest first (undated last), one per set of
- * copies: the one whose folder dates it when the camera clock disagrees,
- * else the first by path.
+ * copies (onePerCopy).
  */
 export async function personPhotos(personId: number): Promise<PersonPhoto[]> {
   const result = await query<PersonFaceRow>(
@@ -342,30 +427,116 @@ export async function personPhotos(personId: number): Promise<PersonPhoto[]> {
     `,
     [personId],
   );
-  const kept = new Map<string, PersonPhoto>();
-  for (const row of result.rows) {
-    const { taken, source } = takenOn(
-      row.metadata?.date_taken,
-      row.folder_path,
-    );
-    const photo: PersonPhoto = {
+  return onePerCopy(
+    result.rows.map((row) => ({
       ...row,
       id: Number(row.id),
-      is_favorite: Boolean(row.is_favorite),
-      thumbnail_url: thumbnailUrl(row.id),
-      taken,
-      date_source: source,
-      similarity: round3(row.similarity),
-      copies: [],
-    };
-    const key = copyKey(row);
-    const first = kept.get(key);
-    if (!first) kept.set(key, photo);
-    else if (first.date_source !== "folder" && source === "folder")
-      kept.set(key, { ...photo, copies: [...first.copies, first.id] });
-    else first.copies.push(photo.id);
+      date_taken: row.metadata?.date_taken,
+    })),
+  )
+    .map(({ date_taken: _, ...row }) => personPhoto(row))
+    .sort(byTaken);
+}
+
+function personPhoto(row: Dated<PersonFaceRow & { id: number }>): PersonPhoto {
+  return {
+    ...row,
+    is_favorite: Boolean(row.is_favorite),
+    thumbnail_url: thumbnailUrl(row.id),
+    similarity: round3(row.similarity),
+  };
+}
+
+/** Where a person's page goes on: the last photo's date and id. */
+export interface PersonPhotoCursor {
+  taken: string | null;
+  id: number;
+}
+
+export interface PersonPhotoPage {
+  photos: PersonPhoto[];
+  next: PersonPhotoCursor | null;
+  /** Photos of the whole list, one per set of copies */
+  total: number;
+  /** Photos per year taken, newest first, undated (null) last */
+  years: { year: number | null; count: number }[];
+}
+
+/**
+ * A page of the person's photos passing `filter`, newest first (undated
+ * last), one per set of copies (onePerCopy), after `after`. The order
+ * follows takenOn, which reads folder names: every photo of the list is
+ * read in narrow rows (id, name, size, path, date) to sort them, then only
+ * the page in full. 24k faces for the most photographed person: about 1 MB
+ * of narrow rows, where the page used to load every photo in full.
+ */
+export async function personPhotoPage(
+  personId: number,
+  filter: PhotoFilter,
+  after: PersonPhotoCursor | null,
+  limit: number,
+): Promise<PersonPhotoPage> {
+  const params: unknown[] = [personId];
+  const narrow = andPhotoFilter(params, filter);
+  const keys = await query<CopyRow>(
+    `
+    SELECT p.id::int AS id, p.filename, p.size::text AS size,
+           fo.path AS folder_path, p.metadata->>'date_taken' AS date_taken
+    FROM faces f
+    JOIN photos p ON p.id = f.photo_id
+    LEFT JOIN folders fo ON fo.id = p.folder_id
+    WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
+      ${narrow}
+    ORDER BY fo.path, p.id
+    `,
+    params,
+  );
+  const sorted = onePerCopy(keys.rows).sort(newestFirst);
+  const rest = after
+    ? sorted.filter((photo) => newestFirst(photo, after) > 0)
+    : sorted;
+  const page = rest.slice(0, limit);
+  const rows = await query<PersonFaceRow>(
+    `
+    SELECT ph.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
+           c.similarity, c.decided_by
+    FROM faces f
+    JOIN photos ph ON ph.id = f.photo_id
+    LEFT JOIN folders fo ON fo.id = ph.folder_id
+    LEFT JOIN face_candidates c ON c.person_id = f.person_id AND c.face_id = f.id
+    WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
+      AND ph.id = ANY($2::bigint[])
+    `,
+    [personId, page.map((photo) => photo.id)],
+  );
+  const byId = new Map(rows.rows.map((row) => [Number(row.id), row]));
+  const photos = page.flatMap((key) => {
+    const row = byId.get(key.id);
+    return row
+      ? [
+          personPhoto({
+            ...row,
+            id: key.id,
+            taken: key.taken,
+            date_source: key.date_source,
+            copies: key.copies,
+          }),
+        ]
+      : [];
+  });
+  const last = page[page.length - 1];
+  const years = new Map<number | null, number>();
+  for (const photo of sorted) {
+    const year = photo.taken ? new Date(photo.taken).getUTCFullYear() : null;
+    years.set(year, (years.get(year) ?? 0) + 1);
   }
-  return [...kept.values()].sort(byTaken);
+  return {
+    photos,
+    next:
+      rest.length > limit && last ? { taken: last.taken, id: last.id } : null,
+    total: sorted.length,
+    years: [...years].map(([year, count]) => ({ year, count })),
+  };
 }
 
 // -- the review queue ------------------------------------------------------------
