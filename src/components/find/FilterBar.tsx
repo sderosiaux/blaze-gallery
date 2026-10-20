@@ -35,7 +35,7 @@ import {
   type UrlFilter,
 } from "@/lib/photoFilter";
 import type { TagGroup } from "@/lib/sceneTags";
-import { understandQuery } from "@/lib/searchQuery";
+import { removeParts, understandQuery } from "@/lib/searchQuery";
 import { normalizeTextForSearch } from "@/lib/textUtils";
 import { HUE_SWATCH } from "./ColorFilterBar";
 import { filterChips, type FilterChip } from "./filterChips";
@@ -502,12 +502,28 @@ function LooksPanel({
   ];
   const [whose, setWhose] = useState<number | null>(candidates[0]?.id ?? null);
   const add = (expression: Expression) => {
-    const face = { person: whose, expression };
+    // Her look says she is there: one chip, not two. Her name in the words
+    // goes, the looks they bound to her come along.
+    const parts = vocabulary
+      ? understandQuery(filter.q, vocabulary.people, vocabulary.tagged).parts
+      : [];
+    const named = parts.filter(
+      (part) =>
+        (part.kind === "person" && part.personId === whose) ||
+        (part.kind === "expression" &&
+          part.people.length === 1 &&
+          part.people[0] === whose),
+    );
+    const said = named.flatMap((part) =>
+      part.kind === "expression"
+        ? [{ person: whose, expression: part.expression }]
+        : [],
+    );
     onApply({
       ...filter,
-      // Her look says she is there: one chip, not two
+      q: removeParts(filter.q, named),
       people: filter.people.filter((id) => id !== whose),
-      faces: [...filter.faces, face],
+      faces: [...filter.faces, ...said, { person: whose, expression }],
     });
   };
   const has = (expression: Expression) =>
