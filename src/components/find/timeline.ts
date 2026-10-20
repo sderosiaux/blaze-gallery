@@ -1,11 +1,7 @@
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import type { Photo } from "@/types";
 import { formatDay } from "@/lib/albums";
-import {
-  NO_COLOR_FILTER,
-  setColorParams,
-  type ColorFilter,
-} from "@/lib/colors";
+import { filterQuery, NO_URL_FILTER, type UrlFilter } from "@/lib/photoFilter";
 
 /** "YYYY-MM" of date taken, as returned by /api/timeline/summary */
 export interface MonthCount {
@@ -32,14 +28,14 @@ export interface MonthGroup {
   photos: TimelinePhoto[];
 }
 
-/** Months of the library, narrowed by a color filter and/or a person id. */
+/** Months of the library, narrowed by the filter, under `folder` when given. */
 export async function fetchTimelineSummary(
   signal?: AbortSignal,
-  colors: ColorFilter = NO_COLOR_FILTER,
-  person: string | null = null,
+  filter: UrlFilter = NO_URL_FILTER,
+  folder: string | null = null,
 ): Promise<TimelineSummary> {
-  const params = setColorParams(new URLSearchParams(), colors);
-  if (person) params.set("p", person);
+  const params = filterQuery(filter);
+  if (folder) params.set("folder", folder);
   const query = params.toString();
   const response = await fetch(
     `/api/timeline/summary${query ? `?${query}` : ""}`,

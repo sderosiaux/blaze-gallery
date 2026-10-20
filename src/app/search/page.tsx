@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { Library, RotateCcw, RotateCw, SearchX } from "lucide-react";
 import type { Folder, Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
@@ -19,19 +18,17 @@ import {
   Section,
 } from "@/components/ui";
 import { AlbumGridSkeleton } from "@/components/find/AlbumGridSkeleton";
-import ColorFilterBar from "@/components/find/ColorFilterBar";
+import FilterBar from "@/components/find/FilterBar";
 import { LoadError } from "@/components/find/LoadError";
-import { QueryChips, type UnderstoodPart } from "@/components/find/QueryChips";
 import { StartingPoints } from "@/components/find/StartingPoints";
-import { useColorFilterParam } from "@/components/find/useColorFilterParam";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
 import {
   readFilteredPage,
   readSearchPage,
   readSearchTotal,
   readSemanticPage,
   searchListSource,
-  searchParamsOf,
   useSearchFeed,
   type FeedSource,
   type SearchFeed,
@@ -40,12 +37,13 @@ import {
 import { asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
 import {
-  filterAdjective,
-  hasColorFilter,
-  NO_COLOR_FILTER,
-  type ColorFilter,
-} from "@/lib/colors";
-import { isStopword, removeParts } from "@/lib/searchQuery";
+  filterKey,
+  filterQuery,
+  hasUrlFilter,
+  NO_URL_FILTER,
+  type UrlFilter,
+} from "@/lib/photoFilter";
+import { isStopword } from "@/lib/searchQuery";
 
 type SemanticStatus = "ok" | "unavailable" | "not_indexed";
 
@@ -58,9 +56,8 @@ interface PersonMatch {
 
 /** How /api/search read the query (`understood`) */
 interface Understood {
-  parts: UnderstoodPart[];
-  /** The words left for the content, as typed */
-  text: string | null;
+  /** How many parts the query was read as */
+  parts: number;
   /** What the photos were ranked by; null when only filters remain */
   content: string | null;
 }
@@ -76,8 +73,6 @@ interface Results {
   filtered: SearchFeedPage<Photo>;
   understood: Understood;
   people: PersonMatch[];
-  /** The color filter of the URL the photos came with */
-  colors: ColorFilter;
 }
 
 type State<R> =
@@ -96,9 +91,6 @@ function quoted(q: string) {
   return `«\u00a0${q}\u00a0»`;
 }
 
-const colorsKey = (colors: ColorFilter) =>
-  `${colors.color ?? ""}|${colors.tone ?? ""}`;
-
 function readSemanticStatus(data: Record<string, unknown>): SemanticStatus {
   const status = isRecord(data.semantic) ? data.semantic.status : undefined;
   return status === "ok" || status === "not_indexed" ? status : "unavailable";
@@ -106,42 +98,17 @@ function readSemanticStatus(data: Record<string, unknown>): SemanticStatus {
 
 function readUnderstood(data: Record<string, unknown>, q: string): Understood {
   const understood = isRecord(data.understood) ? data.understood : {};
-  const { parts, text, content } = understood;
+  const { parts, content } = understood;
   return {
-    parts: (Array.isArray(parts) ? parts : []) as UnderstoodPart[],
-    text: typeof text === "string" ? text : null,
+    parts: Array.isArray(parts) ? parts.length : 0,
     content: typeof content === "string" || content === null ? content : q,
   };
 }
 
 /**
- * The colors the photos are narrowed to: the color bar's (the URL), else
- * those the query says ("photos rouges").
- */
-function effectiveColors(
-  url: ColorFilter,
-  parts: UnderstoodPart[],
-): ColorFilter {
-  return {
-    color: url.color ?? parts.find((p) => p.kind === "color")?.color ?? null,
-    tone: url.tone ?? parts.find((p) => p.kind === "tone")?.tone ?? null,
-  };
-}
-
-/** A new search entry in the history: the query and the color bar's filter. */
-function pushSearch(q: string, colors: ColorFilter) {
-  const params = new URLSearchParams(searchParamsOf(q, colors));
-  window.history.pushState(
-    null,
-    "",
-    q === "" ? "/search" : `/search?${params.toString()}`,
-  );
-}
-
-/**
  * Fetches `url` whenever it changes (or on retry) and reads the response; an
- * empty key is the idle state. A new url for the same key (another color
- * filter for the same words) keeps the results shown while it loads.
+ * empty key is the idle state. A new url for the same key keeps the
+ * results shown while it loads.
  */
 function useSearchRequest<R>(
   key: string,
@@ -196,16 +163,23 @@ function useSearchRequest<R>(
 }
 
 function SearchContent() {
-  const params = useSearchParams();
-  return <QueryContent q={(params.get("q") ?? "").trim()} />;
+  const [filter, setFilter] = useUrlFilter();
+  return <QueryContent filter={filter} onFilterChange={setFilter} />;
 }
 
-function QueryContent({ q }: { q: string }) {
-  const [colors, setColors] = useColorFilterParam();
+function QueryContent({
+  filter,
+  onFilterChange,
+}: {
+  filter: UrlFilter;
+  onFilterChange: (next: UrlFilter) => void;
+}) {
+  const { q } = filter;
+  const key = hasUrlFilter(filter) ? filterKey(filter) : "";
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const { state, attempt, retry } = useSearchRequest(
-    q,
-    `/api/search?${new URLSearchParams(searchParamsOf(q, colors)).toString()}`,
+    key,
+    `/api/search?${key}`,
     (data): Results => {
       const photos = readSearchPage<Photo>(data, "photos");
       const folders = readSearchPage<Folder>(data, "folders");
@@ -221,27 +195,9 @@ function QueryContent({ q }: { q: string }) {
         people: (Array.isArray(data.people)
           ? data.people
           : []) as PersonMatch[],
-        colors,
       };
     },
   );
-  const parts = state.status === "ready" ? state.results.understood.parts : [];
-
-  // The bar shows the query's color too; changing it takes that word out
-  const changeColors = (next: ColorFilter) => {
-    const colorPart = parts.find((p) => p.kind === "color");
-    const tonePart = parts.find((p) => p.kind === "tone");
-    const dropped = [
-      colorPart && next.color !== colorPart.color ? colorPart : null,
-      tonePart && next.tone !== tonePart.tone ? tonePart : null,
-    ].filter((part) => part !== null);
-    const url: ColorFilter = {
-      color: colorPart && !dropped.includes(colorPart) ? null : next.color,
-      tone: tonePart && !dropped.includes(tonePart) ? null : next.tone,
-    };
-    if (dropped.length === 0) setColors(url);
-    else pushSearch(removeParts(q, dropped), url);
-  };
 
   if (state.status === "idle") {
     return (
@@ -253,17 +209,8 @@ function QueryContent({ q }: { q: string }) {
   }
 
   const header = (
-    <PageHeader title={quoted(state.key)}>
-      {state.status === "ready" && (
-        <QueryChips
-          parts={parts}
-          text={state.results.understood.text}
-          onRemove={(part) => {
-            pushSearch(removeParts(q, [part]), colors);
-          }}
-          className="mt-5"
-        />
-      )}
+    <PageHeader title={q ? quoted(q) : "Rechercher"}>
+      <FilterBar filter={filter} onChange={onFilterChange} className="mt-5" />
     </PageHeader>
   );
 
@@ -298,11 +245,12 @@ function QueryContent({ q }: { q: string }) {
       {header}
       <ResultsView
         key={`${state.key}\n${attempt}`}
-        q={state.key}
+        filter={filter}
         results={state.results}
         refreshing={state.refreshing}
-        colors={effectiveColors(colors, parts)}
-        onColorsChange={changeColors}
+        onClearFilter={() => {
+          onFilterChange({ ...NO_URL_FILTER, q });
+        }}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={setPhotoParam}
       />
@@ -311,25 +259,24 @@ function QueryContent({ q }: { q: string }) {
 }
 
 function ResultsView({
-  q,
+  filter,
   results,
   refreshing,
-  colors,
-  onColorsChange,
+  onClearFilter,
   selectedPhotoId,
   onPhotoUrlChange,
 }: {
-  q: string;
+  filter: UrlFilter;
   results: Results;
   refreshing: boolean;
-  /** The filter in effect, the URL's or the query's; the photos' until those for it come */
-  colors: ColorFilter;
-  onColorsChange: (next: ColorFilter) => void;
+  /** Keeps the words typed, drops every other condition */
+  onClearFilter: () => void;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
 }) {
+  const { q } = filter;
   const folders = useSearchFeed(
-    searchListSource<Folder>(q, "folders"),
+    searchListSource<Folder>(filter, "folders"),
     results.folders,
     results.folderTotal,
   );
@@ -344,7 +291,7 @@ function ResultsView({
   );
 
   const { content } = results.understood;
-  const understood = results.understood.parts.length > 0;
+  const understood = results.understood.parts > 0;
   const notice =
     results.semanticStatus === "unavailable" && content !== null
       ? understood
@@ -359,7 +306,7 @@ function ResultsView({
     </p>
   );
 
-  const narrowed = hasColorFilter(colors) || understood;
+  const narrowed = understood || hasUrlFilter({ ...filter, q: "" });
   const hasPhotos =
     results.semantic.items.length > 0 ||
     results.filtered.items.length > 0 ||
@@ -435,24 +382,16 @@ function ResultsView({
 
       {(hasPhotos || narrowed || refreshing) && (
         <Section title="Photos">
-          <ColorFilterBar
-            filter={colors}
-            onChange={onColorsChange}
-            className="mb-4"
-          />
           {refreshing ? (
             <PhotoGridSkeleton count={8} />
           ) : (
             <PhotoResults
-              key={colorsKey(results.colors)}
-              q={q}
+              filter={filter}
               results={results}
-              colors={colors}
+              narrowed={hasUrlFilter({ ...filter, q: "" })}
               selectedPhotoId={selectedPhotoId}
               onPhotoUrlChange={onPhotoUrlChange}
-              onClearColors={() => {
-                onColorsChange(NO_COLOR_FILTER);
-              }}
+              onClearFilter={onClearFilter}
             />
           )}
         </Section>
@@ -470,30 +409,30 @@ type PhotoList = "semantic" | "filtered" | "names";
  * keep), then those whose file or folder name matches.
  */
 function PhotoResults({
-  q,
+  filter,
   results,
-  colors: shownColors,
+  narrowed,
   selectedPhotoId,
   onPhotoUrlChange,
-  onClearColors,
+  onClearFilter,
 }: {
-  q: string;
+  filter: UrlFilter;
   results: Results;
-  /** The filter in effect, the URL's or the query's */
-  colors: ColorFilter;
+  /** Conditions other than the words: those « Effacer le filtre » drops */
+  narrowed: boolean;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
-  onClearColors: () => void;
+  onClearFilter: () => void;
 }) {
-  // Later pages repeat the URL's filter: the server reads the query's again
-  const { colors } = results;
+  // Later pages repeat the URL's filter: the server reads the query again
+  const params = filterQuery(filter);
   const photos = useSearchFeed(
-    searchListSource<Photo>(q, "photos", colors),
+    searchListSource<Photo>(filter, "photos"),
     results.photos,
     results.photoTotal,
   );
   const semanticSource: FeedSource<Photo> = {
-    params: searchParamsOf(q, colors),
+    params,
     after: "semantic_after",
     read: readSemanticPage,
   };
@@ -504,7 +443,7 @@ function PhotoResults({
     results.semantic.items.length,
   );
   const filteredSource: FeedSource<Photo> = {
-    params: searchParamsOf(q, colors),
+    params,
     after: "filtered_after",
     read: readFilteredPage,
   };
@@ -535,12 +474,12 @@ function PhotoResults({
   const showFiltered = filtered.feed.items.length > 0;
   const showNames = photos.feed.items.length > 0;
   if (!showSemantic && !showFiltered && !showNames) {
-    return hasColorFilter(shownColors) ? (
+    return narrowed ? (
       <EmptyState
-        title={`Aucune photo ${filterAdjective(shownColors)} pour cette recherche`}
+        title="Aucune photo pour cette recherche"
         action={
-          <Button variant="secondary" icon={RotateCcw} onClick={onClearColors}>
-            Toutes les couleurs
+          <Button variant="secondary" icon={RotateCcw} onClick={onClearFilter}>
+            Effacer le filtre
           </Button>
         }
         className="py-10"

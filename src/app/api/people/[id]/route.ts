@@ -2,16 +2,15 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
 import { personExpressions } from "@/lib/database";
-import { getPerson, personPhotos } from "@/lib/people";
+import { getPerson } from "@/lib/people";
 import { badRequest, failure, positiveId } from "@/app/api/_lib/people";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/people/:id: the person, the looks their face has on some photo
- * (`expressions`, lib/photoFilter.ts), the ones their page offers, and
- * every photo of them, oldest first (`photos`; a page at a time, filtered:
- * /api/people/:id/photos).
+ * GET /api/people/:id: the person, and the looks their face has on some
+ * photo (`expressions`, lib/photoFilter.ts), the ones their page offers.
+ * Their photos: /api/people/:id/photos.
  */
 export const GET = requireAuth(async function GET(
   _request: NextRequest,
@@ -30,12 +29,7 @@ export const GET = requireAuth(async function GET(
         { status: 404 },
       );
     }
-    return NextResponse.json({
-      success: true,
-      person,
-      expressions,
-      photos: await personPhotos(id),
-    });
+    return NextResponse.json({ success: true, person, expressions });
   } catch (error) {
     return failure(error, { method: "GET", path: "/api/people/[id]" });
   }

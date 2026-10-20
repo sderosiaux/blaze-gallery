@@ -6,6 +6,7 @@ import { readTagVocabulary } from "./sceneTags";
 import {
   expressionPhrases,
   isStopword,
+  keepParts,
   readDate,
   removeParts,
   understandQuery,
@@ -657,4 +658,10 @@ void test("every way to say nobody else", () => {
     assert.equal(read(q).only, true, q);
   // « seul » with no name before it is no one
   assert.equal(read("seul").only, false);
+});
+
+void test("the query reduced to its chips", () => {
+  const q = "Céline et Stéphane qui sourient à la plage";
+  assert.equal(keepParts(q, read(q).parts), "Céline et Stéphane qui sourient");
+  assert.equal(keepParts("un chat", read("un chat").parts), "");
 });

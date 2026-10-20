@@ -1,12 +1,13 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Heart, Library } from "lucide-react";
+import { Heart, Library, RotateCcw, SearchX } from "lucide-react";
 import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import {
+  Button,
   ButtonLink,
   EmptyState,
   PageHeader,
@@ -16,7 +17,16 @@ import {
 import { LoadError } from "@/components/find/LoadError";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { FilterNotice } from "@/components/find/FilterNotice";
+import {
+  NO_NOTES,
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
+import FilterBar from "@/components/find/FilterBar";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
 import { asString, readJsonObject } from "@/hooks/apiJson";
+import { filterKey, hasUrlFilter, NO_URL_FILTER } from "@/lib/photoFilter";
 
 /** Newest first; photos whose date hasn't been read yet come last, by name. */
 function newestFirst(a: Photo, b: Photo) {
@@ -34,10 +44,13 @@ const sameId = (a: Pick<Photo, "id">, b: Pick<Photo, "id">) =>
 function FavoritesContent() {
   const toast = useToast();
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [filter, setFilter] = useUrlFilter();
+  const key = filterKey(filter);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [notes, setNotes] = useState<FilterNotes>(NO_NOTES);
 
   // Un-hearted while the viewer is open: they stay put until it closes, so
   // previous/next keep working on the list the viewer was opened with.
@@ -46,22 +59,32 @@ function FavoritesContent() {
   const viewerOpenRef = useRef(viewerOpen);
   viewerOpenRef.current = viewerOpen;
 
+  // The answer for a filter the user has since changed is dropped, however late
+  const inFlight = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
     setStatus("loading");
     try {
-      const response = await fetch("/api/favorites");
+      const response = await fetch(`/api/favorites?${key}`, {
+        signal: controller.signal,
+      });
       const data = await readJsonObject(response);
+      if (controller.signal.aborted) return;
       if (!response.ok || !data.success) throw new Error(asString(data.error));
       if (!Array.isArray(data.photos)) throw new Error("invalid_photos");
       setPhotos([...(data.photos as Photo[])].sort(newestFirst));
+      setNotes(readFilterNotes(data));
       setStatus("ready");
     } catch {
-      setStatus("error");
+      if (!controller.signal.aborted) setStatus("error");
     }
-  }, []);
+  }, [key]);
 
   useEffect(() => {
     void load();
+    return () => inFlight.current?.abort();
   }, [load]);
 
   useEffect(() => {
@@ -120,7 +143,14 @@ function FavoritesContent() {
     [restore, toast, undo],
   );
 
-  const header = <PageHeader title="Favoris" />;
+  const filtered = hasUrlFilter(filter);
+  const header = (
+    <>
+      <PageHeader title="Favoris" />
+      <FilterBar filter={filter} onChange={setFilter} className="mb-6" />
+      <FilterNotice notes={notes} />
+    </>
+  );
 
   if (status === "error") {
     return (
@@ -139,6 +169,30 @@ function FavoritesContent() {
       <>
         {header}
         <PhotoGridSkeleton />
+      </>
+    );
+  }
+
+  if (photos.length === 0 && filtered) {
+    return (
+      <>
+        {header}
+        <EmptyState
+          icon={SearchX}
+          title="Aucun favori pour ce filtre"
+          action={
+            <Button
+              variant="secondary"
+              icon={RotateCcw}
+              onClick={() => {
+                setFilter(NO_URL_FILTER);
+              }}
+            >
+              Effacer le filtre
+            </Button>
+          }
+          className="py-20"
+        />
       </>
     );
   }

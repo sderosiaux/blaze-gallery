@@ -15,7 +15,8 @@ const MAX_LIMIT = 500;
 /**
  * GET /api/people/:id/photos: a page of the person's photos, newest first
  * (undated last), one per set of copies, passing the filter parameters of
- * lib/photoFilter.ts. Without `after`: the first page, `total` and the
+ * lib/photoFilter.ts. Without `after`: the first page (from `year` and
+ * older when given, or the one holding photo `around`), `total` and the
  * photos per year (`years`); with `after` set to the previous page's
  * `next`: the next page only.
  */
@@ -33,11 +34,27 @@ export const GET = requireAuth(async function GET(
   const afterParam = search.get("after");
   const after = afterParam ? decodeCursor(afterParam, toCursor) : null;
   if (afterParam && !after) return badRequest("after must be a next cursor");
+  const yearParam = search.get("year");
+  if (yearParam !== null && !/^\d{4}$/.test(yearParam))
+    return badRequest("year must be YYYY");
+  const aroundParam = search.get("around");
+  const around = aroundParam === null ? null : positiveId(aroundParam);
+  if (aroundParam !== null && around === null)
+    return badRequest("around must be a photo id");
+  // From that year: after every photo taken from the next one on
+  const start: PersonPhotoCursor | null =
+    after ??
+    (yearParam === null
+      ? null
+      : {
+          taken: `${String(Number(yearParam) + 1)}-01-01T00:00:00.000Z`,
+          id: Number.MAX_SAFE_INTEGER,
+        });
 
   try {
     const list = await listFilter(request, { people: [id] });
     if (!list.ok) return list.response;
-    const page = await personPhotoPage(id, list.filter, after, limit);
+    const page = await personPhotoPage(id, list.filter, start, limit, around);
     return NextResponse.json({
       success: true,
       photos: page.photos,

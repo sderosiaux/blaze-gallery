@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asString, isRecord, readJsonObject } from "@/hooks/apiJson";
-import {
-  NO_COLOR_FILTER,
-  setColorParams,
-  type ColorFilter,
-} from "@/lib/colors";
+import { filterQuery, type UrlFilter } from "@/lib/photoFilter";
 
 export type SearchList = "photos" | "folders";
 
@@ -56,32 +52,33 @@ export function readFilteredPage<T>(
 
 /** Where the pages of one list come from. */
 export interface FeedSource<T> {
-  /** Parameters every page repeats: `q`, or `person` */
-  params: Record<string, string>;
+  /** Parameters every page repeats, a key as many times as the URL has it (p=4&p=-7) */
+  params: URLSearchParams;
   /** Parameter carrying the cursor, e.g. `photos_after` */
   after: string;
   read: (data: Record<string, unknown>) => SearchFeedPage<T>;
 }
 
-/** `q` and the color filter, as every page of a search repeats them. */
-export function searchParamsOf(
-  q: string,
-  colors: ColorFilter = NO_COLOR_FILTER,
-): Record<string, string> {
-  return Object.fromEntries(setColorParams(new URLSearchParams({ q }), colors));
-}
-
-/** One text-match list of the search for `q`, narrowed by `colors`. */
+/** One text-match list of the search, as its filter (`q` and the rest) narrows it. */
 export function searchListSource<T>(
-  q: string,
+  filter: UrlFilter,
   list: SearchList,
-  colors: ColorFilter = NO_COLOR_FILTER,
 ): FeedSource<T> {
   return {
-    params: searchParamsOf(q, colors),
+    params: filterQuery(filter),
     after: `${list}_after`,
     read: (data) => readSearchPage<T>(data, list),
   };
+}
+
+/** The request of the page after `next`: the source's parameters, then the cursor. */
+export function pageUrl(
+  source: Pick<FeedSource<unknown>, "params" | "after">,
+  next: string,
+): string {
+  const params = new URLSearchParams(source.params);
+  params.set(source.after, next);
+  return `/api/search?${params.toString()}`;
 }
 
 /** The total the first /api/search response gives for one list. */
@@ -126,14 +123,13 @@ export function useSearchFeed<T extends { id: number | string }>(
     const controller = new AbortController();
     inFlight.current = controller;
     setFeed((f) => ({ ...f, phase: "more" }));
-    const { params: base, after, read } = sourceRef.current;
-    const params = new URLSearchParams({ ...base, [after]: next });
-    fetch(`/api/search?${params.toString()}`, { signal: controller.signal })
+    const source = sourceRef.current;
+    fetch(pageUrl(source, next), { signal: controller.signal })
       .then(async (response) => {
         const data = await readJsonObject(response);
         if (!response.ok || !data.success)
           throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
-        const page = read(data);
+        const page = source.read(data);
         setFeed((f) => {
           // Keyset pages only overlap when a rename lands between two
           // requests; ranked (semantic) pages may repeat a photo at a

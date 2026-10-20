@@ -31,12 +31,16 @@ import { IconButton, useToast } from "@/components/ui";
 import { SearchPalette } from "@/components/find/SearchPalette";
 import { isRecord, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
+import { filterSearch } from "@/lib/photoFilter";
 
 interface NavLinkItem {
   href: string;
   label: string;
   icon: LucideIcon;
   match: (pathname: string) => boolean;
+  /** A view of photos: the filter in effect follows into it */
+  filtered?: boolean;
 }
 
 const PRIMARY_NAV: NavLinkItem[] = [
@@ -51,30 +55,35 @@ const PRIMARY_NAV: NavLinkItem[] = [
     label: "Chronologie",
     icon: CalendarDays,
     match: (p) => p.startsWith("/timeline"),
+    filtered: true,
   },
   {
     href: "/carte",
     label: "Carte",
     icon: MapIcon,
     match: (p) => p.startsWith("/carte"),
+    filtered: true,
   },
   {
     href: "/personnes",
     label: "Personnes",
     icon: UsersRound,
     match: (p) => p.startsWith("/personnes"),
+    filtered: true,
   },
   {
     href: "/couleurs",
     label: "Couleurs",
     icon: Palette,
     match: (p) => p.startsWith("/couleurs"),
+    filtered: true,
   },
   {
     href: "/favorites",
     label: "Favoris",
     icon: Heart,
     match: (p) => p.startsWith("/favorites"),
+    filtered: true,
   },
   {
     href: "/admin/shares",
@@ -124,16 +133,19 @@ function NavRow({
   active,
   collapsed,
   onNavigate,
+  search = "",
 }: {
   item: NavLinkItem;
   active: boolean;
   collapsed: boolean;
   onNavigate?: () => void;
+  /** The filter in effect, for a view of photos */
+  search?: string;
 }) {
   const Icon = item.icon;
   return (
     <Link
-      href={item.href}
+      href={item.filtered ? `${item.href}${search}` : item.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
@@ -161,6 +173,35 @@ function NavRow({
       />
       {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
+  );
+}
+
+/** The main views; those of photos keep the filter of the page (lib/photoFilter.ts), so it follows from one to the next. */
+function PrimaryNav({
+  pathname,
+  collapsed,
+  onNavigate,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  const [filter] = useUrlFilter();
+  const search = filterSearch(filter);
+  return (
+    <>
+      {PRIMARY_NAV.map((item) => (
+        <li key={item.href}>
+          <NavRow
+            item={item}
+            active={item.match(pathname)}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+            search={search}
+          />
+        </li>
+      ))}
+    </>
   );
 }
 
@@ -298,16 +339,24 @@ function SidebarContent({
                 )}
               </button>
             </li>
-            {PRIMARY_NAV.map((item) => (
-              <li key={item.href}>
-                <NavRow
-                  item={item}
-                  active={item.match(pathname)}
-                  collapsed={collapsed}
-                  onNavigate={onNavigate}
-                />
-              </li>
-            ))}
+            <Suspense
+              fallback={PRIMARY_NAV.map((item) => (
+                <li key={item.href}>
+                  <NavRow
+                    item={item}
+                    active={item.match(pathname)}
+                    collapsed={collapsed}
+                    onNavigate={onNavigate}
+                  />
+                </li>
+              ))}
+            >
+              <PrimaryNav
+                pathname={pathname}
+                collapsed={collapsed}
+                onNavigate={onNavigate}
+              />
+            </Suspense>
             <li>
               <button
                 type="button"

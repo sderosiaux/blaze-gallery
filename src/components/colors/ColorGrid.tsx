@@ -6,9 +6,20 @@ import { ArrowLeft, Palette, RotateCw } from "lucide-react";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { Button, ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
+import { FilterNotice } from "@/components/find/FilterNotice";
+import FilterBar from "@/components/find/FilterBar";
+import { understood } from "@/components/find/understood";
+import type { FilterVocabulary } from "@/components/find/useFilterVocabulary";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
-import { filterAdjective, filterLabel, type ColorFilter } from "@/lib/colors";
+import {
+  filterAdjective,
+  filterLabel,
+  NO_COLOR_FILTER,
+  type ColorFilter,
+} from "@/lib/colors";
+import { filterSearch, type UrlFilter } from "@/lib/photoFilter";
+import { removeParts } from "@/lib/searchQuery";
 import { useColorPhotos } from "./useColorPhotos";
 
 /** How far below the viewport the next page starts loading. */
@@ -16,17 +27,34 @@ const PREFETCH_MARGIN = "0px 0px 1600px 0px";
 /** The viewer fetches the next page this many photos before the last one. */
 const VIEWER_PREFETCH = 6;
 
-/** Every photo holding a color, or in a tone, most marked first. */
+/**
+ * Every photo holding a color, or in a tone, most marked first, among
+ * those the rest of the filter keeps. The color bar picks the color: the
+ * one the filter's words said, if any, gives way to it.
+ */
 export default function ColorGrid({
   colors,
-  onColorsChange,
+  filter,
+  vocabulary,
+  onFilterChange,
 }: {
+  /** The color and tone shown: the URL's, else those the words say */
   colors: ColorFilter;
-  onColorsChange: (next: ColorFilter) => void;
+  filter: UrlFilter;
+  /** The words are read with it: a person named like a color is the person */
+  vocabulary: FilterVocabulary | null;
+  onFilterChange: (next: UrlFilter) => void;
 }) {
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const [attempt, setAttempt] = useState(0);
-  const { feed, loadMore, remove } = useColorPhotos(colors, attempt);
+  const { feed, loadMore, remove } = useColorPhotos(filter, attempt);
+  const onColorsChange = (next: ColorFilter) => {
+    const said = understood(filter.q, vocabulary).parts.filter(
+      (part) => part.kind === "color" || part.kind === "tone",
+    );
+    onFilterChange({ ...filter, q: removeParts(filter.q, said), colors: next });
+  };
+  const rest = filterSearch({ ...filter, colors: NO_COLOR_FILTER });
   const { phase, cursor } = feed;
 
   // Scrolling near the end of the grid brings the next page.
@@ -61,7 +89,7 @@ export default function ColorGrid({
       <PageHeader
         kicker={
           <Link
-            href="/couleurs"
+            href={`/couleurs${rest}`}
             className="inline-flex items-center gap-1 transition-colors hover:text-ink"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
@@ -73,8 +101,16 @@ export default function ColorGrid({
       <ColorFilterBar
         filter={colors}
         onChange={onColorsChange}
+        className="mb-3"
+      />
+      <FilterBar
+        filter={filter}
+        onChange={onFilterChange}
+        noMenu={["color"]}
+        noChips={["color", "tone"]}
         className="mb-6"
       />
+      <FilterNotice notes={feed.notes} />
     </>
   );
 
@@ -107,9 +143,13 @@ export default function ColorGrid({
         {header}
         <EmptyState
           icon={Palette}
-          title={`Aucune photo ${filterAdjective(colors)} pour l'instant`}
+          title={`Aucune photo ${filterAdjective(colors)}${rest ? " pour ce filtre" : " pour l'instant"}`}
           action={
-            <ButtonLink href="/couleurs" variant="secondary" icon={ArrowLeft}>
+            <ButtonLink
+              href={`/couleurs${rest}`}
+              variant="secondary"
+              icon={ArrowLeft}
+            >
               Toutes les couleurs
             </ButtonLink>
           }

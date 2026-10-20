@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TimelinePhoto } from "@/components/find/timeline";
-import type { ColorFilter } from "@/lib/colors";
+import type { UrlFilter } from "@/lib/photoFilter";
 import type { MapBox, MapPeriod } from "@/lib/mapArea";
 import { fetchAreaPage } from "./mapData";
 
@@ -18,7 +18,7 @@ export interface AreaFeed {
 const START: AreaFeed = { items: [], total: 0, cursor: null, phase: "loading" };
 
 /**
- * Photos of the selected zone, period and colors, newest first, a page at
+ * Photos of the selected zone and period passing the filter, newest first, a page at
  * a time: starts over whenever one of them or `attempt` changes; `loadMore`
  * appends the next page (one request at a time, again after a failure only
  * with `retry`), `remove` drops a photo deleted from the viewer.
@@ -26,15 +26,15 @@ const START: AreaFeed = { items: [], total: 0, cursor: null, phase: "loading" };
 export function useAreaPhotos(
   box: MapBox | null,
   period: MapPeriod,
-  colors: ColorFilter,
+  filter: UrlFilter,
   attempt: number,
 ) {
   const [feed, setFeed] = useState<AreaFeed>(START);
   const feedRef = useRef(feed);
   feedRef.current = feed;
   const inFlight = useRef<AbortController | null>(null);
-  const query = useRef({ box, period, colors });
-  query.current = { box, period, colors };
+  const query = useRef({ box, period, filter });
+  query.current = { box, period, filter };
 
   useEffect(() => {
     inFlight.current?.abort();
@@ -43,7 +43,7 @@ export function useAreaPhotos(
     if (!box) return;
     const controller = new AbortController();
     inFlight.current = controller;
-    fetchAreaPage(box, period, colors, null, controller.signal)
+    fetchAreaPage(box, period, filter, null, controller.signal)
       .then(({ photos, next, total }) => {
         setFeed({
           items: photos,
@@ -62,7 +62,7 @@ export function useAreaPhotos(
     return () => {
       controller.abort();
     };
-  }, [box, period, colors, attempt]);
+  }, [box, period, filter, attempt]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -71,7 +71,7 @@ export function useAreaPhotos(
     const {
       box: current,
       period: currentPeriod,
-      colors: currentColors,
+      filter: currentFilter,
     } = query.current;
     if (!current || !cursor || inFlight.current) return;
     if (phase !== "ready" && !(retry && phase === "more-error")) return;
@@ -81,7 +81,7 @@ export function useAreaPhotos(
     fetchAreaPage(
       current,
       currentPeriod,
-      currentColors,
+      currentFilter,
       cursor,
       controller.signal,
     )

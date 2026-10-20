@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { CalendarDays, UsersRound } from "lucide-react";
 import type { PersonSummary } from "@/lib/people";
 import AppLayout from "@/components/AppLayout";
@@ -15,14 +15,23 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
+import { filterSearch } from "@/lib/photoFilter";
 import { asArray, readJsonObject } from "@/hooks/apiJson";
 import { formatCount, formatNumber } from "@/lib/albums";
 
-function PersonCard({ person }: { person: PersonSummary }) {
+/** A person, and her page with the filter in effect (it follows from view to view). */
+function PersonCard({
+  person,
+  search,
+}: {
+  person: PersonSummary;
+  search: string;
+}) {
   return (
     <li>
       <Link
-        href={`/personnes/${String(person.id)}`}
+        href={`/personnes/${String(person.id)}${search}`}
         className="group flex flex-col items-center gap-3 rounded-xl px-3 py-4 text-center transition-colors duration-150 hover:bg-surface-sunken"
       >
         <FaceThumb
@@ -49,6 +58,8 @@ function PersonCard({ person }: { person: PersonSummary }) {
 }
 
 function PeopleContent() {
+  const [filter] = useUrlFilter();
+  const search = filterSearch(filter);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -133,7 +144,7 @@ function PeopleContent() {
       {header}
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
         {people.map((person) => (
-          <PersonCard key={person.id} person={person} />
+          <PersonCard key={person.id} person={person} search={search} />
         ))}
       </ul>
     </>
@@ -144,7 +155,9 @@ export default function PeoplePage() {
   return (
     <AppLayout>
       <ProtectedRoute>
-        <PeopleContent />
+        <Suspense fallback={null}>
+          <PeopleContent />
+        </Suspense>
       </ProtectedRoute>
     </AppLayout>
   );
