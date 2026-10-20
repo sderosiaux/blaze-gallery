@@ -1,3 +1,7 @@
+import {
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatDay, LOCALE } from "@/lib/albums";
 import { filterQuery, type UrlFilter } from "@/lib/photoFilter";
@@ -22,8 +26,8 @@ export interface MapPoints {
   /** Side of a cell, in degrees */
   cell: number;
   points: MapPoint[];
-  /** What became of the filter's words: "unavailable" when they could not be applied */
-  content: "ok" | "unavailable" | null;
+  /** What the list answered about its filter */
+  notes: FilterNotes;
 }
 
 function isPoint(value: unknown): value is MapPoint {
@@ -62,10 +66,7 @@ export async function fetchMapPoints(
   return {
     cell: data.cell,
     points: asArray(data.points).filter(isPoint),
-    content:
-      data.content === "ok" || data.content === "unavailable"
-        ? data.content
-        : null,
+    notes: readFilterNotes(data),
   };
 }
 

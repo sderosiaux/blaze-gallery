@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  NO_NOTES,
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TimelinePhoto } from "@/components/find/timeline";
 import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
@@ -12,15 +17,15 @@ export interface ColorFeed {
   /** Opaque next_after of the last page; null once the least marked photo is in */
   cursor: string | null;
   phase: "loading" | "ready" | "more" | "error" | "more-error";
-  /** What became of the filter's words: "unavailable" when they could not be applied */
-  content: "ok" | "unavailable" | null;
+  /** What the list answered about its filter */
+  notes: FilterNotes;
 }
 
 const START: ColorFeed = {
   items: [],
   cursor: null,
   phase: "loading",
-  content: null,
+  notes: NO_NOTES,
 };
 
 async function fetchPage(
@@ -30,7 +35,7 @@ async function fetchPage(
 ): Promise<{
   photos: TimelinePhoto[];
   next: string | null;
-  content: ColorFeed["content"];
+  notes: FilterNotes;
 }> {
   const params = filterQuery(filter);
   params.set("limit", String(PAGE_SIZE));
@@ -42,10 +47,7 @@ async function fetchPage(
   return {
     photos: asArray(data.photos) as TimelinePhoto[],
     next: typeof data.next_after === "string" ? data.next_after : null,
-    content:
-      data.content === "ok" || data.content === "unavailable"
-        ? data.content
-        : null,
+    notes: readFilterNotes(data),
   };
 }
 
@@ -71,8 +73,8 @@ export function useColorPhotos(filter: UrlFilter, attempt: number) {
     inFlight.current = controller;
     setFeed(START);
     fetchPage(filterRef.current, null, controller.signal)
-      .then(({ photos, next, content }) => {
-        setFeed({ items: photos, cursor: next, phase: "ready", content });
+      .then(({ photos, next, notes }) => {
+        setFeed({ items: photos, cursor: next, phase: "ready", notes });
       })
       .catch(() => {
         if (!controller.signal.aborted)

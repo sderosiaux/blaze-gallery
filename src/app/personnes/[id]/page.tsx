@@ -40,7 +40,7 @@ import {
   useToast,
 } from "@/components/ui";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
 import FilterBar from "@/components/find/FilterBar";
 import { EXPRESSION_ICONS } from "@/components/find/filterIcons";
 import { LoadError } from "@/components/find/LoadError";
@@ -543,7 +543,7 @@ function PersonContent() {
             noMenu={["color"]}
             className="mb-2"
           />
-          <ContentNotice status={feed.content} />
+          <FilterNotice notes={feed.notes} />
           {feed.phase === "loading" ? (
             <div
               role="status"

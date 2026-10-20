@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { NO_URL_FILTER, type UrlFilter } from "@/lib/photoFilter";
 import { readTagVocabulary } from "@/lib/sceneTags";
-import { TAGS_FIXTURE } from "@/lib/sceneTags.fixture";
 import { complete, completionsFor } from "./completions";
 import { filterChips } from "./filterChips";
 import type { FilterVocabulary } from "./useFilterVocabulary";
 
-const tags = readTagVocabulary(TAGS_FIXTURE).tags.map((t) => ({
-  ...t,
-  tagged: t.tag !== "chiot",
-}));
+/** The worker's vocabulary, every tag with photos but cheval */
+const tags = readTagVocabulary(
+  JSON.parse(readFileSync(path.join(process.cwd(), "db", "tags.json"), "utf8")),
+).tags.map((t) => ({ ...t, tagged: t.tag !== "cheval" }));
 const VOCABULARY: FilterVocabulary = {
   people: [
     { id: 4, name: "Céline", coverFaceId: 40 },
@@ -19,7 +20,6 @@ const VOCABULARY: FilterVocabulary = {
   ],
   expressions: [],
   tags,
-  tagged: tags.filter((t) => t.tagged),
   years: { from: 2008, to: 2026 },
 };
 
@@ -73,7 +73,20 @@ void test("words left over, a tag not tagged yet, nobody, negations", () => {
       only: true,
       tags: [{ tag: "vehicule", negated: true }],
     }).map((c) => c.label),
-    ["Suzie", "Sans véhicule", "Personne d'autre"],
+    ["Suzie", "Pas en voiture, train, avion", "Personne d'autre"],
+  );
+  assert.deepEqual(
+    chipsOf({
+      q: "Suzie sans Céline",
+      tags: [{ tag: "plage", negated: true }],
+    }).map((c) => c.label),
+    ["Suzie", "Sans Céline", "Sans plage"],
+  );
+  assert.deepEqual(
+    chipsOf({ withoutPeople: [5], q: "que des enfants qui sourient" }).map(
+      (c) => c.label,
+    ),
+    ["Tout le monde", "Sourit", "Sans Stéphane"],
   );
 });
 
@@ -92,7 +105,7 @@ void test("the word being typed is finished by a person, a look, a scene or a co
   assert.deepEqual(labels("cél"), ["person:Céline"]);
   assert.deepEqual(labels("Céline qui sou"), ["look:Sourit"]);
   assert.deepEqual(labels("Suzie pleu"), ["look:Triste"]);
-  assert.deepEqual(labels("à la pla"), ["tag:Plage"]);
+  assert.deepEqual(labels("à la pla"), ["tag:Plage", "tag:Nourriture"]);
   assert.deepEqual(labels("ble"), ["color:Bleu"]);
   // Too short, or already whole
   assert.deepEqual(labels("c"), []);

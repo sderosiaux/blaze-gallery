@@ -6,6 +6,7 @@ import {
 } from "@/lib/photoFilter";
 import {
   keepParts,
+  onlyLabel,
   readDate,
   removeParts,
   understandQuery,
@@ -19,6 +20,7 @@ export interface FilterChip {
   label: string;
   kind:
     | "person"
+    | "without"
     | "look"
     | "tag"
     | "only"
@@ -32,9 +34,6 @@ export interface FilterChip {
   expression?: Expression;
   remove: (filter: UrlFilter) => UrlFilter;
 }
-
-const NOBODY_ELSE = "Personne d'autre";
-const NOBODY = "Sans personne";
 
 /**
  * The chips of a filter: what its words were read as (the way the server
@@ -57,7 +56,7 @@ export function filterChips(
 
   const { q } = filter;
   if (q.trim() !== "") {
-    const understood = understandQuery(q, people, vocabulary?.tagged ?? []);
+    const understood = understandQuery(q, people, vocabulary?.tags ?? []);
     const withQ = (parts: readonly QueryPart[]) => (f: UrlFilter) => ({
       ...f,
       q: removeParts(f.q, parts),
@@ -101,9 +100,7 @@ export function filterChips(
         case "tag":
           chips.push({
             key: `q-tag-${part.tag}`,
-            label: part.negated
-              ? `Sans ${part.label.toLowerCase()}`
-              : part.label,
+            label: part.negated ? withoutLabel(part.label) : part.label,
             kind: "tag",
             remove: withQ([part]),
           });
@@ -113,6 +110,15 @@ export function filterChips(
             key: "q-only",
             label: part.label,
             kind: "only",
+            remove: withQ([part]),
+          });
+          break;
+        case "without":
+          chips.push({
+            key: `q-without-${part.personId}`,
+            label: `Sans ${part.label}`,
+            kind: "without",
+            faceId: faceOf(part.personId),
             remove: withQ([part]),
           });
           break;
@@ -180,6 +186,17 @@ export function filterChips(
       }),
     });
   }
+  for (const id of filter.withoutPeople)
+    chips.push({
+      key: `p--${id}`,
+      label: `Sans ${nameOf(id)}`,
+      kind: "without",
+      faceId: faceOf(id),
+      remove: (f) => ({
+        ...f,
+        withoutPeople: f.withoutPeople.filter((other) => other !== id),
+      }),
+    });
   for (const face of filter.faces)
     if (face.person === null)
       chips.push({
@@ -198,9 +215,7 @@ export function filterChips(
   for (const tag of filter.tags)
     chips.push({
       key: `tag-${tag.tag}`,
-      label: tag.negated
-        ? `Sans ${tagLabel(tag.tag).toLowerCase()}`
-        : tagLabel(tag.tag),
+      label: tag.negated ? withoutLabel(tagLabel(tag.tag)) : tagLabel(tag.tag),
       kind: "tag",
       remove: (f) => ({
         ...f,
@@ -210,7 +225,7 @@ export function filterChips(
   if (filter.only)
     chips.push({
       key: "only",
-      label: shown.size > 0 ? NOBODY_ELSE : NOBODY,
+      label: onlyLabel(shown.size > 0, filter.faces),
       kind: "only",
       remove: (f) => ({ ...f, only: false }),
     });
@@ -239,4 +254,12 @@ export function filterChips(
     });
   });
   return chips;
+}
+
+/** A tag the photos must not show: « Sans plage », « Pas en voiture, train, avion ». */
+function withoutLabel(label: string): string {
+  const lower = label.charAt(0).toLowerCase() + label.slice(1);
+  return /^(en|à|au|aux|dans|sur) /i.test(label)
+    ? `Pas ${lower}`
+    : `Sans ${lower}`;
 }

@@ -6,7 +6,7 @@ import { ArrowLeft, Palette, RotateCw } from "lucide-react";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { Button, ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 import ColorFilterBar from "@/components/find/ColorFilterBar";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
 import FilterBar from "@/components/find/FilterBar";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
@@ -105,7 +105,7 @@ export default function ColorGrid({
         noChips={["color", "tone"]}
         className="mb-6"
       />
-      <ContentNotice status={feed.content} />
+      <FilterNotice notes={feed.notes} />
     </>
   );
 

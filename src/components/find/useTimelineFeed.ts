@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  NO_NOTES,
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asString, readJsonObject } from "@/hooks/apiJson";
 import { filterQuery, type UrlFilter } from "@/lib/photoFilter";
@@ -12,15 +17,15 @@ export interface TimelineFeed {
   /** Opaque next_before of the last page; null once the oldest photo is in. */
   cursor: string | null;
   phase: "loading" | "ready" | "more" | "error" | "more-error";
-  /** What became of the filter's words: "unavailable" when they could not be applied */
-  content: "ok" | "unavailable" | null;
+  /** What the list answered about its filter */
+  notes: FilterNotes;
 }
 
 const START: TimelineFeed = {
   items: [],
   cursor: null,
   phase: "loading",
-  content: null,
+  notes: NO_NOTES,
 };
 
 async function fetchPage(
@@ -31,7 +36,7 @@ async function fetchPage(
 ): Promise<{
   photos: TimelinePhoto[];
   next: string | null;
-  content: TimelineFeed["content"];
+  notes: FilterNotes;
 }> {
   const params = filterQuery(filter);
   params.set("limit", String(PAGE_SIZE));
@@ -46,10 +51,7 @@ async function fetchPage(
   return {
     photos: (Array.isArray(data.photos) ? data.photos : []) as TimelinePhoto[],
     next: typeof data.next_before === "string" ? data.next_before : null,
-    content:
-      data.content === "ok" || data.content === "unavailable"
-        ? data.content
-        : null,
+    notes: readFilterNotes(data),
   };
 }
 
@@ -94,12 +96,12 @@ export function useTimelineFeed(
     setFeed(START);
     const { filter: current, folder: under } = query.current;
     fetchPage(start, current, under, controller.signal)
-      .then(({ photos, next, content }) => {
+      .then(({ photos, next, notes }) => {
         setFeed({
           items: unseen(seen.current, photos),
           cursor: next,
           phase: "ready",
-          content,
+          notes,
         });
       })
       .catch(() => {

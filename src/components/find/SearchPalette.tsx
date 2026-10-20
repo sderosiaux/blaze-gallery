@@ -255,7 +255,7 @@ export function SearchPalette({
                   key={chip.key}
                   className="inline-flex h-7 items-center gap-1.5 rounded-full bg-surface-sunken pl-1 pr-2.5 text-[13px] font-medium text-ink"
                 >
-                  {chip.kind === "person" ? (
+                  {chip.kind === "person" || chip.kind === "without" ? (
                     <FaceThumb
                       faceId={chip.faceId ?? null}
                       className="h-5 w-5 rounded-full"

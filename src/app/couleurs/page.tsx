@@ -22,7 +22,7 @@ function ColorsContent() {
   const said = understandQuery(
     filter.q,
     vocabulary?.people ?? [],
-    vocabulary?.tagged ?? [],
+    vocabulary?.tags ?? [],
   ).colors;
   const colors = {
     color: filter.colors.color ?? said.color,

@@ -17,7 +17,12 @@ import {
 import { LoadError } from "@/components/find/LoadError";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
+import {
+  NO_NOTES,
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
 import FilterBar from "@/components/find/FilterBar";
 import { useUrlFilter } from "@/components/find/useUrlFilter";
 import { asString, readJsonObject } from "@/hooks/apiJson";
@@ -45,7 +50,7 @@ function FavoritesContent() {
     "loading",
   );
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const [content, setContent] = useState<"ok" | "unavailable" | null>(null);
+  const [notes, setNotes] = useState<FilterNotes>(NO_NOTES);
 
   // Un-hearted while the viewer is open: they stay put until it closes, so
   // previous/next keep working on the list the viewer was opened with.
@@ -62,11 +67,7 @@ function FavoritesContent() {
       if (!response.ok || !data.success) throw new Error(asString(data.error));
       if (!Array.isArray(data.photos)) throw new Error("invalid_photos");
       setPhotos([...(data.photos as Photo[])].sort(newestFirst));
-      setContent(
-        data.content === "ok" || data.content === "unavailable"
-          ? data.content
-          : null,
-      );
+      setNotes(readFilterNotes(data));
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -138,7 +139,7 @@ function FavoritesContent() {
     <>
       <PageHeader title="Favoris" />
       <FilterBar filter={filter} onChange={setFilter} className="mb-6" />
-      <ContentNotice status={content} />
+      <FilterNotice notes={notes} />
     </>
   );
 

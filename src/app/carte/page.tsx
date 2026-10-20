@@ -17,7 +17,8 @@ import {
 } from "@/components/ui";
 import { LoadError } from "@/components/find/LoadError";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
+import { NO_NOTES } from "@/components/find/filterNotes";
 import FilterBar from "@/components/find/FilterBar";
 import { useUrlFilter } from "@/components/find/useUrlFilter";
 import PeriodBrush from "@/components/map/PeriodBrush";
@@ -375,7 +376,7 @@ function MapContent() {
         noMenu={["date"]}
         className="mb-4"
       />
-      <ContentNotice status={points?.content ?? null} />
+      <FilterNotice notes={points?.notes ?? NO_NOTES} />
 
       <MapView
         points={points?.points ?? null}

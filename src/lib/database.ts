@@ -1860,7 +1860,7 @@ export async function searchPhotosByContent(
  * 3.9 s for the months of the timeline and 3.2 s for the Couleurs bands
  * with « plage » (2026-10-19, the library).
  */
-const CONTENT_LIMIT = 5_000;
+export const CONTENT_LIMIT = 5_000;
 
 /**
  * The photos showing `q` among those passing `filter`: within the cut

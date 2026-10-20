@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImageOff, RotateCcw, RotateCw, SearchX } from "lucide-react";
 import PhotoGrid, { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import { Button, EmptyState } from "@/components/ui";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
 import { LoadError } from "@/components/find/LoadError";
 import { useTimelineFeed } from "@/components/find/useTimelineFeed";
 import { filterKey, NO_URL_FILTER, type UrlFilter } from "@/lib/photoFilter";
@@ -101,7 +101,7 @@ export default function FilteredPhotos({
   if (count === 0)
     return (
       <>
-        <ContentNotice status={feed.content} />
+        <FilterNotice notes={feed.notes} />
         <EmptyState
           icon={SearchX}
           title="Aucune photo pour ce filtre dans ce dossier"
@@ -123,7 +123,7 @@ export default function FilteredPhotos({
 
   return (
     <>
-      <ContentNotice status={feed.content} />
+      <FilterNotice notes={feed.notes} />
       <PhotoGrid
         photos={items}
         selectedPhotoId={selectedPhotoId}

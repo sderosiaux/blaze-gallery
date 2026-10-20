@@ -121,7 +121,7 @@ function Chip({ chip, onRemove }: { chip: FilterChip; onRemove: () => void }) {
   const Icon = chipIcon(chip);
   return (
     <span className="inline-flex h-8 animate-fade-in items-center gap-1.5 rounded-full bg-surface-sunken pl-1 pr-1 text-[13px] font-medium text-ink">
-      {chip.kind === "person" ? (
+      {chip.kind === "person" || chip.kind === "without" ? (
         <FaceThumb
           faceId={chip.faceId ?? null}
           className="h-6 w-6 rounded-full"
@@ -176,7 +176,7 @@ function peopleOf(filter: UrlFilter, vocabulary: FilterVocabulary | null) {
     for (const part of understandQuery(
       filter.q,
       vocabulary.people,
-      vocabulary.tagged,
+      vocabulary.tags,
     ).parts)
       if (part.kind === "person") ids.add(part.personId);
   return [...ids];
@@ -431,6 +431,47 @@ function PanelContent({
   }
 }
 
+/** One of a few options, pressed: whose look, with or without. */
+function Choice<T>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (next: T) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="mb-2 flex flex-wrap gap-1 px-0.5"
+    >
+      {options.map((option) => (
+        <button
+          key={option.label}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          onClick={() => {
+            onChange(option.value);
+          }}
+          className={cn(
+            "touch-target inline-flex h-7 items-center rounded-full border px-2.5 text-[13px] font-medium transition-colors duration-150",
+            value === option.value
+              ? "border-ink bg-ink text-paper"
+              : "border-line text-ink-soft hover:border-ink-muted hover:text-ink",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PeoplePanel({
   filter,
   vocabulary,
@@ -441,13 +482,26 @@ function PeoplePanel({
   onApply: (next: UrlFilter) => void;
 }) {
   const [typed, setTyped] = useState("");
-  const taken = new Set(peopleOf(filter, vocabulary));
+  const [absent, setAbsent] = useState(false);
+  const taken = new Set([
+    ...peopleOf(filter, vocabulary),
+    ...filter.withoutPeople,
+  ]);
   const term = normalizeTextForSearch(typed);
   const people = (vocabulary?.people ?? []).filter(
     (p) => !taken.has(p.id) && normalizeTextForSearch(p.name).includes(term),
   );
   return (
     <>
+      <Choice
+        label="Sur les photos"
+        value={absent}
+        options={[
+          { value: false, label: "Avec" },
+          { value: true, label: "Sans" },
+        ]}
+        onChange={setAbsent}
+      />
       <input
         data-autofocus
         type="search"
@@ -466,7 +520,14 @@ function PeoplePanel({
               type="button"
               className={OPTION}
               onClick={() => {
-                onApply({ ...filter, people: [...filter.people, p.id] });
+                onApply(
+                  absent
+                    ? {
+                        ...filter,
+                        withoutPeople: [...filter.withoutPeople, p.id],
+                      }
+                    : { ...filter, people: [...filter.people, p.id] },
+                );
               }}
             >
               <FaceThumb
@@ -505,7 +566,7 @@ function LooksPanel({
     // Her look says she is there: one chip, not two. Her name in the words
     // goes, the looks they bound to her come along.
     const parts = vocabulary
-      ? understandQuery(filter.q, vocabulary.people, vocabulary.tagged).parts
+      ? understandQuery(filter.q, vocabulary.people, vocabulary.tags).parts
       : [];
     const named = parts.filter(
       (part) =>
@@ -672,34 +733,15 @@ function TagsPanel({
     );
   return (
     <>
-      <div
-        role="radiogroup"
-        aria-label="Sur les photos"
-        className="mb-2 flex gap-1 px-0.5"
-      >
-        {[
+      <Choice
+        label="Sur les photos"
+        value={negated}
+        options={[
           { value: false, label: "Avec" },
           { value: true, label: "Sans" },
-        ].map((option) => (
-          <button
-            key={option.label}
-            type="button"
-            role="radio"
-            aria-checked={negated === option.value}
-            onClick={() => {
-              setNegated(option.value);
-            }}
-            className={cn(
-              "touch-target inline-flex h-7 items-center rounded-full border px-2.5 text-[13px] font-medium transition-colors duration-150",
-              negated === option.value
-                ? "border-ink bg-ink text-paper"
-                : "border-line text-ink-soft hover:border-ink-muted hover:text-ink",
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+        ]}
+        onChange={setNegated}
+      />
       <ul className="grid grid-cols-2">
         {tags.map((t) => (
           <li key={t.tag}>

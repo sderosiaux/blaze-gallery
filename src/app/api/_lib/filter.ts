@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { PhotoFilter } from "@/lib/database";
+import { CONTENT_LIMIT, type PhotoFilter } from "@/lib/database";
 import {
   resolveFilter,
   withContent,
@@ -47,12 +47,12 @@ export async function listFilter(
  * What a list answers about its filter: whether the content applied, the
  * tags read as words instead, with tags how much of the gallery the
  * tagger has read (`tagged_share`, 0..1), and `content_limited` when only
- * the nearest of the content's photos are kept (CONTENT_LIMIT).
+ * the nearest of the content's photos are kept (CONTENT_LIMIT, how many).
  */
 export function filterNotes(list: Extract<ListFilter, { ok: true }>) {
   return {
     content: list.content,
-    ...(list.complete ? {} : { content_limited: true }),
+    ...(list.complete ? {} : { content_limited: CONTENT_LIMIT }),
     untagged: list.resolved.untagged,
     ...(list.resolved.taggedShare === null
       ? {}

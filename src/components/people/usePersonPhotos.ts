@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  NO_NOTES,
+  readFilterNotes,
+  type FilterNotes,
+} from "@/components/find/filterNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PersonPhoto } from "@/lib/people";
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
@@ -15,7 +20,8 @@ export interface PersonFeed {
   total: number;
   years: { year: number | null; count: number }[];
   phase: "loading" | "ready" | "more" | "error" | "more-error";
-  content: "ok" | "unavailable" | null;
+  /** What the list answered about its filter */
+  notes: FilterNotes;
 }
 
 const START: PersonFeed = {
@@ -24,7 +30,7 @@ const START: PersonFeed = {
   total: 0,
   years: [],
   phase: "loading",
-  content: null,
+  notes: NO_NOTES,
 };
 
 function readYears(value: unknown): PersonFeed["years"] {
@@ -59,10 +65,7 @@ async function fetchPage(
     next: typeof data.next === "string" ? data.next : null,
     total: typeof data.total === "number" ? data.total : null,
     years: readYears(data.years),
-    content:
-      data.content === "ok" || data.content === "unavailable"
-        ? (data.content as PersonFeed["content"])
-        : null,
+    notes: readFilterNotes(data),
   };
 }
 
@@ -99,14 +102,14 @@ export function usePersonPhotos(
       startYear === null ? null : { year: startYear },
       controller.signal,
     )
-      .then(({ photos, next, total, years, content }) => {
+      .then(({ photos, next, total, years, notes }) => {
         setFeed({
           items: photos,
           next,
           total: total ?? photos.length,
           years,
           phase: "ready",
-          content,
+          notes,
         });
       })
       .catch(() => {

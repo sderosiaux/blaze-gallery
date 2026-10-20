@@ -25,9 +25,8 @@ export interface FilterVocabulary {
   /** Most photographed first */
   people: PersonChoice[];
   expressions: { key: Expression; label: string }[];
+  /** What the server reads a query against (the tags without photos read as words) */
   tags: TagChoice[];
-  /** The tags the server reads in a query: those with photos */
-  tagged: TagChoice[];
   years: { from: number; to: number } | null;
 }
 
@@ -70,7 +69,6 @@ function readVocabulary(data: Record<string, unknown>): FilterVocabulary {
         : [],
     ),
     tags,
-    tagged: tags.filter((t) => t.tagged),
     years:
       years && typeof years.from === "number" && typeof years.to === "number"
         ? { from: years.from, to: years.to }

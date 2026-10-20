@@ -36,7 +36,7 @@ import { setFavorite } from "@/components/find/favorites";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
 import FilterBar from "@/components/find/FilterBar";
-import { ContentNotice } from "@/components/find/ContentNotice";
+import { FilterNotice } from "@/components/find/FilterNotice";
 import { useUrlFilter } from "@/components/find/useUrlFilter";
 import { useTimelineFeed } from "@/components/find/useTimelineFeed";
 import {
@@ -290,7 +290,7 @@ function TimelineContent() {
     <>
       <PageHeader title="Chronologie" />
       <FilterBar filter={filter} onChange={setFilter} className="mb-6" />
-      <ContentNotice status={feed.content} />
+      <FilterNotice notes={feed.notes} />
     </>
   );
 
