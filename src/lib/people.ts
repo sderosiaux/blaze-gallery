@@ -4,6 +4,7 @@ import {
   andInGallery,
   andPhotoFilter,
   listQuery,
+  NO_PHOTO_FILTER,
   query,
   runTransaction,
   type PhotoFilter,
@@ -410,23 +411,28 @@ function onePerCopy<T extends CopyRow>(rows: T[]): Dated<T>[] {
 }
 
 /**
- * Every photo of the person, oldest first (undated last), one per set of
- * copies (onePerCopy).
+ * Every photo of the person passing `filter`, oldest first (undated
+ * last), one per set of copies (onePerCopy).
  */
-export async function personPhotos(personId: number): Promise<PersonPhoto[]> {
+export async function personPhotos(
+  personId: number,
+  filter: PhotoFilter = NO_PHOTO_FILTER,
+): Promise<PersonPhoto[]> {
+  const params: unknown[] = [personId];
+  const narrow = andPhotoFilter(params, filter);
   const result = await query<PersonFaceRow>(
     `
-    SELECT ph.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
+    SELECT p.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
            c.similarity, c.decided_by
     FROM faces f
-    JOIN photos ph ON ph.id = f.photo_id
-    LEFT JOIN folders fo ON fo.id = ph.folder_id
+    JOIN photos p ON p.id = f.photo_id
+    LEFT JOIN folders fo ON fo.id = p.folder_id
     LEFT JOIN face_candidates c ON c.person_id = f.person_id AND c.face_id = f.id
     WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
-      ${GALLERY}
-    ORDER BY fo.path, ph.id
+      ${narrow}
+    ORDER BY fo.path, p.id
     `,
-    [personId],
+    params,
   );
   return onePerCopy(
     result.rows.map((row) => ({

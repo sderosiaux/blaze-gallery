@@ -8,10 +8,24 @@ import {
   getPhotosByColor,
   getPhotosInFolder,
   getPhoto,
-  NO_PHOTO_FILTER,
   query,
   requireRow,
+  type PhotoFilter,
 } from "@/lib/database";
+import {
+  resolveFilter,
+  sceneTagVocabulary,
+  withContent,
+  type ContentStatus,
+} from "@/lib/filterResolver";
+import {
+  EXPRESSIONS,
+  isExpression,
+  NO_URL_FILTER,
+  type FaceCondition,
+  type TagCondition,
+} from "@/lib/photoFilter";
+import type { DateFilter } from "@/lib/semanticQuery";
 import {
   COLOR_TONES,
   formatRankCursor,
@@ -46,6 +60,7 @@ import {
 } from "@/lib/peopleMcp";
 import { semanticSearch } from "@/lib/semanticSearch";
 import { parseDateRange, periodFilter, rangeFilter } from "@/lib/semanticQuery";
+import { normalizeSemanticQuery } from "@/lib/semanticQuery";
 import {
   decodeCursor,
   encodeCursor,
@@ -575,6 +590,123 @@ async function parsePeople(args: ToolArgs): Promise<number[]> {
   return [...new Set(rows.map((person) => person.id))];
 }
 
+/**
+ * `expressions`: looks of a face, each a string (anyone's face) or
+ * { person, expression } (that person's face); people resolved as in
+ * parsePeople.
+ */
+async function parseExpressions(args: ToolArgs): Promise<FaceCondition[]> {
+  const value = args.expressions;
+  if (value === undefined || value === null) return [];
+  const fail = () =>
+    new McpToolError(
+      ErrorCode.InvalidParams,
+      `expressions must be an array of ${EXPRESSIONS.join(", ")}, or of { person, expression }`,
+    );
+  if (!Array.isArray(value)) throw fail();
+  return Promise.all(
+    value.map(async (item: unknown): Promise<FaceCondition> => {
+      if (isExpression(item)) return { person: null, expression: item };
+      if (!isJsonObject(item) || !isExpression(item.expression)) throw fail();
+      const ref = item.person;
+      if (ref === undefined || ref === null)
+        return { person: null, expression: item.expression };
+      if (
+        !(typeof ref === "string" && ref.trim() !== "") &&
+        !(typeof ref === "number" && Number.isSafeInteger(ref))
+      )
+        throw fail();
+      const person = await peopleCall(() => resolvePerson(ref));
+      return { person: person.id, expression: item.expression };
+    }),
+  );
+}
+
+/** `tags` and `without_tags`: tag names of db/tags.json. */
+function parseTags(args: ToolArgs): TagCondition[] {
+  const read = (name: "tags" | "without_tags", negated: boolean) => {
+    const value = args[name];
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value) || !value.every((t) => typeof t === "string"))
+      throw new McpToolError(
+        ErrorCode.InvalidParams,
+        `${name} must be an array of tag names`,
+      );
+    return value.map((tag) => ({ tag, negated }));
+  };
+  return [...read("tags", false), ...read("without_tags", true)];
+}
+
+/**
+ * The filter arguments the photo tools share (FILTER_PROPERTIES), read the
+ * way the app reads its URL (lib/filterResolver.ts), plus the tool's own
+ * dates. A tag no photo has yet reads as words: kept as a condition on
+ * content when the embedder answers (`content`), reported in `untagged`.
+ */
+async function filterArgs(
+  args: ToolArgs,
+  dates: DateFilter[],
+  /** The person a tool lists the photos of: on them, and not "somebody else" */
+  person: number | null = null,
+): Promise<{
+  filter: PhotoFilter;
+  untagged: string[];
+  /** The words read for the untagged tags */
+  words: string | null;
+}> {
+  const only = args.only;
+  if (only !== undefined && only !== null && typeof only !== "boolean")
+    throw new McpToolError(ErrorCode.InvalidParams, "only must be a boolean");
+  const folder = args.folder;
+  if (folder !== undefined && folder !== null && typeof folder !== "string")
+    throw new McpToolError(
+      ErrorCode.InvalidParams,
+      "folder must be a folder path",
+    );
+  const [people, faces] = await Promise.all([
+    parsePeople(args),
+    parseExpressions(args),
+  ]);
+  const resolved = await resolveFilter(
+    {
+      ...NO_URL_FILTER,
+      people,
+      faces,
+      tags: parseTags(args),
+      only: only === true,
+      colors: parseColors(args),
+    },
+    {
+      folder: folder ?? undefined,
+      dates,
+      people: person === null ? [] : [person],
+    },
+  );
+  if (!resolved.ok)
+    throw new McpToolError(ErrorCode.InvalidParams, resolved.error);
+  return {
+    filter: resolved.value.filter,
+    untagged: resolved.value.untagged,
+    words: resolved.value.content,
+  };
+}
+
+/** The filter with the words of its untagged tags kept as content, when they can be. */
+async function withTagWords(
+  read: Awaited<ReturnType<typeof filterArgs>>,
+): Promise<{ filter: PhotoFilter; content: ContentStatus | null }> {
+  if (read.words === null) return { filter: read.filter, content: null };
+  return withContent({
+    filter: read.filter,
+    text: null,
+    content: read.words,
+    cut: true,
+    parts: [],
+    dateLabels: [],
+    untagged: read.untagged,
+  });
+}
+
 /** People errors carry an HTTP status: 404 for an unknown person or photo. */
 async function peopleCall<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -711,16 +843,16 @@ const toolHandlers = new Map<string, ToolHandler>([
   [
     "search_photos_by_color",
     async (args) => {
-      const { colors, period, limit, cursor } = parseColorSearch(args);
-      const { photos, next } = await getPhotosByColor(
-        { ...NO_PHOTO_FILTER, colors, dates: [periodFilter(period)] },
-        cursor,
-        limit,
-      );
+      const { period, limit, cursor } = parseColorSearch(args);
+      const read = await filterArgs(args, [periodFilter(period)]);
+      const { filter, content } = await withTagWords(read);
+      const { photos, next } = await getPhotosByColor(filter, cursor, limit);
       return {
         photos,
         count: photos.length,
         next_cursor: next ? formatRankCursor(next) : null,
+        untagged: read.untagged,
+        ...(content ? { content } : {}),
       };
     },
   ],
@@ -858,15 +990,24 @@ const toolHandlers = new Map<string, ToolHandler>([
           "cursor must be a string",
         );
       }
-      return peopleCall(() =>
+      const subject = await peopleCall(() => resolvePerson(person));
+      const read = await filterArgs(args, [], subject.id);
+      const { filter, content } = await withTagWords(read);
+      const result = await peopleCall(() =>
         mcpPersonPhotos({
           person,
           from: optionalDate(args, "from"),
           to: optionalDate(args, "to"),
+          filter,
           limit: Math.min(limit, MAX_PERSON_PHOTOS),
           cursor,
         }),
       );
+      return {
+        ...result,
+        untagged: read.untagged,
+        ...(content ? { content } : {}),
+      };
     },
   ],
 
@@ -913,13 +1054,13 @@ const toolHandlers = new Map<string, ToolHandler>([
       if (!range.ok) {
         throw new McpToolError(ErrorCode.InvalidRequest, range.error);
       }
-      const result = await semanticSearch(query, {
-        filter: {
-          ...NO_PHOTO_FILTER,
-          people: await parsePeople(args),
-          dates: [rangeFilter(range.value)],
-          colors: parseColors(args),
-        },
+      const read = await filterArgs(args, [rangeFilter(range.value)]);
+      // An untagged tag's words join the query, ranked by meaning with it
+      const words = [query, read.words].filter(Boolean).join(" ");
+      if (normalizeSemanticQuery(words) === null)
+        throw new McpToolError(ErrorCode.InvalidRequest, "query is too long");
+      const result = await semanticSearch(words, {
+        filter: read.filter,
         cut: true,
         offset: cursor?.offset ?? 0,
         limit,
@@ -940,6 +1081,7 @@ const toolHandlers = new Map<string, ToolHandler>([
         count: result.photos.length,
         next_cursor:
           result.next === null ? null : encodeCursor({ offset: result.next }),
+        untagged: read.untagged,
       };
     },
   ],
@@ -969,6 +1111,80 @@ const PHOTO_FIELDS = `photo fields:
 - urls.thumbnail (400 px wide), urls.display (2048 px long side, the best web rendition): paths on the Blaze server, fetched with the same credentials as this endpoint (session cookie, or Authorization: Bearer <API_KEY>). The first request of a display rendition may take a few seconds (made from the original, then stored).`;
 
 // Tool schemas
+const TAG_NAMES = sceneTagVocabulary().tags.map((entry) => entry.tag);
+
+const PEOPLE_PROPERTY = {
+  type: "array",
+  items: { type: ["number", "string"] },
+  description:
+    'Only photos where ALL these people are (their face named by the owner or accepted by the face matcher): person_id from list_people, or the exact name, case-insensitive, e.g. ["Suzie"] or ["Céline", "Stéphane"]. Put the people here, not in query: query says what the photo shows ("à la plage"), and a name in it only adds noise',
+};
+
+const COLOR_PROPERTIES = {
+  color: {
+    type: "string",
+    enum: [...HUES],
+    description:
+      "Only photos holding this hue family (as search_photos_by_color measures it; blue, brown, black, grey and white need a larger share, since nearly every photo has a little of them)",
+  },
+  tone: {
+    type: "string",
+    enum: [...COLOR_TONES],
+    description:
+      "Only photos in this tone (as search_photos_by_color defines it): vives, douces, lumineuse, sombre, neutres, nb (black and white)",
+  },
+};
+
+/** The filters every photo tool takes, read as the app reads its URL (lib/photoFilter.ts). */
+const FILTER_PROPERTIES = {
+  expressions: {
+    type: "array",
+    items: {
+      anyOf: [
+        { type: "string", enum: [...EXPRESSIONS] },
+        {
+          type: "object",
+          properties: {
+            person: { type: ["number", "string"] },
+            expression: { type: "string", enum: [...EXPRESSIONS] },
+          },
+          required: ["expression"],
+        },
+      ],
+    },
+    description:
+      'Only photos with a face looking so, each one: a string for anyone\'s face, or { person, expression } for that person\'s own face (person as in people), e.g. [{"person": "Céline", "expression": "sourit"}]. sourit: smiling; rit: laughing, mouth open; triste: sad or crying; colere: angry, sulking; surpris: surprised; peur: afraid; yeux_fermes: both eyes closed. Read from the face analysis (an 8-emotion model, eye and mouth openness) at thresholds checked by the owner; a small or blurry face reads less surely',
+  },
+  tags: {
+    type: "array",
+    items: {
+      type: "string",
+      ...(TAG_NAMES.length > 0 ? { enum: TAG_NAMES } : {}),
+    },
+    description:
+      "Only photos showing every one of these scene tags (interieur, exterieur, plage, chat, chaton, noel...), as the scene tagger scored them. A tag no photo has been tagged with yet is read as words instead (the photos close enough to them in meaning, when the text embedder answers) and listed in untagged",
+  },
+  without_tags: {
+    type: "array",
+    items: {
+      type: "string",
+      ...(TAG_NAMES.length > 0 ? { enum: TAG_NAMES } : {}),
+    },
+    description:
+      "Only photos the scene tagger scored as not showing these tags (a photo it has not scored yet is left out)",
+  },
+  only: {
+    type: "boolean",
+    description:
+      'true: nobody else on the photos than people and the people of expressions; with neither, nobody at all (no face found by the face analysis, which must have looked at the photo). With tags, e.g. tags ["chaton"] and only: kittens and no one',
+  },
+  folder: {
+    type: "string",
+    description:
+      "Only photos in this folder (a folder_path) or below it. Like every filter here, only photos of the gallery: a folder the owner marked as not a photo gallery keeps none",
+  },
+};
+
 const toolSchemas = {
   search_photos: {
     inputSchema: {
@@ -1130,8 +1346,10 @@ const toolSchemas = {
         cursor: {
           type: "string",
           description:
-            "next_cursor of the previous page, with the same color, tone, from and to",
+            "next_cursor of the previous page, with the same color, tone, from, to and filters",
         },
+        people: PEOPLE_PROPERTY,
+        ...FILTER_PROPERTIES,
       },
     },
     outputSchema: { type: "object" },
@@ -1235,8 +1453,15 @@ const toolSchemas = {
         cursor: {
           type: "string",
           description:
-            "next_cursor of the previous page, to get the next one (same person, from and to)",
+            "next_cursor of the previous page, to get the next one (same person, from, to and filters)",
         },
+        people: {
+          ...PEOPLE_PROPERTY,
+          description:
+            "Only photos where these other people are too: person_id or exact name",
+        },
+        ...COLOR_PROPERTIES,
+        ...FILTER_PROPERTIES,
       },
       required: ["person"],
     },
@@ -1280,24 +1505,9 @@ const toolSchemas = {
           description:
             "Only photos taken on or before this year, month or day: YYYY, YYYY-MM or YYYY-MM-DD",
         },
-        people: {
-          type: "array",
-          items: { type: ["number", "string"] },
-          description:
-            'Only photos where ALL these people are (their face named by the owner or accepted by the face matcher): person_id from list_people, or the exact name, case-insensitive, e.g. ["Suzie"] or ["Céline", "Stéphane"]. Put the people here, not in query: query says what the photo shows ("à la plage"), and a name in it only adds noise',
-        },
-        color: {
-          type: "string",
-          enum: [...HUES],
-          description:
-            "Only photos holding this hue family (as search_photos_by_color measures it; blue, brown, black, grey and white need a larger share, since nearly every photo has a little of them)",
-        },
-        tone: {
-          type: "string",
-          enum: [...COLOR_TONES],
-          description:
-            "Only photos in this tone (as search_photos_by_color defines it): vives, douces, lumineuse, sombre, neutres, nb (black and white)",
-        },
+        people: PEOPLE_PROPERTY,
+        ...COLOR_PROPERTIES,
+        ...FILTER_PROPERTIES,
       },
       required: ["query"],
     },
@@ -1318,8 +1528,8 @@ const PEOPLE_TOOLS = [
   },
   {
     name: "get_person_photos",
-    description: `Every photo of one person, oldest first (undated last), one entry per photo, paginated. The library holds copies of some files in several folders (same filename and size): each appears once, the other photo_ids are listed in copies.
-Returns { person: {person_id, name, birth_date}, total (photos matching from/to), returned, next_cursor (null on the last page), photos: [...] }.
+    description: `Every photo of one person, oldest first (undated last), one entry per photo, paginated; with the filters (expressions, e.g. [{"person": "Suzie", "expression": "triste"}] for her sad face, tags, without_tags, only, folder, color, tone, other people), only those passing them. The library holds copies of some files in several folders (same filename and size): each appears once, the other photo_ids are listed in copies.
+Returns { person: {person_id, name, birth_date}, total (photos matching from/to and the filters), returned, next_cursor (null on the last page), untagged (tags read as words, see tags), photos: [...] }.
 Each photo: the photo fields below, plus:
 - face: the person's own face on it (face fields below) with assignment: "seed" (example picked by the owner), "manual" (confirmed by a person looking at the face), "auto" (accepted by the machine above a similarity threshold measured to be precise; rare mistakes possible); decided_by: "owner", "agent" (an assistant that checked the crop while calibrating: very likely right, not the owner's word), "auto", or null for seeds; similarity: cosine similarity 0-1 to the person's closest known face taken within 18 months (null when nobody proposed it).
 - others: who else is on the photo: named [{person_id, name, face_id}] and unknown_count (faces nobody named).
@@ -1446,7 +1656,7 @@ export const POST = requireAuthOrApiKey(async function POST(
             {
               name: "search_photos_by_color",
               description:
-                "Find photos by color: those holding `color`, most of it first, or in `tone`, most colorful first; both: the color's photos in that tone. Only dated photos (with a date taken), and only those whose colors the worker has measured; never those in folders the owner marked as not a photo gallery (storage: books, game files, album art), which search_photos and the folder tools still list. Returns { photos, count, next_cursor }. Each photo is the gallery's photo record (id, filename, folder_path, metadata, thumbnail_url, ...) plus color_score, what it is ranked by: the color's share of the picture (0-1) when a color is given, else its colorfulness (Hasler-Süsstrunk M), or its chroma for nb. next_cursor fetches the next page; null on the last.",
+                "Find photos by color: those holding `color`, most of it first, or in `tone`, most colorful first; both: the color's photos in that tone. Only dated photos (with a date taken), and only those whose colors the worker has measured; never those in folders the owner marked as not a photo gallery (storage: books, game files, album art), which search_photos and the folder tools still list. Narrow them with the filters (people, expressions, tags, without_tags, only, folder). Returns { photos, count, next_cursor, untagged }. Each photo is the gallery's photo record (id, filename, folder_path, metadata, thumbnail_url, ...) plus color_score, what it is ranked by: the color's share of the picture (0-1) when a color is given, else its colorfulness (Hasler-Süsstrunk M), or its chroma for nb. next_cursor fetches the next page; null on the last.",
               inputSchema: toolSchemas.search_photos_by_color.inputSchema,
             },
             {
@@ -1476,7 +1686,7 @@ export const POST = requireAuthOrApiKey(async function POST(
             {
               name: "semantic_search",
               description:
-                'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet). Photos in folders the owner marked as not a photo gallery are never returned.',
+                'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), how a face looks (expressions), scene tags (tags, without_tags), nobody else (only), a folder, a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet). Photos in folders the owner marked as not a photo gallery are never returned.',
               inputSchema: toolSchemas.semantic_search.inputSchema,
             },
           ],
