@@ -11,6 +11,8 @@ How a tag is scored (db/tags.json, "prompts"):
   logit(t)  = SCALE * cos(photo, match) + bias        match: its descriptions,
                                                       averaged then normalized
   plain     = sigmoid(logit(t)) * beats(t)
+  also      = other descriptions with their own bias ("people at the beach"
+              next to "a photo of a beach"): the largest of the logits counts
   beats(t)  = softmax(SCALE * cos(photo, d) for d in [match] + versus)[match]
               ("a dog" must also look more like a dog than like a cat);
               1 without versus
@@ -84,6 +86,8 @@ class Tag:
     any: tuple[str, ...] = ()
     # Stored whatever its score (indoors and outdoors: every photo is one or the other)
     always: bool = False
+    # (descriptions, bias) scored like match: the tag takes the largest logit
+    also: tuple[tuple[tuple[str, ...], float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,10 @@ class Vocabulary:
                     of=prompts.get("of"),
                     any=tuple(prompts.get("any", ())),
                     always=bool(prompts.get("always", False)),
+                    also=tuple(
+                        (tuple(_list(alt["match"])), float(alt["bias"]))
+                        for alt in prompts.get("also", ())
+                    ),
                 )
             )
         vocabulary = cls(int(data["version"]), tuple(tags))
@@ -141,6 +149,8 @@ class Vocabulary:
                 raise ValueError(f"tag {t.tag}: of needs versus")
             if t.of and t.bias is not None:
                 raise ValueError(f"tag {t.tag}: of takes its base from {t.of}, not a bias")
+            if t.also and (t.softmax or t.of or t.bias is None):
+                raise ValueError(f"tag {t.tag}: also goes with a plain tag that has a bias")
             if t.softmax:
                 groups[t.softmax] = groups.get(t.softmax, 0) + 1
             seen.add(t.tag)
@@ -149,7 +159,12 @@ class Vocabulary:
 
     @property
     def prompts(self) -> list[str]:
-        texts = [p for t in self.tags for p in (*t.match, *(p for v in t.versus for p in v))]
+        texts = [
+            p
+            for t in self.tags
+            for group in (t.match, *t.versus, *(alt for alt, _ in t.also))
+            for p in group
+        ]
         return list(dict.fromkeys(texts))
 
     @property
@@ -164,7 +179,7 @@ class Vocabulary:
         # `any` maps thresholds into scores: theirs count for those tags
         mapped = {name for t in self.tags if t.any for name in (t.tag, *t.any)}
         scoring = [
-            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always)
+            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always, t.also)
             + ((t.threshold,) if t.tag in mapped else ())
             for t in self.tags
         ]
@@ -218,14 +233,18 @@ class Scorer:
         self.index = {t.tag: i for i, t in enumerate(vocabulary.tags)}
         self.thresholds = {t.tag: t.threshold for t in vocabulary.tags}
         concepts: list[np.ndarray] = []
-        # Per tag: its match column, then its versus columns
+        # Per tag: its match column, then its versus columns; its also columns
         self.columns: list[tuple[int, list[int]]] = []
+        self.also: list[list[tuple[int, float]]] = []
         for t in vocabulary.tags:
             columns = []
-            for prompts in (t.match, *t.versus):
+            for prompts in (t.match, *t.versus, *(a for a, _ in t.also)):
                 concepts.append(_concept(vectors, prompts))
                 columns.append(len(concepts) - 1)
-            self.columns.append((columns[0], columns[1:]))
+            self.columns.append((columns[0], columns[1 : 1 + len(t.versus)]))
+            self.also.append(
+                [(c, b) for c, (_, b) in zip(columns[1 + len(t.versus) :], t.also, strict=True)]
+            )
         self.matrix = np.stack(concepts, axis=1)
 
     def scores(self, embeddings: np.ndarray) -> np.ndarray:
@@ -252,9 +271,13 @@ class Scorer:
             if versus:
                 rivals = logits[:, versus] - logits[:, [match]]
                 beats = 1.0 / (1.0 + np.exp(rivals).sum(axis=1))
-            base = (
-                out[:, self.index[t.of]] if t.of else _sigmoid(logits[:, match] + (t.bias or 0.0))
-            )
+            if t.of:
+                base = out[:, self.index[t.of]]
+            else:
+                logit = logits[:, match] + (t.bias or 0.0)
+                for column, bias in self.also[i]:
+                    logit = np.maximum(logit, logits[:, column] + bias)
+                base = _sigmoid(logit)
             out[:, i] = base * beats
             for other in t.any:
                 shift = _logit(t.threshold) - _logit(self.thresholds[other])
