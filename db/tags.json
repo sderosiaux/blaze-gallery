@@ -52,7 +52,7 @@
         "véhicules",
         "trajet"
       ],
-      "threshold": 0.5,
+      "threshold": 0.85,
       "prompts": {
         "match": [
           "a photo taken inside a car",
@@ -69,7 +69,7 @@
       "label": "Chat",
       "group": "animal",
       "words": ["chat", "chats", "chatte", "chattes", "minou"],
-      "threshold": 0.5,
+      "threshold": 0.6,
       "prompts": {
         "match": ["a photo of a cat"],
         "bias": -9.14,
@@ -86,7 +86,7 @@
       "label": "Chien",
       "group": "animal",
       "words": ["chien", "chiens", "chienne", "chiennes", "toutou"],
-      "threshold": 0.5,
+      "threshold": 0.65,
       "prompts": {
         "match": ["a photo of a dog"],
         "bias": -9.64,
@@ -104,7 +104,7 @@
       "label": "Cheval",
       "group": "animal",
       "words": ["cheval", "chevaux", "poney", "poneys", "jument", "juments"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo of a horse", "a photo of a pony"],
         "bias": -10.14,
@@ -119,7 +119,7 @@
       "label": "Oiseau",
       "group": "animal",
       "words": ["oiseau", "oiseaux"],
-      "threshold": 0.5,
+      "threshold": 0.94,
       "prompts": {
         "match": ["a photo of a bird"],
         "bias": -11.14
@@ -138,23 +138,11 @@
       }
     },
     {
-      "tag": "chiot",
-      "label": "Chiot",
-      "group": "animal",
-      "words": ["chiot", "chiots"],
-      "threshold": 0.5,
-      "prompts": {
-        "match": ["a photo of a puppy"],
-        "of": "chien",
-        "versus": [["a photo of an adult dog"]]
-      }
-    },
-    {
       "tag": "animal",
       "label": "Animal",
       "group": "animal",
       "words": ["animal", "animaux", "bête", "bêtes"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo of an animal"],
         "bias": -8.64,
@@ -178,7 +166,7 @@
         "match": ["a photo of a baby animal"],
         "of": "animal",
         "versus": [["a photo of an adult animal"]],
-        "any": ["chaton", "chiot"]
+        "any": ["chaton"]
       }
     },
     {
@@ -186,7 +174,7 @@
       "label": "Plage",
       "group": "lieu",
       "words": ["plage", "plages"],
-      "threshold": 0.5,
+      "threshold": 0.75,
       "prompts": {
         "match": ["a photo of a beach"],
         "bias": -12.89
@@ -197,7 +185,7 @@
       "label": "Mer",
       "group": "lieu",
       "words": ["mer", "mers", "océan", "océans", "bord de mer", "littoral"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo of the sea"],
         "bias": -9.83
@@ -208,7 +196,7 @@
       "label": "Montagne",
       "group": "lieu",
       "words": ["montagne", "montagnes"],
-      "threshold": 0.5,
+      "threshold": 0.9,
       "prompts": {
         "match": ["a photo of mountains"],
         "bias": -9.33
@@ -219,7 +207,7 @@
       "label": "Neige",
       "group": "lieu",
       "words": ["neige", "neiges", "enneigé", "enneigée", "ski"],
-      "threshold": 0.5,
+      "threshold": 0.7,
       "prompts": {
         "match": [
           "a photo of a snowy landscape",
@@ -234,7 +222,7 @@
       "label": "Forêt",
       "group": "lieu",
       "words": ["forêt", "forêts", "bois"],
-      "threshold": 0.5,
+      "threshold": 0.6,
       "prompts": {
         "match": ["a photo of a forest"],
         "bias": -12.89
@@ -245,7 +233,7 @@
       "label": "Jardin",
       "group": "lieu",
       "words": ["jardin", "jardins"],
-      "threshold": 0.5,
+      "threshold": 0.7,
       "prompts": {
         "match": ["a photo of a garden"],
         "bias": -11.39
@@ -256,7 +244,7 @@
       "label": "Ville",
       "group": "lieu",
       "words": ["ville", "villes", "rue", "rues", "urbain"],
-      "threshold": 0.5,
+      "threshold": 0.4,
       "prompts": {
         "match": ["a photo of a city street"],
         "bias": -10.02
@@ -267,7 +255,7 @@
       "label": "Piscine",
       "group": "lieu",
       "words": ["piscine", "piscines"],
-      "threshold": 0.5,
+      "threshold": 0.9,
       "prompts": {
         "match": ["a photo of a swimming pool"],
         "bias": -10.14
@@ -278,7 +266,7 @@
       "label": "Nuit",
       "group": "moment",
       "words": ["nuit", "nuits", "de nuit", "nocturne"],
-      "threshold": 0.5,
+      "threshold": 0.85,
       "prompts": {
         "match": ["a photo taken at night"],
         "bias": -10.89
@@ -295,7 +283,7 @@
         "levers de soleil",
         "crépuscule"
       ],
-      "threshold": 0.5,
+      "threshold": 0.9,
       "prompts": {
         "match": ["a photo of a sunset"],
         "bias": -11.39
@@ -311,7 +299,7 @@
         "gâteau d'anniversaire",
         "bougies"
       ],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a birthday cake with candles"],
         "bias": -9.01
@@ -322,7 +310,7 @@
       "label": "Noël",
       "group": "moment",
       "words": ["noël", "sapin de noël"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo taken at christmas"],
         "bias": -12.39
@@ -333,7 +321,7 @@
       "label": "Mariage",
       "group": "moment",
       "words": ["mariage", "mariages", "mariée", "noces"],
-      "threshold": 0.5,
+      "threshold": 0.8,
       "prompts": {
         "match": ["a photo of a wedding"],
         "bias": -11.02
@@ -344,7 +332,7 @@
       "label": "Nourriture",
       "group": "chose",
       "words": ["nourriture", "repas", "plat", "plats", "cuisine", "manger"],
-      "threshold": 0.5,
+      "threshold": 0.65,
       "prompts": {
         "match": ["a photo of food"],
         "bias": -10.14
@@ -367,7 +355,7 @@
         "facture",
         "écran"
       ],
-      "threshold": 0.5,
+      "threshold": 0.88,
       "prompts": {
         "match": [
           "a screenshot",

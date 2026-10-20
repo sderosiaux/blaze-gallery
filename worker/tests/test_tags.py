@@ -372,8 +372,15 @@ def test_what_changes_a_stored_score_changes_the_jobs_model():
     assert vocab(chat={"bias": -12.0}).model != model
     assert vocab(plage={"match": ["a sandy beach"]}).model != model
     assert vocab(version=2).model != model
+    # chat and animal excepted: `any` maps their thresholds
     relabelled = Vocabulary.parse(
-        {**VOCABULARY, "tags": [{**t, "threshold": 0.7, "label": "x"} for t in VOCABULARY["tags"]]}
+        {
+            **VOCABULARY,
+            "tags": [
+                {**t, "label": "x"} | ({} if t["tag"] in ("chat", "animal") else {"threshold": 0.7})
+                for t in VOCABULARY["tags"]
+            ],
+        }
     )
     assert relabelled.model == model
 
@@ -402,3 +409,24 @@ def test_a_dry_run_counts_what_would_be_written_and_writes_nothing(conn):
     assert counts["chat"] == (1, 1) and counts["plage"] == (1, 1)
     assert conn.execute("SELECT count(*) FROM photo_tags").fetchone()[0] == 0
     assert conn.execute(jobs_now).fetchone() == before
+
+
+def test_a_photo_that_has_a_tag_has_the_tags_built_on_it():
+    data = {**VOCABULARY}
+    data["tags"] = [
+        {**t, "threshold": {"chat": 0.8, "animal": 0.3}.get(t["tag"], t["threshold"])}
+        for t in VOCABULARY["tags"]
+    ]
+    vocabulary = Vocabulary.parse(data)
+    names = [t.tag for t in vocabulary.tags]
+    cats = np.stack([photo(**{"a cat": c}) for c in np.linspace(0.08, 0.2, 49)])
+    scores = Scorer(vocabulary, vectors_of(vocabulary)).scores(cats)
+    chat, animal = scores[:, names.index("chat")], scores[:, names.index("animal")]
+    assert np.any(chat >= 0.8) and np.any(chat < 0.8)
+    assert np.all(animal[chat >= 0.8] >= 0.3)
+    # chat's score moved by the gap between the two thresholds, in logit
+    logit = lambda p: math.log(p / (1 - p))  # noqa: E731
+    i = int(np.argmax(chat >= 0.8))
+    assert logit(animal[i]) == pytest.approx(logit(chat[i]) - logit(0.8) + logit(0.3), abs=1e-3)
+    # A threshold `any` maps changes the stored scores: it is in the job's model
+    assert vocabulary.model != vocab().model

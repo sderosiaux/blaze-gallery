@@ -18,7 +18,9 @@ How a tag is scored (db/tags.json, "prompts"):
               (indoors / outdoors / inside a vehicle)
   of        = score(of) * beats(t): a kitten is a cat that looks more like a
               kitten than like an adult cat
-  any       = the largest of its own score and the listed tags' scores
+  any       = the largest of its own score and the listed tags' scores, each
+              moved in logit so that its threshold lands on this tag's: a
+              photo that has "chat" has "animal" too
 
 SCALE is SigLIP's own logit scale. The ONNX export holds the two towers
 only: SCALE and the model's bias (-16.77) come from the open_clip
@@ -151,11 +153,16 @@ class Vocabulary:
         """analysis_jobs.model of a tags job: the image space, the vocabulary, how it scores.
 
         The hash covers what changes a stored row, not labels, words or
-        thresholds (the app reads those from the file): a prompt or a bias
-        edited without a new version still queues every photo again.
+        thresholds (the app reads those from the file), except the thresholds
+        `any` maps: a prompt or a bias edited without a new version still
+        queues every photo again.
         """
+        # `any` maps thresholds into scores: theirs count for those tags
+        mapped = {name for t in self.tags if t.any for name in (t.tag, *t.any)}
         scoring = [
-            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always) for t in self.tags
+            (t.tag, t.match, t.bias, t.versus, t.softmax, t.of, t.any, t.always)
+            + ((t.threshold,) if t.tag in mapped else ())
+            for t in self.tags
         ]
         digest = hashlib.sha256(json.dumps([MODEL, SCALE, FLOOR, scoring]).encode()).hexdigest()
         return f"{MODEL} tags v{self.version} {digest[:8]}"
@@ -196,10 +203,16 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
 
 
+def _logit(p: np.ndarray | float) -> np.ndarray:
+    p = np.clip(p, 1e-7, 1 - 1e-7)
+    return np.log(p / (1 - p))
+
+
 class Scorer:
     def __init__(self, vocabulary: Vocabulary, vectors: dict[str, np.ndarray]) -> None:
         self.vocabulary = vocabulary
         self.index = {t.tag: i for i, t in enumerate(vocabulary.tags)}
+        self.thresholds = {t.tag: t.threshold for t in vocabulary.tags}
         concepts: list[np.ndarray] = []
         # Per tag: its match column, then its versus columns
         self.columns: list[tuple[int, list[int]]] = []
@@ -236,7 +249,9 @@ class Scorer:
             base = out[:, self.index[t.of]] if t.of else _sigmoid(logits[:, match] + t.bias)
             out[:, i] = base * beats
             for other in t.any:
-                out[:, i] = np.maximum(out[:, i], out[:, self.index[other]])
+                shift = _logit(t.threshold) - _logit(self.thresholds[other])
+                mapped = _sigmoid(_logit(out[:, self.index[other]]) + shift)
+                out[:, i] = np.maximum(out[:, i], mapped)
         return out
 
     def rows(self, photo_ids: Sequence[int], scores: np.ndarray) -> list[tuple[int, str, float]]:
