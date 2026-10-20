@@ -50,19 +50,26 @@ _SAMPLE_STRATA: tuple[tuple[str, str, int], ...] = (
 )
 
 
-def enqueue_all(conn: Connection, task: str) -> int:
-    """Every image of the gallery not queued yet; returns how many were queued."""
+def enqueue_all(conn: Connection, task: str, model: str | None = None) -> int:
+    """Every image of the gallery not queued yet; returns how many were queued.
+
+    model: the task's current one (tags: the vocabulary's); a job done with
+    another model is queued again.
+    """
     with conn.transaction():
         cursor = conn.execute(
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
-            SELECT p.id, %s, {_PRIORITY} FROM photos p
+            SELECT p.id, %(task)s, {_PRIORITY} FROM photos p
             WHERE {_WANTED}
             ON CONFLICT (photo_id, task) DO UPDATE SET {_RESET}
-              WHERE analysis_jobs.last_error = %s
-                AND analysis_jobs.status IN ('skipped', 'done')
+              WHERE (analysis_jobs.last_error = %(note)s
+                     AND analysis_jobs.status IN ('skipped', 'done'))
+                 OR (analysis_jobs.status = 'done'
+                     AND analysis_jobs.model IS DISTINCT FROM %(model)s::text
+                     AND %(model)s::text IS NOT NULL)
             """,
-            (task, EXCLUDED_NOTE),
+            {"task": task, "note": EXCLUDED_NOTE, "model": model},
         )
     return cursor.rowcount
 

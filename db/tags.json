@@ -1,0 +1,383 @@
+{
+  "version": 1,
+  "tags": [
+    {
+      "tag": "interieur",
+      "label": "Intérieur",
+      "group": "scene",
+      "words": ["intérieur", "intérieurs", "dedans", "à l'intérieur"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": [
+          "a photo taken indoors",
+          "an indoor photo",
+          "une photo prise en intérieur"
+        ],
+        "softmax": "scene",
+        "always": true
+      }
+    },
+    {
+      "tag": "exterieur",
+      "label": "Extérieur",
+      "group": "scene",
+      "words": [
+        "extérieur",
+        "extérieurs",
+        "dehors",
+        "plein air",
+        "en plein air"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": [
+          "a photo taken outdoors",
+          "an outdoor photo",
+          "une photo prise en extérieur"
+        ],
+        "softmax": "scene",
+        "always": true
+      }
+    },
+    {
+      "tag": "vehicule",
+      "label": "En voiture, train, avion",
+      "group": "scene",
+      "words": [
+        "en voiture",
+        "en train",
+        "en avion",
+        "en bus",
+        "véhicule",
+        "véhicules",
+        "trajet"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": [
+          "a photo taken inside a car",
+          "a photo taken inside a train",
+          "a photo taken inside an airplane",
+          "une photo prise dans une voiture"
+        ],
+        "bias": 0.0,
+        "softmax": "scene"
+      }
+    },
+    {
+      "tag": "chat",
+      "label": "Chat",
+      "group": "animal",
+      "words": ["chat", "chats", "chatte", "chattes", "minou"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a cat"],
+        "bias": -9.14,
+        "versus": [
+          ["a photo of a dog"],
+          ["a photo of a lion", "a photo of a tiger", "a photo of a leopard"],
+          ["a photo of a statue", "a photo of a sculpture"],
+          ["a photo of a stuffed toy"]
+        ]
+      }
+    },
+    {
+      "tag": "chien",
+      "label": "Chien",
+      "group": "animal",
+      "words": ["chien", "chiens", "chienne", "chiennes", "toutou"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a dog"],
+        "bias": -9.64,
+        "versus": [
+          ["a photo of a cat"],
+          ["a photo of a bear"],
+          ["a photo of a wild animal"],
+          ["a photo of a statue", "a photo of a sculpture"],
+          ["a photo of a stuffed toy"]
+        ]
+      }
+    },
+    {
+      "tag": "cheval",
+      "label": "Cheval",
+      "group": "animal",
+      "words": ["cheval", "chevaux", "poney", "poneys", "jument", "juments"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a horse", "a photo of a pony"],
+        "bias": -10.14,
+        "versus": [
+          ["a photo of a cow"],
+          ["a photo of a statue", "a photo of a sculpture"]
+        ]
+      }
+    },
+    {
+      "tag": "oiseau",
+      "label": "Oiseau",
+      "group": "animal",
+      "words": ["oiseau", "oiseaux"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a bird"],
+        "bias": -11.14
+      }
+    },
+    {
+      "tag": "chaton",
+      "label": "Chaton",
+      "group": "animal",
+      "words": ["chaton", "chatons"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a kitten"],
+        "of": "chat",
+        "versus": [["a photo of an adult cat"]]
+      }
+    },
+    {
+      "tag": "chiot",
+      "label": "Chiot",
+      "group": "animal",
+      "words": ["chiot", "chiots"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a puppy"],
+        "of": "chien",
+        "versus": [["a photo of an adult dog"]]
+      }
+    },
+    {
+      "tag": "animal",
+      "label": "Animal",
+      "group": "animal",
+      "words": ["animal", "animaux", "bête", "bêtes"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of an animal"],
+        "bias": -8.64,
+        "any": ["chat", "chien", "cheval", "oiseau"]
+      }
+    },
+    {
+      "tag": "jeune_animal",
+      "label": "Jeune animal",
+      "group": "animal",
+      "words": [
+        "jeune animal",
+        "jeunes animaux",
+        "bébé animal",
+        "bébés animaux",
+        "petit animal",
+        "petits animaux"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a baby animal"],
+        "of": "animal",
+        "versus": [["a photo of an adult animal"]],
+        "any": ["chaton", "chiot"]
+      }
+    },
+    {
+      "tag": "plage",
+      "label": "Plage",
+      "group": "lieu",
+      "words": ["plage", "plages"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a beach"],
+        "bias": -12.89
+      }
+    },
+    {
+      "tag": "mer",
+      "label": "Mer",
+      "group": "lieu",
+      "words": ["mer", "mers", "océan", "océans", "bord de mer", "littoral"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of the sea"],
+        "bias": -9.83
+      }
+    },
+    {
+      "tag": "montagne",
+      "label": "Montagne",
+      "group": "lieu",
+      "words": ["montagne", "montagnes"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of mountains"],
+        "bias": -9.33
+      }
+    },
+    {
+      "tag": "neige",
+      "label": "Neige",
+      "group": "lieu",
+      "words": ["neige", "neiges", "enneigé", "enneigée", "ski"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": [
+          "a photo of a snowy landscape",
+          "a photo of snow on the ground",
+          "a photo of people in the snow"
+        ],
+        "bias": -9.77
+      }
+    },
+    {
+      "tag": "foret",
+      "label": "Forêt",
+      "group": "lieu",
+      "words": ["forêt", "forêts", "bois"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a forest"],
+        "bias": -12.89
+      }
+    },
+    {
+      "tag": "jardin",
+      "label": "Jardin",
+      "group": "lieu",
+      "words": ["jardin", "jardins"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a garden"],
+        "bias": -11.39
+      }
+    },
+    {
+      "tag": "ville",
+      "label": "Ville",
+      "group": "lieu",
+      "words": ["ville", "villes", "rue", "rues", "urbain"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a city street"],
+        "bias": -10.02
+      }
+    },
+    {
+      "tag": "piscine",
+      "label": "Piscine",
+      "group": "lieu",
+      "words": ["piscine", "piscines"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a swimming pool"],
+        "bias": -10.14
+      }
+    },
+    {
+      "tag": "nuit",
+      "label": "Nuit",
+      "group": "moment",
+      "words": ["nuit", "nuits", "de nuit", "nocturne"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo taken at night"],
+        "bias": -10.89
+      }
+    },
+    {
+      "tag": "coucher_de_soleil",
+      "label": "Coucher de soleil",
+      "group": "moment",
+      "words": [
+        "coucher de soleil",
+        "couchers de soleil",
+        "lever de soleil",
+        "levers de soleil",
+        "crépuscule"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a sunset"],
+        "bias": -11.39
+      }
+    },
+    {
+      "tag": "anniversaire",
+      "label": "Anniversaire",
+      "group": "moment",
+      "words": [
+        "anniversaire",
+        "anniversaires",
+        "gâteau d'anniversaire",
+        "bougies"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a birthday cake with candles"],
+        "bias": -9.01
+      }
+    },
+    {
+      "tag": "noel",
+      "label": "Noël",
+      "group": "moment",
+      "words": ["noël", "sapin de noël"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo taken at christmas"],
+        "bias": -12.39
+      }
+    },
+    {
+      "tag": "mariage",
+      "label": "Mariage",
+      "group": "moment",
+      "words": ["mariage", "mariages", "mariée", "noces"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of a wedding"],
+        "bias": -11.02
+      }
+    },
+    {
+      "tag": "nourriture",
+      "label": "Nourriture",
+      "group": "chose",
+      "words": ["nourriture", "repas", "plat", "plats", "cuisine", "manger"],
+      "threshold": 0.5,
+      "prompts": {
+        "match": ["a photo of food"],
+        "bias": -10.14
+      }
+    },
+    {
+      "tag": "ecran_document",
+      "label": "Captures et documents",
+      "group": "chose",
+      "words": [
+        "capture d'écran",
+        "captures d'écran",
+        "capture",
+        "captures",
+        "document",
+        "documents",
+        "ticket",
+        "tickets",
+        "reçu",
+        "facture",
+        "écran"
+      ],
+      "threshold": 0.5,
+      "prompts": {
+        "match": [
+          "a screenshot",
+          "a scanned document",
+          "a page of text",
+          "a receipt"
+        ],
+        "bias": -0.5,
+        "softmax": "scene"
+      }
+    }
+  ]
+}

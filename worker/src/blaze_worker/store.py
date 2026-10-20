@@ -153,6 +153,41 @@ def add_faces(
     return len(added)
 
 
+def save_tags(
+    conn: Connection,
+    owner: str,
+    claimed: Sequence[jobs.Job],
+    rows: Sequence[tuple[int, str, float]],
+    version: int,
+    model: str,
+) -> tuple[int, int]:
+    """Replaces the tags of the claimed photos and closes their jobs; (jobs closed, rows written).
+
+    A batch in one transaction. A photo whose job is no longer ours keeps
+    the tags it had. Its other rows go, so a tag now under the floor, or no
+    longer in the vocabulary, does not stay behind.
+    """
+    count: dict[int, int] = {}
+    for photo_id, _, _ in rows:
+        count[photo_id] = count.get(photo_id, 0) + 1
+    with conn.transaction():
+        held = jobs.complete_many(
+            conn, owner, [(j.id, {"tags": count.get(j.photo_id, 0)}) for j in claimed], model
+        )
+        photos = {j.photo_id for j in claimed if j.id in held}
+        kept = [row for row in rows if row[0] in photos]
+        conn.execute("DELETE FROM photo_tags WHERE photo_id = ANY(%s)", (list(photos),))
+        conn.execute(
+            """
+            INSERT INTO photo_tags (photo_id, tag, score, vocab_version)
+            SELECT r.photo_id, r.tag, r.score, %s
+            FROM unnest(%s::bigint[], %s::text[], %s::real[]) AS r(photo_id, tag, score)
+            """,
+            (version, [r[0] for r in kept], [r[1] for r in kept], [r[2] for r in kept]),
+        )
+    return len(held), len(kept)
+
+
 def save_description(
     conn: Connection,
     owner: str,
