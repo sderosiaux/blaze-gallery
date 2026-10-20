@@ -202,6 +202,6 @@ A new version goes out in this order:
 
 The primary key is (photo_id, tag): each photo's new rows replace its old
 ones. During the run, and until the app is deployed, the tags the app sees
-are partial; the UI shows it through tagged_share. vocab_version stays out
-of the key on purpose: two versions side by side would double the table for
-the few minutes a run lasts.
+are partial; the UI shows it through tagged_share. Keeping vocab_version
+out of the key is deliberate: a run replaces each photo's rows in place, and
+no older version is left to clean up.
