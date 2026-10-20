@@ -9,7 +9,7 @@ import pytest
 from pgvector import HalfVector
 
 from blaze_worker import jobs
-from blaze_worker.enqueue import enqueue_all
+from blaze_worker.enqueue import enqueue_all, enqueue_ids
 from blaze_worker.gallery import EXCLUDED_NOTE
 from blaze_worker.siglip import DIM, MODEL
 from blaze_worker.store import save_tags
@@ -22,6 +22,7 @@ from blaze_worker.tags import (
     Tagger,
     Vocabulary,
     dry_run,
+    embedded_sql,
     prompt_vectors,
 )
 
@@ -161,11 +162,20 @@ def test_the_repository_vocabulary_is_valid_and_scores():
         ({"exterieur": {"softmax": None}}, "two tags"),
         ({"chaton": {"versus": []}}, "of needs versus"),
         ({"plage": {"softmax": "scene", "versus": [["a dog"]]}}, "softmax goes alone"),
+        ({"exterieur": {"any": ["interieur"]}}, "softmax goes alone"),
+        ({"chaton": {"bias": -2.0}}, "not a bias"),
     ],
 )
 def test_a_vocabulary_that_cannot_be_scored_is_refused(change, error):
     with pytest.raises(ValueError, match=error):
         vocab(**change)
+
+
+def test_a_threshold_under_the_floor_is_refused():
+    # The app would miss the photos between it and the floor: no row for them
+    data = {**VOCABULARY, "tags": [{**t, "threshold": 0.01} for t in VOCABULARY["tags"]]}
+    with pytest.raises(ValueError, match="threshold"):
+        Vocabulary.parse(data)
 
 
 def test_prompt_embeddings_are_cached_per_vocabulary(tmp_path):
@@ -230,6 +240,10 @@ def test_rows_keep_the_floor_and_both_scene_scores():
     assert {(10, "interieur"), (10, "exterieur"), (11, "interieur"), (11, "exterieur")} <= tags
     assert (10, "chat") in tags and (11, "chat") not in tags
     assert all(score >= FLOOR for _, t, score in rows if t not in ("interieur", "exterieur"))
+    # Stored as computed, not rounded: a score at a threshold stays on its side
+    scores = s.scores(x)
+    names = [t.tag for t in s.vocabulary.tags]
+    assert all(score == float(scores[[10, 11].index(p), names.index(t)]) for p, t, score in rows)
 
 
 # -- the task on Postgres -------------------------------------------------------
@@ -427,3 +441,34 @@ def test_a_photo_that_has_a_tag_has_the_tags_built_on_it():
     assert logit(animal[i]) == pytest.approx(logit(chat[i]) - logit(0.8) + logit(0.3), abs=1e-3)
     # A threshold `any` maps changes the stored scores: it is in the job's model
     assert vocabulary.model != vocab().model
+
+
+def test_only_photos_with_an_embedding_are_queued(conn):
+    embedded, other_space, none = add_photos(conn, [("image/jpeg", None)] * 3)
+    embed_photos(conn, {embedded: photo(**{"a cat": 0.15})})
+    embed_photos(conn, {other_space: photo(**{"a cat": 0.15})}, model="another-model@1")
+    ready = embedded_sql("p.id")
+
+    assert enqueue_all(conn, TASK, vocab().model, ready) == 1
+    assert enqueue_ids(conn, TASK, [none, other_space], False, ready) == 0
+    queued = conn.execute("SELECT photo_id FROM analysis_jobs WHERE task = 'tags'").fetchall()
+    assert queued == [(embedded,)]
+
+
+def test_stored_scores_are_the_computed_float32(conn, schema):
+    (cat,) = add_photos(conn, [("image/jpeg", None)])
+    x = photo(indoors=0.13, **{"a cat": 0.1234567})
+    embed_photos(conn, {cat: x})
+    enqueue_all(conn, TASK)
+    s = scorer()
+    run(schema, s)
+    # What the scorer sees: the embedding as halfvec gives it back
+    (stored,) = conn.execute(
+        "SELECT embedding FROM photo_embeddings WHERE photo_id = %s", (cat,)
+    ).fetchone()
+    expected = s.scores(stored.to_numpy()[np.newaxis].astype(np.float32))[0]
+    names = [t.tag for t in s.vocabulary.tags]
+    for tag, score in conn.execute(
+        "SELECT tag, score FROM photo_tags WHERE photo_id = %s", (cat,)
+    ).fetchall():
+        assert np.float32(score) == expected[names.index(tag)]

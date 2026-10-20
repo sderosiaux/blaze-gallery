@@ -77,8 +77,9 @@ _DEFAULTS = {
     "thumbs": {"concurrency": 4, "fetchers": 12, "max_side": 400},
     # Thumbnails are ~40 KB: a few fetchers feed two image towers
     "embed": {"concurrency": 2, "fetchers": 4, "max_side": 400},
-    # No image read, no pipeline: batches of stored embeddings (tags.Tagger)
-    "tags": {},
+    # No image read, no pipeline: batches of stored embeddings (tags.Tagger),
+    # a few seconds each, so a short lease brings a dead worker's back soon
+    "tags": {"lease": 60},
 }
 
 
@@ -184,6 +185,8 @@ def _run_tags(args: argparse.Namespace, url: str) -> None:
         return towers[0].embed(text)
 
     scorer = Scorer(vocabulary, prompt_vectors(vocabulary, embed, root / "tags"))
+    # ~1 GB of text tower, no use once the prompts are embedded
+    towers.clear()
 
     def connect() -> psycopg.Connection:
         conn = _connect(url)
@@ -228,7 +231,7 @@ def run_worker() -> None:
         type=int,
         help="rendition the model sees, px (faces: 1024, faces_extra: 2048, describe: 768)",
     )
-    parser.add_argument("--lease", type=int, default=600, help="lease length (s)")
+    parser.add_argument("--lease", type=int, help="lease length, s (600; tags: 60)")
     parser.add_argument(
         "--wait",
         type=float,
@@ -278,7 +281,7 @@ def run_worker() -> None:
     )
     _env_arg(parser)
     args = parser.parse_args()
-    for name, value in _DEFAULTS[args.task].items():
+    for name, value in {"lease": 600, **_DEFAULTS[args.task]}.items():
         if getattr(args, name) is None:
             setattr(args, name, value)
     _setup_logging()
@@ -372,23 +375,25 @@ def run_enqueue() -> None:
     def ids(text: str | None) -> list[int]:
         return [int(v) for v in text.split(",") if v.strip()] if text else []
 
-    model = None
+    model = ready = None
     if args.task == "tags":
-        from .tags import Vocabulary
+        from .tags import Vocabulary, embedded_sql
 
-        # A job done with an older vocabulary is queued again
+        # A job done with an older vocabulary is queued again; a photo
+        # without an embedding is not queued (the next run after embed is)
         model = Vocabulary.read().model
+        ready = embedded_sql("p.id")
     with _connect(database_url(read_env(args.env_file))) as conn:
         pinned = ids(args.pin)
         if pinned:
-            log.info("pinned: %d queued", add(conn, args.task, pinned, pinned=True))
+            log.info("pinned: %d queued", add(conn, args.task, pinned, True, ready))
         if args.all:
-            log.info("all images: %d queued", enqueue_all(conn, args.task, model))
+            log.info("all images: %d queued", enqueue_all(conn, args.task, model, ready))
         elif args.ids:
-            log.info("ids: %d queued", add(conn, args.task, ids(args.ids), pinned=False))
+            log.info("ids: %d queued", add(conn, args.task, ids(args.ids), False, ready))
         else:
             chosen = sample_ids(conn, args.sample - len(pinned), pinned, args.seed)
-            log.info("sample: %d queued", enqueue_ids(conn, args.task, chosen, pinned=False))
+            log.info("sample: %d queued", enqueue_ids(conn, args.task, chosen, False, ready))
 
 
 # -- blaze-queue --------------------------------------------------------------

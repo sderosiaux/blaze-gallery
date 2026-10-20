@@ -1,5 +1,6 @@
 # Blaze analysis worker (CPU). Build from worker/:
-#   docker build -t blaze-worker:local .
+#   docker build --target runtime -t blaze-worker:local .
+# (the last stage, embed, also needs the tags vocabulary: see below)
 # Run with the app's .env (DATABASE_URL, BACKBLAZE_*):
 #   docker run -d --name blaze-worker --env-file blaze.env --stop-timeout 120 \
 #     blaze-worker:local --task faces --concurrency 4 --owner hetzner

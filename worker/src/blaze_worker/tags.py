@@ -76,7 +76,8 @@ class Tag:
     words: tuple[str, ...]
     threshold: float
     match: tuple[str, ...]
-    bias: float = 0.0
+    # None: no bias of its own (softmax tags then add 0; an `of` tag has none)
+    bias: float | None = None
     versus: tuple[tuple[str, ...], ...] = ()
     softmax: str | None = None
     of: str | None = None
@@ -107,7 +108,7 @@ class Vocabulary:
                     words=tuple(entry["words"]),
                     threshold=float(entry["threshold"]),
                     match=tuple(prompts["match"]),
-                    bias=float(prompts.get("bias", 0.0)),
+                    bias=float(prompts["bias"]) if "bias" in prompts else None,
                     versus=tuple(tuple(_list(v)) for v in prompts.get("versus", ())),
                     softmax=prompts.get("softmax"),
                     of=prompts.get("of"),
@@ -127,16 +128,19 @@ class Vocabulary:
                 raise ValueError(f"tag {t.tag} twice")
             if t.group not in GROUPS:
                 raise ValueError(f"tag {t.tag}: group {t.group}")
-            if not t.match or not t.words or not 0 < t.threshold < 1:
-                raise ValueError(f"tag {t.tag}: match, words and a threshold in 0..1")
+            if not t.match or not t.words or not FLOOR <= t.threshold < 1:
+                raise ValueError(f"tag {t.tag}: match, words and a threshold in {FLOOR}..1")
             # A tag builds on tags listed before it: no cycle
             for other in (t.of, *t.any):
                 if other is not None and other not in seen:
                     raise ValueError(f"tag {t.tag}: {other} must come before it")
-            if t.softmax and (t.of or t.versus):
+            # What the scoring would ignore is refused, not dropped in silence
+            if t.softmax and (t.of or t.versus or t.any):
                 raise ValueError(f"tag {t.tag}: softmax goes alone")
             if t.of and not t.versus:
                 raise ValueError(f"tag {t.tag}: of needs versus")
+            if t.of and t.bias is not None:
+                raise ValueError(f"tag {t.tag}: of takes its base from {t.of}, not a bias")
             if t.softmax:
                 groups[t.softmax] = groups.get(t.softmax, 0) + 1
             seen.add(t.tag)
@@ -234,7 +238,9 @@ class Scorer:
             if t.softmax:
                 groups.setdefault(t.softmax, []).append(i)
         for members in groups.values():
-            biased = np.stack([logits[:, self.columns[i][0]] + tags[i].bias for i in members], 1)
+            biased = np.stack(
+                [logits[:, self.columns[i][0]] + (tags[i].bias or 0.0) for i in members], 1
+            )
             biased = np.exp(biased - biased.max(axis=1, keepdims=True))
             out[:, members] = biased / biased.sum(axis=1, keepdims=True)
         # In vocabulary order: a tag's `of` and `any` are scored before it
@@ -246,7 +252,9 @@ class Scorer:
             if versus:
                 rivals = logits[:, versus] - logits[:, [match]]
                 beats = 1.0 / (1.0 + np.exp(rivals).sum(axis=1))
-            base = out[:, self.index[t.of]] if t.of else _sigmoid(logits[:, match] + t.bias)
+            base = (
+                out[:, self.index[t.of]] if t.of else _sigmoid(logits[:, match] + (t.bias or 0.0))
+            )
             out[:, i] = base * beats
             for other in t.any:
                 shift = _logit(t.threshold) - _logit(self.thresholds[other])
@@ -262,7 +270,9 @@ class Scorer:
                 keep[:, i] = True
         names = [t.tag for t in self.vocabulary.tags]
         return [
-            (int(photo_ids[p]), names[k], round(float(scores[p, k]), 4))
+            # Unrounded: photo_tags.score is the same float32, so a photo at
+            # chat's threshold is at animal's too
+            (int(photo_ids[p]), names[k], float(scores[p, k]))
             for p, k in zip(*np.nonzero(keep), strict=True)
         ]
 
@@ -270,12 +280,16 @@ class Scorer:
 # -- the task -------------------------------------------------------------------
 
 
-def ready_sql() -> str:
-    """Claim condition (jobs.claim): the photo has an embedding in the space of MODEL."""
+def embedded_sql(photo_id: str) -> str:
+    """SQL condition: the photo `photo_id` names has an embedding in the space of MODEL."""
     return f"""EXISTS (
-  SELECT 1 FROM photo_embeddings e
-  WHERE e.photo_id = analysis_jobs.photo_id AND e.model = '{MODEL}'
+  SELECT 1 FROM photo_embeddings e WHERE e.photo_id = {photo_id} AND e.model = '{MODEL}'
 )"""
+
+
+def ready_sql() -> str:
+    """Claim condition (jobs.claim): the photo still has its embedding."""
+    return embedded_sql("analysis_jobs.photo_id")
 
 
 def load_embeddings(conn: psycopg.Connection, photo_ids: Sequence[int]) -> dict[int, np.ndarray]:
@@ -445,12 +459,13 @@ class Tagger:
 
     def run(self) -> Counters:
         self.counters.started = time.monotonic()
+        # The jobs' model: a container on an older image shows it here
         log.info(
-            "tags: vocabulary v%d, %d tags, batch %d, model %s",
-            self.vocabulary.version,
+            "tags: %d tags, batch %d, lease %d s, model %s",
             len(self.vocabulary.tags),
             self.batch,
-            MODEL,
+            self.lease_seconds,
+            self.vocabulary.model,
         )
         conn: psycopg.Connection | None = None
         last_reap, errors = 0.0, 0

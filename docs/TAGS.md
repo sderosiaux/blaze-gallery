@@ -63,7 +63,7 @@ I set the others by eye, on two samples per tag:
 
 | tag | threshold | photos | band check | sample precision | sample recall |
 |---|---|---|---|---|---|
-| vehicule | 0.85 | 689 | 24/24 | 0.92 | 0.38 |
+| vehicule | 0.85 | 689 | 22/24, 23/24 drawn from all above | 0.92 | 0.38 |
 | ecran_document | 0.88 | 1,961 | 24/24 | 1.00 | 0.66 |
 | chat | 0.60 | 6,955 | 24/24 | 0.96 | 0.95 |
 | chien | 0.65 | 108 | 22/24 | 1.00 | 0.35 |
@@ -89,9 +89,9 @@ For animal, nuit and noel, where the band check came out weakest, a second
 draw of 24 from everything above the threshold gives the overall precision.
 The three animal photos that first looked wrong held one when enlarged (a
 white horse in the dark, zoo animals among rocks, a sleeper on a branch).
-Taking "In a vehicle" out
-of the softmax moved 166 more photos above the ecran_document threshold; 24
-of them checked, all screens or documents.
+I checked vehicule again once it was scored against the three scene
+classes (v2). Taking it out of the softmax moved 166 more photos above the
+ecran_document threshold; 24 of them checked, all screens or documents.
 
 The owner's thresholds:
 

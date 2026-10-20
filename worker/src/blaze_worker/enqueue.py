@@ -50,18 +50,26 @@ _SAMPLE_STRATA: tuple[tuple[str, str, int], ...] = (
 )
 
 
-def enqueue_all(conn: Connection, task: str, model: str | None = None) -> int:
+def _ready(ready: str | None) -> str:
+    # Its LIKE wildcards are not placeholders
+    return f"AND {ready.replace('%', '%%')}" if ready else ""
+
+
+def enqueue_all(
+    conn: Connection, task: str, model: str | None = None, ready: str | None = None
+) -> int:
     """Every image of the gallery not queued yet; returns how many were queued.
 
     model: the task's current one (tags: the vocabulary's); a job done with
-    another model is queued again.
+    another model is queued again. ready: a condition on photos p a photo
+    must also meet to be queued (tags: it has an embedding).
     """
     with conn.transaction():
         cursor = conn.execute(
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %(task)s, {_PRIORITY} FROM photos p
-            WHERE {_WANTED}
+            WHERE {_WANTED} {_ready(ready)}
             ON CONFLICT (photo_id, task) DO UPDATE SET {_RESET}
               WHERE (analysis_jobs.last_error = %(note)s
                      AND analysis_jobs.status IN ('skipped', 'done'))
@@ -74,7 +82,9 @@ def enqueue_all(conn: Connection, task: str, model: str | None = None) -> int:
     return cursor.rowcount
 
 
-def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool) -> int:
+def enqueue_ids(
+    conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool, ready: str | None = None
+) -> int:
     """Given photos (images of the gallery only); pinned ones jump the queue, even if queued."""
     priority = str(PINNED_PRIORITY) if pinned else _PRIORITY
     with conn.transaction():
@@ -82,7 +92,7 @@ def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: b
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %s, {priority} FROM photos p
-            WHERE p.id = ANY(%s) AND {_WANTED}
+            WHERE p.id = ANY(%s) AND {_WANTED} {_ready(ready)}
             ON CONFLICT (photo_id, task) DO UPDATE SET priority = EXCLUDED.priority
               WHERE analysis_jobs.status = 'queued' AND %s
             """,
@@ -91,7 +101,9 @@ def enqueue_ids(conn: Connection, task: str, photo_ids: Sequence[int], pinned: b
     return cursor.rowcount
 
 
-def enqueue_again(conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool) -> int:
+def enqueue_again(
+    conn: Connection, task: str, photo_ids: Sequence[int], pinned: bool, ready: str | None = None
+) -> int:
     """Given photos, queued anew even when done or failed (a new model or prompt).
 
     Images of the gallery only. A job under lease is left to its worker.
@@ -102,7 +114,7 @@ def enqueue_again(conn: Connection, task: str, photo_ids: Sequence[int], pinned:
             f"""
             INSERT INTO analysis_jobs (photo_id, task, priority)
             SELECT p.id, %s, {priority} FROM photos p
-            WHERE p.id = ANY(%s) AND {_WANTED}
+            WHERE p.id = ANY(%s) AND {_WANTED} {_ready(ready)}
             ON CONFLICT (photo_id, task) DO UPDATE SET {_RESET}
               WHERE analysis_jobs.status <> 'leased'
             """,

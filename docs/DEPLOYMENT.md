@@ -200,6 +200,7 @@ transaction: the whole library takes minutes. It runs from the embed image,
 which bakes `db/tags.json` in (hence `--build-context`).
 
 ```bash
+# Photos with an embedding only: run it after the embed task
 docker run --rm --env-file blaze.env --entrypoint blaze-enqueue blaze-worker:embed \
   --task tags --all
 docker run -d --name blaze-worker-tags --restart on-failure:5 --stop-timeout 60 \
@@ -207,12 +208,20 @@ docker run -d --name blaze-worker-tags --restart on-failure:5 --stop-timeout 60 
 # Next runs: docker start -a blaze-worker-tags
 ```
 
-A threshold, a label or a search word changes nothing stored: the app reads
-them from the file. A description or a bias does: bump `version`, rebuild
-the image, and `blaze-enqueue --task tags --all` queues every photo again
-(it compares each job's model with the vocabulary's); the worker replaces
-each photo's rows. How the scores are made and how the thresholds were set:
-`docs/TAGS.md`.
+After a rebuild of the image, `docker rm -f blaze-worker-tags` and run it
+again: `docker start` keeps the container on the image it was created from,
+whose vocabulary is the old one, and every week `blaze-enqueue` would queue
+the whole library again for it. The worker logs its vocabulary's model when
+it starts; it is the model its jobs get.
+
+A label, a search word or most thresholds change nothing stored: the app
+reads them from the file. The thresholds of chat, chien, cheval, oiseau,
+animal, chaton and jeune_animal are the exception: "animal" and
+"jeune_animal" map them into their scores. Those, and any description, rival
+or bias, change the stored scores: bump `version`, rebuild the image, and
+`blaze-enqueue --task tags --all` queues every photo again (it compares each
+job's model with the vocabulary's); the worker replaces each photo's rows.
+How the scores are made and how the thresholds were set: `docs/TAGS.md`.
 
 ## Health check
 
