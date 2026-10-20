@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asString, isRecord, readJsonObject } from "@/hooks/apiJson";
-import {
-  NO_COLOR_FILTER,
-  setColorParams,
-  type ColorFilter,
-} from "@/lib/colors";
+import { filterQuery, type UrlFilter } from "@/lib/photoFilter";
 
 export type SearchList = "photos" | "folders";
 
@@ -63,22 +59,13 @@ export interface FeedSource<T> {
   read: (data: Record<string, unknown>) => SearchFeedPage<T>;
 }
 
-/** `q` and the color filter, as every page of a search repeats them. */
-export function searchParamsOf(
-  q: string,
-  colors: ColorFilter = NO_COLOR_FILTER,
-): Record<string, string> {
-  return Object.fromEntries(setColorParams(new URLSearchParams({ q }), colors));
-}
-
-/** One text-match list of the search for `q`, narrowed by `colors`. */
+/** One text-match list of the search, as its filter (`q` and the rest) narrows it. */
 export function searchListSource<T>(
-  q: string,
+  filter: UrlFilter,
   list: SearchList,
-  colors: ColorFilter = NO_COLOR_FILTER,
 ): FeedSource<T> {
   return {
-    params: searchParamsOf(q, colors),
+    params: Object.fromEntries(filterQuery(filter)),
     after: `${list}_after`,
     read: (data) => readSearchPage<T>(data, list),
   };

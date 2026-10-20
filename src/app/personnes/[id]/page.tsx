@@ -10,17 +10,27 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowLeft, ImageOff, UsersRound } from "lucide-react";
+import {
+  ArrowLeft,
+  ImageOff,
+  RotateCcw,
+  RotateCw,
+  SearchX,
+  UsersRound,
+} from "lucide-react";
 import type { Photo } from "@/types";
 import type { PersonPhoto, PersonRow } from "@/lib/people";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoViewer from "@/components/PhotoViewer";
+import { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import JustifiedGrid from "@/components/photos/JustifiedGrid";
 import PhotoTile from "@/components/photos/PhotoTile";
 import FaceThumb from "@/components/people/FaceThumb";
 import ReviewQueue from "@/components/people/ReviewQueue";
+import { usePersonPhotos } from "@/components/people/usePersonPhotos";
 import {
+  Button,
   ButtonLink,
   EmptyState,
   MetaDot,
@@ -29,19 +39,36 @@ import {
   Tabs,
   useToast,
 } from "@/components/ui";
+import ColorFilterBar from "@/components/find/ColorFilterBar";
+import { ContentNotice } from "@/components/find/ContentNotice";
+import FilterBar from "@/components/find/FilterBar";
+import { EXPRESSION_ICONS } from "@/components/find/filterIcons";
 import { LoadError } from "@/components/find/LoadError";
 import { YearPicker, YearRail } from "@/components/find/YearIndex";
 import { setFavorite } from "@/components/find/favorites";
 import { usePhotoParam } from "@/components/find/usePhotoParam";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
 import { asArray, isRecord, readJsonObject } from "@/hooks/apiJson";
-import { formatCount, formatDateRange } from "@/lib/albums";
+import { formatCount } from "@/lib/albums";
+import { cn } from "@/lib/cn";
 import { ageOn } from "@/lib/faces";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
+import {
+  EXPRESSION_LABELS,
+  filterKey,
+  filterSearch,
+  hasUrlFilter,
+  isExpression,
+  NO_URL_FILTER,
+  type Expression,
+} from "@/lib/photoFilter";
 
 type Tab = "photos" | "a-trier";
 
 /** A year counts as the one being read once its heading passes this line. */
 const SPY_LINE = 160;
+/** How far below the viewport the next page starts loading. */
+const PREFETCH_MARGIN = "0px 0px 1600px 0px";
 
 interface YearGroup {
   key: string;
@@ -79,11 +106,14 @@ function ageLabel(birthDate: string | null, group: YearGroup): string | null {
 function YearSection({
   group,
   birthDate,
+  count,
   onOpen,
   onToggleFavorite,
 }: {
   group: YearGroup;
   birthDate: string | null;
+  /** Photos of the year, loaded or not */
+  count: number;
   onOpen: (photo: Photo) => void;
   onToggleFavorite: (photo: Photo) => void;
 }) {
@@ -104,7 +134,7 @@ function YearSection({
         </h2>
         {age && <span className="text-sm text-ink-muted">{age}</span>}
         <span className="tabular ml-auto text-sm text-ink-muted">
-          {formatCount(group.photos.length, "photo")}
+          {formatCount(count, "photo")}
         </span>
       </header>
       <JustifiedGrid
@@ -130,15 +160,21 @@ function PersonContent() {
   const rawId = typeof params.id === "string" ? params.id : "";
   const personId = /^\d+$/.test(rawId) ? Number(rawId) : null;
   const tab: Tab = search.get("tab") === "a-trier" ? "a-trier" : "photos";
+  const yearParam = search.get("year");
+  const startYear =
+    yearParam && /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [filter, setFilter] = useUrlFilter();
+  const key = filterKey(filter);
 
   const [status, setStatus] = useState<
     "loading" | "ready" | "error" | "missing"
   >("loading");
   const [person, setPerson] = useState<PersonRow | null>(null);
-  const [photos, setPhotos] = useState<PersonPhoto[]>([]);
+  const [looks, setLooks] = useState<Expression[]>([]);
   const [pending, setPending] = useState(0);
   const [cover, setCover] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const stale = useRef(false);
 
   const load = useCallback(async () => {
@@ -159,7 +195,7 @@ function PersonContent() {
       if (!detail.ok || data.success !== true || !isRecord(data.person))
         throw new Error(`HTTP ${detail.status}`);
       setPerson(data.person as unknown as PersonRow);
-      setPhotos(asArray(data.photos) as PersonPhoto[]);
+      setLooks(asArray(data.expressions).filter(isExpression));
       const people = asArray((await readJsonObject(list)).people);
       const me = people.find((p) => isRecord(p) && p.id === personId);
       setPending(
@@ -172,7 +208,6 @@ function PersonContent() {
           ? me.cover_face_id
           : null,
       );
-      stale.current = false;
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -183,35 +218,45 @@ function PersonContent() {
     void load();
   }, [load]);
 
+  const { feed, setFeed, loadMore } = usePersonPhotos(
+    personId,
+    filter,
+    key,
+    startYear,
+    attempt,
+  );
+  const refresh = useCallback(() => {
+    stale.current = false;
+    setAttempt((n) => n + 1);
+  }, []);
+
   const switchTab = (next: Tab) => {
     const url = new URL(window.location.href);
     if (next === "photos") url.searchParams.delete("tab");
     else url.searchParams.set("tab", next);
     window.history.replaceState(null, "", url.pathname + url.search);
     // Faces taken in the queue show up in the photos
-    if (next === "photos" && stale.current) void load();
+    if (next === "photos" && stale.current) refresh();
   };
-
-  // Newest first, like Chronologie; undated photos stay at the end
-  const ordered = useMemo(() => {
-    const dated = photos.filter((p) => p.taken);
-    return [...dated.reverse(), ...photos.filter((p) => !p.taken)];
-  }, [photos]);
 
   // -- viewer ---------------------------------------------------------------
   const [viewerList, setViewerList] = useState<Photo[] | null>(null);
-  const list = viewerList ?? ordered;
+  const list = viewerList ?? feed.items;
   const selected = selectedPhotoId
     ? (list.find((p) => String(p.id) === selectedPhotoId) ?? null)
     : null;
 
-  const patch = useCallback((id: Photo["id"], changes: PhotoPatch) => {
-    setPhotos((all) =>
-      all.map((p) =>
-        String(p.id) === String(id) ? applyPhotoPatch(p, changes) : p,
-      ),
-    );
-  }, []);
+  const patch = useCallback(
+    (id: Photo["id"], changes: PhotoPatch) => {
+      setFeed((f) => ({
+        ...f,
+        items: f.items.map((p) =>
+          String(p.id) === String(id) ? applyPhotoPatch(p, changes) : p,
+        ),
+      }));
+    },
+    [setFeed],
+  );
 
   const toggleFavorite = useCallback(
     async (photo: Photo) => {
@@ -244,7 +289,7 @@ function PersonContent() {
   );
   const closeViewer = () => {
     setPhotoParam(null);
-    if (stale.current && tab === "photos") void load();
+    if (stale.current && tab === "photos") refresh();
   };
 
   const onQueueChange = useCallback((remaining: number) => {
@@ -252,21 +297,46 @@ function PersonContent() {
     stale.current = true;
   }, []);
 
-  const groups = useMemo(() => byYear(ordered), [ordered]);
+  // Scrolling near the end brings the next page, so does the viewer
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || feed.phase !== "ready" || !feed.next || tab !== "photos") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) loadMore();
+      },
+      { rootMargin: PREFETCH_MARGIN },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [feed.phase, feed.next, loadMore, tab]);
+  const selectedIndex =
+    selected && viewerList === null
+      ? feed.items.indexOf(selected as PersonPhoto)
+      : -1;
+  useEffect(() => {
+    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6)
+      loadMore();
+  }, [selectedIndex, feed.items.length, feed.phase, loadMore]);
 
-  // The year index of Chronologie, newest first like the photos
+  const groups = useMemo(() => byYear(feed.items), [feed.items]);
+
+  // The year index of Chronologie over every photo of the list, loaded or not
   const years = useMemo(
-    () => groups.flatMap((g) => (g.year === null ? [] : [g.year])),
-    [groups],
+    () => feed.years.flatMap((y) => (y.year === null ? [] : [y.year])),
+    [feed.years],
   );
   const yearCounts = useMemo(
     () =>
       new Map(
-        groups.flatMap((g) =>
-          g.year === null ? [] : [[String(g.year), g.photos.length] as const],
+        feed.years.flatMap((y) =>
+          y.year === null ? [] : [[String(y.year), y.count] as const],
         ),
       ),
-    [groups],
+    [feed.years],
   );
   const [activeYear, setActiveYear] = useState<number | null>(null);
   useEffect(() => {
@@ -281,7 +351,7 @@ function PersonContent() {
         if (section.getBoundingClientRect().top > SPY_LINE) break;
         current = Number(section.dataset.year);
       }
-      setActiveYear(current ?? years[0] ?? null);
+      setActiveYear(current ?? groups[0]?.year ?? null);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);
@@ -292,12 +362,23 @@ function PersonContent() {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule);
     };
-  }, [groups, years, tab]);
-  const jumpToYear = useCallback((year: number) => {
-    document
-      .querySelector(`[data-year="${String(year)}"]`)
-      ?.scrollIntoView({ block: "start" });
-  }, []);
+  }, [groups, tab]);
+  const jumpToYear = useCallback(
+    (year: number) => {
+      const section = document.querySelector(`[data-year="${String(year)}"]`);
+      if (section) {
+        section.scrollIntoView({ block: "start" });
+        return;
+      }
+      // Not loaded yet: the list starts at that year
+      window.scrollTo({ top: 0 });
+      const url = new URL(window.location.href);
+      if (years[0] === year) url.searchParams.delete("year");
+      else url.searchParams.set("year", String(year));
+      window.history.pushState(null, "", url.pathname + url.search);
+    },
+    [years],
+  );
   const noMonths = useCallback(() => undefined, []);
 
   if (status === "missing") {
@@ -326,14 +407,39 @@ function PersonContent() {
   if (status === "loading" || !person) return <PageSkeleton />;
 
   const name = person.name ?? "Sans nom";
-  const first = photos.find((p) => p.taken)?.taken;
-  const last = [...photos].reverse().find((p) => p.taken)?.taken;
+  const dated = feed.years.flatMap((y) => (y.year === null ? [] : [y.year]));
+  const firstYear = dated[dated.length - 1] ?? null;
+  const lastYear = dated[0] ?? null;
+  const filtered = hasUrlFilter(filter);
+  const own = { id: person.id, name };
+  const toggleLook = (expression: Expression) => {
+    const on = filter.faces.some(
+      (f) => f.person === person.id && f.expression === expression,
+    );
+    setFilter({
+      ...filter,
+      faces: on
+        ? filter.faces.filter(
+            (f) => !(f.person === person.id && f.expression === expression),
+          )
+        : [...filter.faces, { person: person.id, expression }],
+    });
+  };
+  const inTimeline = filterSearch({
+    ...filter,
+    people: filter.faces.some((f) => f.person === person.id)
+      ? filter.people
+      : [...filter.people.filter((id) => id !== person.id), person.id],
+  });
 
   return (
     <>
       <PageHeader
         kicker={
-          <Link href="/personnes" className="transition-colors hover:text-ink">
+          <Link
+            href={`/personnes${filterSearch(filter)}`}
+            className="transition-colors hover:text-ink"
+          >
             Personnes
           </Link>
         }
@@ -349,19 +455,25 @@ function PersonContent() {
         }
         meta={
           <>
-            <span className="tabular">
-              {formatCount(photos.length, "photo")}
-            </span>
-            {first && last && (
+            {feed.phase !== "loading" && (
+              <span className="tabular">
+                {formatCount(feed.total, "photo")}
+              </span>
+            )}
+            {firstYear !== null && lastYear !== null && (
               <>
                 <MetaDot />
-                <span>{formatDateRange(first, last)}</span>
+                <span className="tabular">
+                  {firstYear === lastYear
+                    ? String(firstYear)
+                    : `${String(firstYear)} – ${String(lastYear)}`}
+                </span>
               </>
             )}
             <MetaDot />
             <Link
-              href={`/timeline?person=${String(person.id)}`}
-              className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-accent"
+              href={`/timeline${inTimeline}`}
+              className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
             >
               Dans la chronologie
             </Link>
@@ -374,35 +486,157 @@ function PersonContent() {
         value={tab}
         onChange={switchTab}
         tabs={[
-          { id: "photos", label: "Photos", count: photos.length },
+          { id: "photos", label: "Photos", count: feed.total },
           { id: "a-trier", label: "À trier", count: pending },
         ]}
       />
 
       {tab === "photos" ? (
-        photos.length === 0 ? (
-          <EmptyState
-            icon={ImageOff}
-            title={`Aucune photo de ${name} pour l’instant`}
-            body="Nommez son visage sur une photo (touche P dans la visionneuse) : les autres suivront."
-            className="py-16"
+        <>
+          <div className="mb-4 mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">
+            {looks.length > 0 && (
+              <div
+                role="group"
+                aria-label={`Comment ${name} est sur les photos`}
+                className="flex flex-wrap gap-1.5"
+              >
+                {looks.map((expression) => {
+                  const Icon = EXPRESSION_ICONS[expression];
+                  const pressed = filter.faces.some(
+                    (f) =>
+                      f.person === person.id && f.expression === expression,
+                  );
+                  return (
+                    <button
+                      key={expression}
+                      type="button"
+                      aria-pressed={pressed}
+                      onClick={() => {
+                        toggleLook(expression);
+                      }}
+                      className={cn(
+                        "touch-target inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors duration-150",
+                        pressed
+                          ? "border-ink bg-ink text-paper"
+                          : "border-line text-ink-soft hover:border-ink-muted hover:text-ink",
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden />
+                      {EXPRESSION_LABELS[expression]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <ColorFilterBar
+              filter={filter.colors}
+              onChange={(colors) => {
+                setFilter({ ...filter, colors });
+              }}
+            />
+          </div>
+          <FilterBar
+            filter={filter}
+            onChange={setFilter}
+            person={own}
+            noChips={["color", "tone"]}
+            noMenu={["color"]}
+            className="mb-2"
           />
-        ) : (
-          <>
-            <div className="md:grid md:grid-cols-[minmax(0,1fr)_6rem] md:gap-8">
-              <div className="min-w-0">
-                {groups.map((group) => (
-                  <YearSection
-                    key={group.key}
-                    group={group}
-                    birthDate={person.birth_date}
-                    onOpen={openFromGrid}
-                    onToggleFavorite={(photo) => void toggleFavorite(photo)}
+          <ContentNotice status={feed.content} />
+          {feed.phase === "loading" ? (
+            <div
+              role="status"
+              aria-label="Chargement des photos"
+              className="pt-6"
+            >
+              <PhotoGridSkeleton count={12} />
+            </div>
+          ) : feed.phase === "error" ? (
+            <LoadError
+              title="Ses photos n’ont pas pu être chargées"
+              onRetry={refresh}
+              className="pt-10"
+            />
+          ) : feed.items.length === 0 ? (
+            filtered || startYear ? (
+              <EmptyState
+                icon={SearchX}
+                title={`Aucune photo de ${name} pour ce filtre`}
+                action={
+                  <Button
+                    variant="secondary"
+                    icon={RotateCcw}
+                    onClick={() => {
+                      setFilter(NO_URL_FILTER);
+                    }}
+                  >
+                    Effacer le filtre
+                  </Button>
+                }
+                className="py-16"
+              />
+            ) : (
+              <EmptyState
+                icon={ImageOff}
+                title={`Aucune photo de ${name} pour l’instant`}
+                body="Nommez son visage sur une photo (touche P dans la visionneuse) : les autres suivront."
+                className="py-16"
+              />
+            )
+          ) : (
+            <>
+              <div className="md:grid md:grid-cols-[minmax(0,1fr)_6rem] md:gap-8">
+                <div className="min-w-0">
+                  {groups.map((group) => (
+                    <YearSection
+                      key={group.key}
+                      group={group}
+                      birthDate={person.birth_date}
+                      count={
+                        feed.years.find((y) => y.year === group.year)?.count ??
+                        group.photos.length
+                      }
+                      onOpen={openFromGrid}
+                      onToggleFavorite={(photo) => void toggleFavorite(photo)}
+                    />
+                  ))}
+                  <div ref={sentinel} aria-hidden />
+                  {feed.phase === "more" && (
+                    <div className="mt-1">
+                      <PhotoGridSkeleton count={8} />
+                    </div>
+                  )}
+                  {feed.phase === "more-error" && (
+                    <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-ink-muted">
+                      <p>Les photos suivantes n’ont pas pu être chargées.</p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={RotateCw}
+                        onClick={() => {
+                          loadMore(true);
+                        }}
+                      >
+                        Réessayer
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                {years.length > 1 && (
+                  <YearRail
+                    years={years}
+                    counts={yearCounts}
+                    active={activeYear}
+                    activeYearMonths={[]}
+                    activeMonth={null}
+                    onJump={jumpToYear}
+                    onJumpMonth={noMonths}
                   />
-                ))}
+                )}
               </div>
               {years.length > 1 && (
-                <YearRail
+                <YearPicker
                   years={years}
                   counts={yearCounts}
                   active={activeYear}
@@ -412,20 +646,9 @@ function PersonContent() {
                   onJumpMonth={noMonths}
                 />
               )}
-            </div>
-            {years.length > 1 && (
-              <YearPicker
-                years={years}
-                counts={yearCounts}
-                active={activeYear}
-                activeYearMonths={[]}
-                activeMonth={null}
-                onJump={jumpToYear}
-                onJumpMonth={noMonths}
-              />
-            )}
-          </>
-        )
+            </>
+          )}
+        </>
       ) : (
         <ReviewQueue
           personId={person.id}

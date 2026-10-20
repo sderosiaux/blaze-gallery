@@ -1179,6 +1179,24 @@ export function readDate(
 }
 
 /**
+ * The query reduced to what `parts` stand for, their words in query
+ * order: "Céline à la plage" without the words for the content is "Céline".
+ */
+export function keepParts(
+  q: string,
+  parts: readonly { spans: readonly Span[] }[],
+): string {
+  return parts
+    .flatMap((part) => part.spans)
+    .slice()
+    .sort((a, b) => a[0] - b[0])
+    .map(([start, end]) => q.slice(start, end))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * The query without what `parts` stand for: their words cut out, and an
  * "et" or a comma left hanging at either end dropped. "Céline et Stéphane
  * à Noël" without Céline is "Stéphane à Noël".

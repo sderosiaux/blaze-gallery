@@ -31,6 +31,10 @@ import {
   parseAlbumName,
 } from "@/lib/albums";
 import { setFolderExcluded } from "@/lib/excludedFolders";
+import FilterBar from "@/components/find/FilterBar";
+import { useUrlFilter } from "@/components/find/useUrlFilter";
+import { filterSearch, hasUrlFilter, type UrlFilter } from "@/lib/photoFilter";
+import FilteredPhotos from "./FilteredPhotos";
 import AlbumBreadcrumb from "./AlbumBreadcrumb";
 import AlbumDropZone, { type AlbumDropZoneHandle } from "./AlbumDropZone";
 import FolderMenu, { type FolderMenuItem } from "./FolderMenu";
@@ -73,6 +77,8 @@ export default function AlbumView({ path }: { path: string }) {
   const [state, setState] = useState<State>(() => initialState(path));
   const [shareOpen, setShareOpen] = useState(false);
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
+  const [filter, setFilter] = useUrlFilter();
+  const filtered = hasUrlFilter(filter);
   const dropZone = useRef<AlbumDropZoneHandle>(null);
   const request = useRef<AbortController | null>(null);
   const toast = useToast();
@@ -140,12 +146,13 @@ export default function AlbumView({ path }: { path: string }) {
   }, []);
   useFolderWarmup(path || null, missingThumbnails, markGenerated);
 
-  // A `?photo=` that isn't in this folder would sit in the address bar with nothing open.
+  // A `?photo=` that isn't in this folder would sit in the address bar with
+  // nothing open. Filtered, the photos come from its sub-folders too.
   useEffect(() => {
-    if (!photos || !selectedPhotoId) return;
+    if (!photos || !selectedPhotoId || filtered) return;
     if (!photos.some((p) => String(p.id) === selectedPhotoId))
       setPhotoParam(null);
-  }, [photos, selectedPhotoId, setPhotoParam]);
+  }, [photos, selectedPhotoId, setPhotoParam, filtered]);
 
   const openPicker = () => dropZone.current?.openPicker();
 
@@ -230,6 +237,8 @@ export default function AlbumView({ path }: { path: string }) {
         <AlbumContents
           data={state.data}
           title={title}
+          filter={filter}
+          onFilterChange={setFilter}
           selectedPhotoId={selectedPhotoId}
           onPhotoUrlChange={setPhotoParam}
           onShare={() => {
@@ -256,6 +265,8 @@ export default function AlbumView({ path }: { path: string }) {
 interface AlbumContentsProps {
   data: AlbumData;
   title: string;
+  filter: UrlFilter;
+  onFilterChange: (next: UrlFilter) => void;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
   onShare: () => void;
@@ -299,6 +310,8 @@ function OutOfGallery({
 function AlbumContents({
   data,
   title,
+  filter,
+  onFilterChange,
   selectedPhotoId,
   onPhotoUrlChange,
   onShare,
@@ -346,6 +359,9 @@ function AlbumContents({
   ].filter((p): p is string => Boolean(p));
 
   const empty = photos.length === 0 && subfolders.length === 0;
+  const filtered = hasUrlFilter(filter);
+  // Into a sub-folder, the filter follows
+  const search = filterSearch(filter);
 
   return (
     <>
@@ -378,6 +394,23 @@ function AlbumContents({
         }
       />
 
+      {!empty && (
+        <FilterBar filter={filter} onChange={onFilterChange} className="mb-6" />
+      )}
+
+      {filtered && !empty && (
+        <div className="border-t border-line pt-6">
+          <FilteredPhotos
+            path={folder.path}
+            filter={filter}
+            onFilterChange={onFilterChange}
+            outOfGallery={exclusion !== null}
+            selectedPhotoId={selectedPhotoId}
+            onPhotoUrlChange={onPhotoUrlChange}
+          />
+        </div>
+      )}
+
       {empty && (
         <div className="border-t border-line">
           <EmptyState
@@ -397,14 +430,19 @@ function AlbumContents({
         </div>
       )}
 
-      {subfolders.length > 0 && (
+      {!filtered && subfolders.length > 0 && (
         <Section title="Dossiers">
           {/* Below a folder out of the gallery, every one is: no marker */}
-          <AlbumGrid folders={subfolders} markExcluded={exclusion === null} />
+          <AlbumGrid
+            folders={subfolders}
+            markExcluded={exclusion === null}
+            hrefFor={(sub) => `${albumHref(sub.path)}${search}`}
+          />
         </Section>
       )}
 
-      {photos.length > 0 &&
+      {!filtered &&
+        photos.length > 0 &&
         (subfolders.length > 0 ? (
           <Section title="Photos">
             <PhotoGrid

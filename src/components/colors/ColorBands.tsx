@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Library, Palette } from "lucide-react";
-import { ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { ArrowRight, Library, Palette, RotateCcw } from "lucide-react";
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+} from "@/components/ui";
 import ProgressiveImage from "@/components/photos/ProgressiveImage";
+import FilterBar from "@/components/find/FilterBar";
 import { LoadError } from "@/components/find/LoadError";
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatCount, formatNumber } from "@/lib/albums";
@@ -16,6 +23,13 @@ import {
   type ColorTone,
   type Hue,
 } from "@/lib/colors";
+import {
+  filterKey,
+  filterQuery,
+  hasUrlFilter,
+  NO_URL_FILTER,
+  type UrlFilter,
+} from "@/lib/photoFilter";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { asQuarterTurn, type QuarterTurn } from "@/lib/rotation";
 
@@ -58,8 +72,15 @@ function readBand(value: unknown): Band | null {
   return null;
 }
 
-async function fetchOverview(signal: AbortSignal): Promise<Overview> {
-  const response = await fetch("/api/colors/overview", { signal });
+async function fetchOverview(
+  filter: UrlFilter,
+  signal: AbortSignal,
+): Promise<Overview> {
+  const query = filterQuery(filter).toString();
+  const response = await fetch(
+    `/api/colors/overview${query ? `?${query}` : ""}`,
+    { signal },
+  );
   const data = await readJsonObject(response);
   if (!response.ok || !data.success)
     throw new Error(asString(data.error) ?? `HTTP ${response.status}`);
@@ -81,10 +102,20 @@ async function fetchOverview(signal: AbortSignal): Promise<Overview> {
 const TILE_COLUMNS =
   "grid-cols-[repeat(auto-fill,minmax(4.75rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(7rem,1fr))]";
 
-function BandRow({ band, index }: { band: Band; index: number }) {
+function BandRow({
+  band,
+  index,
+  filter,
+}: {
+  band: Band;
+  index: number;
+  filter: UrlFilter;
+}) {
   const label =
     band.kind === "color" ? HUE_LABELS[band.key] : TONE_LABELS[band.key];
-  const href = `/couleurs?${band.kind === "color" ? "color" : "tone"}=${band.key}`;
+  const params = filterQuery(filter);
+  params.set(band.kind === "color" ? "color" : "tone", band.key);
+  const href = `/couleurs?${params.toString()}`;
   return (
     <li>
       <Link
@@ -154,17 +185,25 @@ function BandsSkeleton({ count }: { count: number }) {
 
 /**
  * The nuancier: one band per color, then per tone, each showing the photos
- * holding most of it and opening all of them. Colors not met yet in the
- * measured photos are left out.
+ * holding most of it among those the filter keeps, and opening all of
+ * them. Colors not met in those photos are left out.
  */
-export default function ColorBands() {
+export default function ColorBands({
+  filter,
+  onFilterChange,
+}: {
+  filter: UrlFilter;
+  onFilterChange: (next: UrlFilter) => void;
+}) {
   const [overview, setOverview] = useState<Overview | "error" | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const key = filterKey(filter);
+  const filtered = hasUrlFilter(filter);
 
   useEffect(() => {
     const controller = new AbortController();
     setOverview(null);
-    fetchOverview(controller.signal)
+    fetchOverview(filter, controller.signal)
       .then(setOverview)
       .catch(() => {
         if (!controller.signal.aborted) setOverview("error");
@@ -172,21 +211,25 @@ export default function ColorBands() {
     return () => {
       controller.abort();
     };
-  }, [attempt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the key says when the filter changed
+  }, [attempt, key]);
 
   const coverage = overview && overview !== "error" ? overview.coverage : null;
   const header = (
-    <PageHeader
-      title="Couleurs"
-      meta={
-        coverage && (
-          <span className="tabular">
-            Couleurs lues sur {formatNumber(coverage.measured)} des{" "}
-            {formatCount(coverage.photos, "photo")}
-          </span>
-        )
-      }
-    />
+    <>
+      <PageHeader
+        title="Couleurs"
+        meta={
+          coverage && (
+            <span className="tabular">
+              Couleurs lues sur {formatNumber(coverage.measured)} des{" "}
+              {formatCount(coverage.photos, "photo")}
+            </span>
+          )
+        }
+      />
+      <FilterBar filter={filter} onChange={onFilterChange} className="mb-8" />
+    </>
   );
 
   if (overview === "error") {
@@ -216,6 +259,30 @@ export default function ColorBands() {
   const colors = shown.filter((band) => band.kind === "color");
   const tones = shown.filter((band) => band.kind === "tone");
 
+  if (shown.length === 0 && filtered) {
+    return (
+      <>
+        {header}
+        <EmptyState
+          icon={Palette}
+          title="Aucune photo pour ce filtre"
+          action={
+            <Button
+              variant="secondary"
+              icon={RotateCcw}
+              onClick={() => {
+                onFilterChange(NO_URL_FILTER);
+              }}
+            >
+              Effacer le filtre
+            </Button>
+          }
+          className="py-20"
+        />
+      </>
+    );
+  }
+
   if (shown.length === 0) {
     return (
       <>
@@ -240,7 +307,7 @@ export default function ColorBands() {
       {header}
       <ul className="space-y-5 sm:space-y-6">
         {colors.map((band, i) => (
-          <BandRow key={band.key} band={band} index={i} />
+          <BandRow key={band.key} band={band} index={i} filter={filter} />
         ))}
       </ul>
       {tones.length > 0 && (
@@ -250,7 +317,12 @@ export default function ColorBands() {
           </h2>
           <ul className="space-y-5 sm:space-y-6">
             {tones.map((band, i) => (
-              <BandRow key={band.key} band={band} index={colors.length + i} />
+              <BandRow
+                key={band.key}
+                band={band}
+                index={colors.length + i}
+                filter={filter}
+              />
             ))}
           </ul>
         </section>

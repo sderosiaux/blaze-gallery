@@ -1982,6 +1982,27 @@ export interface LibrarySummary {
   years: { from: number; to: number } | null;
 }
 
+/** The first and last year a photo of the gallery was taken; null before any is dated. */
+export async function takenYears(): Promise<{
+  from: number;
+  to: number;
+} | null> {
+  // The two ends of idx_photos_date_taken, past the photos out of the gallery
+  const result = await query<{ first: string | null; last: string | null }>(`
+    SELECT
+      (SELECT p.metadata->>'date_taken' FROM photos p
+       WHERE (p.metadata->>'date_taken') IS NOT NULL ${andInGallery()}
+       ORDER BY (p.metadata->>'date_taken'), p.id LIMIT 1) AS first,
+      (SELECT p.metadata->>'date_taken' FROM photos p
+       WHERE (p.metadata->>'date_taken') IS NOT NULL ${andInGallery()}
+       ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC LIMIT 1) AS last
+  `);
+  const { first, last } = requireRow(result);
+  return first && last
+    ? { from: Number(first.slice(0, 4)), to: Number(last.slice(0, 4)) }
+    : null;
+}
+
 export async function getLibrarySummary(): Promise<LibrarySummary> {
   // min/max read the ends of idx_photos_date_taken; the counts scan photos once
   const [media, folders, span] = await Promise.all([

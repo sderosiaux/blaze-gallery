@@ -214,7 +214,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
   }
 });
 
-/** A part of the query as the page's chips read it (components/find/QueryChips.tsx). */
+/** A part of the query, as understood.parts gives it. */
 function understoodPart(part: QueryPart) {
   return {
     kind: part.kind,

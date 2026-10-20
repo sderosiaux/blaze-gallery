@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
+import { takenYears } from "@/lib/database";
 import { sceneTagVocabulary, taggedTags } from "@/lib/filterResolver";
 import { logger } from "@/lib/logger";
 import { listPersonChoices } from "@/lib/people";
@@ -12,13 +13,15 @@ export const dynamic = "force-dynamic";
  * reads queries the way the server does, lib/searchQuery.ts): the named
  * people (`people`), the looks (`expressions`) and the scene tags of
  * db/tags.json (`tags`; `tagged`: some photo has it, the others read as
- * words for now).
+ * words for now), and the years photos were taken in (`years`, null
+ * before any is dated).
  */
 export const GET = requireAuth(async function GET() {
   try {
-    const [people, tagged] = await Promise.all([
+    const [people, tagged, years] = await Promise.all([
       listPersonChoices(),
       taggedTags(),
+      takenYears(),
     ]);
     return NextResponse.json(
       {
@@ -35,6 +38,7 @@ export const GET = requireAuth(async function GET() {
           words,
           tagged: tagged.has(tag),
         })),
+        years,
       },
       // A name given or a tagging pass shows within a minute
       { headers: { "Cache-Control": "private, max-age=60" } },

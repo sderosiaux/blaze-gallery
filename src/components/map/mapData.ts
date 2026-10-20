@@ -1,6 +1,6 @@
 import { asArray, asString, isRecord, readJsonObject } from "@/hooks/apiJson";
 import { formatDay, LOCALE } from "@/lib/albums";
-import { setColorParams, type ColorFilter } from "@/lib/colors";
+import { filterQuery, type UrlFilter } from "@/lib/photoFilter";
 import {
   addDays,
   addMonths,
@@ -22,6 +22,8 @@ export interface MapPoints {
   /** Side of a cell, in degrees */
   cell: number;
   points: MapPoint[];
+  /** What became of the filter's words: "unavailable" when they could not be applied */
+  content: "ok" | "unavailable" | null;
 }
 
 function isPoint(value: unknown): value is MapPoint {
@@ -39,8 +41,8 @@ async function readSuccess(response: Response) {
   return data;
 }
 
-function periodQuery(period: MapPeriod, colors: ColorFilter): URLSearchParams {
-  const params = setColorParams(new URLSearchParams(), colors);
+function periodQuery(period: MapPeriod, filter: UrlFilter): URLSearchParams {
+  const params = filterQuery(filter);
   if (period.from) params.set("from", period.from);
   if (period.to) params.set("to", period.to);
   return params;
@@ -48,16 +50,23 @@ function periodQuery(period: MapPeriod, colors: ColorFilter): URLSearchParams {
 
 export async function fetchMapPoints(
   period: MapPeriod,
-  colors: ColorFilter,
+  filter: UrlFilter,
   signal: AbortSignal,
 ): Promise<MapPoints> {
   const response = await fetch(
-    `/api/map/points?${periodQuery(period, colors).toString()}`,
+    `/api/map/points?${periodQuery(period, filter).toString()}`,
     { signal },
   );
   const data = await readSuccess(response);
   if (typeof data.cell !== "number") throw new Error("invalid_points");
-  return { cell: data.cell, points: asArray(data.points).filter(isPoint) };
+  return {
+    cell: data.cell,
+    points: asArray(data.points).filter(isPoint),
+    content:
+      data.content === "ok" || data.content === "unavailable"
+        ? data.content
+        : null,
+  };
 }
 
 /** Photos per day ("YYYY-MM-DD") over a short span, else per month ("YYYY-MM"). */
@@ -76,10 +85,10 @@ export interface MapDates {
 
 export async function fetchMapDates(
   box: MapBox | null,
-  colors: ColorFilter,
+  filter: UrlFilter,
   signal: AbortSignal,
 ): Promise<MapDates> {
-  const params = setColorParams(new URLSearchParams(), colors);
+  const params = filterQuery(filter);
   if (box) {
     params.set("south", String(box.south));
     params.set("west", String(box.west));
@@ -123,11 +132,11 @@ export interface AreaPage {
 export async function fetchAreaPage(
   box: MapBox,
   period: MapPeriod,
-  colors: ColorFilter,
+  filter: UrlFilter,
   after: string | null,
   signal: AbortSignal,
 ): Promise<AreaPage> {
-  const params = periodQuery(period, colors);
+  const params = periodQuery(period, filter);
   params.set("south", String(box.south));
   params.set("west", String(box.west));
   params.set("north", String(box.north));
