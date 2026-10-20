@@ -58,13 +58,13 @@ there. Naming or accepting a face straight away proposes its look-alikes.
 
 On the worker machine, `blaze-people` does the same in bulk:
 
-| Command | What it's for |
-|---|---|
-| `create --name "Alice"` | A new person. |
-| `seed --person Alice --faces 12,34` | A few faces you're sure of, to start from. |
-| `expand --person Alice` | Accepts the faces very close to the known ones (from 0.60) and puts those fairly close (from 0.30) in « À trier ». `--dry-run` writes nothing. |
-| `label --person Alice --accept 1,2 --reject 3 --by owner` | Your yes and no, as the « À trier » tab records them. |
-| `status --person Alice` | Faces per year, and how far the faces pass has got. |
+| Command                                                   | What it's for                                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create --name "Alice"`                                   | A new person.                                                                                                                                  |
+| `seed --person Alice --faces 12,34`                       | A few faces you're sure of, to start from.                                                                                                     |
+| `expand --person Alice`                                   | Accepts the faces very close to the known ones (from 0.60) and puts those fairly close (from 0.30) in « À trier ». `--dry-run` writes nothing. |
+| `label --person Alice --accept 1,2 --reject 3 --by owner` | Your yes and no, as the « À trier » tab records them.                                                                                          |
+| `status --person Alice`                                   | Faces per year, and how far the faces pass has got.                                                                                            |
 
 A face is compared with the person's faces taken within 18 months of it,
 so a child is matched against the child, not the adult. Faces you reject
