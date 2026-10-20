@@ -550,6 +550,26 @@ CREATE TABLE IF NOT EXISTS search_query_embeddings (
   last_used_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- What a photo shows, as words (task 'tags', worker/): indoors or outdoors,
+-- inside a vehicle, a screenshot, an animal, the beach, a birthday... The
+-- vocabulary (tag names, French labels and search words, the threshold of
+-- each tag) is db/tags.json, read by the app and the worker. A photo has a
+-- tag when score >= its threshold. score: 0..1, from the photo's embedding
+-- (photo_embeddings) and the vocabulary's text prompts, comparable within a
+-- tag only. Rows under 0.05 are not stored, except intérieur and extérieur,
+-- stored for every tagged photo. vocab_version: the db/tags.json version the
+-- row was computed with; a new version tags every photo again, replacing its
+-- rows.
+CREATE TABLE IF NOT EXISTS photo_tags (
+  photo_id bigint NOT NULL REFERENCES photos (id) ON DELETE CASCADE,
+  tag text NOT NULL,
+  score real NOT NULL,
+  vocab_version int NOT NULL,
+  PRIMARY KEY (photo_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS photo_tags_tag_score ON photo_tags (tag, score DESC);
+
 -- Folders the owner marked « pas une galerie photo »: storage only (books,
 -- game sprites, album art). Each row covers the folder and everything below
 -- it. Their photos stay browsable in Bibliothèque and findable by folder or

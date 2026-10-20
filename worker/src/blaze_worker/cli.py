@@ -77,6 +77,9 @@ _DEFAULTS = {
     "thumbs": {"concurrency": 4, "fetchers": 12, "max_side": 400},
     # Thumbnails are ~40 KB: a few fetchers feed two image towers
     "embed": {"concurrency": 2, "fetchers": 4, "max_side": 400},
+    # No image read, no pipeline: batches of stored embeddings (tags.Tagger),
+    # a few seconds each, so a short lease brings a dead worker's back soon
+    "tags": {"lease": 60},
 }
 
 
@@ -166,6 +169,47 @@ def _embed_task(
     return analyzers, EmbedLoader(pool, store)
 
 
+def _run_tags(args: argparse.Namespace, url: str) -> None:
+    from .siglip import TextTower, download
+    from .tags import Scorer, Tagger, Vocabulary, prompt_vectors
+
+    vocabulary = Vocabulary.read()
+    root = Path(args.model_root).expanduser()
+    towers: list[TextTower] = []
+
+    def embed(text: str) -> Any:
+        # Only for a vocabulary whose prompts are not in the cache yet
+        if not towers:
+            download(root)
+            towers.append(TextTower(root, args.threads or 4))
+        return towers[0].embed(text)
+
+    scorer = Scorer(vocabulary, prompt_vectors(vocabulary, embed, root / "tags"))
+    # ~1 GB of text tower, no use once the prompts are embedded
+    towers.clear()
+
+    def connect() -> psycopg.Connection:
+        conn = _connect(url)
+        register_vector(conn)
+        return conn
+
+    if args.dry_run:
+        from .tags import dry_run
+
+        with connect() as conn:
+            scored, counts = dry_run(conn, scorer, args.dry_run, args.batch)
+        print(f"dry run, nothing written: {scored} photos, vocabulary v{vocabulary.version}")
+        print("tag                   rows  >=threshold")
+        for tag, (rows, above) in counts.items():
+            print(f"{tag:18} {rows:8} {above:12}")
+        print(f"{'total':18} {sum(r for r, _ in counts.values()):8}")
+        return
+    tagger = Tagger(connect, scorer, args.owner, args.batch, args.lease, args.wait, args.follow)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: tagger.stop())
+    tagger.run()
+
+
 def run_worker() -> None:
     from .describe import DEFAULT_MODEL
     from .tasks import SUPPORTED_TASKS
@@ -187,7 +231,7 @@ def run_worker() -> None:
         type=int,
         help="rendition the model sees, px (faces: 1024, faces_extra: 2048, describe: 768)",
     )
-    parser.add_argument("--lease", type=int, default=600, help="lease length (s)")
+    parser.add_argument("--lease", type=int, help="lease length, s (600; tags: 60)")
     parser.add_argument(
         "--wait",
         type=float,
@@ -199,12 +243,21 @@ def run_worker() -> None:
         metavar="TASK",
         help="with nothing to claim, wait while TASK still runs (embed: --follow thumbs)",
     )
+    parser.add_argument(
+        "--batch", type=int, default=1000, help="tags: photos per claim, written in one transaction"
+    )
+    parser.add_argument(
+        "--dry-run",
+        type=int,
+        metavar="N",
+        help="tags: score N photos with an embedding, print what would be stored, write nothing",
+    )
     faces = parser.add_argument_group("faces, faces_extra")
     faces.add_argument(
         "--threads",
         type=int,
         default=0,
-        help="ONNX threads per worker, faces and embed (0: cores / concurrency)",
+        help="ONNX threads per worker, faces and embed (0: cores / concurrency; tags: 4)",
     )
     faces.add_argument("--provider", choices=("auto", "cpu", "coreml"), default="auto")
     faces.add_argument(
@@ -228,7 +281,7 @@ def run_worker() -> None:
     )
     _env_arg(parser)
     args = parser.parse_args()
-    for name, value in _DEFAULTS[args.task].items():
+    for name, value in {"lease": 600, **_DEFAULTS[args.task]}.items():
         if getattr(args, name) is None:
             setattr(args, name, value)
     _setup_logging()
@@ -238,6 +291,9 @@ def run_worker() -> None:
 
     env = read_env(args.env_file)
     url = database_url(env)
+    if args.task == "tags":
+        _run_tags(args, url)
+        return
     # thumbs, embed: their loaders read each photo's thumbnail state on the fetch threads
     pool = ConnectionPool(
         url,
@@ -319,17 +375,25 @@ def run_enqueue() -> None:
     def ids(text: str | None) -> list[int]:
         return [int(v) for v in text.split(",") if v.strip()] if text else []
 
+    model = ready = None
+    if args.task == "tags":
+        from .tags import Vocabulary, embedded_sql
+
+        # A job done with an older vocabulary is queued again; a photo
+        # without an embedding is not queued (the next run after embed is)
+        model = Vocabulary.read().model
+        ready = embedded_sql("p.id")
     with _connect(database_url(read_env(args.env_file))) as conn:
         pinned = ids(args.pin)
         if pinned:
-            log.info("pinned: %d queued", add(conn, args.task, pinned, pinned=True))
+            log.info("pinned: %d queued", add(conn, args.task, pinned, True, ready))
         if args.all:
-            log.info("all images: %d queued", enqueue_all(conn, args.task))
+            log.info("all images: %d queued", enqueue_all(conn, args.task, model, ready))
         elif args.ids:
-            log.info("ids: %d queued", add(conn, args.task, ids(args.ids), pinned=False))
+            log.info("ids: %d queued", add(conn, args.task, ids(args.ids), False, ready))
         else:
             chosen = sample_ids(conn, args.sample - len(pinned), pinned, args.seed)
-            log.info("sample: %d queued", enqueue_ids(conn, args.task, chosen, pinned=False))
+            log.info("sample: %d queued", enqueue_ids(conn, args.task, chosen, False, ready))
 
 
 # -- blaze-queue --------------------------------------------------------------

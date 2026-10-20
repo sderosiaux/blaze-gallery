@@ -118,7 +118,7 @@ written `\n`). The app trusts that certificate only. Without the three,
 search works on names alone.
 
 ```bash
-cd worker && docker build --target embed -t blaze-worker:embed .
+cd worker && docker build --build-context vocabulary=../db --target embed -t blaze-worker:embed .
 # Once: a certificate for the server's IP (and 127.0.0.1, for an SSH tunnel)
 # and a token, readable by you only
 mkdir -m 700 embedder-tls
@@ -148,12 +148,13 @@ instance, for 0.8 s, and answers with names only. `GET /health` needs no
 token.
 `docker restart blaze-embedder` is safe. New photos: `docker run --rm
 --env-file blaze.env --entrypoint blaze-enqueue blaze-worker:embed --task <task>
---all` for faces, thumbs and embed queues the missing ones (running it again
-changes nothing), then `docker start blaze-worker`, `docker start -a
-blaze-worker-thumbs` and, once it has exited, `docker start blaze-worker-embed`:
-embed only claims photos whose thumbnail exists, and stops at once when none
-is ready yet. Each worker stops once its queue is empty, so the
-database can suspend; nothing polls it between runs. Progress:
+--all` for faces, thumbs, embed and tags queues the missing ones (running it
+again changes nothing), then `docker start blaze-worker`, `docker start -a
+blaze-worker-thumbs`, once it has exited `docker start -a blaze-worker-embed`,
+then `docker start blaze-worker-tags`: embed only claims photos whose
+thumbnail exists and tags those whose embedding exists, and each stops at
+once when none is ready yet. Each worker stops once its queue is empty, so
+the database can suspend; nothing polls it between runs. Progress:
 `--entrypoint blaze-queue ... --task embed`.
 
 Faces the faces task missed (small, half hidden, in profile) can be looked
@@ -185,6 +186,42 @@ thumbs worker only: the app can't decode them. Turning one by hand in the
 viewer, or bumping `VERSION` in `src/lib/displayRendition.ts`, leaves it
 without a rendition at its new key until it is queued again: `blaze-enqueue
 --task thumbs --again --ids <ids>`, then `docker start -a blaze-worker-thumbs`.
+
+## Tags
+
+Indoors, outdoors, in a car, a cat, a kitten, the beach, snow, Christmas, a
+screenshot...: `photo_tags` (`db/schema.sql`), which the app's filters read.
+The vocabulary is `db/tags.json`: each tag's name, French label, the words
+typed in search that mean it, its threshold, and the English descriptions
+the worker scores it with. The `tags` task reads no image. It compares each
+photo's stored embedding with those descriptions, embedded once by the text
+tower and cached under the model root, and writes a batch of photos per
+transaction: the whole library takes minutes. It runs from the embed image,
+which bakes `db/tags.json` in (hence `--build-context`).
+
+```bash
+# Photos with an embedding only: run it after the embed task
+docker run --rm --env-file blaze.env --entrypoint blaze-enqueue blaze-worker:embed \
+  --task tags --all
+docker run -d --name blaze-worker-tags --restart on-failure:5 --stop-timeout 60 \
+  --env-file blaze.env blaze-worker:embed --task tags --owner hetzner-tags
+# Next runs: docker start -a blaze-worker-tags
+```
+
+After a rebuild of the image, `docker rm -f blaze-worker-tags` and run it
+again: `docker start` keeps the container on the image it was created from,
+whose vocabulary is the old one, and every week `blaze-enqueue` would queue
+the whole library again for it. The worker logs its vocabulary's model when
+it starts; it is the model its jobs get.
+
+A label, a search word or most thresholds change nothing stored: the app
+reads them from the file. The thresholds of chat, chien, cheval, oiseau,
+animal, chaton and jeune_animal are the exception: "animal" and
+"jeune_animal" map them into their scores. Those, and any description, rival
+or bias, change the stored scores: bump `version`, rebuild the image, and
+`blaze-enqueue --task tags --all` queues every photo again (it compares each
+job's model with the vocabulary's); the worker replaces each photo's rows.
+How the scores are made and how the thresholds were set: `docs/TAGS.md`.
 
 ## Health check
 

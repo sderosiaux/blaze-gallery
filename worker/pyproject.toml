@@ -1,7 +1,7 @@
 [project]
 name = "blaze-worker"
 version = "0.1.0"
-description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the faces, describe, thumbs and embed tasks"
+description = "Analysis workers for Blaze Gallery: a Postgres job queue shared by several machines, and the faces, describe, thumbs, embed and tags tasks"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "boto3>=1.40",

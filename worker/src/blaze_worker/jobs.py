@@ -171,6 +171,45 @@ def complete(
     return row is not None
 
 
+def complete_many(
+    conn: Connection,
+    owner: str,
+    results: Sequence[tuple[int, dict[str, Any]]],
+    model: str | None,
+    status: str = "done",
+    note: str | None = None,
+) -> set[int]:
+    """complete() for (job id, stats) pairs in one statement; the ids still held.
+
+    Runs in the caller's transaction, if any. A missing id was lost: the
+    caller must not write that job's result.
+    """
+    if status not in ("done", "skipped"):
+        raise ValueError(status)
+    if not results:
+        return set()
+    rows = conn.execute(
+        """
+        UPDATE analysis_jobs j SET
+          status = %(status)s, model = %(model)s, stats = r.stats, last_error = %(note)s,
+          lease_expires_at = NULL, not_before = NULL,
+          finished_at = now(), updated_at = now()
+        FROM unnest(%(ids)s::bigint[], %(stats)s::jsonb[]) AS r(id, stats)
+        WHERE j.id = r.id AND j.status = 'leased' AND j.lease_owner = %(owner)s
+        RETURNING j.id
+        """,
+        {
+            "status": status,
+            "model": model,
+            "note": note,
+            "ids": [job_id for job_id, _ in results],
+            "stats": [Jsonb(stats) for _, stats in results],
+            "owner": owner,
+        },
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def fail(conn: Connection, owner: str, job_id: int, error: str, permanent: bool) -> str | None:
     """Records a failed attempt; retried later unless permanent or out of attempts.
 
