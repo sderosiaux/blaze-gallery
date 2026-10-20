@@ -54,6 +54,7 @@ AXES = {
     "an adult cat": 5,
     "an animal": 6,
     "a beach": 7,
+    "people at the beach": 8,
 }
 
 VOCABULARY = {
@@ -472,3 +473,29 @@ def test_stored_scores_are_the_computed_float32(conn, schema):
         "SELECT tag, score FROM photo_tags WHERE photo_id = %s", (cat,)
     ).fetchall():
         assert np.float32(score) == expected[names.index(tag)]
+
+
+def test_also_takes_the_largest_logit_of_its_descriptions():
+    s = scorer(plage={"also": [{"match": ["people at the beach"], "bias": -9.0}]})
+    names = [t.tag for t in s.vocabulary.tags]
+    beach = names.index("plage")
+    empty = photo(**{"a beach": 0.14})
+    crowded = photo(**{"a beach": 0.05, "people at the beach": 0.12})
+    got = s.scores(np.stack([empty, crowded]))[:, beach]
+    assert got[0] == pytest.approx(sigmoid(SCALE * 0.14 - 11.0), rel=1e-4)
+    assert got[1] == pytest.approx(sigmoid(SCALE * 0.12 - 9.0), rel=1e-4)
+    # What a photo of people at the beach adds is part of the job's model
+    assert s.vocabulary.model != vocab().model
+    assert "people at the beach" in s.vocabulary.prompts
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"interieur": {"also": [{"match": ["a beach"], "bias": -9.0}]}},
+        {"chaton": {"also": [{"match": ["a beach"], "bias": -9.0}]}},
+    ],
+)
+def test_also_goes_with_a_plain_tag_only(change):
+    with pytest.raises(ValueError, match="also"):
+        vocab(**change)

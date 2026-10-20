@@ -39,6 +39,18 @@ few short English prompts per tag, once per vocabulary.
   "A photo of snow" brought up white cats and became snowy landscapes. Normalizing
   against generic backgrounds ("a photo", "a room") made 4 tags out of 6
   worse, so I dropped it.
+- Places and moments also have descriptions with people in them (v3).
+  Measured on the photos the faces task found faces on (56,297), v2 tagged
+  0.00% of them "plage", 0.01% "foret", 0.05% "jardin": "a photo of a
+  beach" scores low as soon as someone stands in front of it, and in a
+  family library that is most beaches. Each of these tags now takes the
+  larger of two logits, its own and that of "a photo of people at the
+  beach", "a family on the beach"... (averaged like any match), each with
+  its own bias. Averaging the four people prompts ranked a hard set of 60
+  seaside photos of Céline better than any one of them or their max (AUC
+  0.74 against 0.67 to 0.70). The people bias is set from the people
+  photos only, by the same band checks as the thresholds, so a threshold
+  means the same thing with or without someone in the frame.
 - Some tags build on others. A kitten is a cat that looks more like a
   kitten than like an adult cat. "animal" and "jeune_animal" take the largest of their own
   score and their species' scores, moved in logit so that each species'
@@ -123,6 +135,34 @@ Where precision is weak:
 - `noel` is wrong on some festive dinners and city lights unrelated to
   Christmas.
 - `animal`: below 0.8, foliage with no visible animal comes up.
+
+People in the frame (v3), share of the photos with faces above each
+threshold, and the photos of Céline (person 4) tagged, before and after:
+
+| tag | photos with faces, v2 | v3 | Céline, v2 | v3 | v3 band check | v3 drawn from all above |
+|---|---|---|---|---|---|---|
+| plage | 0.00% | 1.25% | 0 | 451 | 20/24 | 22/24 |
+| mer | 0.56% | 2.46% | 184 | 1,060 | 20/24 | 24/24 |
+| montagne | 0.82% | 6.75% | 335 | 2,766 | 21/24 | 24/24 |
+| neige | 0.19% | 0.42% | 74 | 155 | 22/24 | 24/24 |
+| foret | 0.01% | 1.26% | 0 | 428 | 20/24 | 23/24 |
+| jardin | 0.05% | 1.61% | 12 | 226 | 21/24 | 23/24 |
+| ville | 0.98% | 5.51% | 118 | 1,972 | 20/24 | 22/24 |
+| piscine | 0.02% | 0.05% | 1 | 1 | 20/24 | 22/24 |
+| nuit | 0.50% | 0.90% | 102 | 201 | 21/24 | 21/24 |
+| coucher_de_soleil | 0.00% | 0.07% | 0 | 33 | 24/24 | 24/24 |
+
+On the 2,061 photos Qwen3-VL described, nearly all with people, "jardin"
+went from 2 photos to 206 (Qwen's garden label: precision 1.00, recall
+0.005 to 0.48). For each tag I also drew 24 of the photos v3 adds, at
+random and among the lowest scored: most errors there are seaside promenades
+read as beaches, fjords and lakes read as sea, and parks read as gardens.
+Photos without faces barely move (plage 0.48% to 1.13% of them).
+
+anniversaire, noel and mariage keep their v2 prompts. Their photos are
+already full of people, and people prompts made them worse: on the Qwen
+labels, precision fell from 0.94 to 0.79 for noel and from 0.96 to 0.67
+for mariage (guests at any party).
 
 Left out of v1:
 

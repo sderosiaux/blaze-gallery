@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "tags": [
     {
       "tag": "interieur",
@@ -189,7 +189,18 @@
       "threshold": 0.75,
       "prompts": {
         "match": ["a photo of a beach"],
-        "bias": -12.89
+        "bias": -12.89,
+        "also": [
+          {
+            "match": [
+              "a photo of people at the beach",
+              "a family on the beach",
+              "a selfie at the beach",
+              "children playing on the beach"
+            ],
+            "bias": -9.72
+          }
+        ]
       }
     },
     {
@@ -200,7 +211,17 @@
       "threshold": 0.8,
       "prompts": {
         "match": ["a photo of the sea"],
-        "bias": -9.83
+        "bias": -9.83,
+        "also": [
+          {
+            "match": [
+              "a photo of people by the sea",
+              "a selfie by the sea",
+              "people on a boat at sea"
+            ],
+            "bias": -10.78
+          }
+        ]
       }
     },
     {
@@ -211,7 +232,17 @@
       "threshold": 0.9,
       "prompts": {
         "match": ["a photo of mountains"],
-        "bias": -9.33
+        "bias": -9.33,
+        "also": [
+          {
+            "match": [
+              "a photo of people in the mountains",
+              "a selfie in the mountains",
+              "hikers in the mountains"
+            ],
+            "bias": -9.75
+          }
+        ]
       }
     },
     {
@@ -226,7 +257,18 @@
           "a photo of snow on the ground",
           "a photo of people in the snow"
         ],
-        "bias": -9.77
+        "bias": -9.77,
+        "also": [
+          {
+            "match": [
+              "a photo of people in the snow",
+              "children playing in the snow",
+              "people skiing",
+              "a selfie in the snow"
+            ],
+            "bias": -9.74
+          }
+        ]
       }
     },
     {
@@ -237,7 +279,17 @@
       "threshold": 0.6,
       "prompts": {
         "match": ["a photo of a forest"],
-        "bias": -12.89
+        "bias": -12.89,
+        "also": [
+          {
+            "match": [
+              "a photo of people in a forest",
+              "a walk in the woods",
+              "a selfie in the forest"
+            ],
+            "bias": -11.99
+          }
+        ]
       }
     },
     {
@@ -248,7 +300,17 @@
       "threshold": 0.7,
       "prompts": {
         "match": ["a photo of a garden"],
-        "bias": -11.39
+        "bias": -11.39,
+        "also": [
+          {
+            "match": [
+              "a photo of people in a garden",
+              "a family in the garden",
+              "children playing in the garden"
+            ],
+            "bias": -10.53
+          }
+        ]
       }
     },
     {
@@ -259,7 +321,17 @@
       "threshold": 0.4,
       "prompts": {
         "match": ["a photo of a city street"],
-        "bias": -10.02
+        "bias": -10.02,
+        "also": [
+          {
+            "match": [
+              "a photo of people in a city street",
+              "a selfie in the city",
+              "tourists in a city"
+            ],
+            "bias": -10.77
+          }
+        ]
       }
     },
     {
@@ -270,7 +342,17 @@
       "threshold": 0.9,
       "prompts": {
         "match": ["a photo of a swimming pool"],
-        "bias": -10.14
+        "bias": -10.14,
+        "also": [
+          {
+            "match": [
+              "a photo of people in a swimming pool",
+              "children swimming in a pool",
+              "people by the pool"
+            ],
+            "bias": -11.55
+          }
+        ]
       }
     },
     {
@@ -281,7 +363,17 @@
       "threshold": 0.85,
       "prompts": {
         "match": ["a photo taken at night"],
-        "bias": -10.89
+        "bias": -10.89,
+        "also": [
+          {
+            "match": [
+              "a photo of people outside at night with city lights",
+              "a selfie outside at night",
+              "people in the street at night"
+            ],
+            "bias": -11.22
+          }
+        ]
       }
     },
     {
@@ -298,7 +390,17 @@
       "threshold": 0.9,
       "prompts": {
         "match": ["a photo of a sunset"],
-        "bias": -11.39
+        "bias": -11.39,
+        "also": [
+          {
+            "match": [
+              "a photo of people at sunset",
+              "a selfie at sunset",
+              "silhouettes of people at sunset"
+            ],
+            "bias": -11.32
+          }
+        ]
       }
     },
     {
