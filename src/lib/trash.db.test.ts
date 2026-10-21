@@ -344,6 +344,18 @@ void describe("the Corbeille", () => {
     assert.deepEqual(ids(await database.getStackPhotos(301)), [301]);
   });
 
+  void test("« Garder » links a burst by the shot's own time, not a fallback EXIF date", async () => {
+    await photo(361, FOLDER, "2021-05-01T10:00:00");
+    await photo(362, FOLDER, "2021-05-01T10:00:02");
+    await photo(363, FOLDER, "2021-05-01T10:00:02");
+    await sql.query(
+      `UPDATE photos SET metadata = metadata || '{"date_tag": "DateTime"}' WHERE id = 363`,
+    );
+    await stack([361, 362, 363]);
+    // 362 has no date_tag (probed before it was recorded): as before
+    assert.deepEqual(await keep.previewKeep([361]), { 361: [362] });
+  });
+
   void test("« Garder » refuses to leave a stack with no photo of the gallery", async () => {
     await photo(341, { id: 2, path: "books" }, "2021-04-01T10:00:00");
     await photo(342, FOLDER, "2021-04-01T10:00:01");

@@ -16,8 +16,9 @@
  * decided by a pixel test) needs the thumbnails: those members stay, and
  * the stack keeps them with the photo kept.
  *
- * Not checked: whether date_taken came from DateTimeOriginal or a fallback
- * (imageProbe does not record which), the same as the worker today.
+ * A burst's dates must be DateTimeOriginal where imageProbe recorded the
+ * tag (date_tag); photos probed before it say nothing, and count as today,
+ * the same as the worker.
  */
 import type { PoolClient } from "pg";
 import { inGallery, query } from "./database";
@@ -40,9 +41,12 @@ const camera = (
   p: string,
 ) => `CASE WHEN ${p}.metadata -> 'camera' ->> 'make' IS NOT NULL
   THEN (${p}.metadata -> 'camera' ->> 'make') || '|' || coalesce(${p}.metadata -> 'camera' ->> 'model', '') END`;
+// The shot's own time: not when the date came from another EXIF tag
+// (imageProbe date_tag, recorded since 2026-10-21; unknown before)
 const taken = (
   p: string,
 ) => `CASE WHEN ${p}.metadata ->> 'date_taken' ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}'
+    AND coalesce(${p}.metadata ->> 'date_tag', 'DateTimeOriginal') = 'DateTimeOriginal'
   THEN extract(epoch FROM (${p}.metadata ->> 'date_taken')::timestamptz) END`;
 const plain = (p: string) =>
   `least(${width(p)}::int, ${height(p)}::int) >= ${MIN_SIDE}`;

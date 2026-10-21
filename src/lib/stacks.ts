@@ -20,7 +20,7 @@ export type StackPhoto = Photo & {
   folder_path: string;
   /** Its place among the photos of the stack the gallery shows, from 1 */
   rank: number;
-  link: "centre" | "copy" | "burst" | "same";
+  link: "centre" | "copy" | "burst" | "same" | "raw" | "bracket";
 };
 
 export interface StackEntry {
