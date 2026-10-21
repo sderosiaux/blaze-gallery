@@ -16,10 +16,12 @@ from blaze_worker.enqueue import enqueue_all
 from blaze_worker.gallery import EXCLUDED_NOTE
 from blaze_worker.groups import (
     ALIKE,
+    BRACKET,
     BURST,
     COPY,
     IDENTICAL,
     NONE,
+    RAW,
     SAME,
     TASK,
     Aborted,
@@ -39,6 +41,7 @@ from blaze_worker.groups import (
     rebuild,
     rules_model,
     settle,
+    taken_at,
 )
 from blaze_worker.siglip import DIM, MODEL
 from blaze_worker.tags import Vocabulary
@@ -87,6 +90,32 @@ def test_one_camera_later_needs_the_identical_picture():
     # Another shape a minute later: another shot
     assert code(a, photo(2, taken=1_000_100.0, width=3000, height=3000), 0.99) == NONE
     assert code(a, photo(2, taken=1_000_100.0), 0.98) == NONE
+
+
+def test_a_raw_file_and_its_jpeg_link_as_raw_not_as_a_burst():
+    nef = photo(1, raw=True, size=25_000_000)
+    assert code(nef, photo(2), 0.95) == RAW
+    assert code(photo(1), photo(2), 0.95) == BURST
+    # Below the burst's cosine, nothing
+    assert code(nef, photo(2), 0.85) == NONE
+
+
+def test_frames_at_other_exposures_link_as_a_bracket_when_both_say_so():
+    assert code(photo(1, exposure_bias=-1.0), photo(2, exposure_bias=1.0), 0.93) == BRACKET
+    assert code(photo(1, exposure_bias=0.0), photo(2, exposure_bias=0.0), 0.93) == BURST
+    # One unknown: a burst, as before
+    assert code(photo(1, exposure_bias=-1.0), photo(2), 0.93) == BURST
+
+
+def test_only_the_date_of_the_shot_times_a_burst():
+    iso = "2020-05-01T10:00:00.000Z"
+    assert taken_at(iso, CAMERA, "DateTimeOriginal") == taken_at(iso, CAMERA)
+    # Photos probed before the tag was recorded: as before
+    assert taken_at(iso, CAMERA, None) is not None
+    assert taken_at(iso, CAMERA, "DateTime") is None
+    assert taken_at(iso, CAMERA, "DateTimeDigitized") is None
+    # Untimed, the pair goes to the pixel test
+    assert code(photo(1), photo(2, taken=None), 0.99) == ALIKE
 
 
 def test_two_cameras_never_link_but_as_exact_copies():

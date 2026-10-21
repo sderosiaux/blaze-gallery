@@ -7,7 +7,13 @@ Two photos are linked when one of these rules holds:
   copy    same size in bytes, same dimensions, cosine >= 0.999 (the sync
           stores no hash; this is the closest the database knows)
   burst   same camera (EXIF make and model), taken the same second and
-          cosine >= 0.90, or within 30 s and cosine >= 0.975
+          cosine >= 0.90, or within 30 s and cosine >= 0.975, by the date the
+          camera wrote when it took the picture (DateTimeOriginal: a date read
+          from DateTimeDigitized or DateTime, when imageProbe says so, does
+          not time a pair, which the pixel test then decides); a burst whose
+          two frames are a raw file and a JPEG (RAW_TYPES) links as raw, one
+          whose frames have other exposures (EXIF exposure bias, both known)
+          as bracket
   same    cosine >= 0.985 and the same picture: identical once shrunk for
           the same camera more than 30 s apart (IDENTICAL_SHARE), alike once
           shrunk when one of them has no camera date (DIFFERENT_SHARE), both
@@ -18,7 +24,12 @@ photographing one view), and screens, documents and images under MIN_SIDE
 px only stack as exact copies (pages and flags look alike to the model).
 A crop (another shape) stays out: the pixel test compares two pictures
 squeezed into one square, which two shapes never match, and the cosine
-alone was right on 11 of 16 such pairs.
+alone was right on 11 of 16 such pairs. "Same camera" is the make and
+model: two bodies of one model (two family iPhones) count as one, as the
+metadata holds no serial number. imageProbe records date_tag and
+exposure_bias since 2026-10-21: photos probed before have neither, and are
+timed and linked as before (a burst).
+
 Every member of a stack must be linked to its centre itself, so a slow
 series cannot chain into one long stack, and the photos with the most
 links claim theirs first, so centres sit in the middle of a burst.
@@ -90,7 +101,8 @@ log = logging.getLogger("blaze_worker")
 
 TASK = "groups"
 # Raised when a rule changes in the code rather than in a constant (rules_model):
-# 2, a crop without a camera date no longer stacks
+# 2, a crop without a camera date no longer stacks; raw and bracket links; a
+# date imageProbe read from a fallback tag does not time a burst
 VERSION = 2
 
 COPY_COSINE = 0.999
@@ -118,6 +130,9 @@ MIN_SIDE = 100
 SCREEN_TAG = "ecran_document"
 # A camera's raw files, as the sync types them
 RAW_TYPES = ("image/x-nikon-nef", "image/x-adobe-dng")
+# The EXIF date written when the picture was taken; imageProbe falls back on
+# DateTimeDigitized and DateTime, which a scan or an edit rewrites
+TAKEN_TAG = "DateTimeOriginal"
 # A folder named from the date it holds: « 2022-05 - NYC », « 2011-06-11 - Mariage »
 DATED_FOLDER = re.compile(r"\d{4}-\d{2}")
 
@@ -203,6 +218,7 @@ def rules_model() -> str:
         MEDIAN_FILLED,
         RAW_TYPES,
         DATED_FOLDER.pattern,
+        TAKEN_TAG,
     ]
     digest = hashlib.sha256(json.dumps([MODEL, rules], sort_keys=True).encode()).hexdigest()
     return f"groups v{VERSION} {digest[:8]}"
@@ -230,6 +246,8 @@ class Photo:
     raw: bool = False
     # In a dated folder right under its top folder (in_dated_folder)
     dated_folder: bool = False
+    # EXIF exposure bias (EV), None when not recorded
+    exposure_bias: float | None = None
 
     @property
     def shape(self) -> float:
@@ -254,8 +272,10 @@ def in_dated_folder(key: str) -> bool:
     return len(parts) >= 3 and DATED_FOLDER.match(parts[1]) is not None
 
 
-def taken_at(value: str | None, camera: str | None) -> float | None:
-    if not value or camera is None:
+def taken_at(value: str | None, camera: str | None, tag: str | None = None) -> float | None:
+    """Seconds of a camera's date; None without a camera, or when imageProbe read it from
+    another tag than TAKEN_TAG (an unknown tag, photos probed before it said, counts)."""
+    if not value or camera is None or (tag is not None and tag != TAKEN_TAG):
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
@@ -276,7 +296,10 @@ def _photos_sql(where: str) -> str:
                    AND t.score >= %(screen_score)s AND t.vocab_version = %(vocabulary)s),
            p.thumbnail_path,
            coalesce((p.metadata ->> 'user_rotation')::int, 0),
-           p.mime_type, p.s3_key
+           p.mime_type, p.s3_key,
+           p.metadata ->> 'date_tag',
+           CASE WHEN jsonb_typeof(p.metadata -> 'exposure_bias') = 'number'
+                THEN (p.metadata ->> 'exposure_bias')::float8 END
     FROM photos p
     WHERE p.mime_type LIKE 'image/%%' AND NOT {out_of_gallery()}
       AND {embedded_sql("p.id")}
@@ -303,23 +326,36 @@ def load_photos(
             width,
             height,
             camera,
-            taken_at(taken, camera),
+            taken_at(taken, camera, tag),
             screen,
             thumb,
             rotation,
             raw=mime in RAW_TYPES,
             dated_folder=in_dated_folder(key),
+            exposure_bias=bias,
         )
-        for pid, size, width, height, camera, taken, screen, thumb, rotation, mime, key in (
-            conn.execute(_photos_sql(where), values).fetchall()
-        )
+        for (
+            pid,
+            size,
+            width,
+            height,
+            camera,
+            taken,
+            screen,
+            thumb,
+            rotation,
+            mime,
+            key,
+            tag,
+            bias,
+        ) in conn.execute(_photos_sql(where), values).fetchall()
     ]
 
 
 # -- which pairs are linked ---------------------------------------------------------
 
-NONE, COPY, BURST, SAME, IDENTICAL, ALIKE = range(6)
-LINK = {COPY: "copy", BURST: "burst", SAME: "same"}
+NONE, COPY, BURST, SAME, IDENTICAL, ALIKE, RAW, BRACKET = range(8)
+LINK = {COPY: "copy", BURST: "burst", SAME: "same", RAW: "raw", BRACKET: "bracket"}
 
 
 @dataclass(frozen=True)
@@ -333,6 +369,8 @@ class Columns:
     taken: np.ndarray  # nan without
     shape: np.ndarray
     plain: np.ndarray
+    raw: np.ndarray
+    bias: np.ndarray  # nan without
 
     @classmethod
     def of(cls, photos: Sequence[Photo]) -> Columns:
@@ -351,6 +389,11 @@ class Columns:
             taken=np.array([np.nan if p.taken is None else p.taken for p in photos], np.float64),
             shape=np.array([p.shape for p in photos], np.float64),
             plain=np.array([p.plain for p in photos], bool),
+            raw=np.array([p.raw for p in photos], bool),
+            bias=np.array(
+                [np.nan if p.exposure_bias is None else p.exposure_bias for p in photos],
+                np.float64,
+            ),
         )
 
 
@@ -369,6 +412,11 @@ def classify(c: Columns, i: np.ndarray, j: np.ndarray, cosine: np.ndarray) -> np
     same_shape = np.abs(c.shape[i] - c.shape[j]) <= SAME_SHAPE
     code[same_second & (cosine >= SAME_SECOND_COSINE)] = BURST
     code[burst & (cosine >= BURST_COSINE)] = BURST
+    # Of the frames of a burst: a raw file and its JPEG, or the same view at other exposures
+    with np.errstate(invalid="ignore"):
+        bracket = np.abs(c.bias[i] - c.bias[j]) > 0
+    code[(code == BURST) & bracket] = BRACKET
+    code[(code == BURST) & (c.raw[i] != c.raw[j])] = RAW
     code[later & same_shape & (cosine >= SAME_COSINE)] = IDENTICAL
     # Another shape: the pixel test cannot compare them, so no link (module docstring)
     untimed = ~timed & ~two_cameras & same_shape & (cosine >= SAME_COSINE)

@@ -633,8 +633,10 @@ CREATE TABLE IF NOT EXISTS excluded_folders (
 -- to the centre ('centre' for the centre itself):
 --   copy   same size in bytes, same dimensions, cosine >= 0.999;
 --   burst  same camera (EXIF make and model), taken within 30 s;
---   same   the same picture (identical once shrunk, or a crop or resized
---          copy without camera data).
+--   raw    a burst of a camera's raw file and its JPEG;
+--   bracket a burst at other exposures (EXIF exposure bias);
+--   same   the same picture (identical once shrunk, or a resized copy
+--          without camera data, of one shape).
 -- copy_of: the lowest photo id among this photo's exact copies in the stack
 -- (link copy, or the centre they are copies of); NULL when it has none. The
 -- faces of exact copies are the same faces: the review queue decides them
@@ -648,10 +650,16 @@ CREATE TABLE IF NOT EXISTS photo_groups (
   group_id bigint NOT NULL,
   rank integer NOT NULL CHECK (rank >= 1),
   score real NOT NULL,
-  link text NOT NULL CHECK (link IN ('centre', 'copy', 'burst', 'same')),
+  link text NOT NULL CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket')),
   copy_of bigint,
   measures jsonb NOT NULL,
   model text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (group_id, rank)
 );
+-- raw (a camera's raw file and its JPEG) and bracket (one view at other
+-- exposures) came after the table (2026-10-21): the check is widened, which
+-- no row can fail
+ALTER TABLE photo_groups DROP CONSTRAINT IF EXISTS photo_groups_link_check;
+ALTER TABLE photo_groups ADD CONSTRAINT photo_groups_link_check
+  CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket'));
