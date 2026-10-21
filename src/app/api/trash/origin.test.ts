@@ -30,6 +30,7 @@ void test("a write of the Corbeille from another site is refused; from the app i
     "/api/trash": await import("./route"),
     "/api/trash/restore": await import("./restore/route"),
     "/api/trash/empty": await import("./empty/route"),
+    "/api/trash/put-back": await import("./put-back/route"),
     "/api/stacks/keep": await import("../stacks/keep/route"),
   };
   const post = (path: string, origin: string) =>

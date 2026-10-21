@@ -48,6 +48,50 @@ export async function restoreFromTrash(
   return Number(data.restored);
 }
 
+/** A photo in the Corbeille beside the photo kept in its place (GET /api/trash/:id/proof, lib/trash.ts TrashProof). */
+export interface ProofPhoto {
+  id: number;
+  filename: string;
+  folder_path: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  taken: string | null;
+  etag: string | null;
+  trashed: boolean;
+  metadata: Photo["metadata"];
+  thumbnail_url: string;
+}
+
+export interface TrashProof {
+  photo: ProofPhoto & {
+    trashed_at: string;
+    trashed_by: "owner" | "auto" | null;
+    trash_batch: string | null;
+  };
+  kept: ProofPhoto | null;
+  kept_state: "present" | "trashed" | "gone" | "none";
+  same_bytes: boolean | null;
+}
+
+export async function fetchProof(id: Photo["id"]): Promise<TrashProof> {
+  const response = await fetch(`/api/trash/${String(id)}/proof`);
+  const data = await readJsonObject(response);
+  if (!response.ok || data.success !== true)
+    throw new TrashError(
+      asString(data.error) ?? "La photo gardée n’a pas pu être lue",
+    );
+  return data as unknown as TrashProof;
+}
+
+/**
+ * « Annuler » after « Restaurer celle-ci »: back in the Corbeille with the
+ * marks the server kept; a TrashError says why not.
+ */
+export async function putBackInTrash(id: Photo["id"]): Promise<void> {
+  await post("/api/trash/put-back", { id: Number(id) });
+}
+
 /**
  * « Garder celle-ci »: `keep` stay, the rest of their stacks go to the
  * Corbeille, if that rest is still `trash`, the photos the owner saw go.

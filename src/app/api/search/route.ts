@@ -15,11 +15,20 @@ import {
   searchFolders,
   searchPhotos,
 } from "@/lib/database";
-import { resolveFilter, type ResolvedFilter } from "@/lib/filterResolver";
+import {
+  resolveFilter,
+  withContent,
+  withLike,
+  type ResolvedFilter,
+} from "@/lib/filterResolver";
 import { listPeople } from "@/lib/people";
 import { hasUrlFilter, parseUrlFilter } from "@/lib/photoFilter";
 import type { QueryPart } from "@/lib/searchQuery";
-import { semanticSearch, type SemanticResults } from "@/lib/semanticSearch";
+import {
+  semanticSearch,
+  similarSearch,
+  type SemanticResults,
+} from "@/lib/semanticSearch";
 import { logger } from "@/lib/logger";
 import { isRecord } from "@/hooks/apiJson";
 import {
@@ -57,6 +66,11 @@ const PEOPLE_LIMIT = 6;
  * The filter parameters narrow the photos, name matches included (not the
  * folders); `color` / `tone` each override the one the query says, whose
  * chip goes away. A cursor goes with the same query and filter.
+ * With `like` (« Photos similaires »), `semantic` ranks by likeness to that
+ * photo instead (lib/semanticSearch.ts similarSearch): the photo first,
+ * marked `source` (and `trashed` when in the Corbeille), then its
+ * look-alikes; what `q` describes narrows them, as in the other lists,
+ * and the name matches keep the look-alikes only.
  */
 export const GET = requireAuth(async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -116,7 +130,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
-    const search = resolution.value;
+    const search = await likenessOf(resolution.value);
 
     if (semanticAfter !== null) {
       const after = decodeCursor(semanticAfter, toOffsetCursor);
@@ -153,7 +167,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
       });
     }
 
-    const ranked = search.content !== null;
+    const ranked = search.content !== null || search.like !== null;
     const named = q !== "";
     const [photos, folders, totals, semantic, filtered, people] =
       await Promise.all([
@@ -244,12 +258,32 @@ function peopleIn(filter: PhotoFilter): number[] {
   ];
 }
 
+/**
+ * The search as it runs: with `like`, the look-alikes narrow every list
+ * (`filter`, what `q` describes too) and the likeness ranks (`likeRank`,
+ * the same filter without the look-alikes, which the ranking measures).
+ */
+type Search = ResolvedFilter & { likeRank: PhotoFilter | null };
+
+async function likenessOf(resolved: ResolvedFilter): Promise<Search> {
+  if (resolved.like === null) return { ...resolved, likeRank: null };
+  const words = await withContent(resolved);
+  const liked = await withLike(words.filter, resolved.like);
+  return { ...resolved, filter: liked.filter, likeRank: words.filter };
+}
+
 /** Nothing to embed reads as unavailable, without asking the embedder. */
 function semanticPage(
-  search: ResolvedFilter,
+  search: Search,
   offset: number,
   count: boolean,
 ): Promise<SemanticResults> {
+  if (search.like !== null && search.likeRank !== null)
+    return similarSearch(search.like, {
+      filter: search.likeRank,
+      offset,
+      limit: SEMANTIC_PAGE,
+    });
   if (search.content === null)
     return Promise.resolve({
       status: "unavailable",

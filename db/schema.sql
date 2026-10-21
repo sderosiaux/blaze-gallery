@@ -707,6 +707,17 @@ ALTER TABLE photos ADD COLUMN IF NOT EXISTS trash_batch text;
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_for bigint;
 CREATE INDEX IF NOT EXISTS idx_photos_trash_batch
   ON photos (trash_batch) WHERE trash_batch IS NOT NULL;
+-- « Annuler » after « Restaurer celle-ci » (src/lib/trash.ts putBack): the
+-- marks a photo had when the owner restored it, kept by the server for a
+-- few minutes and put back from here, never from what the browser sends.
+CREATE TABLE IF NOT EXISTS trash_undo (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  trashed_at timestamptz NOT NULL,
+  trashed_by text,
+  trash_batch text,
+  trashed_for bigint,
+  restored_at timestamptz NOT NULL DEFAULT now()
+);
 
 -- The file's ETag as the bucket lists it, quotes stripped: the MD5 of its
 -- bytes, except for a multipart upload, whose ETag ends in -<parts> and is

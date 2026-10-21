@@ -42,6 +42,7 @@ import {
   SEMANTIC_REFERENCE_RANK,
   type DateFilter,
 } from "./semanticQuery";
+import { SIMILAR_LIMIT, SIMILAR_MIN_COSINE } from "./similar";
 import type {
   CreatePhotoData,
   CreateFolderData,
@@ -896,12 +897,18 @@ export interface ContentFilter {
   ids: readonly number[];
 }
 
+/** « Ressemble à »: photo `source` and the ids of the photos that look like it (likePhotos). */
+export interface LikeFilter {
+  source: number;
+  ids: readonly number[];
+}
+
 /**
  * What a list of photos keeps: the gallery's photos showing all of
  * `people` and none of `withoutPeople`, each face of `faces`, each tag of `tags` (or not, negated),
  * nobody else with `only`, taken within each of `dates`, holding `colors`,
  * under `folder` (its sub-folders too), favorites with `favorites`, close
- * enough to `content`.
+ * enough to `content`, looking like `like`'s photo.
  */
 export interface PhotoFilter {
   people: readonly number[];
@@ -915,6 +922,7 @@ export interface PhotoFilter {
   folder: string | null;
   favorites: boolean;
   content: ContentFilter | null;
+  like: LikeFilter | null;
 }
 
 export const NO_PHOTO_FILTER: PhotoFilter = {
@@ -928,6 +936,7 @@ export const NO_PHOTO_FILTER: PhotoFilter = {
   folder: null,
   favorites: false,
   content: null,
+  like: null,
 };
 
 /** Whether `filter` keeps fewer photos than the whole gallery could. */
@@ -942,7 +951,8 @@ export function hasPhotoFilter(filter: PhotoFilter): boolean {
     hasColorFilter(filter.colors) ||
     filter.folder !== null ||
     filter.favorites ||
-    filter.content !== null
+    filter.content !== null ||
+    filter.like !== null
   );
 }
 
@@ -1136,6 +1146,9 @@ function filterConditions(
 
   if (filter.content) {
     conditions.push(`${id} = ANY (${add(filter.content.ids)}::bigint[])`);
+  }
+  if (filter.like) {
+    conditions.push(`${id} = ANY (${add(filter.like.ids)}::bigint[])`);
   }
   return conditions;
 }
@@ -1456,7 +1469,7 @@ export async function getColorOverview(
   ];
   const params: unknown[] = [perBand * BAND_CANDIDATES];
   // A filter of few photos given by their ids (a rare look or tag, a
-  // content): its
+  // content, a photo they look like): its
   // photos once for all the bands. Inline, each of the 18 bands repeated
   // the filter's scans (a rare look: 1.5 s on the library); kept for a
   // filter of many photos, each band read them all (outdoors, 165,000
@@ -1467,7 +1480,8 @@ export async function getColorOverview(
       (face) => face.person === null && RARE_LOOKS.has(face.expression),
     ) ||
     narrowed.tags.some((tag) => tag.rare && !tag.negated) ||
-    narrowed.content !== null;
+    narrowed.content !== null ||
+    narrowed.like !== null;
   const kept = byIds
     ? `WITH kept AS MATERIALIZED (
          SELECT p.id FROM photos p WHERE ${DATED} ${andPhotoFilter(params, narrowed)})`
@@ -1964,7 +1978,9 @@ const SEMANTIC_MIN_WINDOW = 100;
  * Photos of the gallery nearest to the query embedding, most similar
  * first, among those passing `filter`; with `cut`, only down to
  * SEMANTIC_MARGIN below the SEMANTIC_REFERENCE_RANK-th one (never under
- * SEMANTIC_MIN_SIMILARITY);
+ * SEMANTIC_MIN_SIMILARITY); with `cut` a photo (« Ressemble à », `q` its
+ * embedding), down to that cosine, without the photo, and without its own
+ * stack when the gallery shows the photo (it stands for the stack);
  * offset-paginated (the ranking exists only for this query). One query
  * shape whatever the filter: the planner picks the plan from its estimates,
  * and on the library (EXPLAIN ANALYZE, 2026-10-18) its pick was the faster
@@ -1982,7 +1998,7 @@ export async function searchPhotosByContent(
   filter: PhotoFilter,
   offset: number,
   limit: number,
-  cut = true,
+  cut: boolean | { source: number; minCosine: number } = true,
 ): Promise<{ items: ScoredPhoto[]; next: number | null }> {
   const window = Math.max(offset + limit + 1, SEMANTIC_MIN_WINDOW);
   const params: unknown[] = [q.embedding, q.model, window];
@@ -1991,6 +2007,19 @@ export async function searchPhotosByContent(
     return `$${params.length}`;
   };
   const narrow = andPhotoFilter(params, filter, "p", "e.photo_id");
+  // The photo stands for its stack, when the gallery shows it; from the
+  // Corbeille, its stack is what it is compared with
+  const source =
+    typeof cut === "object"
+      ? `AND e.photo_id <> ${add(cut.source)}::bigint
+           AND NOT EXISTS (
+             SELECT 1 FROM photo_groups source_of
+             JOIN photo_groups source_mate ON source_mate.group_id = source_of.group_id
+             JOIN photos source_p ON source_p.id = source_of.photo_id
+             WHERE source_of.photo_id = ${add(cut.source)}::bigint
+               AND source_mate.photo_id = e.photo_id
+               AND ${inGallery("source_p")})`
+      : "";
   // A stack once (a burst would fill the page with one picture), where its
   // member nearest to the query is: in the scan, a photo stays when no
   // other member the list keeps is nearer (then ranked before). The pages
@@ -2023,14 +2052,17 @@ export async function searchPhotosByContent(
            ${listed("front_p")}
          ORDER BY stack_front.rank
          LIMIT 1) front ON true`;
-  const floor = cut
-    ? `AND n.distance <= least(
+  const floor =
+    typeof cut === "object"
+      ? `AND n.distance <= ${add(1 - cut.minCosine)}::float8`
+      : cut
+        ? `AND n.distance <= least(
                ${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
                coalesce(
                  (SELECT distance FROM nearest ORDER BY distance
                   OFFSET ${add(SEMANTIC_REFERENCE_RANK - 1)} LIMIT 1),
                  (SELECT max(distance) FROM nearest)) + ${add(SEMANTIC_MARGIN)}::float8)`
-    : "";
+        : "";
   const pageOffset = add(offset);
   const pageLimit = add(limit + 1);
 
@@ -2054,6 +2086,7 @@ export async function searchPhotosByContent(
          JOIN photos p ON p.id = e.photo_id
          WHERE e.model = $2 AND p.mime_type LIKE 'image/%'
            ${narrow}
+           ${source}
            AND ${nearest}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
@@ -2082,6 +2115,49 @@ export async function searchPhotosByContent(
   return { items, next: rows.length > limit ? offset + limit : null };
 }
 
+/** A photo as « Photos similaires » ranks it: the source first, marked, in the Corbeille or not. */
+export type SimilarPhoto = ScoredPhoto & {
+  /** The photo the others look like */
+  source?: true;
+  /** In the Corbeille (only the source can be) */
+  trashed?: true;
+};
+
+/**
+ * Photo `photoId` as the head of its « Photos similaires »: wherever it
+ * is, the Corbeille or a folder out of the gallery included (the owner
+ * asked from it), with its stack as the gallery counts it. Null when it
+ * is gone.
+ */
+export async function similarSource(
+  photoId: number,
+): Promise<SimilarPhoto | null> {
+  const result = await query<
+    DatabasePhoto & {
+      folder_name: string;
+      folder_path: string;
+      trashed: boolean;
+    }
+  >(
+    `SELECT p.*, f.name AS folder_name, f.path AS folder_path,
+            p.trashed_at IS NOT NULL AS trashed, ${stackColumns()}
+     FROM photos p JOIN folders f ON f.id = p.folder_id
+     WHERE p.id = $1`,
+    [photoId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const { trashed, ...photo } = row;
+  return {
+    ...normalizePhoto(photo),
+    folder_name: photo.folder_name,
+    folder_path: photo.folder_path,
+    score: 1,
+    source: true,
+    ...(trashed ? { trashed: true as const } : {}),
+  };
+}
+
 /**
  * Most photos a content keeps in the lists kept in their own order. Their
  * ids are given to the planner, as the rare looks' (RARE_LOOKS): the
@@ -2100,24 +2176,71 @@ export const CONTENT_LIMIT = 5_000;
  * (PhotoFilter.content), so a query keeps the same photos in every view.
  * `complete`: false when the limit cut the list.
  */
-export async function contentPhotos(
+export function contentPhotos(
   q: QueryEmbedding,
   filter: PhotoFilter,
 ): Promise<{ ids: number[]; complete: boolean }> {
-  const params: unknown[] = [
-    q.embedding,
-    q.model,
-    CONTENT_LIMIT,
-    1 - SEMANTIC_MIN_SIMILARITY,
-    SEMANTIC_REFERENCE_RANK,
-    SEMANTIC_MARGIN,
-  ];
-  const narrow = andPhotoFilter(
-    params,
-    { ...filter, content: null },
-    "p",
-    "e.photo_id",
+  return nearestPhotoIds(q, { ...filter, content: null }, CONTENT_LIMIT, {
+    kind: "content",
+  });
+}
+
+/** A photo's image embedding, as the queries take one; null when it has none (a video, not embedded yet). */
+export async function photoEmbedding(
+  photoId: number,
+): Promise<QueryEmbedding | null> {
+  const result = await query<{ embedding: string; model: string }>(
+    "SELECT embedding::text AS embedding, model FROM photo_embeddings WHERE photo_id = $1",
+    [photoId],
   );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * The photos that look like the photo of embedding `like` (cosine at least
+ * SIMILAR_MIN_COSINE) among those passing `filter`, at most SIMILAR_LIMIT,
+ * the nearest: what « Ressemble à » keeps in every list
+ * (PhotoFilter.like). The photo itself is one of them when the filter
+ * keeps it. `complete`: false when the limit cut the list.
+ */
+export function likePhotos(
+  like: QueryEmbedding,
+  filter: PhotoFilter,
+): Promise<{ ids: number[]; complete: boolean }> {
+  return nearestPhotoIds(like, { ...filter, like: null }, SIMILAR_LIMIT, {
+    kind: "cosine",
+    min: SIMILAR_MIN_COSINE,
+  });
+}
+
+/**
+ * The photos nearest to `q` among those passing `filter`, at most `limit`,
+ * down to the floor: a content's (`content`: within SEMANTIC_MARGIN of the
+ * SEMANTIC_REFERENCE_RANK-th nearest, never past SEMANTIC_MIN_SIMILARITY),
+ * or a cosine. Walks the HNSW index in relaxed order and sorts what it
+ * found.
+ */
+async function nearestPhotoIds(
+  q: QueryEmbedding,
+  filter: PhotoFilter,
+  limit: number,
+  floor: { kind: "content" } | { kind: "cosine"; min: number },
+): Promise<{ ids: number[]; complete: boolean }> {
+  const params: unknown[] = [q.embedding, q.model, limit];
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  // Every row of nearest sorted, not the first ones the relaxed scan
+  // returns; least() skips a NULL: no photo leaves the absolute floor
+  const cut =
+    floor.kind === "content"
+      ? `SELECT least(${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
+           coalesce((array_agg(distance ORDER BY distance))[${add(SEMANTIC_REFERENCE_RANK)}::int],
+                    max(distance)) + ${add(SEMANTIC_MARGIN)}::float8) AS distance
+         FROM nearest`
+      : `SELECT ${add(1 - floor.min)}::float8 AS distance`;
+  const narrow = andPhotoFilter(params, filter, "p", "e.photo_id");
   const row = await runTransaction(async (client) => {
     await client.query("SET LOCAL hnsw.iterative_scan = relaxed_order");
     await client.query("SET LOCAL jit = off");
@@ -2132,26 +2255,20 @@ export async function contentPhotos(
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
        ),
-       -- Every row of nearest sorted, not the first ones the relaxed scan
-       -- returns; least() skips a NULL: no photo leaves the absolute floor
-       cut AS (
-         SELECT least($4::float8,
-           coalesce((array_agg(distance ORDER BY distance))[$5::int],
-                    max(distance)) + $6::float8) AS distance
-         FROM nearest
-       )
-       SELECT coalesce(array_agg(n.photo_id) FILTER (WHERE n.distance <= cut.distance),
+       cut AS (${cut})
+       SELECT coalesce(array_agg(n.photo_id ORDER BY n.distance, n.photo_id)
+                         FILTER (WHERE n.distance <= cut.distance),
                        '{}') AS ids,
               count(*)::int AS nearest
        FROM nearest n CROSS JOIN cut`,
       params,
     );
-    return requireRow(result, "Content photos");
+    return requireRow(result, "Nearest photos");
   });
   const ids = row.ids.map(Number);
   return {
     ids,
-    complete: !(row.nearest === CONTENT_LIMIT && ids.length === CONTENT_LIMIT),
+    complete: !(row.nearest === limit && ids.length === limit),
   };
 }
 

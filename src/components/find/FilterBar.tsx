@@ -20,6 +20,7 @@ import {
 import FaceThumb from "@/components/people/FaceThumb";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { thumbnailUrl } from "@/lib/photoUrls";
 import {
   COLOR_TONES,
   HUE_LABELS,
@@ -153,6 +154,13 @@ function Chip({ chip, onRemove }: { chip: FilterChip; onRemove: () => void }) {
         <FaceThumb
           faceId={chip.faceId ?? null}
           className="h-6 w-6 rounded-full"
+        />
+      ) : chip.photoId !== undefined ? (
+        // eslint-disable-next-line @next/next/no-img-element -- the app's 400 px thumbnails
+        <img
+          src={thumbnailUrl(chip.photoId)}
+          alt=""
+          className="h-6 w-6 rounded-full bg-line object-cover"
         />
       ) : chip.hue ? (
         <span

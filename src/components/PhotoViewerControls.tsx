@@ -9,6 +9,7 @@ import {
   Play,
   RotateCw,
   ScanFace,
+  ScanSearch,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -23,6 +24,8 @@ interface PhotoViewerControlsProps {
   /** Absent in shared views and for videos. */
   faces?: { shown: boolean; onToggle: () => void };
   info: { open: boolean; panelId: string; onToggle: () => void };
+  /** « Photos similaires »; absent in shared views and for videos. */
+  onSimilar?: () => void;
   /** Absent in shared views and for videos. */
   onRotate?: () => void;
   /** Absent when downloads aren't allowed. */
@@ -39,6 +42,7 @@ export default function PhotoViewerControls({
   favorite,
   faces,
   info,
+  onSimilar,
   onRotate,
   onDownload,
   onDelete,
@@ -115,6 +119,14 @@ export default function PhotoViewerControls({
         active={info.open}
         onClick={info.onToggle}
       />
+      {onSimilar && (
+        <IconButton
+          icon={ScanSearch}
+          label="Photos similaires (S)"
+          aria-keyshortcuts="S"
+          onClick={onSimilar}
+        />
+      )}
       {onRotate && (
         <IconButton
           icon={RotateCw}

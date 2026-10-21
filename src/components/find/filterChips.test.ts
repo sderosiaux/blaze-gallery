@@ -148,3 +148,13 @@ void test("only, with people in the words, is « Personne d'autre » as the serv
     "Tout le monde",
   );
 });
+
+void test("« Ressemble à » is a chip of its own, the photo's, removed alone", () => {
+  const filter: UrlFilter = { ...NO_URL_FILTER, people: [4], like: 12 };
+  const chips = filterChips(filter, VOCABULARY);
+  const like = chips.find((c) => c.kind === "like");
+  assert.ok(like);
+  assert.equal(like.label, "Ressemble à");
+  assert.equal(like.photoId, 12);
+  assert.deepEqual(like.remove(filter), { ...filter, like: null });
+});

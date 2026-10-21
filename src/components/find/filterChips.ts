@@ -28,9 +28,12 @@ export interface FilterChip {
     | "color"
     | "tone"
     | "date"
-    | "words";
+    | "words"
+    | "like";
   /** The person's face, for a person chip */
   faceId?: number | null;
+  /** The photo the others look like, for a « Ressemble à » chip */
+  photoId?: number;
   hue?: Hue;
   expression?: Expression;
   remove: (filter: UrlFilter) => UrlFilter;
@@ -261,6 +264,14 @@ export function filterChips(
       remove: (f) => ({ ...f, dates: f.dates.filter((_, n) => n !== i) }),
     });
   });
+  if (filter.like !== null)
+    chips.push({
+      key: "like",
+      label: "Ressemble à",
+      kind: "like",
+      photoId: filter.like,
+      remove: (f) => ({ ...f, like: null }),
+    });
   return chips;
 }
 

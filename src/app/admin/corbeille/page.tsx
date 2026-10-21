@@ -26,11 +26,20 @@ import {
 import type { Photo } from "@/types";
 import EmptyDialog from "./EmptyDialog";
 import { fetchLots, LotList, LotView, type Lot } from "./Lots";
+import TrashProofPanel, {
+  forgetProof,
+  KeptBadge,
+  restoreShown,
+} from "./TrashProof";
 
 /** Days a photo waits in the Corbeille (lib/trash.ts TRASH_DAYS). */
 const TRASH_DAYS = 30;
 
-type TrashedPhoto = Photo & { trashed_at: string };
+type TrashedPhoto = Photo & {
+  trashed_at: string;
+  /** The photo kept in its place (lib/trash.ts listTrash) */
+  kept: { id: number; trashed: boolean; rotation: number } | null;
+};
 
 interface Page {
   photos: TrashedPhoto[];
@@ -61,6 +70,11 @@ async function fetchTrash(after: Page["next"]): Promise<Page> {
     dueCutoff: String(data.due_cutoff),
     next: (data.next as Page["next"]) ?? null,
   };
+}
+
+/** The tile's badge of the photo kept in its place, when there is one. */
+function KeptOf({ photo }: { photo: TrashedPhoto }) {
+  return photo.kept ? <KeptBadge kept={photo.kept} /> : null;
 }
 
 /** Whole days left before the purge erases it, 0 on its last day. */
@@ -152,6 +166,39 @@ function Trash() {
       toast.show("La photo n’est pas revenue", "error");
       void load();
     }
+  };
+
+  // « Restaurer celle-ci » in the viewer: the next photo shows, or the viewer closes
+  const restoreViewed = (photo: Photo) => {
+    const list = page?.photos ?? [];
+    const at = list.findIndex((p) => String(p.id) === String(photo.id));
+    const shown = list[at];
+    void restoreShown(toast, photo, {
+      gone: () => {
+        setOpen(list[at + 1] ?? list[at - 1] ?? null);
+        setPage((p) =>
+          p
+            ? {
+                ...p,
+                photos: p.photos.filter(
+                  (x) => String(x.id) !== String(photo.id),
+                ),
+                total: p.total - 1,
+              }
+            : p,
+        );
+      },
+      back: () => {
+        if (!shown) return;
+        forgetProof(shown.id);
+        setPage((p) => {
+          if (!p) return p;
+          const photos = [...p.photos];
+          photos.splice(Math.min(at, photos.length), 0, shown);
+          return { ...p, photos, total: p.total + 1 };
+        });
+      },
+    });
   };
 
   const restoreAll = async () => {
@@ -297,6 +344,7 @@ function Trash() {
                 <span className="tabular pointer-events-none absolute bottom-1.5 left-1.5 rounded-full bg-scrim/45 px-1.5 py-0.5 text-[11px] font-medium leading-none text-on-photo backdrop-blur-sm">
                   {daysLeft((photo as TrashedPhoto).trashed_at)} j
                 </span>
+                <KeptOf photo={photo as TrashedPhoto} />
                 <IconButton
                   icon={RotateCcw}
                   label={`Restaurer ${photo.filename}`}
@@ -326,6 +374,9 @@ function Trash() {
             setOpen(null);
           }}
           onPhotoChange={setOpen}
+          aside={(shown) => (
+            <TrashProofPanel photo={shown} onRestore={restoreViewed} />
+          )}
         />
       )}
 

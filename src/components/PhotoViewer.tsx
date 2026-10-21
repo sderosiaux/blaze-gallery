@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Photo } from "@/types";
 import PhotoViewerControls from "./PhotoViewerControls";
@@ -19,6 +20,7 @@ import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
 import { usePhotoRotation } from "@/hooks/usePhotoRotation";
 import { formatNumber, isVideo } from "@/lib/albums";
 import type { PhotoPatch } from "@/lib/photoPatch";
+import { similarHref } from "./viewer/similarHref";
 import { userRotation } from "@/lib/rotation";
 import { cn } from "@/lib/cn";
 import ViewerPhoto, {
@@ -83,6 +85,8 @@ interface PhotoViewerProps {
   onFacesChange?: (photo: Photo) => void;
   /** Opens with the face boxes on (the review queue), whatever P was last. */
   showFaces?: boolean;
+  /** A panel beside the photo shown, for the page's own matter (the Corbeille's proof). */
+  aside?: (photo: Photo) => React.ReactNode;
 }
 
 interface Keyed<T> {
@@ -125,6 +129,7 @@ export default function PhotoViewer({
   sessionToken,
   onFacesChange,
   showFaces,
+  aside,
 }: PhotoViewerProps) {
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -166,6 +171,8 @@ export default function PhotoViewer({
   const canTrash = !isSharedView && Boolean(onPhotoReplace);
   // Who is on a photo is the owner's business: never in a shared view
   const canFaces = !isSharedView && !video;
+  // A video has no image embedding to compare
+  const canSimilar = !isSharedView && !video;
 
   // Once per opening, before the first fetch: names may have changed since
   useState(forgetPhotoFaces);
@@ -241,6 +248,22 @@ export default function PhotoViewer({
     setFacesShown(!facesShown);
     setAnnouncement(facesShown ? "Visages masqués" : "Visages affichés");
   }, [canFaces, facesShown]);
+
+  const router = useRouter();
+  const pathname = usePathname();
+  /**
+   * « Photos similaires »: the view's own list, narrowed to the photos
+   * looking like the one shown (`like`, with the view's other filters),
+   * the viewer closed; Recherche's from a view without filters (the
+   * Corbeille, Doublons). A stack's other photos included: the list goes
+   * past the stack.
+   */
+  const showSimilar = useCallback(() => {
+    if (!canSimilar) return;
+    const id = Number(current.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    router.push(similarHref(pathname, window.location.search, id));
+  }, [canSimilar, current.id, pathname, router]);
 
   const closeFaceMenu = useCallback(() => {
     const id = faceMenu?.value.face.face_id;
@@ -776,6 +799,12 @@ export default function PhotoViewer({
         handled();
         toggleZoom();
         break;
+      case "s":
+      case "S":
+        if (!canSimilar) return;
+        handled();
+        showSimilar();
+        break;
       case "?":
         handled();
         setHelpOpen((v) => !v);
@@ -992,6 +1021,7 @@ export default function PhotoViewer({
                 setInfoOpen((v) => !v);
               },
             }}
+            onSimilar={canSimilar ? showSimilar : undefined}
             onRotate={
               canRotate
                 ? () => {
@@ -1197,6 +1227,7 @@ export default function PhotoViewer({
             </div>
           </div>
 
+          {aside?.(current)}
           {infoOpen && (
             <InfoPanel
               id={infoId}
@@ -1217,6 +1248,7 @@ export default function PhotoViewer({
             canRotate={canRotate}
             canDelete={canTrash}
             canFaces={canFaces}
+            canSimilar={canSimilar}
             onClose={() => {
               setHelpOpen(false);
             }}

@@ -40,7 +40,9 @@ import {
   mcpPhotoFaces,
   resolvePerson,
 } from "@/lib/peopleMcp";
-import { semanticSearch } from "@/lib/semanticSearch";
+import { semanticSearch, similarSearch } from "@/lib/semanticSearch";
+import { SIMILAR_LIMIT, SIMILAR_MIN_COSINE } from "@/lib/similar";
+import type { SimilarPhoto } from "@/lib/database";
 import {
   normalizeSemanticQuery,
   parseDateRange,
@@ -522,6 +524,45 @@ function optionalDate(args: ToolArgs, name: string): string | undefined {
   return value;
 }
 
+/** `limit` (1 to 100, default 30) and the offset of `cursor`, a next_cursor of `tool`. */
+function rankedPaging(
+  args: ToolArgs,
+  tool: string,
+): { limit: number; offset: number } {
+  const limit = optionalNumber(args.limit) ?? 30;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new McpToolError(
+      ErrorCode.InvalidRequest,
+      "limit must be an integer from 1 to 100",
+    );
+  }
+  const cursorArg = optionalString(args.cursor);
+  const cursor =
+    cursorArg === undefined ? null : decodeCursor(cursorArg, toOffsetCursor);
+  if (cursorArg !== undefined && !cursor) {
+    throw new McpToolError(
+      ErrorCode.InvalidRequest,
+      `cursor must be a next_cursor returned by ${tool}`,
+    );
+  }
+  return { limit, offset: cursor?.offset ?? 0 };
+}
+
+/** A photo of a ranked list (semantic_search, similar_photos), as the tools return it. */
+function rankedPhoto(photo: SimilarPhoto) {
+  return {
+    id: Number(photo.id),
+    filename: photo.filename,
+    folder_path: photo.folder_path,
+    date_taken: photo.metadata?.date_taken ?? null,
+    score: photo.score,
+    is_favorite: photo.is_favorite,
+    thumbnail_url: photo.thumbnail_url,
+    ...(photo.source ? { source: true } : {}),
+    ...(photo.trashed ? { trashed: true } : {}),
+  };
+}
+
 function requirePositiveInt(args: ToolArgs, name: string): number {
   const value = args[name];
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
@@ -827,6 +868,42 @@ const toolHandlers = new Map<string, ToolHandler>([
   ],
 
   [
+    "similar_photos",
+    async (args) => {
+      const photoId = requirePositiveInt(args, "photo_id");
+      const { limit, offset } = rankedPaging(args, "similar_photos");
+      const range = parseDateRange(
+        optionalString(args.from),
+        optionalString(args.to),
+      );
+      if (!range.ok) {
+        throw new McpToolError(ErrorCode.InvalidRequest, range.error);
+      }
+      const read = await filterArgs(args, [rangeFilter(range.value)]);
+      const content = await withContent(read);
+      const result = await similarSearch(photoId, {
+        filter: content.filter,
+        offset,
+        limit,
+      });
+      if (offset === 0 && result.photos.length === 0)
+        throw new McpToolError(
+          ErrorCode.InvalidParams,
+          `photo_id: no photo ${String(photoId)}`,
+        );
+      return {
+        status: result.status,
+        min_score: SIMILAR_MIN_COSINE,
+        photos: result.photos.map(rankedPhoto),
+        count: result.photos.length,
+        next_cursor:
+          result.next === null ? null : encodeCursor({ offset: result.next }),
+        ...filterNotesOf(read, content),
+      };
+    },
+  ],
+
+  [
     "semantic_search",
     async (args) => {
       const query = optionalString(args.query)?.trim();
@@ -841,24 +918,7 @@ const toolHandlers = new Map<string, ToolHandler>([
           ErrorCode.InvalidRequest,
           `query is too long: at most ${String(SEMANTIC_QUERY_MAX)} characters`,
         );
-      const limit = optionalNumber(args.limit) ?? 30;
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-        throw new McpToolError(
-          ErrorCode.InvalidRequest,
-          "limit must be an integer from 1 to 100",
-        );
-      }
-      const cursorArg = optionalString(args.cursor);
-      const cursor =
-        cursorArg === undefined
-          ? null
-          : decodeCursor(cursorArg, toOffsetCursor);
-      if (cursorArg !== undefined && !cursor) {
-        throw new McpToolError(
-          ErrorCode.InvalidRequest,
-          "cursor must be a next_cursor returned by semantic_search",
-        );
-      }
+      const { limit, offset } = rankedPaging(args, "semantic_search");
       const range = parseDateRange(
         optionalString(args.from),
         optionalString(args.to),
@@ -877,22 +937,14 @@ const toolHandlers = new Map<string, ToolHandler>([
       const result = await semanticSearch(joined ? words : query, {
         filter: content.filter,
         cut: true,
-        offset: cursor?.offset ?? 0,
+        offset,
         limit,
         count: true,
       });
       return {
         status: result.status,
         indexed_photos: result.indexed,
-        photos: result.photos.map((photo) => ({
-          id: Number(photo.id),
-          filename: photo.filename,
-          folder_path: photo.folder_path,
-          date_taken: photo.metadata?.date_taken ?? null,
-          score: photo.score,
-          is_favorite: photo.is_favorite,
-          thumbnail_url: photo.thumbnail_url,
-        })),
+        photos: result.photos.map(rankedPhoto),
         count: result.photos.length,
         next_cursor:
           result.next === null ? null : encodeCursor({ offset: result.next }),
@@ -1303,6 +1355,41 @@ const toolSchemas = {
     },
     outputSchema: { type: "object" },
   },
+  similar_photos: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        photo_id: {
+          type: "number",
+          description: "The photo the others should look like",
+        },
+        limit: {
+          type: "number",
+          description: "Photos per page, 1 to 100 (default: 30)",
+        },
+        cursor: {
+          type: "string",
+          description:
+            "next_cursor from a previous call with the same photo and filters, for the next page",
+        },
+        from: {
+          type: "string",
+          description:
+            "Only photos taken on or after this year, month or day: YYYY, YYYY-MM or YYYY-MM-DD",
+        },
+        to: {
+          type: "string",
+          description:
+            "Only photos taken on or before this year, month or day: YYYY, YYYY-MM or YYYY-MM-DD",
+        },
+        people: PEOPLE_PROPERTY,
+        ...COLOR_PROPERTIES,
+        ...FILTER_PROPERTIES,
+      },
+      required: ["photo_id"],
+    },
+    outputSchema: { type: "object" },
+  },
   semantic_search: {
     inputSchema: {
       type: "object",
@@ -1515,6 +1602,11 @@ export const POST = requireAuthOrApiKey(async function POST(
               description:
                 'Find photos by what they show (objects, scenes, places, events, colors), described in French or any other language; not by filename. Narrow them to the photos of named people (people), how a face looks (expressions), scene tags (tags, without_tags), nobody else (only), a folder, a period (from, to), a color or a tone: the ranking then runs over those photos only, e.g. query "plage", people ["Suzie"], from 2015, to 2015. Results are ranked by score, the cosine similarity between the query and the photo (higher is closer), and stop below a relevance floor: an empty list means none of the photos passing the filters shows it. status: ok; unavailable when the query could not be embedded right now (retry later, or use search_photos); not_indexed when no photo has been analyzed yet. indexed_photos: how many photos have been analyzed so far (the others cannot be found this way yet). Photos in folders the owner marked as not a photo gallery are never returned.',
               inputSchema: toolSchemas.semantic_search.inputSchema,
+            },
+            {
+              name: "similar_photos",
+              description: `Find the photos that look like a photo (photo_id): the same subject, scene or moment, its copies and near-duplicates too, by the image embedding, as « Photos similaires » in the app. The photo itself comes first (source: true; trashed: true when it is in the Corbeille), then the others ranked by score, the cosine similarity between the two photos, down to min_score (${String(SIMILAR_MIN_COSINE)}), at most ${String(SIMILAR_LIMIT)}. A stack of near-duplicates shows once, by its best photo; the photo's own stack is left to the photo. The same filters as semantic_search narrow them. status: unavailable when the photo has not been analyzed yet (a video, or not embedded): only the photo is returned.`,
+              inputSchema: toolSchemas.similar_photos.inputSchema,
             },
           ],
         });
