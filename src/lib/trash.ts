@@ -14,6 +14,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
+import type { FileVersion } from "./s3";
 import type { Photo } from "@/types";
 import { inGallery, query, requireRow, runTransaction } from "./database";
 import { logger } from "./logger";
@@ -304,8 +305,12 @@ export async function listLotStacks(
 
 /** What the purge deletes outside the database; the tests give their own. */
 export interface PurgeStore {
-  /** Every version of the original; the version ids deleted. Throws when storage refuses. */
-  deleteOriginal: (key: string) => Promise<string[]>;
+  /** Every version and hide marker of the original. Throws when storage refuses. */
+  versions: (key: string) => Promise<FileVersion[]>;
+  /** Deletes those versions, in that order. Throws when storage refuses. */
+  deleteVersions: (key: string, ids: readonly string[]) => Promise<void>;
+  /** Whether the bucket serves the key (false: a 404). Throws on any other refusal. */
+  exists: (key: string) => Promise<boolean>;
   /** Thumbnail and renditions; a failure is logged (a leftover there costs nothing). */
   deleteDerived: (photo: PurgedPhoto) => Promise<void>;
 }
@@ -323,13 +328,25 @@ export interface PurgedPhoto {
  * built, which a list of the Corbeille has no use for.
  */
 export function storagePurgeStore(): PurgeStore {
+  const bucket = async () => {
+    const [s3, { getConfig }] = await Promise.all([
+      import("./s3"),
+      import("./config"),
+    ]);
+    return { s3, name: getConfig().backblaze_bucket };
+  };
   return {
-    deleteOriginal: async (key) => {
-      const [{ deleteAllVersions }, { getConfig }] = await Promise.all([
-        import("./s3"),
-        import("./config"),
-      ]);
-      return deleteAllVersions(getConfig().backblaze_bucket, key);
+    versions: async (key) => {
+      const { s3, name } = await bucket();
+      return s3.listFileVersions(name, key);
+    },
+    deleteVersions: async (key, ids) => {
+      const { s3, name } = await bucket();
+      await s3.deleteFileVersions(name, key, ids);
+    },
+    exists: async (key) => {
+      const { s3, name } = await bucket();
+      return s3.fileExists(name, key);
     },
     deleteDerived: async (photo) => {
       const [{ renditionKeys }, { thumbnailService }] = await Promise.all([
@@ -346,28 +363,50 @@ export function storagePurgeStore(): PurgeStore {
   };
 }
 
+interface PurgeTarget {
+  id: number;
+  s3_key: string;
+}
+
 export interface PurgeReport {
   /** Photos the cutoff selects, in all */
   selected: number;
   /** Erased, files and rows */
-  purged: { id: number; s3_key: string; versions: number }[];
-  /** Still waiting (the next batch, or after a refusal) */
+  purged: (PurgeTarget & { versions: number })[];
+  /** Still waiting (the next batch, those left, or after a stop) */
   remaining: number;
+  /**
+   * Left in the Corbeille by this run, the others going on: its file was
+   * written again after it was thrown away (or a version has no date), or
+   * the bucket has no version of it at all and does not serve it either
+   */
+  left: (PurgeTarget & { reason: "reuploaded" | "missing" })[];
   /** Storage refused a file: the purge stopped there, that photo stays in the Corbeille */
-  refused: { id: number; s3_key: string; status: number | null } | null;
+  refused: (PurgeTarget & { status: number | null }) | null;
+  /**
+   * The purge stopped there, that photo in the Corbeille as it was: the
+   * listing came back empty while the bucket serves the file ("listing"),
+   * versions were still listed once deleted ("remains"), or MISSING_IN_A_ROW
+   * photos in a row had no file at all ("missing": the wrong bucket or key)
+   */
+  stopped: (PurgeTarget & { reason: "listing" | "remains" | "missing" }) | null;
 }
 
 /** A purge that would erase more than it was told: nothing was touched. */
 export class PurgeRefused extends Error {}
 
+/** Photos without a file in a row after which the purge stops: no bucket has none of them all. */
+export const MISSING_IN_A_ROW = 3;
+
 const CANDIDATES = `FROM photos WHERE trashed_at IS NOT NULL AND trashed_at <= $1::timestamptz`;
 
 /**
  * Erases the photos thrown away up to `cutoff`, one at a time, oldest
- * first, until none is left or `limit` photos are done. Refuses without
+ * first, until none is left or `limit` photos are erased. Refuses without
  * touching anything when more than `expected` are selected (the number
  * the owner confirmed, or the cap of a scheduled run). `dryRun` only
- * counts and lists the keys it would erase. Every key erased is logged.
+ * counts and lists the keys it would erase. Every key erased, or left, is
+ * logged.
  */
 export async function purgeTrash(
   store: PurgeStore,
@@ -387,6 +426,14 @@ export async function purgeTrash(
     throw new PurgeRefused(
       `${selected} photos would be erased, ${options.expected} expected`,
     );
+  const report: PurgeReport = {
+    selected,
+    purged: [],
+    remaining: selected,
+    left: [],
+    refused: null,
+    stopped: null,
+  };
   if (options.dryRun) {
     const keys = await query<PurgedPhoto>(
       `SELECT id::int AS id, s3_key, mime_type, thumbnail_path ${CANDIDATES}
@@ -397,89 +444,187 @@ export async function purgeTrash(
       logger.info(`[purge] dry run, would erase ${photo.s3_key}`, {
         photoId: photo.id,
       });
-    return { selected, purged: [], remaining: selected, refused: null };
+    return report;
   }
-  const purged: PurgeReport["purged"] = [];
-  let refused: PurgeReport["refused"] = null;
   const limit = options.limit ?? Number.POSITIVE_INFINITY;
-  while (!refused && purged.length < limit) {
-    const one = await purgeOne(store, options.cutoff);
+  let missing = 0;
+  while (report.purged.length < limit) {
+    const one = await purgeOne(
+      store,
+      options.cutoff,
+      report.left.map((photo) => photo.id),
+    );
     if (one === null) break;
-    if ("refused" in one) refused = one.refused;
-    else purged.push(one.purged);
+    if ("refused" in one) {
+      report.refused = one.refused;
+      break;
+    }
+    if ("stopped" in one) {
+      report.stopped = one.stopped;
+      break;
+    }
+    if ("left" in one) {
+      report.left.push(one.left);
+      missing = one.left.reason === "missing" ? missing + 1 : 0;
+      if (missing >= MISSING_IN_A_ROW) {
+        report.stopped = { ...one.left, reason: "missing" };
+        logger.warn(
+          `[purge] stopped: ${missing} photos in a row have no file in the bucket`,
+        );
+        break;
+      }
+      continue;
+    }
+    missing = 0;
+    report.purged.push(one.purged);
   }
-  const remaining = requireRow(
+  report.remaining = requireRow(
     await query<{ n: number }>(`SELECT count(*)::int AS n ${CANDIDATES}`, [
       options.cutoff,
     ]),
   ).n;
-  return { selected, purged, remaining, refused };
+  return report;
 }
 
+type PurgeOutcome =
+  | { purged: PurgeReport["purged"][number] }
+  | { left: PurgeReport["left"][number] }
+  | { refused: NonNullable<PurgeReport["refused"]> }
+  | { stopped: NonNullable<PurgeReport["stopped"]> };
+
+/** Thrown inside the purge's transaction to roll it back with this outcome. */
+class Undo extends Error {
+  constructor(readonly outcome: PurgeOutcome) {
+    super("purge rolled back");
+  }
+}
+
+const refusal = (photo: PurgeTarget, error: unknown): PurgeOutcome => {
+  const status = (error as { $metadata?: { httpStatusCode?: number } })
+    .$metadata?.httpStatusCode;
+  logger.warn(`[purge] storage refused ${photo.s3_key}`, {
+    photoId: photo.id,
+    status,
+  });
+  return {
+    refused: { id: photo.id, s3_key: photo.s3_key, status: status ?? null },
+  };
+};
+
 /**
- * Erases the oldest photo due, in a transaction of its own: its row stays
- * locked while its file goes (a restore meanwhile waits, then finds
- * nothing), and is deleted as soon as the file is, so a purge cut short
- * leaves at most that one photo in the Corbeille without its file (the
- * next purge finds no version and deletes the row). Thumbnail and
- * renditions go once the row has: a leftover there costs nothing. Null
- * when none is due (or every due one is another purge's).
+ * Erases the oldest photo due but those of `skip`, in a transaction of its
+ * own holding its row: the share logs let go of it, its row goes, then
+ * every version of its file (the older first, the one the bucket serves
+ * last), then the bucket is listed again; anything still there, or storage
+ * refusing, rolls the row back, and a restore that waited finds it as it
+ * was. A file written after the photo was thrown away (a new upload under
+ * its key) is not erased, nor a photo whose file the bucket neither lists
+ * nor serves: both are left. Thumbnail and renditions go once committed: a
+ * leftover there costs nothing. Null when none is due (or every due one
+ * is another purge's).
  */
 async function purgeOne(
   store: PurgeStore,
   cutoff: Date,
-): Promise<
-  | { purged: PurgeReport["purged"][number] }
-  | { refused: NonNullable<PurgeReport["refused"]> }
-  | null
-> {
-  const outcome = await runTransaction(async (client) => {
-    const rows = await client.query<PurgedPhoto>(
-      `SELECT id::int AS id, s3_key, mime_type, thumbnail_path ${CANDIDATES}
-       ORDER BY trashed_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
-      [cutoff],
-    );
-    const photo = rows.rows[0];
-    if (!photo) return null;
-    let versions: string[];
-    try {
-      versions = await store.deleteOriginal(photo.s3_key);
-    } catch (error) {
-      const status = (error as { $metadata?: { httpStatusCode?: number } })
-        .$metadata?.httpStatusCode;
-      logger.warn(`[purge] storage refused ${photo.s3_key}`, {
+  skip: readonly number[],
+): Promise<PurgeOutcome | null> {
+  let outcome: (PurgeOutcome & { photo?: PurgedPhoto }) | null;
+  try {
+    outcome = await runTransaction(async (client) => {
+      const rows = await client.query<PurgedPhoto & { trashed_at: Date }>(
+        `SELECT id::int AS id, s3_key, mime_type, thumbnail_path, trashed_at ${CANDIDATES}
+           AND NOT (id = ANY($2::bigint[]))
+         ORDER BY trashed_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+        [cutoff, skip],
+      );
+      const photo = rows.rows[0];
+      if (!photo) return null;
+      const target = { id: photo.id, s3_key: photo.s3_key };
+      let versions: FileVersion[];
+      try {
+        versions = await store.versions(photo.s3_key);
+      } catch (error) {
+        return refusal(target, error);
+      }
+      if (versions.length === 0) {
+        let served: boolean;
+        try {
+          served = await store.exists(photo.s3_key);
+        } catch (error) {
+          return refusal(target, error);
+        }
+        if (served) {
+          logger.warn(
+            `[purge] stopped: no version listed for ${photo.s3_key}, which the bucket serves`,
+            { photoId: photo.id },
+          );
+          return { stopped: { ...target, reason: "listing" as const } };
+        }
+        logger.warn(`[purge] left ${photo.s3_key}: no file in the bucket`, {
+          photoId: photo.id,
+        });
+        return { left: { ...target, reason: "missing" as const } };
+      }
+      const thrown = new Date(photo.trashed_at).getTime();
+      if (
+        versions.some(
+          (v) =>
+            !v.marker && (!v.lastModified || v.lastModified.getTime() > thrown),
+        )
+      ) {
+        logger.warn(
+          `[purge] left ${photo.s3_key}: written again after it was thrown away`,
+          { photoId: photo.id },
+        );
+        return { left: { ...target, reason: "reuploaded" as const } };
+      }
+      await client.query(
+        "UPDATE share_access_logs SET photo_id = NULL WHERE photo_id = $1",
+        [photo.id],
+      );
+      const deleted = await client.query(
+        "DELETE FROM photos WHERE id = $1 AND trashed_at IS NOT NULL",
+        [photo.id],
+      );
+      if (deleted.rowCount !== 1)
+        throw new Error(`purge: photo ${photo.id} has no row to delete`);
+      // The older first: storage refusing midway leaves the file it serves
+      const order = [
+        ...versions.filter((v) => !v.latest),
+        ...versions.filter((v) => v.latest),
+      ].map((v) => v.id);
+      let after: FileVersion[];
+      try {
+        await store.deleteVersions(photo.s3_key, order);
+        after = await store.versions(photo.s3_key);
+      } catch (error) {
+        throw new Undo(refusal(target, error));
+      }
+      if (after.length > 0) {
+        logger.warn(
+          `[purge] stopped: ${after.length} versions of ${photo.s3_key} still listed once deleted`,
+          { photoId: photo.id },
+        );
+        throw new Undo({ stopped: { ...target, reason: "remains" } });
+      }
+      logger.info(`[purge] erased ${photo.s3_key}`, {
         photoId: photo.id,
-        status,
+        versions: versions.length,
       });
-      return {
-        refused: { id: photo.id, s3_key: photo.s3_key, status: status ?? null },
-      };
-    }
-    logger.info(`[purge] erased ${photo.s3_key}`, {
-      photoId: photo.id,
-      versions: versions.length,
+      return { photo, purged: { ...target, versions: versions.length } };
     });
-    await client.query(
-      "UPDATE share_access_logs SET photo_id = NULL WHERE photo_id = $1",
-      [photo.id],
-    );
-    const deleted = await client.query(
-      "DELETE FROM photos WHERE id = $1 AND trashed_at IS NOT NULL",
-      [photo.id],
-    );
-    if (deleted.rowCount !== 1)
-      throw new Error(`purge: photo ${photo.id} erased but its row stayed`);
-    return {
-      photo,
-      purged: { id: photo.id, s3_key: photo.s3_key, versions: versions.length },
-    };
-  });
-  if (outcome === null || "refused" in outcome) return outcome;
-  await store.deleteDerived(outcome.photo).catch((error: unknown) => {
-    logger.warn(`[purge] thumbnail of ${outcome.photo.s3_key} left`, {
-      photoId: outcome.photo.id,
+  } catch (error) {
+    if (error instanceof Undo) return error.outcome;
+    throw error;
+  }
+  if (outcome === null || !("purged" in outcome) || !outcome.photo)
+    return outcome;
+  const { photo, purged } = outcome;
+  await store.deleteDerived(photo).catch((error: unknown) => {
+    logger.warn(`[purge] thumbnail of ${photo.s3_key} left`, {
+      photoId: photo.id,
       error: String(error),
     });
   });
-  return { purged: outcome.purged };
+  return { purged };
 }

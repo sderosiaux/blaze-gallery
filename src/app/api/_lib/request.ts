@@ -1,4 +1,19 @@
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { validateOrigin } from "@/lib/auth/validators";
+
+/**
+ * A 403 for a write sent from another site's page (validateOrigin: the
+ * app's own origin or referer), null when it comes from the app.
+ */
+export function refusedOrigin(request: Request): NextResponse | null {
+  return validateOrigin(request)
+    ? null
+    : NextResponse.json(
+        { success: false, error: "Invalid origin" },
+        { status: 403 },
+      );
+}
 
 export type JsonObject = Record<string, unknown>;
 

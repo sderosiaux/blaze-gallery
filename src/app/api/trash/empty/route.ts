@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { purgeTrash, PurgeRefused, storagePurgeStore } from "@/lib/trash";
 import { badRequest, failure } from "@/app/api/_lib/people";
 import { jsonBody } from "@/app/api/_lib/ids";
+import { refusedOrigin } from "@/app/api/_lib/request";
 
 export const dynamic = "force-dynamic";
 // A few photos, each a listing of versions and a delete per version: far from a function's limit
@@ -18,9 +19,22 @@ const BATCH = 10;
  * owner confirmed), refusing when they are more than `expected` (the
  * number the confirmation showed). Answers what is left; the page calls
  * again until nothing is. Storage refusing a file stops it there: 403 with
- * the same reason as before the Corbeille, the photo stays in it.
+ * the same reason as before the Corbeille, the photo stays in it. A purge
+ * that stopped on a doubt (purgeTrash's `stopped`) answers 502 with it;
+ * photos it left (`left`: written again, or without a file) are counted.
  */
+const STOPPED = {
+  listing:
+    "Le stockage sert un fichier sans en lister les versions : rien n’a été effacé pour cette photo. Vérifiez la clé d’accès du serveur.",
+  remains:
+    "Le stockage garde des versions d’un fichier effacé : la photo reste dans la corbeille.",
+  missing:
+    "Plusieurs photos d’affilée n’ont aucun fichier dans le stockage : mauvais bucket ou mauvaise clé ? Rien n’a été effacé pour elles.",
+} as const;
+
 export const POST = requireAuth(async function POST(request: NextRequest) {
+  const foreign = refusedOrigin(request);
+  if (foreign) return foreign;
   const body = await jsonBody(request);
   const cutoff =
     typeof body?.cutoff === "string" ? new Date(body.cutoff) : null;
@@ -56,9 +70,21 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
         },
         { status: report.refused.status === 403 ? 403 : 502 },
       );
+    if (report.stopped)
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PURGE_STOPPED",
+          error: STOPPED[report.stopped.reason],
+          purged: report.purged.length,
+          remaining: report.remaining,
+        },
+        { status: 502 },
+      );
     return NextResponse.json({
       success: true,
       purged: report.purged.length,
+      left: report.left.length,
       remaining: report.remaining,
     });
   } catch (error) {

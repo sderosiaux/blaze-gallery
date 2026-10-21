@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type { Client } from "pg";
 import type * as Database from "./database";
+import type { FileVersion } from "./s3";
 import type * as Stacks from "./stacks";
 import type * as Trash from "./trash";
 import { startTestDatabase, type TestDatabase } from "./testDatabase";
@@ -93,19 +94,62 @@ after(async () => {
   await db.stop();
 });
 
-/** Storage that records what the purge asks of it; `refuse` names keys it answers 403 to. */
-function store(refuse: string[] = []) {
+const LONG_AGO = new Date("2000-01-01T00:00:00Z");
+
+/**
+ * A bucket that records what the purge asks of it. Each key holds two
+ * versions written long ago, the second served, unless `written` dates it
+ * otherwise. `refuse`: keys whose deletes it answers 403 to; `stuck`: keys
+ * whose deletes it acknowledges but keeps; `missing`: keys it neither
+ * lists nor serves; `unlisted`: keys it serves but lists no version of.
+ */
+function store(
+  options: {
+    refuse?: string[];
+    stuck?: string[];
+    missing?: string[];
+    unlisted?: string[];
+    written?: Record<string, Date>;
+  } = {},
+) {
   const calls: string[] = [];
+  const erased = new Set<string>();
+  const has = (list: string[] | undefined, key: string) =>
+    list?.includes(key) ?? false;
   const s: Trash.PurgeStore = {
-    deleteOriginal: (key) => {
-      calls.push(`original ${key}`);
-      if (refuse.includes(key))
+    versions: (key) => {
+      calls.push(`versions ${key}`);
+      const none =
+        (erased.has(key) && !has(options.stuck, key)) ||
+        has(options.missing, key) ||
+        has(options.unlisted, key);
+      const versions: FileVersion[] = none
+        ? []
+        : [
+            { id: "v1", latest: false, marker: false, lastModified: LONG_AGO },
+            {
+              id: "v2",
+              latest: true,
+              marker: false,
+              lastModified: options.written?.[key] ?? LONG_AGO,
+            },
+          ];
+      return Promise.resolve(versions);
+    },
+    deleteVersions: (key, versionIds) => {
+      calls.push(`delete ${key} ${versionIds.join(",")}`);
+      if (has(options.refuse, key))
         return Promise.reject(
           Object.assign(new Error("not entitled"), {
             $metadata: { httpStatusCode: 403 },
           }),
         );
-      return Promise.resolve(["v1", "v2"]);
+      erased.add(key);
+      return Promise.resolve();
+    },
+    exists: (key) => {
+      calls.push(`exists ${key}`);
+      return Promise.resolve(has(options.unlisted, key));
     },
     deleteDerived: (photo) => {
       calls.push(`derived ${photo.s3_key}`);
@@ -114,6 +158,33 @@ function store(refuse: string[] = []) {
   };
   return { s, calls };
 }
+
+/** The calls of a photo erased: listed, its versions deleted older first, listed again, then its thumbnail. */
+const erasing = (key: string) => [
+  `versions ${key}`,
+  `delete ${key} v1,v2`,
+  `versions ${key}`,
+  `derived ${key}`,
+];
+
+/** A share link that showed photo `id`, its access log naming it. */
+async function shareLog(id: number) {
+  await sql.query(
+    `INSERT INTO shared_folders (id, folder_id, share_token, folder_path)
+     VALUES (1, 1, 'token', '2020 Voyage') ON CONFLICT DO NOTHING`,
+  );
+  await sql.query(
+    `INSERT INTO share_access_logs (shared_folder_id, photo_id, access_type) VALUES (1, $1, 'view')`,
+    [id],
+  );
+}
+
+const loggedPhoto = async () =>
+  (
+    await sql.query<{ photo: number | null }>(
+      "SELECT photo_id::int AS photo FROM share_access_logs",
+    )
+  ).rows.map((r) => r.photo);
 
 void describe("the Corbeille", () => {
   void test("a photo thrown away leaves every list and its stack's front", async () => {
@@ -248,10 +319,8 @@ void describe("the Corbeille", () => {
     );
     assert.equal(report.remaining, 0);
     assert.deepEqual(calls, [
-      "original 2020 Voyage/p301.jpg",
-      "derived 2020 Voyage/p301.jpg",
-      "original 2020 Voyage/p321.jpg",
-      "derived 2020 Voyage/p321.jpg",
+      ...erasing("2020 Voyage/p301.jpg"),
+      ...erasing("2020 Voyage/p321.jpg"),
     ]);
     const left = await sql.query<{ id: number }>(
       "SELECT id::int AS id FROM photos ORDER BY id",
@@ -264,9 +333,10 @@ void describe("the Corbeille", () => {
     assert.deepEqual(await trashedIds(), [311]);
   });
 
-  void test("storage refusing a file stops the purge there; the photo stays", async () => {
+  void test("storage refusing a file stops the purge there; the photo and its share log stay", async () => {
     await trash.trashPhotos([301, 302]);
-    const { s, calls } = store(["2020 Voyage/p301.jpg"]);
+    await shareLog(301);
+    const { s, calls } = store({ refuse: ["2020 Voyage/p301.jpg"] });
     const report = await trash.purgeTrash(s, {
       cutoff: new Date(),
       expected: 2,
@@ -277,8 +347,113 @@ void describe("the Corbeille", () => {
       status: 403,
     });
     assert.deepEqual(report.purged, []);
-    assert.deepEqual(calls, ["original 2020 Voyage/p301.jpg"]);
+    assert.deepEqual(calls, [
+      "versions 2020 Voyage/p301.jpg",
+      "delete 2020 Voyage/p301.jpg v1,v2",
+    ]);
+    // The row went before the file: rolled back with the log's change
     assert.deepEqual(await trashedIds(), [301, 302]);
+    assert.deepEqual(await loggedPhoto(), [301]);
+  });
+
+  void test("a photo a share link showed is erased, its access log kept without it", async () => {
+    await trash.trashPhotos([301]);
+    await shareLog(301);
+    const { s } = store();
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 1,
+    });
+    assert.deepEqual(ids(report.purged), [301]);
+    assert.deepEqual(await loggedPhoto(), [null]);
+  });
+
+  void test("a file written again after it was thrown away is left; the others go", async () => {
+    await trash.trashPhotos([301, 302]);
+    const { s, calls } = store({
+      written: { "2020 Voyage/p301.jpg": new Date(Date.now() + 60_000) },
+    });
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(Date.now() + 1000),
+      expected: 2,
+    });
+    assert.deepEqual(report.left, [
+      { id: 301, s3_key: "2020 Voyage/p301.jpg", reason: "reuploaded" },
+    ]);
+    assert.deepEqual(ids(report.purged), [302]);
+    assert.ok(!calls.some((c) => c.startsWith("delete 2020 Voyage/p301.jpg")));
+    assert.deepEqual(await trashedIds(), [301]);
+    assert.equal(report.remaining, 1);
+  });
+
+  void test("no file in the bucket is not erased: left, and three in a row stop the purge", async () => {
+    await trash.trashPhotos([301, 302, 303, 311]);
+    const keys = [301, 302, 303, 311].map((id) => `2020 Voyage/p${id}.jpg`);
+    const { s, calls } = store({ missing: keys });
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 4,
+    });
+    assert.deepEqual(
+      report.left.map((p) => [p.id, p.reason]),
+      [
+        [301, "missing"],
+        [302, "missing"],
+        [303, "missing"],
+      ],
+    );
+    assert.deepEqual(report.stopped, {
+      id: 303,
+      s3_key: "2020 Voyage/p303.jpg",
+      reason: "missing",
+    });
+    // Never reached, nothing deleted, every row there
+    assert.ok(!calls.some((c) => c.includes("p311")));
+    assert.ok(!calls.some((c) => c.startsWith("delete")));
+    assert.deepEqual(await trashedIds(), [301, 302, 303, 311]);
+  });
+
+  void test("a file served but not listed stops the purge at once", async () => {
+    await trash.trashPhotos([301, 302]);
+    const { s, calls } = store({ unlisted: ["2020 Voyage/p301.jpg"] });
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 2,
+    });
+    assert.deepEqual(report.stopped, {
+      id: 301,
+      s3_key: "2020 Voyage/p301.jpg",
+      reason: "listing",
+    });
+    assert.deepEqual(calls, [
+      "versions 2020 Voyage/p301.jpg",
+      "exists 2020 Voyage/p301.jpg",
+    ]);
+    assert.deepEqual(await trashedIds(), [301, 302]);
+  });
+
+  void test("versions still listed once deleted roll the photo back and stop the purge", async () => {
+    await trash.trashPhotos([301, 302]);
+    const { s } = store({ stuck: ["2020 Voyage/p301.jpg"] });
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 2,
+    });
+    assert.equal(report.stopped?.reason, "remains");
+    assert.deepEqual(report.purged, []);
+    assert.deepEqual(await trashedIds(), [301, 302]);
+  });
+
+  void test("a purge by batches: at most `limit` photos", async () => {
+    await trash.trashPhotos([301, 302, 303]);
+    const { s } = store();
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 3,
+      limit: 2,
+    });
+    assert.deepEqual(ids(report.purged), [301, 302]);
+    assert.equal(report.remaining, 1);
   });
 
   void test("a thumbnail left behind does not stop the purge", async () => {
@@ -294,26 +469,26 @@ void describe("the Corbeille", () => {
     });
     assert.deepEqual(ids(report.purged), [301, 302]);
     assert.equal(report.refused, null);
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 8);
     assert.deepEqual(await trashedIds(), []);
   });
 
   void test("a restore while the purge erases that photo's file waits, then finds nothing", async () => {
     await trash.trashPhotos([321]);
     const { s } = store();
-    let erasing: () => void = () => undefined;
+    let begun: () => void = () => undefined;
     const started = new Promise<void>((resolve) => {
-      erasing = resolve;
+      begun = resolve;
     });
     let release: () => void = () => undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const deleteOriginal = s.deleteOriginal;
-    s.deleteOriginal = async (key) => {
-      erasing();
+    const deleteVersions = s.deleteVersions;
+    s.deleteVersions = async (key, versionIds) => {
+      begun();
       await held;
-      return deleteOriginal(key);
+      return deleteVersions(key, versionIds);
     };
     const purge = trash.purgeTrash(s, { cutoff: new Date(), expected: 1 });
     await started;

@@ -179,10 +179,12 @@ function Trash() {
               : "La corbeille n’a pas été vidée",
           );
         if (Number(data.remaining) === 0) break;
-        // What is left is another purge's, running now
+        // Nothing more erased: photos the purge leaves, or another purge's
         if (Number(data.purged) === 0)
           throw new TrashError(
-            "Une autre suppression est en cours. Réessayez dans un moment.",
+            Number(data.left) > 0
+              ? `${formatCount(Number(data.left), "photo reste", "photos restent")} dans la corbeille : son fichier a été redéposé depuis, ou manque dans le stockage.`
+              : "Une autre suppression est en cours. Réessayez dans un moment.",
           );
       }
       toast.show(

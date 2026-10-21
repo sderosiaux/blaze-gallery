@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   DeleteObjectCommand,
+  HeadObjectCommand,
   ListObjectVersionsCommand,
 } from "@aws-sdk/client-s3";
 
-void test("erasing a file deletes each of its versions and hide markers, only its own", async (t) => {
+void test("a file's versions and hide markers, only its own; deleted in the order given; served or not", async (t) => {
   const env = {
     NODE_ENV: "test",
     DATABASE_URL: "postgresql://test:test@127.0.0.1:1/test",
@@ -25,9 +26,13 @@ void test("erasing a file deletes each of its versions and hide markers, only it
       else process.env[key] = value;
     }
   });
-  const { deleteAllVersions, destroyS3Client, getS3Client } = await import(
-    "./s3"
-  );
+  const {
+    deleteFileVersions,
+    destroyS3Client,
+    fileExists,
+    getS3Client,
+    listFileVersions,
+  } = await import("./s3");
   const { getPool } = await import("./database");
   const { logger } = await import("./logger");
   t.mock.method(logger, "s3Error", () => undefined);
@@ -44,6 +49,8 @@ void test("erasing a file deletes each of its versions and hide markers, only it
 
   const deleted: string[] = [];
   let listed = 0;
+  let head = 200;
+  const old = new Date("2020-01-01T00:00:00Z");
   t.mock.method(storage, "send", (command: unknown) => {
     if (command instanceof ListObjectVersionsCommand) {
       listed += 1;
@@ -53,7 +60,12 @@ void test("erasing a file deletes each of its versions and hide markers, only it
         listed === 1
           ? {
               Versions: [
-                { Key: "a/photo.jpg", VersionId: "v2" },
+                {
+                  Key: "a/photo.jpg",
+                  VersionId: "v2",
+                  IsLatest: true,
+                  LastModified: old,
+                },
                 { Key: "a/photo.jpg (1).jpg", VersionId: "x1" },
               ],
               IsTruncated: true,
@@ -61,12 +73,22 @@ void test("erasing a file deletes each of its versions and hide markers, only it
               NextVersionIdMarker: "v2",
             }
           : {
-              Versions: [{ Key: "a/photo.jpg", VersionId: "v1" }],
+              Versions: [
+                { Key: "a/photo.jpg", VersionId: "v1", LastModified: old },
+              ],
               DeleteMarkers: [{ Key: "a/photo.jpg", VersionId: "m1" }],
               IsTruncated: false,
             },
       );
     }
+    if (command instanceof HeadObjectCommand)
+      return head === 200
+        ? Promise.resolve({})
+        : Promise.reject(
+            Object.assign(new Error("head"), {
+              $metadata: { httpStatusCode: head },
+            }),
+          );
     assert.ok(command instanceof DeleteObjectCommand);
     assert.equal(command.input.Bucket, "test-photos");
     assert.equal(command.input.Key, "a/photo.jpg");
@@ -74,11 +96,18 @@ void test("erasing a file deletes each of its versions and hide markers, only it
     return Promise.resolve({});
   });
 
-  assert.deepEqual(await deleteAllVersions("test-photos", "a/photo.jpg"), [
-    "v2",
-    "v1",
-    "m1",
+  assert.deepEqual(await listFileVersions("test-photos", "a/photo.jpg"), [
+    { id: "v2", latest: true, marker: false, lastModified: old },
+    { id: "v1", latest: false, marker: false, lastModified: old },
+    { id: "m1", latest: false, marker: true, lastModified: null },
   ]);
-  assert.deepEqual(deleted, ["v2", "v1", "m1"]);
   assert.equal(listed, 2);
+  await deleteFileVersions("test-photos", "a/photo.jpg", ["v1", "m1", "v2"]);
+  assert.deepEqual(deleted, ["v1", "m1", "v2"]);
+  assert.equal(await fileExists("test-photos", "a/photo.jpg"), true);
+  head = 404;
+  assert.equal(await fileExists("test-photos", "a/photo.jpg"), false);
+  // Refused is not gone
+  head = 403;
+  await assert.rejects(fileExists("test-photos", "a/photo.jpg"));
 });

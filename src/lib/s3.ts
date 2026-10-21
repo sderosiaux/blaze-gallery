@@ -950,114 +950,173 @@ export async function putObject(
   }
 }
 
+/** A version of a file in the bucket, or one of its hide markers. */
+export interface FileVersion {
+  id: string;
+  /** What the bucket serves under the key now (a hide marker: nothing) */
+  latest: boolean;
+  /** A hide marker, left by a delete by name, not a copy of the file */
+  marker: boolean;
+  /** When it was written; null when the bucket does not say */
+  lastModified: Date | null;
+}
+
 /**
- * Erases a file: every version of `key`, and its hide markers. A bucket
- * that keeps all versions (Backblaze's default, ours) only hides a file
- * deleted by name, and goes on storing and billing it; deleting each
- * version by id frees it. Needs B2's listFiles and deleteFiles. Returns the
- * version ids deleted, none when the file was already gone.
+ * Runs one S3 call for the purge with its audit row, logging and
+ * rethrowing a failure.
  */
-export async function deleteAllVersions(
+async function auditedCall<T>(
+  operation: "ListObjects" | "DeleteObject" | "HeadObject",
+  bucket: string,
+  key: string,
+  call: () => Promise<T>,
+  request?: Request,
+): Promise<T> {
+  const method =
+    operation === "DeleteObject"
+      ? "DELETE"
+      : operation === "HeadObject"
+        ? "HEAD"
+        : "GET";
+  const startTime = Date.now();
+  try {
+    const result = await call();
+    await auditMiddleware.log({
+      operation,
+      method,
+      bucket,
+      key,
+      startTime,
+      statusCode: operation === "DeleteObject" ? 204 : 200,
+      bytesTransferred: 0,
+      request,
+    });
+    return result;
+  } catch (error) {
+    const info = extractS3ErrorInfo(error);
+    await auditMiddleware.log({
+      operation,
+      method,
+      bucket,
+      key,
+      startTime,
+      statusCode: info.statusCode,
+      error: info.message,
+      request,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Every version of `key` and its hide markers, this very key only (the
+ * prefix also finds "key (1).jpg"). A bucket that keeps all versions
+ * (Backblaze's default, ours) only hides a file deleted by name, and goes
+ * on storing and billing it: erasing it is deleting each of these by id.
+ * Needs B2's listFiles.
+ */
+export async function listFileVersions(
   bucket: string,
   key: string,
   request?: Request,
-): Promise<string[]> {
+): Promise<FileVersion[]> {
   const client = S3Manager.getInstance().getS3Client();
-  const versions: string[] = [];
+  const versions: FileVersion[] = [];
   let keyMarker: string | undefined;
   let versionMarker: string | undefined;
   do {
-    const startTime = Date.now();
-    try {
-      const page = await client.send(
-        new ListObjectVersionsCommand({
-          Bucket: bucket,
-          Prefix: key,
-          KeyMarker: keyMarker,
-          VersionIdMarker: versionMarker,
-        }),
-      );
-      await auditMiddleware.log({
-        operation: "ListObjects",
-        method: "GET",
-        bucket,
-        key,
-        startTime,
-        statusCode: 200,
-        bytesTransferred: 0,
-        request,
-      });
-      // The prefix also finds "key (1).jpg": only this very key
-      for (const entry of [
-        ...(page.Versions ?? []),
-        ...(page.DeleteMarkers ?? []),
-      ])
-        if (entry.Key === key && entry.VersionId)
-          versions.push(entry.VersionId);
-      keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
-      versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
-    } catch (error) {
-      const info = extractS3ErrorInfo(error);
-      await auditMiddleware.log({
-        operation: "ListObjects",
-        method: "GET",
-        bucket,
-        key,
-        startTime,
-        statusCode: info.statusCode,
-        error: info.message,
-        request,
-      });
+    const page = await auditedCall(
+      "ListObjects",
+      bucket,
+      key,
+      () =>
+        client.send(
+          new ListObjectVersionsCommand({
+            Bucket: bucket,
+            Prefix: key,
+            KeyMarker: keyMarker,
+            VersionIdMarker: versionMarker,
+          }),
+        ),
+      request,
+    ).catch((error: unknown) => {
       logger.s3Error("Failed to list a file's versions", error as Error, {
         bucket,
         key,
-        operation: "deleteAllVersions",
+        operation: "listFileVersions",
       });
       throw error;
-    }
+    });
+    const entries = [
+      ...(page.Versions ?? []).map((v) => ({ ...v, marker: false })),
+      ...(page.DeleteMarkers ?? []).map((v) => ({ ...v, marker: true })),
+    ];
+    for (const entry of entries)
+      if (entry.Key === key && entry.VersionId)
+        versions.push({
+          id: entry.VersionId,
+          latest: entry.IsLatest === true,
+          marker: entry.marker,
+          lastModified: entry.LastModified ?? null,
+        });
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+    versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
   } while (keyMarker);
+  return versions;
+}
 
-  for (const versionId of versions) {
-    const startTime = Date.now();
-    try {
-      await client.send(
-        new DeleteObjectCommand({
-          Bucket: bucket,
-          Key: key,
-          VersionId: versionId,
-        }),
-      );
-      await auditMiddleware.log({
-        operation: "DeleteObject",
-        method: "DELETE",
-        bucket,
-        key,
-        startTime,
-        statusCode: 204,
-        bytesTransferred: 0,
-        request,
-      });
-    } catch (error) {
-      const info = extractS3ErrorInfo(error);
-      await auditMiddleware.log({
-        operation: "DeleteObject",
-        method: "DELETE",
-        bucket,
-        key,
-        startTime,
-        statusCode: info.statusCode,
-        error: info.message,
-        request,
-      });
+/** Deletes these versions of `key`, in this order. Needs B2's deleteFiles. */
+export async function deleteFileVersions(
+  bucket: string,
+  key: string,
+  versionIds: readonly string[],
+  request?: Request,
+): Promise<void> {
+  const client = S3Manager.getInstance().getS3Client();
+  for (const versionId of versionIds)
+    await auditedCall(
+      "DeleteObject",
+      bucket,
+      key,
+      () =>
+        client.send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            VersionId: versionId,
+          }),
+        ),
+      request,
+    ).catch((error: unknown) => {
       logger.s3Error("Failed to delete a file version", error as Error, {
         bucket,
         key,
-        operation: "deleteAllVersions",
+        operation: "deleteFileVersions",
       });
       throw error;
-    }
+    });
+}
+
+/** Whether the bucket serves `key`: false on a 404, throws on any other refusal. */
+export async function fileExists(
+  bucket: string,
+  key: string,
+  request?: Request,
+): Promise<boolean> {
+  const client = S3Manager.getInstance().getS3Client();
+  try {
+    await auditedCall(
+      "HeadObject",
+      bucket,
+      key,
+      () => client.send(new HeadObjectCommand({ Bucket: bucket, Key: key })),
+      request,
+    );
+    return true;
+  } catch (error) {
+    if (extractS3ErrorInfo(error).statusCode === 404) return false;
+    throw error;
   }
-  return versions;
 }
 
 // Centralized image format definitions
