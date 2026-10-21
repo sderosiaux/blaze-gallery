@@ -17,7 +17,12 @@ import {
 } from "@/components/ui";
 import { asArray, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
-import { restoreFromTrash, TrashError } from "@/lib/trashClient";
+import {
+  emptyTrash,
+  restoreFromTrash,
+  TrashError,
+  type EmptyConfirmed,
+} from "@/lib/trashClient";
 import type { Photo } from "@/types";
 import EmptyDialog from "./EmptyDialog";
 import { fetchLots, LotList, LotView, type Lot } from "./Lots";
@@ -164,34 +169,10 @@ function Trash() {
   };
 
   // « Vider »: a batch per request until none is left, never more than confirmed
-  const empty = async (confirmed: { expected: number; cutoff: string }) => {
+  const empty = async (confirmed: EmptyConfirmed) => {
     setProgress(0);
-    let done = 0;
     try {
-      for (;;) {
-        const response = await fetch("/api/trash/empty", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(confirmed),
-        });
-        const data = await readJsonObject(response);
-        done += Number(data.purged ?? 0);
-        setProgress(done);
-        if (!response.ok || data.success !== true)
-          throw new TrashError(
-            typeof data.error === "string"
-              ? data.error
-              : "La corbeille n’a pas été vidée",
-          );
-        if (Number(data.remaining) === 0) break;
-        // Nothing more erased: photos the purge leaves, or another purge's
-        if (Number(data.purged) === 0)
-          throw new TrashError(
-            Number(data.left) > 0
-              ? `${formatCount(Number(data.left), "photo reste", "photos restent")} dans la corbeille : son fichier a été redéposé depuis, ou manque dans le stockage.`
-              : "Une autre suppression est en cours. Réessayez dans un moment.",
-          );
-      }
+      const done = await emptyTrash(confirmed, setProgress);
       toast.show(
         formatCount(done, "photo effacée", "photos effacées"),
         "success",

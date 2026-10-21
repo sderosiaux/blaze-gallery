@@ -106,3 +106,61 @@ export function frontAfter(
   const count = left.filter((p) => !went(p.id)).length;
   return count >= 2 ? { ...alone, stack: { ...was, count } } : alone;
 }
+
+/** What « Vider » was confirmed for (EmptyDialog). */
+export interface EmptyConfirmed {
+  expected: number;
+  cutoff: string;
+  /** Everything up to `cutoff`, not only what has waited the Corbeille's days */
+  all: boolean;
+}
+
+/** One request of « Vider »: its status and JSON body. */
+export type EmptySend = (body: EmptyConfirmed) => Promise<{
+  ok: boolean;
+  data: Record<string, unknown>;
+}>;
+
+const sendEmpty: EmptySend = async (body) => {
+  const response = await fetch("/api/trash/empty", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { ok: response.ok, data: await readJsonObject(response) };
+};
+
+/**
+ * « Vider »: a batch per request until none is left. Each request expects
+ * exactly what the one before left (the server refuses any other count),
+ * the first one what the owner confirmed. `onProgress`: photos erased so
+ * far. Throws TrashError when the server refuses or nothing more can go.
+ */
+export async function emptyTrash(
+  confirmed: EmptyConfirmed,
+  onProgress: (done: number) => void,
+  send: EmptySend = sendEmpty,
+): Promise<number> {
+  let done = 0;
+  let expected = confirmed.expected;
+  for (;;) {
+    const { ok, data } = await send({ ...confirmed, expected });
+    done += Number(data.purged ?? 0);
+    onProgress(done);
+    if (!ok || data.success !== true)
+      throw new TrashError(
+        asString(data.error) ?? "La corbeille n’a pas été vidée",
+        asString(data.code),
+      );
+    const remaining = Number(data.remaining);
+    if (remaining === 0) return done;
+    // Nothing more erased: photos the purge leaves, or another purge's
+    if (Number(data.purged) === 0)
+      throw new TrashError(
+        Number(data.left) > 0
+          ? `${Number(data.left) > 1 ? `${Number(data.left)} photos restent` : "1 photo reste"} dans la corbeille : son fichier a été redéposé depuis, ou manque dans le stockage.`
+          : "Une autre suppression est en cours. Réessayez dans un moment.",
+      );
+    expected = remaining;
+  }
+}

@@ -438,6 +438,26 @@ export interface PurgeReport {
   stopped: (PurgeTarget & { reason: "listing" | "remains" | "missing" }) | null;
 }
 
+/**
+ * The cutoff « Vider » erases up to, by the database's clock: what has
+ * waited TRASH_DAYS unless the owner asked for everything (`all`). `given`
+ * (the one the confirmation showed) may come earlier, never later: null
+ * when it does, or when `all` comes without one.
+ */
+export async function emptyCutoff(
+  given: Date | null,
+  all: boolean,
+): Promise<Date | null> {
+  const { latest } = requireRow(
+    await query<{ latest: Date }>(
+      `SELECT statement_timestamp() - make_interval(days => $1) AS latest`,
+      [all ? 0 : TRASH_DAYS],
+    ),
+  );
+  if (given === null) return all ? null : latest;
+  return given.getTime() <= latest.getTime() ? given : null;
+}
+
 /** A purge that would erase more than it was told: nothing was touched. */
 export class PurgeRefused extends Error {}
 
@@ -459,6 +479,8 @@ export async function purgeTrash(
   options: {
     cutoff: Date;
     expected: number;
+    /** Refuse unless exactly `expected` are due (« Vider »), not only more */
+    exact?: boolean;
     dryRun?: boolean;
     limit?: number;
   },
@@ -468,7 +490,10 @@ export async function purgeTrash(
       options.cutoff,
     ]),
   ).n;
-  if (selected > options.expected)
+  if (
+    selected > options.expected ||
+    (options.exact === true && selected !== options.expected)
+  )
     throw new PurgeRefused(
       `${selected} photos would be erased, ${options.expected} expected`,
     );

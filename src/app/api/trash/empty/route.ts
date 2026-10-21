@@ -1,7 +1,13 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { purgeTrash, PurgeRefused, storagePurgeStore } from "@/lib/trash";
+import {
+  emptyCutoff,
+  purgeTrash,
+  PurgeRefused,
+  storagePurgeStore,
+  TRASH_DAYS,
+} from "@/lib/trash";
 import { badRequest, failure } from "@/app/api/_lib/people";
 import { jsonBody } from "@/app/api/_lib/ids";
 import { refusedOrigin } from "@/app/api/_lib/request";
@@ -14,11 +20,12 @@ export const maxDuration = 60;
 const BATCH = 10;
 
 /**
- * POST /api/trash/empty { cutoff, expected }: « Vider la corbeille ».
- * Erases, BATCH at a time, the photos thrown away up to `cutoff` (when the
- * owner confirmed), refusing when they are more than `expected` (the
- * number the confirmation showed). Answers what is left; the page calls
- * again until nothing is. Storage refusing a file stops it there: 403 with
+ * POST /api/trash/empty { expected, cutoff?, all? }: « Vider la corbeille ».
+ * Erases, BATCH at a time, what has waited TRASH_DAYS, up to `cutoff` when
+ * given (never later); everything up to `cutoff` (the listing's time) only
+ * with `all: true`. Refuses, 409, unless exactly `expected` are due (the
+ * number the confirmation showed, then each answer's `remaining`). Answers
+ * what is left; the page calls again until nothing is. Storage refusing a file stops it there: 403 with
  * the same reason as before the Corbeille, the photo stays in it. A purge
  * that stopped on a doubt (purgeTrash's `stopped`) answers 502 with it;
  * photos it left (`left`: written again, or without a file) are counted.
@@ -36,21 +43,28 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
   const foreign = refusedOrigin(request);
   if (foreign) return foreign;
   const body = await jsonBody(request);
-  const cutoff =
-    typeof body?.cutoff === "string" ? new Date(body.cutoff) : null;
+  const given = typeof body?.cutoff === "string" ? new Date(body.cutoff) : null;
+  const all = body?.all === true;
   const expected = body?.expected;
   if (
-    !cutoff ||
-    Number.isNaN(cutoff.getTime()) ||
+    (given !== null && Number.isNaN(given.getTime())) ||
     typeof expected !== "number" ||
     !Number.isSafeInteger(expected) ||
     expected < 0
   )
-    return badRequest("cutoff (ISO date) and expected (a count) are needed");
+    return badRequest("expected (a count) is needed; cutoff is an ISO date");
   try {
+    const cutoff = await emptyCutoff(given, all);
+    if (cutoff === null)
+      return badRequest(
+        all
+          ? "all needs the cutoff the listing showed, not later than now"
+          : `without all, the cutoff is ${TRASH_DAYS} days ago or earlier`,
+      );
     const report = await purgeTrash(storagePurgeStore(), {
       cutoff,
       expected,
+      exact: true,
       limit: BATCH,
     });
     if (report.refused)
@@ -92,7 +106,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          code: "MORE_THAN_EXPECTED",
+          code: "TRASH_CHANGED",
           error:
             "La corbeille a changé depuis la confirmation. Rien n’a été effacé.",
         },

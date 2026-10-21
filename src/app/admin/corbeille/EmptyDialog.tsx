@@ -5,6 +5,7 @@ import { Button, Dialog, Field, Input } from "@/components/ui";
 import { formatSize } from "@/components/stats/format";
 import { formatCount, formatNumber } from "@/lib/albums";
 import { cn } from "@/lib/cn";
+import type { EmptyConfirmed } from "@/lib/trashClient";
 
 /** What « Vider » may erase, as the server counted it (lib/trash.ts listTrash). */
 export interface EmptyCounts {
@@ -45,7 +46,7 @@ export default function EmptyDialog({
   /** Photos erased so far; null before it starts */
   progress: number | null;
   onClose: () => void;
-  onEmpty: (confirmed: { expected: number; cutoff: string }) => void;
+  onEmpty: (confirmed: EmptyConfirmed) => void;
 }) {
   const [scope, setScope] = useState<Scope>("due");
   const [typed, setTyped] = useState("");
@@ -89,7 +90,7 @@ export default function EmptyDialog({
       footer={
         <>
           <Button data-autofocus disabled={running} onClick={onClose}>
-            Garder
+            Annuler
           </Button>
           <Button
             variant="danger"
@@ -99,6 +100,7 @@ export default function EmptyDialog({
               onEmpty({
                 expected: n,
                 cutoff: scope === "due" ? counts.dueCutoff : counts.asOf,
+                all: scope === "all",
               });
             }}
           >
