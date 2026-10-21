@@ -6,11 +6,11 @@ import { badRequest, failure } from "@/app/api/_lib/people";
 import { jsonBody } from "@/app/api/_lib/ids";
 
 export const dynamic = "force-dynamic";
-// A batch of files erased one version at a time: far from a function's limit
+// A few photos, each a listing of versions and a delete per version: far from a function's limit
 export const maxDuration = 60;
 
 /** Photos erased per request: the page asks again until none is left. */
-const BATCH = 25;
+const BATCH = 10;
 
 /**
  * POST /api/trash/empty { cutoff, expected }: « Vider la corbeille ».
@@ -37,7 +37,6 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     const report = await purgeTrash(storagePurgeStore(), {
       cutoff,
       expected,
-      batch: BATCH,
       limit: BATCH,
     });
     if (report.refused)

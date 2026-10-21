@@ -29,6 +29,8 @@ type TrashedPhoto = Photo & { trashed_at: string };
 interface Page {
   photos: TrashedPhoto[];
   total: number;
+  /** When the server counted `total`: the cutoff of « Vider » */
+  asOf: string;
   next: { trashedAt: string; id: number } | null;
 }
 
@@ -42,6 +44,7 @@ async function fetchTrash(after: Page["next"]): Promise<Page> {
   return {
     photos: asArray(data.photos) as TrashedPhoto[],
     total: Number(data.total),
+    asOf: String(data.as_of),
     next: (data.next as Page["next"]) ?? null,
   };
 }
@@ -125,7 +128,7 @@ function Trash() {
   const restoreAll = async () => {
     try {
       const n = await restoreFromTrash("all");
-      setPage({ photos: [], total: 0, next: null });
+      setPage((p) => p && { ...p, photos: [], total: 0, next: null });
       toast.show(
         formatCount(n, "photo restaurée", "photos restaurées"),
         "success",
@@ -157,6 +160,11 @@ function Trash() {
               : "La corbeille n’a pas été vidée",
           );
         if (Number(data.remaining) === 0) break;
+        // What is left is another purge's, running now
+        if (Number(data.purged) === 0)
+          throw new TrashError(
+            "Une autre suppression est en cours. Réessayez dans un moment.",
+          );
       }
       toast.show(
         formatCount(done, "photo effacée", "photos effacées"),
@@ -191,10 +199,7 @@ function Trash() {
               variant="danger"
               icon={Trash2}
               onClick={() => {
-                setEmptying({
-                  expected: total,
-                  cutoff: new Date().toISOString(),
-                });
+                if (page) setEmptying({ expected: total, cutoff: page.asOf });
               }}
             >
               Vider la corbeille

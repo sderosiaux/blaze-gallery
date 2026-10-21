@@ -8,25 +8,22 @@ import { idList, jsonBody } from "@/app/api/_lib/ids";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/stacks/keep { keep, expected }: « Garder celle-ci », for one
- * stack or a page of Doublons. Each photo of `keep` stays, the rest of its
- * stack goes to the Corbeille. When the stacks now hold another number of
- * photos to throw away than `expected` (what the owner was told), nothing
- * moves: 409 with the actual count.
+ * POST /api/stacks/keep { keep, trash }: « Garder celle-ci », for one
+ * stack or the pages of Doublons shown. Each photo of `keep` stays, the
+ * rest of its stack goes to the Corbeille. When the rest is no longer
+ * exactly `trash` (what the owner saw), nothing moves: 409 with the number
+ * the stacks now hold.
  */
 export const POST = requireAuth(async function POST(request: NextRequest) {
   const body = await jsonBody(request);
   const keep = idList(body?.keep, TRASH_BATCH);
-  const expected = body?.expected;
-  if (
-    !keep ||
-    typeof expected !== "number" ||
-    !Number.isSafeInteger(expected) ||
-    expected < 0
-  )
-    return badRequest(`keep (1 to ${TRASH_BATCH} ids) and expected are needed`);
+  const trash = idList(body?.trash, TRASH_BATCH);
+  if (!keep || !trash)
+    return badRequest(
+      `keep and trash (1 to ${TRASH_BATCH} ids each) are needed`,
+    );
   try {
-    const result = await keepFromStacks(keep, expected);
+    const result = await keepFromStacks(keep, trash);
     if (!result.ok)
       return NextResponse.json(
         {

@@ -118,7 +118,9 @@ function Duplicates() {
     [page, skipped],
   );
   const keepers = chosen.map((s) => kept.get(s.id) ?? s.photos[0]?.id ?? 0);
-  const going = chosen.reduce((n, s) => n + s.photos.length - 1, 0);
+  const going = chosen.flatMap((s, i) =>
+    s.photos.map((p) => p.id).filter((id) => id !== keepers[i]),
+  );
 
   const send = async () => {
     setSending(true);
@@ -163,7 +165,7 @@ function Duplicates() {
       title="Doublons"
       meta="Rafales, reprises, retouches et copies d’un même fichier. Dans chaque pile, la photo cochée reste ; les autres vont à la corbeille, pour 30 jours."
       actions={
-        going > 0 && (
+        going.length > 0 && (
           <Button
             variant="danger"
             icon={Trash2}
@@ -171,7 +173,7 @@ function Duplicates() {
               setConfirming(true);
             }}
           >
-            {`Mettre ${formatCount(going, "photo")} à la corbeille`}
+            {`Mettre ${formatCount(going.length, "photo")} à la corbeille`}
           </Button>
         )
       }
@@ -278,7 +280,7 @@ function Duplicates() {
           if (!sending) setConfirming(false);
         }}
         size="sm"
-        title={`Mettre ${formatCount(going, "photo")} à la corbeille ?`}
+        title={`Mettre ${formatCount(going.length, "photo")} à la corbeille ?`}
         description={`Dans ${formatCount(chosen.length, "pile")}, la photo cochée reste. Les autres quittent la galerie et restent 30 jours dans la corbeille, d’où vous pouvez les restaurer.`}
         footer={
           <>

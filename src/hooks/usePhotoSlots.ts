@@ -2,6 +2,23 @@ import { useCallback, useMemo, useState } from "react";
 import type { Photo } from "@/types";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
 
+/** `photos` as they show with each slot's photo now: usePhotoSlots' items. */
+export function slotItems<T extends Photo>(
+  photos: readonly T[],
+  slots: ReadonlyMap<string, T | null>,
+): T[] {
+  const seen = new Set<string>();
+  return photos.flatMap((photo) => {
+    const key = String(photo.id);
+    const now = slots.has(key) ? slots.get(key) : photo;
+    if (!now || seen.has(String(now.id))) return [];
+    seen.add(String(now.id));
+    if (now === photo || String(now.id) !== key) return [now];
+    const { stack: _, ...base } = photo;
+    return [(now.stack ? { ...base, stack: now.stack } : base) as T];
+  });
+}
+
 /**
  * A list's photos as the page shows them after the viewer or a tile
  * changed what stands in a slot: a photo sent to the Corbeille leaves its
@@ -10,24 +27,14 @@ import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
  * the list as loaded, so a slot can change hands several times and still
  * be found. A slot that keeps its photo only takes the new stack from the
  * replacement: the list's own changes to that photo (a favourite) still show.
+ * A photo shows once: the next front of a stack may come again in a page
+ * the list loads later, where the server now puts it.
  */
 export function usePhotoSlots<T extends Photo>(photos: readonly T[]) {
   const [slots, setSlots] = useState<ReadonlyMap<string, T | null>>(
     () => new Map(),
   );
-  const items = useMemo(
-    () =>
-      photos.flatMap((photo) => {
-        const key = String(photo.id);
-        if (!slots.has(key)) return [photo];
-        const now = slots.get(key);
-        if (!now) return [];
-        if (String(now.id) !== key) return [now];
-        const { stack: _, ...base } = photo;
-        return [(now.stack ? { ...base, stack: now.stack } : base) as T];
-      }),
-    [photos, slots],
-  );
+  const items = useMemo(() => slotItems(photos, slots), [photos, slots]);
   /** The photo `id` shows in its slot now gives way to `next` (null: the slot empties). */
   const replace = useCallback((id: Photo["id"], next: Photo | null) => {
     setSlots((all) => {

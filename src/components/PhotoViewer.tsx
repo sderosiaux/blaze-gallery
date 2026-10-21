@@ -50,6 +50,7 @@ import {
   nextFront,
   restoreFromTrash,
   sendToTrash,
+  stackPhotos as readStack,
   TrashError,
 } from "@/lib/trashClient";
 
@@ -360,7 +361,11 @@ export default function PhotoViewer({
           was && left >= 2
             ? { ...alone, stack: { ...was, count: left } }
             : alone;
-      }
+      } else if (front.stack)
+        // The stack was not read yet (the front is the photo shown): what is left of it
+        next = await readStack(shown.id)
+          .then((left) => nextFront(left, [shown.id], front.stack?.id))
+          .catch(() => null);
       forgetStack();
       settleSlot(next);
       toast.show("Dans la corbeille", "success", {
@@ -405,9 +410,11 @@ export default function PhotoViewer({
     if (!canTrash || trashing || !stackPhotos) return;
     setTrashing(true);
     const kept = current;
-    const others = stackPhotos.length - 1;
+    const others = stackPhotos
+      .filter((p) => String(p.id) !== String(kept.id))
+      .map((p) => Number(p.id));
     try {
-      const trashed = await keepInStacks([kept.id], others);
+      const trashed = await keepInStacks([Number(kept.id)], others);
       const { stack: _, ...alone } = kept;
       forgetStack();
       settleSlot(alone);
@@ -437,6 +444,9 @@ export default function PhotoViewer({
           : "La pile n’a pas été réglée",
         "error",
       );
+      // The strip shows the stack as it is now
+      if (error instanceof TrashError && error.code === "STACKS_CHANGED")
+        forgetStack();
     } finally {
       setTrashing(false);
     }

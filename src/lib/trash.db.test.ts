@@ -151,6 +151,8 @@ void describe("the Corbeille", () => {
     await trash.trashPhotos([303]);
     const first = await trash.listTrash(null, 1);
     assert.equal(first.total, 2);
+    // Counted now, by the database's clock
+    assert.ok(Math.abs(Date.parse(first.as_of) - Date.now()) < 60_000);
     assert.deepEqual(ids(first.photos), [303]);
     assert.ok(first.next);
     const rest = await trash.listTrash(first.next, 1);
@@ -158,11 +160,14 @@ void describe("the Corbeille", () => {
     assert.equal(rest.next, null);
   });
 
-  void test("« Garder celle-ci » throws the rest of the stack away, if the count still holds", async () => {
-    const wrong = await trash.keepFromStacks([303], 1);
-    assert.deepEqual(wrong, { ok: false, trashed: [], count: 2 });
+  void test("« Garder celle-ci » throws the rest of the stack away, if it is still what the owner saw", async () => {
+    // One fewer than the stack holds, then as many but not the same
+    const fewer = await trash.keepFromStacks([303], [301]);
+    assert.deepEqual(fewer, { ok: false, trashed: [], count: 2 });
+    const other = await trash.keepFromStacks([303], [301, 321]);
+    assert.deepEqual(other, { ok: false, trashed: [], count: 2 });
     assert.deepEqual(await trashedIds(), []);
-    const done = await trash.keepFromStacks([303, 312], 3);
+    const done = await trash.keepFromStacks([303, 312], [311, 302, 301]);
     assert.equal(done.ok, true);
     assert.deepEqual(done.trashed.sort(), [301, 302, 311]);
     assert.deepEqual(await trashedIds(), [301, 302, 311]);
@@ -228,7 +233,7 @@ void describe("the Corbeille", () => {
       trash.PurgeRefused,
     );
     assert.deepEqual(calls, []);
-    const report = await trash.purgeTrash(s, { cutoff, expected: 2, batch: 1 });
+    const report = await trash.purgeTrash(s, { cutoff, expected: 2 });
     assert.deepEqual(
       report.purged.map((p) => [p.id, p.versions]),
       [
@@ -269,6 +274,66 @@ void describe("the Corbeille", () => {
     assert.deepEqual(report.purged, []);
     assert.deepEqual(calls, ["original 2020 Voyage/p301.jpg"]);
     assert.deepEqual(await trashedIds(), [301, 302]);
+  });
+
+  void test("a thumbnail left behind does not stop the purge", async () => {
+    await trash.trashPhotos([301, 302]);
+    const { s, calls } = store();
+    s.deleteDerived = (photo) => {
+      calls.push(`derived ${photo.s3_key}`);
+      return Promise.reject(new Error("thumbnail storage down"));
+    };
+    const report = await trash.purgeTrash(s, {
+      cutoff: new Date(),
+      expected: 2,
+    });
+    assert.deepEqual(ids(report.purged), [301, 302]);
+    assert.equal(report.refused, null);
+    assert.equal(calls.length, 4);
+    assert.deepEqual(await trashedIds(), []);
+  });
+
+  void test("a restore while the purge erases that photo's file waits, then finds nothing", async () => {
+    await trash.trashPhotos([321]);
+    const { s } = store();
+    let erasing: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      erasing = resolve;
+    });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const deleteOriginal = s.deleteOriginal;
+    s.deleteOriginal = async (key) => {
+      erasing();
+      await held;
+      return deleteOriginal(key);
+    };
+    const purge = trash.purgeTrash(s, { cutoff: new Date(), expected: 1 });
+    await started;
+    let settled = false;
+    const restore = trash.restorePhotos([321]).finally(() => {
+      settled = true;
+    });
+    // The restore waits on the row the purge holds
+    for (const deadline = Date.now() + 10_000; ; ) {
+      const waiting = await sql.query(
+        `SELECT 1 FROM pg_stat_activity
+         WHERE wait_event_type = 'Lock' AND query LIKE 'UPDATE photos SET trashed_at = NULL%'`,
+      );
+      if (waiting.rowCount === 1) break;
+      assert.ok(!settled, "the restore did not wait for the purge");
+      assert.ok(Date.now() < deadline, "the restore never waited");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    release();
+    assert.deepEqual(ids((await purge).purged), [321]);
+    assert.equal(await restore, 0);
+    assert.equal(
+      (await sql.query("SELECT 1 FROM photos WHERE id = 321")).rowCount,
+      0,
+    );
   });
 
   void test("a photo restored while the purge waits is not erased", async () => {

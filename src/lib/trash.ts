@@ -5,9 +5,8 @@
  * has waited TRASH_DAYS, or everything when the owner empties the
  * Corbeille: every version of its file, its thumbnail and renditions, then
  * its row. Restoring and purging the same photo at once cannot both win:
- * the purge holds the rows of its batch locked while it deletes their files.
+ * the purge holds the row of the photo it erases locked while its file goes.
  */
-import type { PoolClient } from "pg";
 import type { Photo } from "@/types";
 import { inGallery, query, requireRow, runTransaction } from "./database";
 import { logger } from "./logger";
@@ -16,8 +15,8 @@ import { thumbnailUrl } from "./photoUrls";
 /** How long a photo waits in the Corbeille before the weekly purge erases it. */
 export const TRASH_DAYS = 30;
 
-/** Most photos one request may throw away or put back: a page of Doublons, a stack. */
-export const TRASH_BATCH = 2_000;
+/** Most photos one request may throw away or put back: the Doublons pages shown, a stack. */
+export const TRASH_BATCH = 5_000;
 
 /** The photos the Corbeille now holds: ids of those just thrown away (not already in it). */
 export async function trashPhotos(ids: readonly number[]): Promise<number[]> {
@@ -57,14 +56,14 @@ const OTHERS_IN_STACK = `
 
 /**
  * « Garder celle-ci »: each photo of `keep` stays, the rest of its stack
- * goes to the Corbeille. `expected`: how many the owner was told would go;
- * when the stacks now hold another number (a sync, a rebuild, another tab
- * since), nothing moves and the actual number is returned with ok false.
- * A kept photo in the Corbeille comes back. Returns the ids thrown away.
+ * goes to the Corbeille. `trash`: the photos the owner saw go; when the
+ * stacks now hold others (a sync, a rebuild, another tab since), nothing
+ * moves and the number they hold is returned with ok false. A kept photo
+ * in the Corbeille comes back. Returns the ids thrown away.
  */
 export async function keepFromStacks(
   keep: readonly number[],
-  expected: number,
+  trash: readonly number[],
 ): Promise<{ ok: boolean; trashed: number[]; count: number }> {
   return runTransaction(async (client) => {
     const others = await client.query<{ id: number }>(
@@ -74,7 +73,8 @@ export async function keepFromStacks(
       [keep],
     );
     const ids = others.rows.map((row) => row.id);
-    if (ids.length !== expected)
+    const seen = new Set(trash);
+    if (ids.length !== seen.size || ids.some((id) => !seen.has(id)))
       return { ok: false, trashed: [], count: ids.length };
     await client.query(
       `UPDATE photos SET trashed_at = NULL WHERE id = ANY($1::bigint[]) AND trashed_at IS NOT NULL`,
@@ -99,13 +99,18 @@ export type TrashedPhoto = Photo & {
   trashed_at: string;
 };
 
-/** The Corbeille, last thrown away first, keyset-paginated on (trashed_at, id). */
+/**
+ * The Corbeille, last thrown away first, keyset-paginated on (trashed_at,
+ * id). `as_of`: the database's time when `total` was counted, the cutoff
+ * « Vider » sends so it erases nothing thrown away after the owner looked.
+ */
 export async function listTrash(
   after: { trashedAt: string; id: number } | null,
   limit: number,
 ): Promise<{
   photos: TrashedPhoto[];
   total: number;
+  as_of: string;
   next: { trashedAt: string; id: number } | null;
 }> {
   const params: unknown[] = [limit + 1];
@@ -122,8 +127,9 @@ export async function listTrash(
        LIMIT $1`,
       params,
     ),
-    query<{ total: number }>(
-      "SELECT count(*)::int AS total FROM photos WHERE trashed_at IS NOT NULL",
+    query<{ total: number; as_of: Date }>(
+      `SELECT count(*)::int AS total, statement_timestamp() AS as_of
+       FROM photos WHERE trashed_at IS NOT NULL`,
     ),
   ]);
   const photos = page.rows.slice(0, limit).map((row) => ({
@@ -134,9 +140,11 @@ export async function listTrash(
     trashed_at: new Date(row.trashed_at).toISOString(),
   }));
   const last = photos[photos.length - 1];
+  const { total, as_of } = requireRow(count);
   return {
     photos,
-    total: requireRow(count).total,
+    total,
+    as_of: new Date(as_of).toISOString(),
     next:
       page.rows.length > limit && last
         ? { trashedAt: last.trashed_at, id: last.id }
@@ -150,7 +158,7 @@ export async function listTrash(
 export interface PurgeStore {
   /** Every version of the original; the version ids deleted. Throws when storage refuses. */
   deleteOriginal: (key: string) => Promise<string[]>;
-  /** Thumbnail and renditions; never throws (a leftover there costs nothing). */
+  /** Thumbnail and renditions; a failure is logged (a leftover there costs nothing). */
   deleteDerived: (photo: PurgedPhoto) => Promise<void>;
 }
 
@@ -207,7 +215,7 @@ export class PurgeRefused extends Error {}
 const CANDIDATES = `FROM photos WHERE trashed_at IS NOT NULL AND trashed_at <= $1::timestamptz`;
 
 /**
- * Erases the photos thrown away up to `cutoff`, `batch` at a time, oldest
+ * Erases the photos thrown away up to `cutoff`, one at a time, oldest
  * first, until none is left or `limit` photos are done. Refuses without
  * touching anything when more than `expected` are selected (the number
  * the owner confirmed, or the cap of a scheduled run). `dryRun` only
@@ -219,11 +227,9 @@ export async function purgeTrash(
     cutoff: Date;
     expected: number;
     dryRun?: boolean;
-    batch?: number;
     limit?: number;
   },
 ): Promise<PurgeReport> {
-  const batch = options.batch ?? 25;
   const selected = requireRow(
     await query<{ n: number }>(`SELECT count(*)::int AS n ${CANDIDATES}`, [
       options.cutoff,
@@ -249,17 +255,10 @@ export async function purgeTrash(
   let refused: PurgeReport["refused"] = null;
   const limit = options.limit ?? Number.POSITIVE_INFINITY;
   while (!refused && purged.length < limit) {
-    const done = await runTransaction((client) =>
-      purgeBatch(
-        client,
-        store,
-        options.cutoff,
-        Math.min(batch, limit - purged.length),
-      ),
-    );
-    purged.push(...done.purged);
-    refused = done.refused;
-    if (done.purged.length === 0) break;
+    const one = await purgeOne(store, options.cutoff);
+    if (one === null) break;
+    if ("refused" in one) refused = one.refused;
+    else purged.push(one.purged);
   }
   const remaining = requireRow(
     await query<{ n: number }>(`SELECT count(*)::int AS n ${CANDIDATES}`, [
@@ -269,68 +268,70 @@ export async function purgeTrash(
   return { selected, purged, remaining, refused };
 }
 
-async function purgeBatch(
-  client: PoolClient,
+/**
+ * Erases the oldest photo due, in a transaction of its own: its row stays
+ * locked while its file goes (a restore meanwhile waits, then finds
+ * nothing), and is deleted as soon as the file is, so a purge cut short
+ * leaves at most that one photo in the Corbeille without its file (the
+ * next purge finds no version and deletes the row). Thumbnail and
+ * renditions go once the row has: a leftover there costs nothing. Null
+ * when none is due (or every due one is another purge's).
+ */
+async function purgeOne(
   store: PurgeStore,
   cutoff: Date,
-  size: number,
-): Promise<Pick<PurgeReport, "purged" | "refused">> {
-  // Locked until the rows are gone: a restore meanwhile waits, then finds nothing
-  const rows = await client.query<PurgedPhoto>(
-    `SELECT id::int AS id, s3_key, mime_type, thumbnail_path ${CANDIDATES}
-     ORDER BY trashed_at, id LIMIT $2 FOR UPDATE SKIP LOCKED`,
-    [cutoff, size],
-  );
-  const purged: PurgeReport["purged"] = [];
-  let refused: PurgeReport["refused"] = null;
-  for (const photo of rows.rows) {
+): Promise<
+  | { purged: PurgeReport["purged"][number] }
+  | { refused: NonNullable<PurgeReport["refused"]> }
+  | null
+> {
+  const outcome = await runTransaction(async (client) => {
+    const rows = await client.query<PurgedPhoto>(
+      `SELECT id::int AS id, s3_key, mime_type, thumbnail_path ${CANDIDATES}
+       ORDER BY trashed_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      [cutoff],
+    );
+    const photo = rows.rows[0];
+    if (!photo) return null;
+    let versions: string[];
     try {
-      const versions = await store.deleteOriginal(photo.s3_key);
-      logger.info(`[purge] erased ${photo.s3_key}`, {
-        photoId: photo.id,
-        versions: versions.length,
-      });
-      await store.deleteDerived(photo);
-      purged.push({
-        id: photo.id,
-        s3_key: photo.s3_key,
-        versions: versions.length,
-      });
+      versions = await store.deleteOriginal(photo.s3_key);
     } catch (error) {
       const status = (error as { $metadata?: { httpStatusCode?: number } })
         .$metadata?.httpStatusCode;
-      refused = { id: photo.id, s3_key: photo.s3_key, status: status ?? null };
       logger.warn(`[purge] storage refused ${photo.s3_key}`, {
         photoId: photo.id,
         status,
       });
-      break;
+      return {
+        refused: { id: photo.id, s3_key: photo.s3_key, status: status ?? null },
+      };
     }
-  }
-  const ids = purged.map((p) => p.id);
-  if (ids.length > 0) {
-    const before = requireRow(
-      await client.query<{ n: number }>(
-        "SELECT count(*)::int AS n FROM photos",
-      ),
-    ).n;
+    logger.info(`[purge] erased ${photo.s3_key}`, {
+      photoId: photo.id,
+      versions: versions.length,
+    });
     await client.query(
-      "UPDATE share_access_logs SET photo_id = NULL WHERE photo_id = ANY($1::bigint[])",
-      [ids],
+      "UPDATE share_access_logs SET photo_id = NULL WHERE photo_id = $1",
+      [photo.id],
     );
     const deleted = await client.query(
-      "DELETE FROM photos WHERE id = ANY($1::bigint[]) AND trashed_at IS NOT NULL",
-      [ids],
+      "DELETE FROM photos WHERE id = $1 AND trashed_at IS NOT NULL",
+      [photo.id],
     );
-    const after = requireRow(
-      await client.query<{ n: number }>(
-        "SELECT count(*)::int AS n FROM photos",
-      ),
-    ).n;
-    if (deleted.rowCount !== ids.length || before - after !== ids.length)
-      throw new Error(
-        `purge: ${ids.length} files erased but ${String(deleted.rowCount)} rows deleted (${before} -> ${after})`,
-      );
-  }
-  return { purged, refused };
+    if (deleted.rowCount !== 1)
+      throw new Error(`purge: photo ${photo.id} erased but its row stayed`);
+    return {
+      photo,
+      purged: { id: photo.id, s3_key: photo.s3_key, versions: versions.length },
+    };
+  });
+  if (outcome === null || "refused" in outcome) return outcome;
+  await store.deleteDerived(outcome.photo).catch((error: unknown) => {
+    logger.warn(`[purge] thumbnail of ${outcome.photo.s3_key} left`, {
+      photoId: outcome.photo.id,
+      error: String(error),
+    });
+  });
+  return { purged: outcome.purged };
 }

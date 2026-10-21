@@ -46,13 +46,13 @@ export async function restoreFromTrash(
 
 /**
  * « Garder celle-ci »: `keep` stay, the rest of their stacks go to the
- * Corbeille, if they are the `expected` number the owner was shown.
+ * Corbeille, if that rest is still `trash`, the photos the owner saw go.
  */
 export async function keepInStacks(
   keep: readonly number[],
-  expected: number,
+  trash: readonly number[],
 ): Promise<number[]> {
-  const data = await post("/api/stacks/keep", { keep, expected });
+  const data = await post("/api/stacks/keep", { keep, trash });
   return asArray(data.trashed).map(Number);
 }
 
