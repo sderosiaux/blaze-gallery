@@ -383,12 +383,11 @@ def picture_measures(data: bytes) -> dict[str, float]:
     """Sharpness and clipped share of a thumbnail."""
     with Image.open(io.BytesIO(data)) as image:
         grey = image.convert("L")
-    if max(grey.size) != SHARP_EDGE:
-        scale = SHARP_EDGE / max(grey.size)
-        grey = grey.resize(
-            (max(3, round(grey.width * scale)), max(3, round(grey.height * scale))),
-            Image.Resampling.BILINEAR,
-        )
+    scale = SHARP_EDGE / max(grey.size)
+    # A sliver (a 400 x 2 panorama) still gets the 3 rows the Laplacian needs
+    size = (max(3, round(grey.width * scale)), max(3, round(grey.height * scale)))
+    if size != grey.size:
+        grey = grey.resize(size, Image.Resampling.BILINEAR)
     p = np.asarray(grey, np.float32)
     laplacian = p[1:-1, :-2] + p[1:-1, 2:] + p[:-2, 1:-1] + p[2:, 1:-1] - 4 * p[1:-1, 1:-1]
     clipped = float(((p <= CRUSHED_LEVEL) | (p >= BLOWN_LEVEL)).mean())

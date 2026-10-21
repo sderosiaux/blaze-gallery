@@ -173,6 +173,9 @@ def test_sharpness_is_measured_at_one_size():
     # A smaller thumbnail is brought to the same edge first: it holds less detail there
     assert picture_measures(jpeg(True, (200, 150)))["sharp"] < crisp["sharp"]
     assert picture_measures(jpeg(False, level=255))["clipped"] == 1.0
+    # A sliver of a panorama still measures, as a number
+    sliver = picture_measures(jpeg(True, (400, 2)))
+    assert sliver["sharp"] == sliver["sharp"] and sliver["sharp"] >= 0
 
 
 def face(**v) -> Face:
