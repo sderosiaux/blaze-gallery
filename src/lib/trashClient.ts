@@ -60,6 +60,23 @@ export async function keepInStacks(
   return asArray(data.trashed).map(Number);
 }
 
+/**
+ * What keeping each photo of `keep` would throw away (POST
+ * /api/stacks/keep/preview): per kept id, the ids going.
+ */
+export async function previewKeep(
+  keep: readonly number[],
+): Promise<Map<number, number[]>> {
+  const data = await post("/api/stacks/keep/preview", { keep });
+  const going = (data.going ?? {}) as Record<string, unknown>;
+  return new Map(
+    Object.entries(going).map(([id, ids]) => [
+      Number(id),
+      asArray(ids).map(Number),
+    ]),
+  );
+}
+
 /** The photos of a photo's stack the gallery shows, best first. */
 export async function stackPhotos(photoId: Photo["id"]): Promise<Photo[]> {
   const response = await fetch(`/api/photos/${String(photoId)}/stack`);

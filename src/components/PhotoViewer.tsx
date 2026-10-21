@@ -48,6 +48,7 @@ import { forgetStacks, useStack } from "./viewer/useStack";
 import {
   frontAfter,
   keepInStacks,
+  previewKeep,
   restoreFromTrash,
   sendToTrash,
   stackPhotos as readStack,
@@ -395,20 +396,30 @@ export default function PhotoViewer({
     onPhotoReplace,
   ]);
 
-  /** « Garder celle-ci »: the photo shown stays, the rest of its stack goes. */
+  /**
+   * « Garder celle-ci »: the photo shown stays, the photos of its stack
+   * close enough to it go (the server says which, lib/keep.ts); the others
+   * stay stacked behind it.
+   */
   const keepShown = useCallback(async () => {
     if (!canTrash || trashing || !stackPhotos) return;
     setTrashing(true);
     const kept = current;
-    const others = stackPhotos
-      .filter((p) => String(p.id) !== String(kept.id))
-      .map((p) => Number(p.id));
     try {
+      const others =
+        (await previewKeep([Number(kept.id)])).get(Number(kept.id)) ?? [];
+      if (others.length === 0) {
+        toast.show(
+          "Aucune autre photo de la pile n’est assez proche de celle-ci",
+          "info",
+        );
+        return;
+      }
       const trashed = await keepInStacks([Number(kept.id)], others);
-      // The front kept stands alone; another kept, the front went: the
-      // slot empties (frontAfter), the kept photo shows once the list reloads
+      // The slot keeps the front, recounted, or empties when the front
+      // went (frontAfter); the kept photo shows once the list reloads
       forgetStack();
-      settleSlot(frontAfter(front, trashed, []));
+      settleSlot(frontAfter(front, trashed, stackPhotos));
       toast.show(
         `${formatNumber(trashed.length)} ${trashed.length > 1 ? "photos" : "photo"} dans la corbeille`,
         "success",

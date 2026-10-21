@@ -19,7 +19,12 @@ import { aspectRatio, formatCount } from "@/lib/albums";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
-import { keepInStacks, restoreFromTrash, TrashError } from "@/lib/trashClient";
+import {
+  keepInStacks,
+  previewKeep,
+  restoreFromTrash,
+  TrashError,
+} from "@/lib/trashClient";
 import type { Photo } from "@/types";
 
 type Kind = "all" | "bursts" | "copies";
@@ -113,14 +118,44 @@ function Duplicates() {
     }
   };
 
+  // Per photo kept, what keeping it throws away: the server's pair rule
+  // (lib/keep.ts), so a photo too far from the one kept stays
+  const [preview, setPreview] = useState<{
+    keepers: string;
+    going: ReadonlyMap<number, number[]>;
+  } | null>(null);
+  const allKeepers = useMemo(
+    () =>
+      (page?.stacks ?? []).map((s) => kept.get(s.id) ?? s.photos[0]?.id ?? 0),
+    [page, kept],
+  );
+  const keepersKey = allKeepers.join(",");
+  useEffect(() => {
+    if (allKeepers.length === 0) return;
+    let live = true;
+    previewKeep(allKeepers)
+      .then((going) => {
+        if (live) setPreview({ keepers: keepersKey, going });
+      })
+      .catch(() => {
+        if (live) toast.show("Le compte des photos à jeter a échoué", "error");
+      });
+    return () => {
+      live = false;
+    };
+    // keepersKey stands for allKeepers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keepersKey, toast]);
+  const goingByKeep = preview?.keepers === keepersKey ? preview.going : null;
+
   const chosen = useMemo(
     () => (page?.stacks ?? []).filter((s) => !skipped.has(s.id)),
     [page, skipped],
   );
   const keepers = chosen.map((s) => kept.get(s.id) ?? s.photos[0]?.id ?? 0);
-  const going = chosen.flatMap((s, i) =>
-    s.photos.map((p) => p.id).filter((id) => id !== keepers[i]),
-  );
+  const going = goingByKeep
+    ? keepers.flatMap((id) => goingByKeep.get(id) ?? [])
+    : [];
 
   const send = async () => {
     setSending(true);
@@ -163,7 +198,7 @@ function Duplicates() {
   const header = (
     <PageHeader
       title="Doublons"
-      meta="Rafales, reprises, retouches et copies d’un même fichier. Dans chaque pile, la photo cochée reste ; les autres vont à la corbeille, pour 30 jours."
+      meta="Rafales, reprises, retouches et copies d’un même fichier. Dans chaque pile, la photo cochée reste ; ses copies et ses rafales vont à la corbeille, pour 30 jours."
       actions={
         going.length > 0 && (
           <Button
@@ -249,6 +284,11 @@ function Duplicates() {
                 key={stack.id}
                 stack={stack}
                 keep={kept.get(stack.id) ?? stack.photos[0]?.id ?? 0}
+                going={
+                  goingByKeep?.get(
+                    kept.get(stack.id) ?? stack.photos[0]?.id ?? 0,
+                  ) ?? null
+                }
                 skipped={skipped.has(stack.id)}
                 onKeep={(id) => {
                   setKept((all) => new Map(all).set(stack.id, id));
@@ -281,7 +321,7 @@ function Duplicates() {
         }}
         size="sm"
         title={`Mettre ${formatCount(going.length, "photo")} à la corbeille ?`}
-        description={`Dans ${formatCount(chosen.length, "pile")}, la photo cochée reste. Les autres quittent la galerie et restent 30 jours dans la corbeille, d’où vous pouvez les restaurer.`}
+        description={`Dans ${formatCount(chosen.length, "pile")}, la photo cochée reste, et celles marquées « Reste » avec elle. Les autres quittent la galerie et restent 30 jours dans la corbeille, d’où vous pouvez les restaurer.`}
         footer={
           <>
             <Button
@@ -310,12 +350,15 @@ function Duplicates() {
 function StackRow({
   stack,
   keep,
+  going,
   skipped,
   onKeep,
   onSkip,
 }: {
   stack: Stack;
   keep: number;
+  /** What keeping `keep` throws away; null until the server said */
+  going: readonly number[] | null;
   skipped: boolean;
   onKeep: (id: number) => void;
   onSkip: (skip: boolean) => void;
@@ -384,6 +427,14 @@ function StackRow({
                   title={photo.folder_path}
                 >
                   {photo.folder_path}
+                </span>
+              )}
+              {!on && going !== null && !going.includes(photo.id) && (
+                <span
+                  className="text-xs text-ink-muted"
+                  title="Trop différente de la photo cochée : elle reste dans la pile"
+                >
+                  Reste
                 </span>
               )}
             </button>
