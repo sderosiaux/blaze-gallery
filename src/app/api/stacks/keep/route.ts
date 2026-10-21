@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/stacks/keep { keep, trash }: « Garder celle-ci », for one
  * stack or the pages of Doublons shown. Each photo of `keep` stays, the
- * rest of its stack goes to the Corbeille. When the rest is no longer
- * exactly `trash` (what the owner saw), nothing moves: 409 with the number
- * the stacks now hold.
+ * photos of its stack linked to it go to the Corbeille (preview: POST
+ * /api/stacks/keep/preview). When those are no longer exactly `trash`
+ * (what the owner saw), nothing moves: 409 with the number going now.
  */
 export const POST = requireAuth(async function POST(request: NextRequest) {
   const foreign = refusedOrigin(request);

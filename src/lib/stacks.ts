@@ -18,6 +18,7 @@ export const STACK_KINDS: readonly StackKind[] = ["all", "copies", "bursts"];
 
 export type StackPhoto = Photo & {
   folder_path: string;
+  /** Its place among the photos of the stack the gallery shows, from 1 */
   rank: number;
   link: "centre" | "copy" | "burst" | "same";
 };
@@ -90,12 +91,13 @@ export async function listStacks(
   );
   const [members, totals] = await Promise.all([
     query<StackPhoto & { group_id: number; is_favorite: boolean | null }>(
-      `SELECT p.*, f.path AS folder_path, g.group_id::int AS group_id, g.rank, g.link
+      `SELECT p.*, f.path AS folder_path, g.group_id::int AS group_id, g.link,
+              row_number() OVER (PARTITION BY g.group_id ORDER BY g.rank)::int AS rank
        FROM photo_groups g
        JOIN photos p ON p.id = g.photo_id
        JOIN folders f ON f.id = p.folder_id
        WHERE g.group_id = ANY($1::bigint[]) AND ${inGallery()}
-       ORDER BY g.group_id, g.rank`,
+       ORDER BY g.group_id, rank`,
       [page.rows.slice(0, limit).map((row) => row.group_id)],
     ),
     query<{ stacks: number; extra: number }>(

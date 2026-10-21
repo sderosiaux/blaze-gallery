@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type { Client } from "pg";
 import type * as Database from "./database";
+import type * as Keep from "./keep";
 import type { FileVersion } from "./s3";
 import type * as Stacks from "./stacks";
 import type * as Trash from "./trash";
@@ -17,14 +18,22 @@ let sql: Client;
 let database: typeof Database;
 let trash: typeof Trash;
 let stacks: typeof Stacks;
+let keep: typeof Keep;
 
 const FOLDER = { id: 1, path: "2020 Voyage" };
 
+const vector = (size: number, at: (i: number) => number) =>
+  `[${Array.from({ length: size }, (_, i) => at(i)).join(",")}]`;
+
+/**
+ * A photo of the Canon (4000×3000), its embedding along axis `look`
+ * (photos of one look: cosine 1; of two: 0).
+ */
 async function photo(
   id: number,
   folder: { id: number; path: string },
   taken: string,
-  extra: { favorite?: boolean; size?: number } = {},
+  extra: { favorite?: boolean; size?: number; look?: number } = {},
 ) {
   await sql.query(
     `INSERT INTO photos (id, folder_id, filename, s3_key, size, mime_type,
@@ -36,9 +45,34 @@ async function photo(
       `p${id}.jpg`,
       `${folder.path}/p${id}.jpg`,
       extra.size ?? 1000 + id,
-      { date_taken: `${taken}.000Z` },
+      {
+        date_taken: `${taken}.000Z`,
+        dimensions: { width: 4000, height: 3000 },
+        camera: { make: "Canon", model: "R6" },
+      },
       `thumbnails/${folder.path}/p${id}.jpg`,
       extra.favorite ?? false,
+    ],
+  );
+  const look = extra.look ?? 0;
+  await sql.query(
+    `INSERT INTO photo_embeddings (photo_id, embedding, model) VALUES ($1, $2, 'siglip')`,
+    [id, vector(768, (i) => (i === look ? 1 : 0))],
+  );
+}
+
+/** A face of the photo, named `person` (manual) or no one, its embedding along axis `look`. */
+async function face(photoId: number, person: number | null, look: number) {
+  await sql.query(
+    `INSERT INTO faces (photo_id, box, landmarks, det_score, width_px, height_px,
+       sharpness, yaw, pitch, embedding, model, person_id, assignment)
+     VALUES ($1, '{0.1,0.1,0.2,0.2}', '{0,0,0,0,0,0,0,0,0,0}', 0.9, 200, 200,
+       100, 0, 0, $2, 'arcface', $3, $4)`,
+    [
+      photoId,
+      vector(512, (i) => (i === look ? 1 : 0)),
+      person,
+      person === null ? null : "manual",
     ],
   );
 }
@@ -68,9 +102,11 @@ before(async () => {
   database = await import("./database");
   trash = await import("./trash");
   stacks = await import("./stacks");
+  keep = await import("./keep");
   await sql.query(`INSERT INTO folders (id, path, name) VALUES
     (1, '2020 Voyage', '2020 Voyage'), (2, 'books', 'books')`);
   await sql.query(`INSERT INTO excluded_folders (path) VALUES ('books')`);
+  await sql.query(`INSERT INTO people (id, name) VALUES (1, 'A'), (2, 'B')`);
 });
 
 beforeEach(async () => {
@@ -257,6 +293,95 @@ void describe("the Corbeille", () => {
     assert.ok(timeline.every((p) => p.stack === undefined));
   });
 
+  void test("« Garder » throws away only the photos linked to the one kept, and says so first", async () => {
+    // A star around 331: 332 twenty seconds after it, 333 twenty before,
+    // forty seconds from each other; 334 of another moment, five seconds in
+    await photo(331, FOLDER, "2021-03-01T10:00:00");
+    await photo(332, FOLDER, "2021-03-01T10:00:20");
+    await photo(333, FOLDER, "2021-03-01T09:59:40");
+    await photo(334, FOLDER, "2021-03-01T10:00:05", { look: 1 });
+    await stack([331, 332, 333, 334]);
+    assert.deepEqual(await keep.previewKeep([332, 303]), {
+      332: [331],
+      303: [301, 302],
+    });
+    // Sent as the whole stack, as before: refused
+    const all = await trash.keepFromStacks([332], [331, 333, 334]);
+    assert.deepEqual(all, { ok: false, trashed: [], count: 1 });
+    const done = await trash.keepFromStacks([332], [331]);
+    assert.deepEqual(done, { ok: true, trashed: [331], count: 1 });
+    assert.deepEqual(ids(await database.getStackPhotos(332)), [332, 333, 334]);
+  });
+
+  void test("two « Garder » at once on one stack: the second waits, then sees the first", async () => {
+    // Another « Garder », keeping 301: it holds the stack's rows
+    await sql.query("BEGIN");
+    await sql.query(
+      "SELECT id FROM photos WHERE id IN (301, 302, 303) ORDER BY id FOR UPDATE",
+    );
+    let settled = false;
+    const second = trash.keepFromStacks([302], [301, 303]).finally(() => {
+      settled = true;
+    });
+    for (const deadline = Date.now() + 10_000; ; ) {
+      // Inside a transaction the statistics views keep their first read
+      await sql.query("SELECT pg_stat_clear_snapshot()");
+      const waiting = await sql.query(
+        `SELECT 1 FROM pg_stat_activity
+         WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT p.id FROM photos p JOIN photo_groups m%'`,
+      );
+      if (waiting.rowCount === 1) break;
+      assert.ok(!settled, "the second « Garder » did not wait");
+      assert.ok(Date.now() < deadline, "the second « Garder » never waited");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await sql.query(
+      "UPDATE photos SET trashed_at = now() WHERE id IN (302, 303)",
+    );
+    await sql.query("COMMIT");
+    // What it was shown going is not what goes now: nothing moves
+    assert.deepEqual(await second, { ok: false, trashed: [], count: 1 });
+    assert.deepEqual(ids(await database.getStackPhotos(301)), [301]);
+  });
+
+  void test("« Garder » refuses to leave a stack with no photo of the gallery", async () => {
+    await photo(341, { id: 2, path: "books" }, "2021-04-01T10:00:00");
+    await photo(342, FOLDER, "2021-04-01T10:00:01");
+    await stack([341, 342]);
+    assert.deepEqual(await keep.previewKeep([341]), { 341: [342] });
+    const result = await trash.keepFromStacks([341], [342]);
+    assert.deepEqual(result, { ok: false, trashed: [], count: 1 });
+    assert.deepEqual(await trashedIds(), []);
+  });
+
+  void test("« Garder » moves the names of the faces going onto the photo kept", async () => {
+    await photo(351, FOLDER, "2021-05-01T10:00:00");
+    await photo(352, FOLDER, "2021-05-01T10:00:01");
+    await stack([351, 352]);
+    // A named on both sides' same face; B only on the one going, its face
+    // unlike any of the photo kept
+    await face(351, null, 0);
+    await face(352, 1, 0);
+    await face(352, 2, 7);
+    assert.equal((await trash.keepFromStacks([351], [352])).ok, true);
+    const named = await sql.query<{
+      photo: number;
+      person: number;
+      assignment: string;
+    }>(
+      `SELECT photo_id::int AS photo, person_id::int AS person, assignment FROM faces
+       WHERE person_id IS NOT NULL ORDER BY photo_id, person_id`,
+    );
+    assert.deepEqual(
+      named.rows.map((r) => [r.photo, r.person, r.assignment]),
+      [
+        [351, 1, "manual"],
+        [352, 1, "manual"],
+        [352, 2, "manual"],
+      ],
+    );
+  });
+
   void test("the Doublons page: stacks of each kind with their photos, best first", async () => {
     // Copies by their rank, but no MD5 read yet: not shown as the same file
     assert.deepEqual(
@@ -295,6 +420,16 @@ void describe("the Corbeille", () => {
     assert.deepEqual(
       (await stacks.listStacks("all", paged.next, 1)).stacks.map((s) => s.id),
       [311],
+    );
+    // Ranks count the photos the gallery shows: 301 gone, 302 is first
+    await trash.trashPhotos([301]);
+    const [burst] = (await stacks.listStacks("bursts", null, 10)).stacks;
+    assert.deepEqual(
+      burst?.photos.map((p) => [p.id, p.rank]),
+      [
+        [302, 1],
+        [303, 2],
+      ],
     );
     // A stack the Corbeille left with one photo is settled
     await trash.trashPhotos([312]);

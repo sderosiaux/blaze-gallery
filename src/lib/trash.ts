@@ -17,7 +17,9 @@ import type { PoolClient } from "pg";
 import type { FileVersion } from "./s3";
 import type { Photo } from "@/types";
 import { inGallery, query, requireRow, runTransaction } from "./database";
+import { clientRunner, goingFor } from "./keep";
 import { logger } from "./logger";
+import { carryNames } from "./people";
 import { thumbnailUrl } from "./photoUrls";
 
 /** Who threw photos away, and the lot they went with. */
@@ -99,45 +101,65 @@ export async function restoreLot(batch: string): Promise<number> {
   return result.rowCount ?? 0;
 }
 
-/** The other photos of `keep`'s stack the gallery shows (photo_id), with `keep` (keep_id). */
-const OTHERS_IN_STACK = `
-  SELECT m.photo_id, k.photo_id AS keep_id FROM photo_groups k
-  JOIN photo_groups m ON m.group_id = k.group_id AND m.photo_id <> k.photo_id
-  JOIN photos p ON p.id = m.photo_id
-  WHERE k.photo_id = ANY($1::bigint[]) AND ${inGallery()}`;
-
 /**
- * « Garder celle-ci »: each photo of `keep` stays, the rest of its stack
- * goes to the Corbeille. `trash`: the photos the owner saw go; when the
- * stacks now hold others (a sync, a rebuild, another tab since), nothing
- * moves and the number they hold is returned with ok false. A kept photo
- * in the Corbeille comes back. All go as one lot of the owner's. Returns
- * the ids thrown away.
+ * « Garder celle-ci »: each photo of `keep` stays, and the photos of its
+ * stack linked to it (lib/keep.ts goingFor) go to the Corbeille, the
+ * names on their faces moved onto it first (carryNames). `trash`: the
+ * photos the owner was shown going (previewKeep); when they are not
+ * exactly those now (a sync, a rebuild, another tab since), nothing moves
+ * and ok is false with the number that would go. The stacks' photos are
+ * locked first, so two « Garder » on one stack take turns, the second
+ * seeing what the first did; a stack left with no photo of the gallery
+ * outside the Corbeille undoes it all (ok false). A kept photo in the
+ * Corbeille comes back. All go as one lot of the owner's. Returns the
+ * ids thrown away.
  */
 export async function keepFromStacks(
   keep: readonly number[],
   trash: readonly number[],
 ): Promise<{ ok: boolean; trashed: number[]; count: number }> {
-  return runTransaction(async (client) => {
-    const others = await client.query<{ id: number; keep: number }>(
-      `SELECT DISTINCT ON (photo_id) photo_id::int AS id, keep_id::int AS keep
-       FROM (${OTHERS_IN_STACK}) o
-       WHERE NOT (photo_id = ANY($1::bigint[]))
-       ORDER BY photo_id`,
-      [keep],
-    );
-    const ids = others.rows.map((row) => row.id);
-    const seen = new Set(trash);
-    if (ids.length !== seen.size || ids.some((id) => !seen.has(id)))
-      return { ok: false, trashed: [], count: ids.length };
-    await client.query(RESTORE("id = ANY($1::bigint[])"), [keep]);
-    const trashed = await markTrashed(
-      client,
-      others.rows,
-      newLot("owner", "stacks"),
-    );
-    return { ok: true, trashed, count: ids.length };
-  });
+  try {
+    return await runTransaction(async (client) => {
+      await client.query(
+        `SELECT p.id FROM photos p JOIN photo_groups m ON m.photo_id = p.id
+         WHERE m.group_id IN (SELECT group_id FROM photo_groups WHERE photo_id = ANY($1::bigint[]))
+         ORDER BY p.id FOR UPDATE OF p`,
+        [keep],
+      );
+      const going = await goingFor(clientRunner(client), keep);
+      const seen = new Set(trash);
+      if (going.length !== seen.size || going.some((g) => !seen.has(g.id)))
+        return { ok: false, trashed: [], count: going.length };
+      await client.query(RESTORE("id = ANY($1::bigint[])"), [keep]);
+      await carryNames(client, going);
+      const trashed = await markTrashed(
+        client,
+        going,
+        newLot("owner", "stacks"),
+      );
+      const emptied = await client.query(
+        `SELECT 1 FROM photo_groups k
+         WHERE k.photo_id = ANY($1::bigint[]) AND NOT EXISTS (
+           SELECT 1 FROM photo_groups m JOIN photos p ON p.id = m.photo_id
+           WHERE m.group_id = k.group_id AND ${inGallery()})
+         LIMIT 1`,
+        [keep],
+      );
+      if (emptied.rows.length > 0) throw new StackEmptied(going.length);
+      return { ok: true, trashed, count: going.length };
+    });
+  } catch (error) {
+    if (error instanceof StackEmptied)
+      return { ok: false, trashed: [], count: error.count };
+    throw error;
+  }
+}
+
+/** keepFromStacks would leave a stack with nothing in the gallery: rolled back. */
+class StackEmptied extends Error {
+  constructor(readonly count: number) {
+    super("a stack would be left with nothing in the gallery");
+  }
 }
 
 export type TrashedPhoto = Photo & {
