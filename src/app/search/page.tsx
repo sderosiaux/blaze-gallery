@@ -293,13 +293,15 @@ function ResultsView({
   const { content } = results.understood;
   const understood = results.understood.parts > 0;
   const notice =
-    results.semanticStatus === "unavailable" && content !== null
-      ? understood
-        ? `La recherche par le contenu des photos ne répond pas pour l'instant : photos non triées selon ${quoted(content)}.`
-        : "La recherche par le contenu des photos ne répond pas pour l'instant : résultats par nom de dossier et de fichier."
-      : results.semanticStatus === "not_indexed"
-        ? "Les photos sont en cours d'analyse ; la recherche par le contenu arrive bientôt."
-        : null;
+    results.semanticStatus === "unavailable" && filter.like !== null
+      ? "Cette photo n’a pas encore été analysée : ses photos similaires ne sont pas encore trouvables."
+      : results.semanticStatus === "unavailable" && content !== null
+        ? understood
+          ? `La recherche par le contenu des photos ne répond pas pour l'instant : photos non triées selon ${quoted(content)}.`
+          : "La recherche par le contenu des photos ne répond pas pour l'instant : résultats par nom de dossier et de fichier."
+        : results.semanticStatus === "not_indexed"
+          ? "Les photos sont en cours d'analyse ; la recherche par le contenu arrive bientôt."
+          : null;
   const noticeLine = notice && (
     <p className="mt-2 text-sm text-ink-muted" role="status">
       {notice}
