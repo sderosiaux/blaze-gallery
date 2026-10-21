@@ -355,6 +355,9 @@ export const BETTER = "stack_better";
  * Condition over photos `p`: no member of its stack ranked before it passes
  * `better`, the list's own condition written over photos BETTER. Without
  * the list's cursor or offset: the front is the stack's, whatever the page.
+ * A probe per photo the list reaches, by its stack (photo_groups_pkey,
+ * then the members before it): OFFSET 0 keeps the planner from turning it
+ * into an anti-join over every stack, which a paged list never needs.
  */
 export function stackFront(better: readonly string[], p = "p"): string {
   // Only a photo of the gallery stands in front: in the lists that show
@@ -367,34 +370,41 @@ export function stackFront(better: readonly string[], p = "p"): string {
     JOIN photo_groups stack_ahead ON stack_ahead.group_id = stack_of.group_id
       AND stack_ahead.rank < stack_of.rank
     JOIN photos ${BETTER} ON ${BETTER}.id = stack_ahead.photo_id
-    WHERE stack_of.photo_id = ${p}.id ${passes})`;
+    WHERE stack_of.photo_id = ${p}.id ${passes}
+    OFFSET 0)`;
 }
 
 /**
- * stackFront for a list read whole (a count per month, the map's dots):
- * a CTE `name` holding the photos behind another of their stack that
- * passes `better` (over photos BETTER), read once, and the condition over
- * photos `p` that leaves them out. The same photos as stackFront, found in
- * one pass over the stacks instead of one probe per photo: on the library
- * (2026-10-21), the timeline's months took 1.7 s probed, against 0.5 s
- * without stacks.
+ * For a list read whole (a count per month, the map's dots, the name
+ * search): its rows (`select` FROM `from` WHERE `where`, the photo under
+ * alias `p`), one per stack, settled in the same pass: a photo stays when
+ * none of the list's rows in the gallery ranks before it in its stack. The
+ * same photos as stackFront with `where` written over BETTER, without a
+ * probe per photo nor a second pass over the stacks.
  */
-export function stacksBehind(
-  name: string,
-  better: readonly string[],
+export function oneOfEachStack(
+  select: string,
+  from: string,
+  where: readonly string[],
   p = "p",
-): { cte: string; condition: string } {
-  // As in stackFront: only a photo of the gallery stands in front
-  const passes = `WHERE ${[inGallery(BETTER), ...better].join("\n        AND ")}`;
-  return {
-    cte: `${name} AS MATERIALIZED (
-      SELECT photo_id FROM (
-        SELECT g.photo_id, g.rank, min(g.rank) OVER (PARTITION BY g.group_id) AS best
-        FROM photo_groups g JOIN photos ${BETTER} ON ${BETTER}.id = g.photo_id
-        ${passes}
-      ) ranked WHERE rank > best)`,
-    condition: `NOT EXISTS (SELECT 1 FROM ${name} WHERE ${name}.photo_id = ${p}.id)`,
-  };
+): string {
+  // The rows narrowed to what the window sorts before it does (OFFSET 0
+  // keeps the planner from computing the columns after the sort): with the
+  // metadata and the path in them the months' sort spilled 70 MB to disk
+  return `(SELECT * FROM (
+      SELECT rows.*, min(rows.stack_rank) FILTER (WHERE rows.stack_gallery)
+               OVER (PARTITION BY rows.stack_group) AS stack_best
+      FROM (
+        SELECT ${select}, stack_of.group_id AS stack_group, stack_of.rank AS stack_rank,
+               ${inGallery(p)} AS stack_gallery
+        FROM ${from}
+        LEFT JOIN photo_groups stack_of ON stack_of.photo_id = ${p}.id
+        WHERE ${where.length > 0 ? where.join("\n          AND ") : "true"}
+        OFFSET 0
+      ) rows
+    ) ranked
+    WHERE ranked.stack_rank IS NULL OR ranked.stack_best IS NULL
+      OR ranked.stack_rank <= ranked.stack_best)`;
 }
 
 /**
@@ -1687,22 +1697,24 @@ const PHOTO_HITS = `hits AS (
 )`;
 
 /**
- * Name matches passing `filter` (hits h): names find every photo, filters
- * only those of the gallery. One per stack, the best of the stack's photos
- * the name and the filter find.
+ * Name matches (hits h, with their photo p and folder f) passing `filter`
+ * as `select`: names find every photo, filters only those of the gallery.
+ * One per stack, the best of the stack's photos the name and the filter
+ * find. Read whole (sorted by folder, counted), so the stacks are settled
+ * in the same pass (oneOfEachStack): stackFront's probe, put by the
+ * planner inside the page's join with the folders, ran 2.6 million times
+ * for « plage ».
  */
-function hitFilterSql(params: unknown[], filter: PhotoFilter): string {
-  const filtered = hasPhotoFilter(filter);
-  const front = stackFront(
-    [
-      `${BETTER}.id IN (SELECT id FROM hits)`,
-      ...(filtered ? betterPassFilter(params, filter) : []),
-    ],
-    "h",
+function hitRows(
+  params: unknown[],
+  filter: PhotoFilter,
+  select: string,
+): string {
+  return oneOfEachStack(
+    select,
+    "hits h JOIN photos p ON p.id = h.id JOIN folders f ON f.id = h.folder_id",
+    hasPhotoFilter(filter) ? filterConditions(params, filter) : [],
   );
-  return filtered
-    ? `EXISTS (SELECT 1 FROM photos p WHERE p.id = h.id ${andPhotoFilter(params, filter)}) AND ${front}`
-    : front;
 }
 
 export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
@@ -1710,7 +1722,7 @@ export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
 /**
  * Photos whose filename or folder path matches, folder by folder (path, then
  * filename); keyset-paginated on (folder path, filename, id); only those
- * passing `filter` when given (hitFilterSql). The page is picked on narrow
+ * passing `filter` when given (hitRows). The page is picked on narrow
  * rows and only its photos are read in full.
  */
 export async function searchPhotos(
@@ -1720,21 +1732,21 @@ export async function searchPhotos(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<SearchPage<SearchPhoto, PhotoSearchCursor>> {
   const params: unknown[] = [searchTerms(q).like, limit + 1];
-  const where: string[] = [];
+  let seek = "";
   if (after) {
     params.push(after.folderPath, after.filename, after.id);
-    where.push("(f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)");
+    seek =
+      "WHERE (r.path, r.filename, r.id) > ($3::text, $4::text, $5::bigint)";
   }
-  where.push(hitFilterSql(params, filter));
+  const rows = hitRows(params, filter, "h.id, f.path, h.filename");
   const result = await query<
     DatabasePhoto & { folder_name: string; folder_path: string }
   >(
     `WITH ${PHOTO_HITS},
      page AS (
-       SELECT h.id, f.path, h.filename
-       FROM hits h JOIN folders f ON f.id = h.folder_id
-       ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
-       ORDER BY f.path, h.filename, h.id
+       SELECT r.id, r.path, r.filename FROM ${rows} r
+       ${seek}
+       ORDER BY r.path, r.filename, r.id
        LIMIT $2
      )
      SELECT p.*, f.name AS folder_name, f.path AS folder_path, ${stackColumns()}
@@ -1769,11 +1781,11 @@ export async function countSearchMatches(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<{ photos: number; folders: number }> {
   const params: unknown[] = [searchTerms(q).like];
+  const rows = hitRows(params, filter, "h.id");
   const result = await query<{ photos: number; folders: number }>(
     `WITH ${PHOTO_HITS}
      SELECT
-       (SELECT COUNT(*) FROM hits h
-        WHERE ${hitFilterSql(params, filter)})::int AS photos,
+       (SELECT COUNT(*) FROM ${rows} r)::int AS photos,
        (SELECT COUNT(*) FROM folders f
         WHERE ${containsSql("f.path", "$1")} AND ${HAS_CONTENT})::int AS folders`,
     params,
@@ -2613,39 +2625,29 @@ export async function getTimelineSummary(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
-  const narrow = andPhotoFilter(params, filter);
-  const behind = stacksBehind("behind", [
-    dated(BETTER),
-    ...betterPassFilter(params, filter),
-  ]);
-  const totalParams: unknown[] = [];
-  const totalNarrow = andPhotoFilter(totalParams, filter);
-  const totalBehind = stacksBehind(
-    "behind",
-    betterPassFilter(totalParams, filter),
+  const months = oneOfEachStack(
+    "substr(p.metadata->>'date_taken', 1, 7) AS month",
+    "photos p",
+    [dated("p"), ...filterConditions(params, filter)],
   );
-  const [months, total] = await Promise.all([
+  const totalParams: unknown[] = [];
+  const all = oneOfEachStack(
+    "p.id",
+    "photos p",
+    filterConditions(totalParams, filter),
+  );
+  const [byMonth, total] = await Promise.all([
     listQuery<{ month: string; count: number }>(
-      `
-      WITH ${behind.cte}
-      SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
-      FROM photos p
-      WHERE (p.metadata->>'date_taken') IS NOT NULL
-        ${narrow}
-        AND ${behind.condition}
-      GROUP BY 1
-      ORDER BY 1 DESC
-    `,
+      `SELECT month, COUNT(*)::int AS count FROM ${months} m
+       GROUP BY 1 ORDER BY 1 DESC`,
       params,
     ),
     listQuery<{ total: number }>(
-      `WITH ${totalBehind.cte}
-       SELECT COUNT(*)::int AS total FROM photos p
-       WHERE true ${totalNarrow} AND ${totalBehind.condition}`,
+      `SELECT COUNT(*)::int AS total FROM ${all} a`,
       totalParams,
     ),
   ]);
-  return { months: months.rows, total_photos: requireRow(total).total };
+  return { months: byMonth.rows, total_photos: requireRow(total).total };
 }
 
 // On the map: a GPS fix (imageProbe only writes finite numbers, never 0,0)
@@ -2713,18 +2715,13 @@ function mapWhole(
   filter: PhotoFilter,
   period: MapPeriod,
   box: MapBox | null,
-): { cte: string; where: string } {
-  const behind = stacksBehind(
-    "behind",
-    mapConditions(params, filter, period, box, BETTER),
+  select: string,
+): string {
+  return oneOfEachStack(
+    select,
+    "photos p",
+    mapConditions(params, filter, period, box, "p"),
   );
-  return {
-    cte: behind.cte,
-    where: [
-      ...mapConditions(params, filter, period, box, "p"),
-      behind.condition,
-    ].join("\n  AND "),
-  };
 }
 
 /**
@@ -2737,16 +2734,20 @@ export async function getMapPoints(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<[number, number, number][]> {
   const params: unknown[] = [CELLS_PER_DEGREE];
-  const whole = mapWhole(params, filter, period, null);
+  const whole = mapWhole(
+    params,
+    filter,
+    period,
+    null,
+    `${LATITUDE} AS lat, ${LONGITUDE} AS lng`,
+  );
   const result = await listQuery<{ lat: number; lng: number; count: number }>(
     `
-    WITH ${whole.cte}
-    SELECT round(AVG(${LATITUDE})::numeric, 4)::float8 AS lat,
-           round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
+    SELECT round(AVG(w.lat)::numeric, 4)::float8 AS lat,
+           round(AVG(w.lng)::numeric, 4)::float8 AS lng,
            COUNT(*)::int AS count
-    FROM photos p
-    WHERE ${whole.where}
-    GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
+    FROM ${whole} w
+    GROUP BY round(w.lat * $1), round(w.lng * $1)
   `,
     params,
   );
@@ -2766,14 +2767,17 @@ export async function getMapDates(
   dates: { date: string; count: number }[];
 }> {
   const params: unknown[] = [DAY_SPAN];
-  const whole = mapWhole(params, filter, { from: null, to: null }, box);
+  const whole = mapWhole(
+    params,
+    filter,
+    { from: null, to: null },
+    box,
+    "substr(p.metadata->>'date_taken', 1, 10) AS day",
+  );
   const result = await listQuery<{ date: string; count: number }>(
     `
-    WITH ${whole.cte}, days AS (
-      SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
-      FROM photos p
-      WHERE ${whole.where}
-      GROUP BY 1
+    WITH days AS (
+      SELECT w.day, COUNT(*)::int AS count FROM ${whole} w GROUP BY 1
     ), span AS (
       SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
     )
@@ -2844,9 +2848,9 @@ export async function countMapPhotos(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<number> {
   const params: unknown[] = [];
-  const whole = mapWhole(params, filter, period, box);
+  const whole = mapWhole(params, filter, period, box, "p.id");
   const result = await listQuery<{ total: number }>(
-    `WITH ${whole.cte} SELECT COUNT(*)::int AS total FROM photos p WHERE ${whole.where}`,
+    `SELECT COUNT(*)::int AS total FROM ${whole} w`,
     params,
   );
   return requireRow(result).total;
