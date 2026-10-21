@@ -409,10 +409,10 @@ def counts(conn) -> tuple:
     ).fetchone()
 
 
-def test_a_rebuild_stacks_the_library_and_closes_every_job(conn):
+def test_a_rebuild_stacks_the_library_and_closes_every_job(conn, schema):
     store = Store()
     library = a_library(conn, store)
-    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    summary = rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     assert (summary.stacks, summary.members) == (2, 5)
     found = stacks_in(conn)
     by_photo = {pid: (g, r, link) for g, rows in found.items() for pid, r, link in rows}
@@ -437,49 +437,67 @@ def test_a_rebuild_stacks_the_library_and_closes_every_job(conn):
     assert set(measures) == set(groups.WEIGHTS)
 
 
-def test_a_dry_run_writes_nothing(conn):
+def test_a_dry_run_writes_nothing(conn, schema):
     store = Store()
     a_library(conn, store)
-    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    summary = rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=True)
     assert summary.stacks == 2
     assert counts(conn) == (0, 0)
 
 
-def test_a_folder_first_and_only_on_an_empty_table(conn):
+def test_a_folder_first_and_only_on_an_empty_table(conn, schema):
     store = Store()
     library = a_library(conn, store)
     other = conn.execute(
         "INSERT INTO folders (path, name) VALUES ('t/sub', 'sub') RETURNING id"
     ).fetchone()[0]
     conn.execute("UPDATE photos SET folder_id = %s WHERE id = ANY(%s)", (other, library["burst"]))
-    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, folder="t/sub")
+    summary = rebuild(
+        lambda: connect(schema),
+        Measurer(store, 2),
+        Vocabulary.read(),
+        dry_run=False,
+        folder="t/sub",
+    )
     assert (summary.photos, summary.stacks) == (3, 1)
     # The trial leaves the jobs alone
     assert counts(conn) == (3, 0)
-    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     with pytest.raises(Aborted, match="first trial"):
-        rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, folder="t/sub")
+        rebuild(
+            lambda: connect(schema),
+            Measurer(store, 2),
+            Vocabulary.read(),
+            dry_run=False,
+            folder="t/sub",
+        )
     assert counts(conn)[0] == 5
 
 
-def test_a_rebuild_that_would_lose_half_the_stacks_stops(conn):
+def test_a_rebuild_that_would_lose_half_the_stacks_stops(conn, schema):
     store = Store()
     library = a_library(conn, store)
-    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     conn.execute("DELETE FROM photo_embeddings WHERE photo_id = ANY(%s)", (library["burst"],))
     with pytest.raises(Aborted, match="allow-shrink"):
-        rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+        rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     assert counts(conn)[0] == 5
-    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, allow_shrink=True)
+    rebuild(
+        lambda: connect(schema),
+        Measurer(store, 2),
+        Vocabulary.read(),
+        dry_run=False,
+        allow_shrink=True,
+    )
     assert counts(conn)[0] == 2
 
 
-def test_photos_out_of_the_gallery_are_not_stacked(conn):
+def test_photos_out_of_the_gallery_are_not_stacked(conn, schema):
     store = Store()
     library = a_library(conn, store)
     conn.execute("UPDATE photos SET s3_key = 'books/' || id WHERE id = ANY(%s)", (library["copy"],))
     conn.execute("INSERT INTO excluded_folders (path) VALUES ('books')")
-    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    summary = rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=True)
     assert (summary.photos, summary.stacks) == (4, 1)
 
 
@@ -494,7 +512,7 @@ def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
 def test_new_photos_join_their_stack_or_form_one(conn, schema):
     store = Store()
     library = a_library(conn, store)
-    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     before = stacks_in(conn)
     rng = np.random.default_rng(11)
     (centre,) = [g for g in before if g in library["burst"]]

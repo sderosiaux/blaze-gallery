@@ -227,19 +227,18 @@ def _run_groups(args: argparse.Namespace, env: dict[str, str], url: str) -> None
         return conn
 
     if args.rebuild:
-        with connect() as conn:
-            try:
-                summary = rebuild(
-                    conn,
-                    measurer,
-                    vocabulary,
-                    dry_run=args.dry_run is not None,
-                    folder=args.folder,
-                    owner=args.owner,
-                    allow_shrink=args.allow_shrink,
-                )
-            except Aborted as error:
-                raise SystemExit(f"rebuild aborted, nothing written: {error}") from error
+        try:
+            summary = rebuild(
+                connect,
+                measurer,
+                vocabulary,
+                dry_run=args.dry_run is not None,
+                folder=args.folder,
+                owner=args.owner,
+                allow_shrink=args.allow_shrink,
+            )
+        except Aborted as error:
+            raise SystemExit(f"rebuild aborted, nothing written: {error}") from error
         print(("dry run, nothing written: " if args.dry_run is not None else "") + summary.line())
         return
     if args.folder or args.dry_run is not None:

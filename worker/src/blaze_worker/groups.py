@@ -538,32 +538,41 @@ def pixel_shares(
     return shares
 
 
+@dataclass(frozen=True)
+class Stored:
+    """What the database holds for measuring photos: the picture's part of the measures
+    they already have (a photo's pixels do not change under its id), and their faces."""
+
+    pictures: dict[int, dict[str, float]]
+    faces: dict[int, list[Face]]
+
+
+def stored_for(conn: psycopg.Connection, photo_ids: Sequence[int]) -> Stored:
+    pictures: dict[int, dict[str, float]] = {}
+    for start in range(0, len(photo_ids), 20_000):
+        for pid, m in conn.execute(
+            "SELECT photo_id, measures FROM photo_groups WHERE photo_id = ANY(%s)",
+            (list(photo_ids[start : start + 20_000]),),
+        ).fetchall():
+            pictures[pid] = {"sharp": m["sharp"], "clipped": m["clipped"]}
+    return Stored(pictures, load_faces(conn, photo_ids))
+
+
 def measure(
-    conn: psycopg.Connection,
     measurer: Measurer,
     photos: Mapping[int, Photo],
     photo_ids: Sequence[int],
+    stored: Stored,
 ) -> dict[int, dict[str, Any]]:
-    """Measures of these photos: the picture's part as stored when they have a row (a
-    photo's pixels do not change under its id), else from its thumbnail; the faces' part
-    always from the faces rows (a later faces pass may have added some)."""
-    stored: dict[int, dict[str, Any]] = {}
-    for start in range(0, len(photo_ids), 20_000):
-        stored.update(
-            conn.execute(
-                "SELECT photo_id, measures FROM photo_groups WHERE photo_id = ANY(%s)",
-                (list(photo_ids[start : start + 20_000]),),
-            ).fetchall()
-        )
-    fresh = measurer.pictures([photos[pid] for pid in photo_ids if pid not in stored])
-    faces = load_faces(conn, photo_ids)
+    """Measures of these photos: the picture's part as stored, else read from the thumbnail
+    (no database connection meanwhile); the faces' part always from the faces rows (a later
+    faces pass may have added some)."""
+    fresh = measurer.pictures([photos[pid] for pid in photo_ids if pid not in stored.pictures])
     return {
         pid: measures(
             photos[pid],
-            {"sharp": stored[pid]["sharp"], "clipped": stored[pid]["clipped"]}
-            if pid in stored
-            else fresh.get(pid),
-            faces.get(pid, []),
+            stored.pictures.get(pid) or fresh.get(pid),
+            stored.faces.get(pid, []),
         )
         for pid in photo_ids
     }
@@ -716,7 +725,7 @@ class Aborted(Exception):
 
 
 def rebuild(
-    conn: psycopg.Connection,
+    connect: Callable[[], psycopg.Connection],
     measurer: Measurer,
     vocabulary: Vocabulary,
     dry_run: bool,
@@ -732,6 +741,8 @@ def rebuild(
     elsewhere, and leaves the jobs as they are. Nothing is written when
     dry_run, when a count of COUNTERS dropped during the transaction, or
     when the new rows are under half the old ones (allow_shrink to confirm).
+    A connection is held only while it reads or writes: the pairs and the
+    thumbnails take minutes, past the database's idle suspend.
     """
     model = rules_model()
     where, params = "true", {}
@@ -741,9 +752,12 @@ def rebuild(
             " WHERE fo.path = %(folder)s OR starts_with(fo.path, %(folder)s || '/'))"
         )
         params = {"folder": folder}
-    photos = load_photos(conn, vocabulary, where, **params)
-    log.info("rebuild: %d photos%s, %s", len(photos), f" under {folder}" if folder else "", model)
-    vectors = load_vectors(conn, [p.id for p in photos])
+    with connect() as conn:
+        photos = load_photos(conn, vocabulary, where, **params)
+        log.info(
+            "rebuild: %d photos%s, %s", len(photos), f" under {folder}" if folder else "", model
+        )
+        vectors = load_vectors(conn, [p.id for p in photos])
     columns = Columns.of(photos)
     i, j, s = all_pairs(vectors, columns)
     del vectors
@@ -753,23 +767,23 @@ def rebuild(
     by_id = {p.id: p for p in photos}
     member_ids = [pid for stack in stacks for pid in stack.members]
     log.info("rebuild: %d stacks of %d photos, measuring", len(stacks), len(member_ids))
-    rows = group_rows(stacks, by_id, measure(conn, measurer, by_id, member_ids), model)
+    with connect() as conn:
+        stored = stored_for(conn, member_ids)
+    rows = group_rows(stacks, by_id, measure(measurer, by_id, member_ids, stored), model)
     summary = Summary.of(len(photos), rows)
     log.info("rebuild: %s", summary.line())
     if dry_run:
         return summary
     scope = [p.id for p in photos]
-    with conn.transaction():
+    with connect() as conn, conn.transaction():
         before = counters(conn)
-        if folder is None:
-            old = conn.execute("SELECT count(*) FROM photo_groups").fetchone()[0]
-        else:
+        if folder is not None:
             elsewhere = conn.execute(
                 "SELECT count(*) FROM photo_groups WHERE NOT (photo_id = ANY(%s))", (scope,)
             ).fetchone()[0]
             if elsewhere:
                 raise Aborted(f"--folder is a first trial: {elsewhere} rows outside it")
-            old = conn.execute("SELECT count(*) FROM photo_groups").fetchone()[0]
+        old = conn.execute("SELECT count(*) FROM photo_groups").fetchone()[0]
         if old and len(rows) * 2 < old and not allow_shrink:
             raise Aborted(f"{len(rows)} rows would replace {old}: --allow-shrink to confirm")
         replace_groups(conn, rows)
@@ -1020,9 +1034,8 @@ class Grouper:
             for pid in [pid for pid in stack.members if pid not in photos]:
                 del stack.members[pid]
         member_ids = sorted({m for s in changed.values() for m in s.members})
-        rows = group_rows(
-            changed.values(), photos, measure(conn, self.measurer, photos, member_ids), self.model
-        )
+        measured = measure(self.measurer, photos, member_ids, stored_for(conn, member_ids))
+        rows = group_rows(changed.values(), photos, measured, self.model)
         in_stacks = {r[0] for r in rows}
         results = [(j.id, {"stacked": j.photo_id in in_stacks}) for j in wanted]
         try:
