@@ -776,6 +776,9 @@ def rebuild(
         return summary
     scope = [p.id for p in photos]
     with connect() as conn, conn.transaction():
+        # A Grouper writing meanwhile would stack photos into rows this replaces
+        if not conn.execute("SELECT pg_try_advisory_xact_lock(%s)", (LOCK,)).fetchone()[0]:
+            raise Aborted("a groups worker is running: try again once it is done")
         before = counters(conn)
         if folder is not None:
             elsewhere = conn.execute(

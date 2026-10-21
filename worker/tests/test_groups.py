@@ -501,6 +501,16 @@ def test_photos_out_of_the_gallery_are_not_stacked(conn, schema):
     assert (summary.photos, summary.stacks) == (4, 1)
 
 
+def test_a_rebuild_waits_for_no_grouper(conn, schema):
+    store = Store()
+    a_library(conn, store)
+    with connect(schema) as holder:
+        holder.execute("SELECT pg_advisory_lock(%s)", (groups.LOCK,))
+        with pytest.raises(Aborted, match="groups worker is running"):
+            rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert counts(conn) == (0, 0)
+
+
 def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
     grouper = Grouper(
         lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), "test", batch, 600
