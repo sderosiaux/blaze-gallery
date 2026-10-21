@@ -57,6 +57,8 @@ export interface TagCondition {
  *   only   "1": nobody else on the photos, nobody at all without people
  *   color, tone   lib/colors.ts
  *   date   when, in the words the search box reads ("2015", "été 2015", "noël")
+ *   like   a photo's id: the photos that look like it (« Ressemble à »,
+ *          lib/database.ts SIMILAR_MIN_COSINE); Recherche ranks by it
  * Views keep their own parameters (photo, year, the map's box and period)
  * beside these; FILTER_KEYS are the ones that follow from view to view.
  */
@@ -69,6 +71,8 @@ export interface UrlFilter {
   only: boolean;
   colors: ColorFilter;
   dates: string[];
+  /** The photo the others must look like, null for none */
+  like: number | null;
 }
 
 export const FILTER_KEYS = [
@@ -80,6 +84,7 @@ export const FILTER_KEYS = [
   "color",
   "tone",
   "date",
+  "like",
 ] as const;
 
 export const NO_URL_FILTER: UrlFilter = {
@@ -91,6 +96,7 @@ export const NO_URL_FILTER: UrlFilter = {
   only: false,
   colors: { color: null, tone: null },
   dates: [],
+  like: null,
 };
 
 /** Longest `q` and `date` a URL may carry: past them, nothing reads them. */
@@ -101,6 +107,14 @@ export const MAX_VALUES = 12;
 
 const PERSON = /^(-?)(\d{1,15})(?:\.([a-z_]+))?$/;
 const TAG = /^(-?)([a-z0-9_]{1,40})$/;
+const PHOTO_ID = /^\d{1,15}$/;
+
+/** A photo id as `like` carries it, else null. */
+function photoId(value: string | null): number | null {
+  if (value === null || !PHOTO_ID.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
 
 export function hasUrlFilter(filter: UrlFilter): boolean {
   return (
@@ -112,7 +126,8 @@ export function hasUrlFilter(filter: UrlFilter): boolean {
     filter.only ||
     filter.colors.color !== null ||
     filter.colors.tone !== null ||
-    filter.dates.length > 0
+    filter.dates.length > 0 ||
+    filter.like !== null
   );
 }
 
@@ -202,6 +217,12 @@ export function parseUrlFilter(
       error: `date must be at most ${MAX_DATE_WORDS} characters`,
     };
 
+  const likeValue = get("like");
+  const like =
+    likeValue === null || likeValue === "" ? null : photoId(likeValue);
+  if (likeValue !== null && likeValue !== "" && like === null)
+    return { ok: false, error: "like must be a photo id" };
+
   return {
     ok: true,
     value: {
@@ -213,6 +234,7 @@ export function parseUrlFilter(
       only: only === "1",
       colors: colors.value,
       dates,
+      like,
     },
   };
 }
@@ -244,6 +266,7 @@ export function readUrlFilter(params: URLSearchParams): UrlFilter {
     ...keep("tag", (v) => TAG.test(v)),
     ...keep("only", (v) => v === "1"),
     ...keep("date", (v) => v.trim().length <= MAX_DATE_WORDS),
+    ...keep("like", (v) => photoId(v) !== null).slice(0, 1),
   ]);
   const color = params.get("color");
   const tone = params.get("tone");
@@ -279,7 +302,22 @@ export function writeUrlFilter(
   if (filter.only) params.set("only", "1");
   setColorParams(params, filter.colors);
   for (const date of filter.dates) params.append("date", date);
+  if (filter.like !== null) params.set("like", String(filter.like));
   return params;
+}
+
+/**
+ * `params` with « Ressemble à » set to photo `id`, or cleared with null;
+ * the rest of the filter and the view's own parameters stay.
+ */
+export function setLikeParam(
+  params: URLSearchParams,
+  id: number | null,
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (id === null) next.delete("like");
+  else next.set("like", String(id));
+  return next;
 }
 
 /** The filter as API query parameters, for a page's requests. */

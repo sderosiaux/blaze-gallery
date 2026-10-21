@@ -2,10 +2,13 @@ import {
   cachedQueryEmbedding,
   cacheQueryEmbedding,
   countPhotoEmbeddings,
+  photoEmbedding,
   searchPhotosByContent,
+  similarSource,
   type PhotoFilter,
   type QueryEmbedding,
   type ScoredPhoto,
+  type SimilarPhoto,
 } from "./database";
 import {
   embedderConfig,
@@ -15,6 +18,7 @@ import {
 } from "./embedderClient";
 import { logger } from "./logger";
 import { normalizeSemanticQuery } from "./semanticQuery";
+import { SIMILAR_LIMIT, SIMILAR_MIN_COSINE } from "./similar";
 
 /**
  * ok: ranked photos (maybe none above the floor). unavailable: the query
@@ -83,6 +87,66 @@ export async function semanticSearch(
       error instanceof Error ? error : new Error(String(error)),
     );
     return unavailable();
+  }
+}
+
+/**
+ * « Photos similaires » as Recherche lists them: photo `source` first,
+ * wherever it is (the Corbeille too, marked), on the first page; then the
+ * photos looking like it (cosine at least SIMILAR_MIN_COSINE) among those
+ * passing `filter` (its `like` left out: the ranking is the likeness),
+ * nearest first, a stack once and the source's own left to the source,
+ * offset-paginated up to SIMILAR_LIMIT. unavailable: the photo has no
+ * embedding (a video, not embedded yet), it is listed alone; gone, nothing
+ * is. Never throws, like semanticSearch.
+ */
+export async function similarSearch(
+  source: number,
+  options: { filter: PhotoFilter; offset: number; limit: number },
+): Promise<SemanticResults & { photos: SimilarPhoto[] }> {
+  const head = async () =>
+    options.offset === 0 ? await similarSource(source) : null;
+  try {
+    const [embedding, first] = await Promise.all([
+      photoEmbedding(source),
+      head(),
+    ]);
+    if (!embedding)
+      return {
+        status: "unavailable",
+        photos: first ? [first] : [],
+        next: null,
+        indexed: null,
+      };
+    const limit = Math.max(
+      0,
+      Math.min(options.limit, SIMILAR_LIMIT - options.offset),
+    );
+    const page =
+      limit === 0
+        ? { items: [], next: null }
+        : await searchPhotosByContent(
+            embedding,
+            { ...options.filter, like: null },
+            options.offset,
+            limit,
+            { source, minCosine: SIMILAR_MIN_COSINE },
+          );
+    const next =
+      page.next !== null && page.next < SIMILAR_LIMIT ? page.next : null;
+    return {
+      status: "ok",
+      photos: first ? [first, ...page.items] : page.items,
+      next,
+      indexed: null,
+    };
+  } catch (error) {
+    logger.error(
+      "Similar photos failed",
+      { source },
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return { status: "unavailable", photos: [], next: null, indexed: null };
   }
 }
 

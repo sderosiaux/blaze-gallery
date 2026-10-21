@@ -12,8 +12,10 @@ import path from "node:path";
 import type { ColorFilter } from "./colors";
 import {
   contentPhotos,
+  likePhotos,
   listPersonNames,
   NO_PHOTO_FILTER,
+  photoEmbedding,
   rareTags,
   taggedShare,
   tagsWithPhotos,
@@ -130,8 +132,10 @@ export interface FilterScope {
 }
 
 export interface ResolvedFilter {
-  /** Without its content: withContent measures it */
+  /** Without its content nor its likeness: withContent and withLike measure them */
   filter: PhotoFilter;
+  /** The photo the others must look like (UrlFilter.like), for withLike */
+  like: number | null;
   /** The words of `q` left for the content, as typed (UnderstoodQuery.text) */
   text: string | null;
   /** What the photos should show, for the embedder; null: nothing */
@@ -277,6 +281,7 @@ export async function resolveFilter(
         folder,
         favorites: scope.favorites ?? false,
       },
+      like: url.like,
       text: understood.text,
       content: words.length > 0 ? words.join(" ") : null,
       cut: understood.cut || fallbackWords.length > 0,
@@ -347,6 +352,59 @@ export async function withContent(resolved: ResolvedFilter): Promise<{
   return {
     filter: { ...resolved.filter, content: { ids: found.ids } },
     content: "ok",
+    complete: found.complete,
+  };
+}
+
+/**
+ * ok: « Ressemble à » is part of the filter. unavailable: the photo has
+ * no embedding yet (a video, not embedded): the filter keeps that photo
+ * alone, and says so.
+ */
+export type LikeStatus = "ok" | "unavailable";
+
+const likes = new Map<
+  string,
+  { at: number; ids: number[]; complete: boolean }
+>();
+
+/**
+ * `filter` with photo `like`'s look-alikes as a condition (PhotoFilter.like):
+ * the photos close enough to it (likePhotos) among those the rest of the
+ * filter keeps (its content included), kept CONTENT_TTL_MS for that photo
+ * and filter, like a content's.
+ */
+export async function withLike(
+  filter: PhotoFilter,
+  like: number | null,
+): Promise<{
+  filter: PhotoFilter;
+  like: LikeStatus | null;
+  /** False when SIMILAR_LIMIT cut the look-alikes */
+  complete: boolean;
+}> {
+  if (like === null) return { filter, like: null, complete: true };
+  const key = JSON.stringify([like, filter]);
+  const now = Date.now();
+  let found = likes.get(key);
+  if (!found || now - found.at >= CONTENT_TTL_MS) {
+    const embedding = await photoEmbedding(like);
+    if (!embedding)
+      return {
+        filter: { ...filter, like: { source: like, ids: [like] } },
+        like: "unavailable",
+        complete: true,
+      };
+    found = { at: now, ...(await likePhotos(embedding, filter)) };
+    likes.delete(key);
+    likes.set(key, found);
+    const oldest = likes.keys().next();
+    if (likes.size > CONTENT_CACHE_SIZE && !oldest.done)
+      likes.delete(oldest.value);
+  }
+  return {
+    filter: { ...filter, like: { source: like, ids: found.ids } },
+    like: "ok",
     complete: found.complete,
   };
 }
