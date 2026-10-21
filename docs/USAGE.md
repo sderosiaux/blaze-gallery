@@ -57,6 +57,15 @@ go through them. With a filter on, the tile is the best photo the filter
 keeps, and the viewer still opens the whole stack. The worker makes the
 stacks (DEPLOYMENT.md); a new photo joins its stack at the weekly run.
 
+## Photos similaires
+
+S in the viewer, or its button, keeps the photos that look like the one
+shown: the same place, subject or event, whatever folder or year they sit
+in. It is one more filter, « Ressemble à » with the photo in its chip, so it
+combines with the others on any view. Recherche ranks them by likeness,
+the photo itself first. The threshold, and how it was measured, sits in
+`src/lib/similar.ts`.
+
 ## Throwing photos away
 
 The trash on a tile (held one second), Suppr in the viewer and « Garder

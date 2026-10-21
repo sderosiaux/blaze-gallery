@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import { Film, Heart, ImageOff, Layers } from "lucide-react";
+import { Film, Heart, ImageOff, Layers, Trash2 } from "lucide-react";
 import type { Photo } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
 import { formatDay, isVideo } from "@/lib/albums";
@@ -70,7 +70,13 @@ function PhotoTile({
   const sources = photoSources(photo, shareToken);
   const taken = photo.metadata?.date_taken;
   const stacked = photo.stack ? `, pile de ${photo.stack.count} photos` : "";
-  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}${stacked}`;
+  // « Photos similaires » marks its source (lib/database.ts SimilarPhoto)
+  const { source, trashed } = photo as Photo & {
+    source?: boolean;
+    trashed?: boolean;
+  };
+  const marked = `${source ? ", photo de départ" : ""}${trashed ? ", dans la corbeille" : ""}`;
+  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}${stacked}${marked}`;
   const isRaw = RAW_EXTENSIONS.some((ext) =>
     photo.filename.toLowerCase().endsWith(ext),
   );
@@ -135,6 +141,21 @@ function PhotoTile({
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
 
+      {source && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-sm ring-2 ring-inset ring-ink"
+        />
+      )}
+      {trashed && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-scrim/45 px-1.5 py-0.5 text-[11px] font-medium leading-none text-on-photo backdrop-blur-sm"
+        >
+          <Trash2 className="h-3 w-3" aria-hidden />
+          Corbeille
+        </span>
+      )}
       {photo.stack && (
         <span
           aria-hidden
