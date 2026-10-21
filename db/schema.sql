@@ -181,6 +181,8 @@ CREATE INDEX IF NOT EXISTS idx_shared_folders_share_token ON shared_folders (sha
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_accessed_at ON share_access_logs (accessed_at);
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_ip_address ON share_access_logs (ip_address);
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_shared_folder_id ON share_access_logs (shared_folder_id);
+-- The purge sets photo_id to NULL for each photo it erases (src/lib/trash.ts)
+CREATE INDEX IF NOT EXISTS idx_share_access_logs_photo_id ON share_access_logs (photo_id);
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_email ON user_sessions (email);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions (expires_at);
