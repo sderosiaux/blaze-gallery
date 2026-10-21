@@ -182,6 +182,25 @@ void describe("npm run dedupe", () => {
     ]);
   });
 
+  void test("copies: one goes only when the bucket vouches for the same bytes", async () => {
+    const sums: Record<string, string | null> = {
+      "2020 Voyage/p401.jpg": "a",
+      "2020 Voyage/p402.jpg": "a",
+      "2020 Voyage/p431.jpg": "b",
+      // A multipart upload: no MD5 to compare
+      "2020 Voyage/p437.jpg": null,
+    };
+    const plan = await auto.verifyCopies(
+      await auto.planDedupe("copies"),
+      (key) => Promise.resolve(sums[key] ?? null),
+    );
+    assert.deepEqual(pairs(plan.go), [[402, 401]]);
+    assert.deepEqual(
+      pairs(plan.held).map((c) => c.join(" ")),
+      ["412 411 favorite", "422 421 shared", "437 431 bytes"],
+    );
+  });
+
   void test("near: the front stays, a photo clearly behind it goes, any doubt keeps one", async () => {
     const plan = await auto.planDedupe("near");
     // 451 is out of the gallery: 452 fronts its stack, 453 trails it by 1

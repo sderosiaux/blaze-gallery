@@ -6,14 +6,15 @@
  * 2026-10-21); the stack's rank says which.
  *
  * - copies: of the same file in several places (copy_of), the copy ranked
- *   first stays, the others go.
+ *   first stays, the others go once the bucket vouches they are the same
+ *   bytes (verifyCopies).
  * - near: of a stack, the front stays; a near-duplicate of it goes when it
  *   scores NET_GAP below it.
  *
  * A photo stays, and its stack waits for the owner in Doublons, when any
  * hold says so (Hold). The plan is written to a file for the owner's look;
- * applying it plans again in one snapshot and writes nothing unless that
- * plan is the same, photo for photo.
+ * applying it plans again in one snapshot and writes nothing unless every
+ * photo shown still goes, with the same photo kept.
  */
 import type { PoolClient } from "pg";
 import { inGallery, OWNED, runTransaction } from "./database";
@@ -50,7 +51,9 @@ export type Hold =
   /** another shape than the photo kept: a crop (near only) */
   | "crop"
   /** within NET_GAP of the photo kept (near only) */
-  | "close";
+  | "close"
+  /** the bucket does not vouch both files are the same bytes (copies only) */
+  | "bytes";
 
 export const HOLDS: readonly Hold[] = [
   "favorite",
@@ -61,6 +64,7 @@ export const HOLDS: readonly Hold[] = [
   "larger",
   "crop",
   "close",
+  "bytes",
 ];
 
 const PASS_HOLDS: Record<DedupePass, readonly Hold[]> = {
@@ -73,6 +77,9 @@ export interface Candidate {
   /** The photo kept in its place */
   keep: number;
   group_id: number;
+  /** s3_key of the photo, and of the one kept */
+  key: string;
+  kept_key: string;
   holds: Hold[];
 }
 
@@ -103,7 +110,7 @@ function candidatesSql(pass: DedupePass): string {
     `(greatest(${x}.w, ${x}.h) / nullif(least(${x}.w, ${x}.h), 0))`;
   return `
     WITH member AS MATERIALIZED (
-      SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id,
+      SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id, p.s3_key,
              f.path AS folder_path, coalesce(p.is_favorite, false) AS favorite,
              p.thumbnail_status,
              (p.metadata -> 'dimensions' ->> 'width')::float8 AS w,
@@ -119,7 +126,7 @@ function candidatesSql(pass: DedupePass): string {
       ORDER BY ${unit}, rank
     )
     SELECT m.photo_id::int AS id, k.photo_id::int AS keep, m.group_id::int AS group_id,
-      m.favorite,
+      m.s3_key AS key, k.s3_key AS kept_key, m.favorite,
       EXISTS (
         SELECT 1 FROM faces mf
         WHERE mf.photo_id = m.photo_id AND mf.person_id IS NOT NULL
@@ -146,21 +153,22 @@ function candidatesSql(pass: DedupePass): string {
     ORDER BY m.group_id, m.rank, m.photo_id`;
 }
 
-type Row = { id: number; keep: number; group_id: number } & Record<
-  Hold,
-  boolean
->;
+type Row = Omit<Candidate, "holds"> & Record<Exclude<Hold, "bytes">, boolean>;
 
 async function plan(client: PoolClient, pass: DedupePass): Promise<DedupePlan> {
   const rows = await client.query<Row>(candidatesSql(pass), [NET_GAP]);
   const go: Candidate[] = [];
   const held: Candidate[] = [];
   for (const row of rows.rows) {
-    const holds = PASS_HOLDS[pass].filter((hold) => row[hold]);
+    const holds = PASS_HOLDS[pass].filter(
+      (hold) => hold !== "bytes" && row[hold],
+    );
     const candidate = {
       id: row.id,
       keep: row.keep,
       group_id: row.group_id,
+      key: row.key,
+      kept_key: row.kept_key,
       holds,
     };
     (holds.length === 0 ? go : held).push(candidate);
@@ -176,6 +184,49 @@ export function planDedupe(pass: DedupePass): Promise<DedupePlan> {
   });
 }
 
+/** A file's MD5 as the bucket keeps it; null when it cannot vouch (a multipart upload, none). */
+export type Fingerprint = (key: string) => Promise<string | null>;
+
+/**
+ * The copies pass checked against the bucket: a copy goes only when the
+ * bucket's MD5 of its file and of the kept one are the same. The sync
+ * keeps no hash, and the same size, dimensions and picture are not proof
+ * (an uncompressed RAW of a burst has its neighbour's size). The others
+ * stay, hold "bytes". `concurrency` requests at a time.
+ */
+export async function verifyCopies(
+  shown: DedupePlan,
+  fingerprint: Fingerprint,
+  concurrency = 24,
+): Promise<DedupePlan> {
+  const keys = [...new Set(shown.go.flatMap((c) => [c.key, c.kept_key]))];
+  const sums = new Map<string, string | null>();
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (next < keys.length) {
+        const key = keys[next++];
+        if (key === undefined) break;
+        sums.set(key, await fingerprint(key).catch(() => null));
+      }
+    }),
+  );
+  const same = (c: Candidate) => {
+    const sum = sums.get(c.key);
+    return typeof sum === "string" && sum === sums.get(c.kept_key);
+  };
+  return {
+    ...shown,
+    go: shown.go.filter(same),
+    held: [
+      ...shown.held,
+      ...shown.go
+        .filter((c) => !same(c))
+        .map((c) => ({ ...c, holds: ["bytes" as const] })),
+    ],
+  };
+}
+
 /** The worker's groups lock (groups.py LOCK): no rebuild or grouper writes meanwhile. */
 const GROUPS_LOCK = 0x626c617a6567;
 
@@ -186,8 +237,9 @@ const key = (c: Candidate) => `${c.id}>${c.keep}`;
 
 /**
  * Throws away the photos of `shown` (a plan of the same pass, the one the
- * owner looked at) as one lot of 'auto', if planning again now gives the
- * same photos with the same photos kept. In one snapshot (repeatable
+ * owner looked at) as one lot of 'auto', if planning again now still
+ * sends every one of them, with the same photo kept; photos the new plan
+ * would add are not shown, so not written. In one snapshot (repeatable
  * read) holding the groups lock; checks that it marked exactly those and
  * that no photo changed otherwise. Returns the lot and the ids marked.
  */
@@ -203,22 +255,19 @@ export function applyDedupe(
     if (!locked.rows[0]?.ok)
       throw new DedupeRefused("a groups worker is running");
     const now = await plan(client, shown.pass);
-    const wanted = new Set(shown.go.map(key));
-    if (
-      now.net_gap !== shown.net_gap ||
-      now.go.length !== wanted.size ||
-      now.go.some((c) => !wanted.has(key(c)))
-    )
+    const current = new Set(now.go.map(key));
+    const gone = shown.go.filter((c) => !current.has(key(c)));
+    if (now.net_gap !== shown.net_gap || gone.length > 0)
       throw new DedupeRefused(
-        `the stacks changed since the plan: ${now.go.length} photos would go now, ${wanted.size} were shown`,
+        `the stacks changed since the plan: ${gone.length} of the ${shown.go.length} photos shown would not go now`,
       );
     const before = await snapshot(client);
     const lot = newLot("auto", shown.pass);
-    const trashed = await markTrashed(client, now.go, lot);
+    const trashed = await markTrashed(client, shown.go, lot);
     const after = await snapshot(client);
-    if (trashed.length !== now.go.length)
+    if (trashed.length !== shown.go.length)
       throw new DedupeRefused(
-        `${trashed.length} photos marked, ${now.go.length} planned`,
+        `${trashed.length} photos marked, ${shown.go.length} planned`,
       );
     if (
       after.hash !== before.hash ||

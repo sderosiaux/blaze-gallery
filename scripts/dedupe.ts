@@ -26,9 +26,8 @@ function option(name: string): string | undefined {
 
 async function main(): Promise<boolean> {
   // After dotenv: the database client reads the environment.
-  const { applyDedupe, DEDUPE_PASSES, HOLDS, planDedupe } = await import(
-    "../src/lib/autoTrash"
-  );
+  const { applyDedupe, DEDUPE_PASSES, HOLDS, planDedupe, verifyCopies } =
+    await import("../src/lib/autoTrash");
   type Pass = (typeof DEDUPE_PASSES)[number];
   const pass = process.argv[2] as Pass;
   if (!DEDUPE_PASSES.includes(pass))
@@ -46,7 +45,9 @@ async function main(): Promise<boolean> {
     );
     return true;
   }
-  const plan = await planDedupe(pass);
+  const planned = await planDedupe(pass);
+  const plan =
+    pass === "copies" ? await verifyCopies(planned, await md5s()) : planned;
   const stacks = new Set(plan.go.map((c) => c.group_id));
   out(
     `${pass}: ${plan.go.length} photos would go, from ${stacks.size} stacks; ${plan.held.length} stay.`,
@@ -61,6 +62,31 @@ async function main(): Promise<boolean> {
     out(`Plan written to ${file}.`);
   }
   return true;
+}
+
+/**
+ * The bucket's MD5 of an original: its ETag, when not a multipart upload's
+ * (those end in -<parts>). Straight to the client: these reads are not
+ * the app's, and write no audit row.
+ */
+async function md5s(): Promise<(key: string) => Promise<string | null>> {
+  const [{ HeadObjectCommand }, { getS3Client }, { getConfig }] =
+    await Promise.all([
+      import("@aws-sdk/client-s3"),
+      import("../src/lib/s3"),
+      import("../src/lib/config"),
+    ]);
+  const client = getS3Client();
+  const bucket = getConfig().backblaze_bucket;
+  let done = 0;
+  return async (key) => {
+    const head = await client.send(
+      new HeadObjectCommand({ Bucket: bucket, Key: key }),
+    );
+    if (++done % 5000 === 0) out(`  ${done} files checked in the bucket`);
+    const etag = head.ETag?.replace(/"/g, "") ?? "";
+    return /^[0-9a-f]{32}$/.test(etag) ? etag : null;
+  };
 }
 
 main()
