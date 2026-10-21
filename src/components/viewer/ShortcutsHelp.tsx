@@ -16,6 +16,8 @@ interface ShortcutsHelpProps {
   canRotate: boolean;
   canDelete: boolean;
   canFaces: boolean;
+  /** « Photos similaires » */
+  canSimilar?: boolean;
   onClose: () => void;
 }
 
@@ -26,6 +28,7 @@ export default function ShortcutsHelp({
   canRotate,
   canDelete,
   canFaces,
+  canSimilar = false,
   onClose,
 }: ShortcutsHelpProps) {
   const shortcuts: Shortcut[] = [
@@ -40,6 +43,9 @@ export default function ShortcutsHelp({
     { keys: ["I"], label: "Afficher ou masquer les infos" },
     ...(canFaces
       ? [{ keys: ["P"], label: "Afficher ou masquer les visages" }]
+      : []),
+    ...(canSimilar
+      ? [{ keys: ["S"], label: "Voir les photos qui lui ressemblent" }]
       : []),
     { keys: ["Z"], label: "Zoomer ou dézoomer (double-clic aussi)" },
     ...(canRotate
