@@ -7,6 +7,13 @@ import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
 
+/** « Garder celle-ci », and how many photos it sends away once the server said. */
+export function keepLabel(going: number | null): string {
+  if (going === null) return "Garder celle-ci";
+  if (going === 0) return "Garder celle-ci · aucune ne part";
+  return `Garder celle-ci · ${going} ${going > 1 ? "partent" : "part"}`;
+}
+
 /**
  * The photos of a stack of near-duplicates, best first, under the photo:
  * one click (or ↑ ↓) shows another in its place. The list stays where it is.
@@ -16,13 +23,16 @@ export default function StackStrip({
   shown,
   onShow,
   onKeep,
+  going = null,
   busy = false,
 }: {
   photos: Photo[];
   shown: number;
   onShow: (id: number) => void;
-  /** « Garder celle-ci »: the photo shown stays, the others go to the Corbeille */
+  /** « Garder celle-ci »: the photo shown stays, the others linked to it go to the Corbeille */
   onKeep?: () => void;
+  /** How many keeping the photo shown sends to the Corbeille (the server's preview); null until known */
+  going?: number | null;
   busy?: boolean;
 }) {
   return (
@@ -68,10 +78,11 @@ export default function StackStrip({
           size="sm"
           icon={Check}
           loading={busy}
+          disabled={going === 0}
           onClick={onKeep}
           className="ml-1 shrink-0"
         >
-          Garder celle-ci
+          {keepLabel(going)}
         </Button>
       )}
     </div>

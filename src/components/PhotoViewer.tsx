@@ -396,6 +396,32 @@ export default function PhotoViewer({
     onPhotoReplace,
   ]);
 
+  // What « Garder celle-ci » would send away for the photo shown, as the
+  // server previews it; read again when another photo of the stack shows
+  const [keepPreview, setKeepPreview] = useState<{
+    id: string;
+    going: number;
+  } | null>(null);
+  const shownId = String(current.id);
+  useEffect(() => {
+    if (!canTrash || !stackPhotos) return;
+    let live = true;
+    previewKeep([Number(shownId)])
+      .then((going) => {
+        if (live)
+          setKeepPreview({
+            id: shownId,
+            going: going.get(Number(shownId))?.length ?? 0,
+          });
+      })
+      .catch(() => {
+        // The button says nothing until it knows
+      });
+    return () => {
+      live = false;
+    };
+  }, [canTrash, stackPhotos, shownId]);
+
   /**
    * « Garder celle-ci »: the photo shown stays, the photos of its stack
    * close enough to it go (the server says which, lib/keep.ts); the others
@@ -1063,6 +1089,9 @@ export default function PhotoViewer({
                             void keepShown();
                           }
                         : undefined
+                    }
+                    going={
+                      keepPreview?.id === shownId ? keepPreview.going : null
                     }
                     busy={trashing}
                   />
