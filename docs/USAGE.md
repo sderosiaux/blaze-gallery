@@ -48,6 +48,15 @@ the picture, not just the sea behind someone). The thresholds and how they
 were measured are in [TAGS.md](TAGS.md). While the library is being tagged
 again, a line under the chips says how much of it has been read so far.
 
+## Stacks of near-duplicates
+
+A burst, a shot taken again within seconds, an edit, a resized copy and the
+same file in two folders show as one tile: the best of them, with the number
+of photos behind it. In the viewer the others sit under the photo; ↑ and ↓
+go through them. With a filter on, the tile is the best photo the filter
+keeps, and the viewer still opens the whole stack. The worker makes the
+stacks (DEPLOYMENT.md); a new photo joins its stack at the weekly run.
+
 ## Naming people
 
 The worker finds faces; you say who they are.

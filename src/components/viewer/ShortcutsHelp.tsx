@@ -10,6 +10,8 @@ interface Shortcut {
 
 interface ShortcutsHelpProps {
   id: string;
+  /** The photo fronts a stack of near-duplicates */
+  canStack?: boolean;
   canFavorite: boolean;
   canRotate: boolean;
   canDelete: boolean;
@@ -19,6 +21,7 @@ interface ShortcutsHelpProps {
 
 export default function ShortcutsHelp({
   id,
+  canStack = false,
   canFavorite,
   canRotate,
   canDelete,
@@ -27,6 +30,9 @@ export default function ShortcutsHelp({
 }: ShortcutsHelpProps) {
   const shortcuts: Shortcut[] = [
     { keys: ["←", "→"], label: "Photo précédente ou suivante" },
+    ...(canStack
+      ? [{ keys: ["↑", "↓"], label: "Les autres photos de la pile" }]
+      : []),
     { keys: ["Espace"], label: "Lancer ou mettre en pause le diaporama" },
     ...(canFavorite
       ? [{ keys: ["F"], label: "Ajouter aux favoris ou en retirer" }]

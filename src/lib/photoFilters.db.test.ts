@@ -628,7 +628,18 @@ void describe("together, through every list", () => {
     );
   });
 
-  void test("a person's page: newest first, copies once, paged, filtered", async () => {
+  void test("a person's page: newest first, a stack once, paged, filtered", async () => {
+    // 110 is an exact copy of 101, stacked as the groups task stacks them
+    await sql.query(`INSERT INTO photo_groups (photo_id, group_id, rank, score, link, copy_of, measures, model)
+      VALUES (101, 101, 1, 1, 'centre', 101, '{}', 'test'), (110, 101, 2, 1, 'copy', 101, '{}', 'test')`);
+    try {
+      await personPage();
+    } finally {
+      await sql.query("DELETE FROM photo_groups");
+    }
+  });
+
+  async function personPage() {
     const first = await people.personPhotoPage(CELINE, filter({}), null, 2);
     // 110 is a copy of 101: one of them; 112 undated comes last
     assert.equal(first.total, 4);
@@ -677,7 +688,7 @@ void describe("together, through every list", () => {
     );
     assert.deepEqual(smiling.photos.map((p) => p.id).length, 3);
     assert.ok(!smiling.photos.some((p) => p.id === 102));
-  });
+  }
 
   void test("a person's looks", async () => {
     assert.deepEqual(await database.personExpressions(SUZIE), [

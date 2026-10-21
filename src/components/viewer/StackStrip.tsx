@@ -1,0 +1,60 @@
+"use client";
+
+import type { Photo } from "@/types";
+import { cn } from "@/lib/cn";
+import { thumbnailUrl } from "@/lib/photoUrls";
+import { userRotation } from "@/lib/rotation";
+
+/**
+ * The photos of a stack of near-duplicates, best first, under the photo:
+ * one click (or ↑ ↓) shows another in its place. The list stays where it is.
+ */
+export default function StackStrip({
+  photos,
+  shown,
+  onShow,
+}: {
+  photos: Photo[];
+  shown: number;
+  onShow: (id: number) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={`Pile de ${photos.length} photos`}
+      className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-surface/90 p-1 shadow-lift backdrop-blur-sm"
+    >
+      {photos.map((photo, i) => (
+        <button
+          key={photo.id}
+          type="button"
+          aria-label={`Photo ${i + 1} sur ${photos.length} de la pile`}
+          aria-pressed={i === shown}
+          aria-keyshortcuts="ArrowUp ArrowDown"
+          onClick={() => {
+            onShow(photo.id);
+          }}
+          className={cn(
+            "h-12 w-12 shrink-0 overflow-hidden rounded-md outline-offset-1 transition-opacity duration-200",
+            i === shown
+              ? "outline outline-2 outline-ink"
+              : "opacity-60 hover:opacity-100",
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- 48 px thumbnails the app serves */}
+          <img
+            src={thumbnailUrl(
+              photo.id,
+              undefined,
+              userRotation(photo.metadata),
+            )}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}

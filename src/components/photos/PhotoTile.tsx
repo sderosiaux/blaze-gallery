@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import { Film, Heart, ImageOff } from "lucide-react";
+import { Film, Heart, ImageOff, Layers } from "lucide-react";
 import type { Photo } from "@/types";
 import ProgressiveImage from "./ProgressiveImage";
 import { formatDay, isVideo } from "@/lib/albums";
@@ -68,7 +68,8 @@ function PhotoTile({
   const video = isVideo(photo);
   const sources = photoSources(photo, shareToken);
   const taken = photo.metadata?.date_taken;
-  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}`;
+  const stacked = photo.stack ? `, pile de ${photo.stack.count} photos` : "";
+  const label = `${video ? "Lire la vidéo" : "Ouvrir la photo"} ${photo.filename}${taken ? `, ${formatDay(taken)}` : ""}${stacked}`;
   const isRaw = RAW_EXTENSIONS.some((ext) =>
     photo.filename.toLowerCase().endsWith(ext),
   );
@@ -132,6 +133,16 @@ function PhotoTile({
         data-photo-id={String(photo.id)}
         className="absolute inset-0 rounded-sm focus-visible:outline-offset-[-2px]"
       />
+
+      {photo.stack && (
+        <span
+          aria-hidden
+          className="tabular pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-scrim/45 px-1.5 py-0.5 text-[11px] font-medium leading-none text-on-photo backdrop-blur-sm"
+        >
+          <Layers className="h-3 w-3" aria-hidden />
+          {photo.stack.count}
+        </span>
+      )}
 
       <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
         {onToggleFavorite && (

@@ -233,7 +233,7 @@ export async function mcpPersonPhotos(q: PersonPhotosQuery) {
       },
       faces_count: faces.length,
       copies: photo.copies,
-      // A copy is the same file: its description holds for this one
+      // A photo of its stack shows the same picture or moment: its description holds
       description:
         [photo.id, ...photo.copies]
           .map((id) => descriptions.get(id))
