@@ -179,6 +179,12 @@ export async function listTrash(
   photos: TrashedPhoto[];
   total: number;
   as_of: string;
+  /** The files' size, in bytes: what emptying it all frees */
+  bytes: number;
+  /** Thrown away TRASH_DAYS before as_of or earlier (due_cutoff): what the purge would take */
+  due: number;
+  due_bytes: number;
+  due_cutoff: string;
   next: { trashedAt: string; id: number } | null;
 }> {
   const params: unknown[] = [limit + 1];
@@ -195,9 +201,23 @@ export async function listTrash(
        LIMIT $1`,
       params,
     ),
-    query<{ total: number; as_of: Date }>(
-      `SELECT count(*)::int AS total, statement_timestamp() AS as_of
-       FROM photos WHERE trashed_at IS NOT NULL`,
+    query<{
+      total: number;
+      as_of: Date;
+      bytes: number;
+      due: number;
+      due_bytes: number;
+      due_cutoff: Date;
+    }>(
+      `SELECT count(p.id)::int AS total, statement_timestamp() AS as_of,
+              coalesce(sum(p.size), 0)::float8 AS bytes,
+              count(p.id) FILTER (WHERE p.trashed_at <= c.due_cutoff)::int AS due,
+              coalesce(sum(p.size) FILTER (WHERE p.trashed_at <= c.due_cutoff), 0)::float8 AS due_bytes,
+              c.due_cutoff
+       FROM (SELECT statement_timestamp() - make_interval(days => $1) AS due_cutoff) c
+       LEFT JOIN photos p ON p.trashed_at IS NOT NULL
+       GROUP BY c.due_cutoff`,
+      [TRASH_DAYS],
     ),
   ]);
   const photos = page.rows.slice(0, limit).map((row) => ({
@@ -208,11 +228,15 @@ export async function listTrash(
     trashed_at: new Date(row.trashed_at).toISOString(),
   }));
   const last = photos[photos.length - 1];
-  const { total, as_of } = requireRow(count);
+  const { total, as_of, bytes, due, due_bytes, due_cutoff } = requireRow(count);
   return {
     photos,
     total,
     as_of: new Date(as_of).toISOString(),
+    bytes,
+    due,
+    due_bytes,
+    due_cutoff: new Date(due_cutoff).toISOString(),
     next:
       page.rows.length > limit && last
         ? { trashedAt: last.trashed_at, id: last.id }

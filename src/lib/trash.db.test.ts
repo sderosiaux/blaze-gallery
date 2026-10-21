@@ -265,6 +265,18 @@ void describe("the Corbeille", () => {
     assert.equal(first.total, 2);
     // Counted now, by the database's clock
     assert.ok(Math.abs(Date.parse(first.as_of) - Date.now()) < 60_000);
+    // « Vider »: all, or what has waited TRASH_DAYS, with the space it frees
+    assert.equal(first.bytes, 1321 + 1303);
+    assert.deepEqual([first.due, first.due_bytes], [0, 0]);
+    await sql.query(
+      "UPDATE photos SET trashed_at = now() - interval '31 days' WHERE id = 321",
+    );
+    const aged = await trash.listTrash(null, 1);
+    assert.deepEqual([aged.due, aged.due_bytes], [1, 1321]);
+    assert.equal(
+      Date.parse(aged.as_of) - Date.parse(aged.due_cutoff),
+      trash.TRASH_DAYS * 86_400_000,
+    );
     assert.deepEqual(ids(first.photos), [303]);
     assert.ok(first.next);
     const rest = await trash.listTrash(first.next, 1);

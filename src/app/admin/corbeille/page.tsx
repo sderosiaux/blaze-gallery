@@ -10,7 +10,6 @@ import PhotoTile from "@/components/photos/PhotoTile";
 import { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import {
   Button,
-  Dialog,
   EmptyState,
   IconButton,
   PageHeader,
@@ -20,6 +19,7 @@ import { asArray, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
 import { restoreFromTrash, TrashError } from "@/lib/trashClient";
 import type { Photo } from "@/types";
+import EmptyDialog from "./EmptyDialog";
 import { fetchLots, LotList, LotView, type Lot } from "./Lots";
 
 /** Days a photo waits in the Corbeille (lib/trash.ts TRASH_DAYS). */
@@ -32,6 +32,10 @@ interface Page {
   total: number;
   /** When the server counted `total`: the cutoff of « Vider » */
   asOf: string;
+  bytes: number;
+  due: number;
+  dueBytes: number;
+  dueCutoff: string;
   next: { trashedAt: string; id: number } | null;
 }
 
@@ -46,6 +50,10 @@ async function fetchTrash(after: Page["next"]): Promise<Page> {
     photos: asArray(data.photos) as TrashedPhoto[],
     total: Number(data.total),
     asOf: String(data.as_of),
+    bytes: Number(data.bytes),
+    due: Number(data.due),
+    dueBytes: Number(data.due_bytes),
+    dueCutoff: String(data.due_cutoff),
     next: (data.next as Page["next"]) ?? null,
   };
 }
@@ -72,10 +80,7 @@ function Trash() {
   const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [open, setOpen] = useState<Photo | null>(null);
-  const [emptying, setEmptying] = useState<{
-    expected: number;
-    cutoff: string;
-  } | null>(null);
+  const [emptying, setEmptying] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [lots, setLots] = useState<Lot[]>([]);
   const [lot, setLot] = useState<Lot | null>(null);
@@ -199,7 +204,7 @@ function Trash() {
         "error",
       );
     } finally {
-      setEmptying(null);
+      setEmptying(false);
       setProgress(null);
       void load();
     }
@@ -220,7 +225,7 @@ function Trash() {
               variant="danger"
               icon={Trash2}
               onClick={() => {
-                if (page) setEmptying({ expected: total, cutoff: page.asOf });
+                setEmptying(true);
               }}
             >
               Vider la corbeille
@@ -343,41 +348,15 @@ function Trash() {
         />
       )}
 
-      <Dialog
-        open={emptying !== null}
+      <EmptyDialog
+        open={emptying}
+        counts={page}
+        days={TRASH_DAYS}
+        progress={progress}
         onClose={() => {
-          // Once started it goes on: each batch is erased for good
-          if (progress === null) setEmptying(null);
+          setEmptying(false);
         }}
-        size="sm"
-        title={"Vider la corbeille ?"}
-        description={
-          progress === null
-            ? `${formatCount(emptying?.expected ?? 0, "photo sera effacée", "photos seront effacées")} du stockage, définitivement.`
-            : `Effacement : ${progress} sur ${emptying?.expected ?? 0}`
-        }
-        footer={
-          <>
-            <Button
-              data-autofocus
-              disabled={progress !== null}
-              onClick={() => {
-                setEmptying(null);
-              }}
-            >
-              Garder
-            </Button>
-            <Button
-              variant="danger"
-              loading={progress !== null}
-              onClick={() => {
-                if (emptying) void empty(emptying);
-              }}
-            >
-              Effacer
-            </Button>
-          </>
-        }
+        onEmpty={(confirmed) => void empty(confirmed)}
       />
     </>
   );
