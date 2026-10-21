@@ -9,7 +9,9 @@
  *   first stays, the others go once the bucket vouches they are the same
  *   bytes (verifyCopies).
  * - near: of a stack, the front stays; a near-duplicate of it goes when it
- *   scores NET_GAP below it.
+ *   scores NET_GAP below it, and neither shows a face: between two
+ *   moments of people (a look, a smile) the score picked the owner's
+ *   photo 10 times in 22, so those wait for him.
  *
  * A photo stays, and its stack waits for the owner in Doublons, when any
  * hold says so (Hold). The plan is written to a file for the owner's look;
@@ -52,6 +54,8 @@ export type Hold =
   | "crop"
   /** within NET_GAP of the photo kept (near only) */
   | "close"
+  /** a face on it or on the photo kept (near only) */
+  | "faces"
   /** the bucket does not vouch both files are the same bytes (copies only) */
   | "bytes";
 
@@ -64,6 +68,7 @@ export const HOLDS: readonly Hold[] = [
   "larger",
   "crop",
   "close",
+  "faces",
   "bytes",
 ];
 
@@ -145,7 +150,8 @@ function candidatesSql(pass: DedupePass): string {
        OR least(m.w, m.h, k.w, k.h) <= 0) AS dimensions,
       coalesce(m.w * m.h > k.w * k.h, false) AS larger,
       coalesce(abs(${ratio("m")} - ${ratio("k")}) > ${SHAPE_TOLERANCE} * ${ratio("k")}, false) AS crop,
-      k.score - m.score < $1::float8 AS close
+      k.score - m.score < $1::float8 AS close,
+      EXISTS (SELECT 1 FROM faces af WHERE af.photo_id IN (m.photo_id, k.photo_id)) AS faces
     FROM kept
     JOIN member k ON k.photo_id = kept.photo_id
     JOIN member m ON m.${unit} = kept.unit AND m.photo_id <> k.photo_id

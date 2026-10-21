@@ -132,11 +132,7 @@ beforeEach(async () => {
   await photo(433, TRIP);
   await photo(434, TRIP, { width: 4000, height: 2000 });
   await photo(435, TRIP, { width: 6000, height: 4500 });
-  await photo(436, TRIP);
   await photo(437, TRIP);
-  await face(431, 1);
-  await face(436, 1);
-  await face(436, 2);
   await stack([
     [431, 3, 431],
     [437, 3, 431],
@@ -144,7 +140,6 @@ beforeEach(async () => {
     [432, 2, null],
     [434, 1, null],
     [435, 1, null],
-    [436, 1, null],
   ]);
   // The photo kept has no thumbnail yet
   await photo(441, TRIP, { thumbnail: "pending" });
@@ -152,6 +147,19 @@ beforeEach(async () => {
   await stack([
     [441, 3, null],
     [442, 1, null],
+  ]);
+  // People: someone not on the photo kept, then faces at all
+  await photo(471, TRIP);
+  await photo(472, TRIP);
+  await photo(473, TRIP);
+  await face(471, 1);
+  await face(472, 1);
+  await face(472, 2);
+  await face(473, 1);
+  await stack([
+    [471, 3, null],
+    [472, 1, null],
+    [473, 1, null],
   ]);
   // Out of the gallery: neither kept nor thrown away
   await photo(451, BOOKS);
@@ -213,8 +221,9 @@ void describe("npm run dedupe", () => {
       [433, 431, "close"],
       [434, 431, "crop"],
       [435, 431, "larger"],
-      [436, 431, "person"],
       [442, 441, "kept_thumbnail"],
+      [472, 471, "person", "faces"],
+      [473, 471, "faces"],
     ]);
   });
 
