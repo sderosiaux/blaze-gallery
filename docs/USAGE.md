@@ -74,9 +74,9 @@ are never proposed again for that person.
 
 Drop new photos into the bucket. Once a week (Sunday 03:30, from cron),
 `worker/weekly.sh` on the worker machine indexes them: bucket sync, folder
-colours, then thumbnails and colours, faces, embeddings and scene tags, each
-worker stopping when its queue is empty so the database can suspend. To
-see new photos sooner, run the script by hand.
+colours, then thumbnails and colours, faces, embeddings, scene tags and
+stacks of near-duplicates, each worker stopping when its queue is empty so
+the database can suspend. To see new photos sooner, run the script by hand.
 
 Changing the scene vocabulary has an order to follow, written at the end of
 TAGS.md.

@@ -52,6 +52,10 @@ export interface Photo {
 export interface PhotoMetadata {
   /** EXIF wall-clock time serialized as ISO with a `Z` suffix: format it with timeZone "UTC" */
   date_taken?: string;
+  /** The EXIF tag date_taken was read from; absent on photos probed before 2026-10-21 */
+  date_tag?: "DateTimeOriginal" | "DateTimeDigitized" | "DateTime";
+  /** EXIF exposure bias in EV; absent when the file has none, or probed before 2026-10-21 */
+  exposure_bias?: number;
   location?: {
     latitude: number;
     longitude: number;

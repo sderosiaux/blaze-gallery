@@ -99,11 +99,19 @@ function buildMetadata(
   const metadata: PhotoMetadata = {};
 
   const exif = prop(tags, "exif");
-  const dateTaken =
-    parseExifDate(prop(exif, "DateTimeOriginal")) ??
-    parseExifDate(prop(exif, "DateTimeDigitized")) ??
-    parseExifDate(prop(exif, "DateTime"));
-  if (dateTaken) metadata.date_taken = dateTaken;
+  // The first of the three a file has, and which it was: only the first is
+  // the moment the shutter went (the others are rewritten by a scan or an
+  // edit), which the worker's bursts need (groups.py TAKEN_TAG)
+  for (const tag of DATE_TAGS) {
+    const dateTaken = parseExifDate(prop(exif, tag));
+    if (dateTaken) {
+      metadata.date_taken = dateTaken;
+      metadata.date_tag = tag;
+      break;
+    }
+  }
+  const bias = exposureBias(prop(exif, "ExposureBiasValue"));
+  if (bias !== undefined) metadata.exposure_bias = bias;
 
   const dimensions = readDimensions(tags, orientation);
   if (dimensions) metadata.dimensions = dimensions;
@@ -133,6 +141,25 @@ function buildMetadata(
   if (orientation) metadata.orientation = orientation;
 
   return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+const DATE_TAGS = [
+  "DateTimeOriginal",
+  "DateTimeDigitized",
+  "DateTime",
+] as const;
+
+/** EXIF ExposureBiasValue, a signed rational, in EV to the hundredth. */
+function exposureBias(tag: unknown): number | undefined {
+  const value = prop(tag, "value");
+  const [numerator, denominator]: unknown[] = Array.isArray(value)
+    ? (value as unknown[])
+    : [value, 1];
+  if (typeof numerator !== "number" || typeof denominator !== "number")
+    return undefined;
+  if (denominator === 0) return undefined;
+  const ev = Math.round((numerator / denominator) * 100) / 100;
+  return Number.isFinite(ev) ? ev : undefined;
 }
 
 /**

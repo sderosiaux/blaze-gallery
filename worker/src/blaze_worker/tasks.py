@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     # Not at run time: the describe task would load InsightFace for nothing
     from .faces import Analysis, FaceModel, ModelFiles
 
-SUPPORTED_TASKS = ("faces", "faces_extra", "describe", "thumbs", "embed", "tags")
+SUPPORTED_TASKS = ("faces", "faces_extra", "describe", "thumbs", "embed", "tags", "groups")
 
 
 # -- faces --------------------------------------------------------------------

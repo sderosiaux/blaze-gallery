@@ -37,6 +37,13 @@ LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
   docker run --rm --env-file "$HOME/blaze-worker/blaze-worker.env" \
     --entrypoint blaze-enqueue blaze-worker:embed --task tags --all
   docker start -a blaze-worker-tags >/dev/null
+  # Stacks of near-duplicates for the new photos: after tags (screens and
+  # documents only stack as exact copies), reading the thumbnails embed read.
+  # A throwaway container, so it always runs the current image
+  docker run --rm --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
+    --entrypoint blaze-enqueue blaze-worker:embed --task groups --all
+  docker run --rm --name blaze-worker-groups --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
+    blaze-worker:embed --task groups --owner hetzner-groups
   echo "== $(date -Is) done"
 } >>"$LOG" 2>&1
 find "$BASE/logs" -name "sync-*.log" -mtime +14 -delete

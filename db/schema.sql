@@ -618,3 +618,68 @@ CREATE TABLE IF NOT EXISTS excluded_folders (
   ) STORED,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Near-duplicates (task 'groups', worker/src/blaze_worker/groups.py): photos
+-- of the gallery that hold the same picture (an exact copy, a resized or
+-- re-encoded copy, an edit) or the same moment (a burst, a shot taken again
+-- within seconds), stacked behind the best of them. Only photos in a stack of
+-- two or more have a row. Each stack forms around one centre, and every
+-- member is linked to that centre itself, so a slow series cannot chain.
+-- group_id: the centre's photo id, an opaque key (the centre may be deleted
+-- later; the others keep it). rank: 1 is the photo the stack proposes to keep,
+-- by score (measures and the weights in groups.py); a list of photos shows,
+-- of each stack, the member of lowest rank it keeps, so a filter that keeps
+-- only some members shows the best of those. link: how the member is linked
+-- to the centre ('centre' for the centre itself):
+--   copy   same size in bytes, same dimensions, cosine >= 0.999;
+--   burst  same camera (EXIF make and model), taken within 30 s;
+--   raw    a burst of a camera's raw file and its JPEG;
+--   bracket a burst at other exposures (EXIF exposure bias);
+--   same   the same picture (identical once shrunk, or a resized copy
+--          without camera data, of one shape).
+-- copy_of: the lowest photo id among this photo's exact copies in the stack
+-- (link copy, or the centre they are copies of); NULL when it has none. The
+-- faces of exact copies are the same faces: the review queue decides them
+-- together.
+-- measures: what the score is made of (sharpness, pixels, bytes, clipped
+-- share, faces, closed eyes, faces cut by the edge, face sharpness, smile,
+-- sideways); score: the weighted sum within the stack, comparable within one
+-- stack only. model: the rules and weights that made the row.
+CREATE TABLE IF NOT EXISTS photo_groups (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  group_id bigint NOT NULL,
+  rank integer NOT NULL CHECK (rank >= 1),
+  score real NOT NULL,
+  link text NOT NULL CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket')),
+  copy_of bigint,
+  measures jsonb NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (group_id, rank)
+);
+-- raw (a camera's raw file and its JPEG) and bracket (one view at other
+-- exposures) came after the table (2026-10-21): the check is widened once,
+-- which no row can fail (the schema runs on every start: not again after)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'photo_groups_link_check'
+      AND pg_get_constraintdef(oid) LIKE '%bracket%'
+  ) THEN
+    ALTER TABLE photo_groups DROP CONSTRAINT IF EXISTS photo_groups_link_check;
+    ALTER TABLE photo_groups ADD CONSTRAINT photo_groups_link_check
+      CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket'));
+  END IF;
+END $$;
+
+-- One holder at a time for a worker that must not run twice: the groups
+-- rebuild and the Grouper (task 'groups'). A lease its holder renews while
+-- it runs and that lapses if it dies, not an advisory lock: behind the
+-- pooler (transaction mode) each statement gets any server connection, so
+-- a session lock stays on one of them, held for whoever comes next.
+CREATE TABLE IF NOT EXISTS task_leases (
+  task text PRIMARY KEY,
+  owner text NOT NULL,
+  expires_at timestamptz NOT NULL
+);
