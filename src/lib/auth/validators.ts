@@ -108,8 +108,20 @@ export const authRateLimiter = new DatabaseRateLimiter(
   AUTH_RATE_LIMITS.CALLBACK_MAX_ATTEMPTS,
 );
 
+/** The origin (scheme, host, port) of a URL, null when it is none. */
+function originOf(url: string): string | null {
+  try {
+    const { origin } = new URL(url);
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Validate request origin for CSRF protection
+ * Validate request origin for CSRF protection: the Origin header, else the
+ * Referer's origin, must be the app's own, compared whole (a prefix would
+ * let https://app.example.evil.net through).
  */
 export function validateOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
@@ -120,19 +132,20 @@ export function validateOrigin(request: Request): boolean {
     return true;
   }
 
-  const allowedOrigin = process.env.NEXT_PUBLIC_APP_URL;
-  if (!allowedOrigin) {
+  const allowedUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!allowedUrl) {
     console.warn("NEXT_PUBLIC_APP_URL not set, origin validation disabled");
     return true;
   }
+  const allowedOrigin = originOf(allowedUrl);
 
   // Check origin header
-  if (origin && origin === allowedOrigin) {
+  if (origin && allowedOrigin && originOf(origin) === allowedOrigin) {
     return true;
   }
 
   // Check referer header as fallback
-  if (referer && referer.startsWith(allowedOrigin)) {
+  if (referer && allowedOrigin && originOf(referer) === allowedOrigin) {
     return true;
   }
 
