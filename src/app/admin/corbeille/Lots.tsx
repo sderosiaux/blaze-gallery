@@ -32,9 +32,13 @@ const TILE_HEIGHT = 112;
 
 /** What the lot was, from its id (lib/trash.ts newLot): who, then what. */
 export function lotTitle(lot: Lot): string {
-  const what = lot.batch.split("-")[1];
-  if (lot.by === "auto")
-    return what === "copies" ? "Copies identiques" : "Quasi-doublons";
+  const what = lot.batch.split("-")[1] ?? "";
+  if (lot.by === "auto") {
+    if (!what.startsWith("copies")) return "Quasi-doublons";
+    if (what.endsWith(".same")) return "Copies identiques, même dossier";
+    if (what.endsWith(".other")) return "Copies identiques, autre dossier";
+    return "Copies identiques";
+  }
   return what === "stacks" ? "Piles réglées" : "Photos";
 }
 

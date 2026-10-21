@@ -6,6 +6,8 @@
  *
  *   npm run dedupe -- copies                  # what would go, per hold what stays; writes nothing
  *   npm run dedupe -- copies --plan plan.json # the same, and the plan to a file to look at
+ *   npm run dedupe -- copies --plan plan.json --folder same|other
+ *       # only the photos in the kept one's folder, or in another: a lot each
  *   npm run dedupe -- copies --apply plan.json
  *       # throws that plan's photos away, if planning again now gives the
  *       # very same photos; else nothing
@@ -26,8 +28,14 @@ function option(name: string): string | undefined {
 
 async function main(): Promise<boolean> {
   // After dotenv: the database client reads the environment.
-  const { applyDedupe, DEDUPE_PASSES, HOLDS, planDedupe, verifyCopies } =
-    await import("../src/lib/autoTrash");
+  const {
+    applyDedupe,
+    DEDUPE_PASSES,
+    HOLDS,
+    inFolders,
+    planDedupe,
+    verifyCopies,
+  } = await import("../src/lib/autoTrash");
   type Pass = (typeof DEDUPE_PASSES)[number];
   const pass = process.argv[2] as Pass;
   if (!DEDUPE_PASSES.includes(pass))
@@ -46,8 +54,13 @@ async function main(): Promise<boolean> {
     return true;
   }
   const planned = await planDedupe(pass);
-  const plan =
+  const verified =
     pass === "copies" ? await verifyCopies(planned, await md5s()) : planned;
+  const folder = option("--folder");
+  if (folder !== undefined && folder !== "same" && folder !== "other")
+    throw new Error("--folder is same or other");
+  const plan =
+    folder === undefined ? verified : inFolders(verified, folder === "same");
   const stacks = new Set(plan.go.map((c) => c.group_id));
   out(
     `${pass}: ${plan.go.length} photos would go, from ${stacks.size} stacks; ${plan.held.length} stay.`,

@@ -229,8 +229,11 @@ void describe("npm run dedupe", () => {
 
   void test("a pass is one lot of 'auto', each photo naming the one kept, put back whole", async () => {
     const plan = await auto.planDedupe("copies");
-    const { lot, trashed } = await auto.applyDedupe(plan);
+    // The copies in another folder than the photo kept: none here
+    assert.deepEqual(auto.inFolders(plan, false).go, []);
+    const { lot, trashed } = await auto.applyDedupe(auto.inFolders(plan, true));
     assert.equal(lot.by, "auto");
+    assert.match(lot.batch, /^auto-copies\.same-/);
     assert.deepEqual(trashed.sort(), [402, 437]);
     const marks = await sql.query<{
       id: number;

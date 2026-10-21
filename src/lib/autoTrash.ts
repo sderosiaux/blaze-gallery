@@ -90,6 +90,8 @@ export interface Candidate {
 
 export interface DedupePlan {
   pass: DedupePass;
+  /** What the lot is called when it is not the whole pass (inFolders) */
+  label?: string;
   net_gap: number;
   /** Photos that go: no hold */
   go: Candidate[];
@@ -233,6 +235,19 @@ export async function verifyCopies(
   };
 }
 
+/**
+ * The part of a plan whose photos lie in the same folder as the photo kept
+ * (`same`), or in another: a lot each, put back apart.
+ */
+export function inFolders(plan: DedupePlan, same: boolean): DedupePlan {
+  const folder = (key: string) => key.slice(0, key.lastIndexOf("/"));
+  return {
+    ...plan,
+    label: `${plan.pass}.${same ? "same" : "other"}`,
+    go: plan.go.filter((c) => (folder(c.key) === folder(c.kept_key)) === same),
+  };
+}
+
 /** The worker's groups lock (groups.py LOCK): no rebuild or grouper writes meanwhile. */
 const GROUPS_LOCK = 0x626c617a6567;
 
@@ -268,7 +283,7 @@ export function applyDedupe(
         `the stacks changed since the plan: ${gone.length} of the ${shown.go.length} photos shown would not go now`,
       );
     const before = await snapshot(client);
-    const lot = newLot("auto", shown.pass);
+    const lot = newLot("auto", shown.label ?? shown.pass);
     const trashed = await markTrashed(client, shown.go, lot);
     const after = await snapshot(client);
     if (trashed.length !== shown.go.length)
