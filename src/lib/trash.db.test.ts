@@ -719,7 +719,7 @@ void describe("the Corbeille", () => {
     for (const deadline = Date.now() + 10_000; ; ) {
       const waiting = await sql.query(
         `SELECT 1 FROM pg_stat_activity
-         WHERE wait_event_type = 'Lock' AND query LIKE 'UPDATE photos SET trashed_at = NULL%'`,
+         WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT id FROM photos WHERE id = ANY%FOR UPDATE'`,
       );
       if (waiting.rowCount === 1) break;
       assert.ok(!settled, "the restore did not wait for the purge");
@@ -795,7 +795,7 @@ void describe("the Corbeille", () => {
     assert.equal(await trash.trashProof(301), null);
   });
 
-  void test("« Annuler » after « Restaurer celle-ci » puts its marks back, its date too", async () => {
+  void test("« Annuler » after « Restaurer celle-ci » puts back the marks the server kept, its date too", async () => {
     const lot = trash.newLot("auto", "copies.other");
     await database.runTransaction((client) =>
       trash.markTrashed(client, [{ id: 312, keep: 311 }], lot),
@@ -806,19 +806,15 @@ void describe("the Corbeille", () => {
     const proof = await trash.trashProof(312);
     assert.ok(proof);
     assert.equal(await trash.restorePhotos([312]), 1);
-    const marks = {
-      id: 312,
-      trashed_at: proof.photo.trashed_at,
-      trashed_by: proof.photo.trashed_by,
-      trash_batch: proof.photo.trash_batch,
-      trashed_for: proof.kept?.id ?? null,
-    };
-    assert.equal(await trash.putBack(marks), true);
+    assert.deepEqual(await trash.putBack(312), { ok: true });
     const back = await trash.trashProof(312);
     assert.equal(back?.photo.trashed_at, proof.photo.trashed_at);
     assert.equal(back.photo.trash_batch, lot.batch);
     assert.equal(back.kept?.id, 311);
-    // Already in the Corbeille again: left as it is
-    assert.equal(await trash.putBack(marks), false);
+    // Already in the Corbeille again, its kept marks used: left as it is
+    assert.deepEqual(await trash.putBack(312), {
+      ok: false,
+      refused: "expired",
+    });
   });
 });

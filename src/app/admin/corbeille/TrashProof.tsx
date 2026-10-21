@@ -26,6 +26,7 @@ import {
   fetchProof,
   putBackInTrash,
   restoreFromTrash,
+  TrashError,
   type ProofPhoto,
   type TrashProof,
 } from "@/lib/trashClient";
@@ -53,13 +54,12 @@ type Toast = ReturnType<typeof useToast>;
 /**
  * « Restaurer celle-ci » from the viewer: the photo comes back, `gone`
  * takes it off the page's list; « Annuler » puts it back in the Corbeille
- * as the proof showed it (its lot, its photo kept, its date), and `back`
- * returns it to the list.
+ * with the marks the server kept (its lot, its photo kept, its date), and
+ * `back` returns it to the list.
  */
 export async function restoreShown(
   toast: Toast,
   photo: Photo,
-  proof: TrashProof,
   list: { gone: () => void; back: () => void },
 ): Promise<void> {
   try {
@@ -74,17 +74,17 @@ export async function restoreShown(
     action: {
       label: "Annuler",
       onClick: () => {
-        putBackInTrash(proof)
-          .then((back) => {
-            if (back) list.back();
-            else
-              toast.show(
-                "Elle a été jetée à nouveau entre-temps : rien n’a changé",
-                "info",
-              );
+        putBackInTrash(photo.id)
+          .then(() => {
+            list.back();
           })
-          .catch(() => {
-            toast.show("La photo n’est pas retournée à la corbeille", "error");
+          .catch((error: unknown) => {
+            toast.show(
+              error instanceof TrashError
+                ? error.message
+                : "La photo n’est pas retournée à la corbeille",
+              error instanceof TrashError ? "info" : "error",
+            );
           });
       },
     },
@@ -151,7 +151,7 @@ export default function TrashProofPanel({
 }: {
   photo: Photo;
   /** Restore the photo shown; the proof it was shown with, for « Annuler » */
-  onRestore: (photo: Photo, proof: TrashProof) => void;
+  onRestore: (photo: Photo) => void;
 }) {
   const [state, setState] = useState<{
     id: string;
@@ -211,7 +211,7 @@ export default function TrashProofPanel({
             icon={RotateCcw}
             disabled={!proof}
             onClick={() => {
-              if (proof) onRestore(photo, proof);
+              if (proof) onRestore(photo);
             }}
           >
             Restaurer celle-ci

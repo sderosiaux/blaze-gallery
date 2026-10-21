@@ -90,11 +90,35 @@ export async function trashPhotos(
 export async function restorePhotos(
   ids: readonly number[] | "all",
 ): Promise<number> {
-  const result =
-    ids === "all"
-      ? await query(RESTORE("true"))
-      : await query(RESTORE("id = ANY($1::bigint[])"), [ids]);
-  return result.rowCount ?? 0;
+  if (ids === "all") return (await query(RESTORE("true"))).rowCount ?? 0;
+  // The marks they had, for « Annuler » (putBack), the stale ones dropped.
+  // Rows first: one the purge is erasing is waited for, then is gone
+  return runTransaction(async (client) => {
+    const rows = await client.query<{ id: string }>(
+      `SELECT id FROM photos WHERE id = ANY($1::bigint[]) AND trashed_at IS NOT NULL
+       ORDER BY id FOR UPDATE`,
+      [ids],
+    );
+    const found = rows.rows.map((row) => Number(row.id));
+    if (found.length === 0) return 0;
+    await client.query(
+      `DELETE FROM trash_undo WHERE restored_at < now() - make_interval(mins => $1)`,
+      [TRASH_UNDO_MINUTES],
+    );
+    await client.query(
+      `INSERT INTO trash_undo (photo_id, trashed_at, trashed_by, trash_batch, trashed_for)
+       SELECT id, trashed_at, trashed_by, trash_batch, trashed_for FROM photos
+       WHERE id = ANY($1::bigint[])
+       ON CONFLICT (photo_id) DO UPDATE SET trashed_at = EXCLUDED.trashed_at,
+         trashed_by = EXCLUDED.trashed_by, trash_batch = EXCLUDED.trash_batch,
+         trashed_for = EXCLUDED.trashed_for, restored_at = now()`,
+      [found],
+    );
+    const result = await client.query(RESTORE("id = ANY($1::bigint[])"), [
+      found,
+    ]);
+    return result.rowCount ?? 0;
+  });
 }
 
 /** Puts back every photo of the lot still in the Corbeille; how many came back. */
@@ -385,35 +409,87 @@ export async function trashProof(id: number): Promise<TrashProof | null> {
   };
 }
 
-/** A photo's marks in the Corbeille, as trashProof gave them: what « Annuler » puts back. */
-export interface TrashMarks {
-  id: number;
-  trashed_at: string;
-  trashed_by: TrashLot["by"] | null;
-  trash_batch: string | null;
-  trashed_for: number | null;
-}
+/** How long « Annuler » can put a restored photo back (restorePhotos keeps its marks). */
+export const TRASH_UNDO_MINUTES = 15;
+
+/** Why « Annuler » left the photo out of the Corbeille. */
+export type PutBackRefusal =
+  /** Restored too long ago, or never through restorePhotos */
+  | "expired"
+  /** Thrown away again meanwhile */
+  | "trashed"
+  /** The photo kept in its place is no longer shown */
+  | "kept_gone"
+  /** Its stack would show no photo */
+  | "stack_empty"
+  /** « Garder » or a dedupe pass holds the stacks */
+  | "pass_running";
 
 /**
  * « Annuler » after « Restaurer celle-ci »: the photo goes back into the
- * Corbeille as it was, its lot, its photo kept and its date (so its 30
- * days do not start again). A photo thrown away again meanwhile stays as
- * it is. Whether it went back.
+ * Corbeille with the marks the server kept when it was restored (its lot,
+ * its photo kept, its date: its 30 days do not start again), within
+ * TRASH_UNDO_MINUTES. Under the groups lock, as « Garder »; refused when
+ * the photo kept is no longer shown or the stack would show none.
  */
-export async function putBack(marks: TrashMarks): Promise<boolean> {
-  const result = await query(
-    `UPDATE photos SET trashed_at = $2::timestamptz, trashed_by = $3,
-       trash_batch = $4, trashed_for = $5
-     WHERE id = $1 AND trashed_at IS NULL`,
-    [
-      marks.id,
-      marks.trashed_at,
-      marks.trashed_by,
-      marks.trash_batch,
-      marks.trashed_for,
-    ],
-  );
-  return result.rowCount === 1;
+export async function putBack(
+  id: number,
+): Promise<{ ok: true } | { ok: false; refused: PutBackRefusal }> {
+  return runTransaction(async (client) => {
+    const locked = await client.query<{ ok: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS ok",
+      [GROUPS_LOCK],
+    );
+    if (!locked.rows[0]?.ok)
+      return { ok: false as const, refused: "pass_running" as const };
+    const undo = await client.query<{ trashed_for: string | null }>(
+      `SELECT trashed_for FROM trash_undo
+       WHERE photo_id = $1 AND restored_at >= now() - make_interval(mins => $2)
+       FOR UPDATE`,
+      [id, TRASH_UNDO_MINUTES],
+    );
+    const marks = undo.rows[0];
+    if (!marks) return { ok: false as const, refused: "expired" as const };
+    // The photo, its stack and the photo kept, held while it goes back
+    const held = await client.query<{
+      id: string;
+      shown: boolean;
+      trashed: boolean;
+    }>(
+      `SELECT p.id, ${inGallery("p")} AS shown, p.trashed_at IS NOT NULL AS trashed
+       FROM photos p
+       WHERE p.id = $1 OR p.id = $2
+          OR p.id IN (SELECT m.photo_id FROM photo_groups g
+                      JOIN photo_groups m ON m.group_id = g.group_id
+                      WHERE g.photo_id = $1)
+       ORDER BY p.id FOR UPDATE OF p`,
+      [id, marks.trashed_for],
+    );
+    const self = held.rows.find((row) => Number(row.id) === id);
+    if (!self || self.trashed)
+      return { ok: false as const, refused: "trashed" as const };
+    if (
+      marks.trashed_for !== null &&
+      !held.rows.some(
+        (row) => Number(row.id) === Number(marks.trashed_for) && row.shown,
+      )
+    )
+      return { ok: false as const, refused: "kept_gone" as const };
+    const others = held.rows.filter((row) => Number(row.id) !== id);
+    if (others.length > 0 && !others.some((row) => row.shown))
+      return { ok: false as const, refused: "stack_empty" as const };
+    const back = await client.query(
+      `UPDATE photos p SET trashed_at = u.trashed_at, trashed_by = u.trashed_by,
+         trash_batch = u.trash_batch, trashed_for = u.trashed_for
+       FROM trash_undo u
+       WHERE u.photo_id = p.id AND p.id = $1 AND p.trashed_at IS NULL`,
+      [id],
+    );
+    if (back.rowCount !== 1)
+      return { ok: false as const, refused: "trashed" as const };
+    await client.query("DELETE FROM trash_undo WHERE photo_id = $1", [id]);
+    return { ok: true as const };
+  });
 }
 
 /** A lot of the Corbeille: one request of the owner's, or one pass of npm run dedupe. */

@@ -198,16 +198,13 @@ export function LotView({
     }
   };
 
-  const restoreViewed = (
-    photo: Photo,
-    proof: Parameters<typeof restoreShown>[2],
-  ) => {
+  const restoreViewed = (photo: Photo) => {
     const at = shown.findIndex((p) => String(p.id) === String(photo.id));
     const where = (stacks ?? []).findIndex((stack) =>
       stack.trashed.some((p) => String(p.id) === String(photo.id)),
     );
     const before = stacks?.[where];
-    void restoreShown(toast, photo, proof, {
+    void restoreShown(toast, photo, {
       gone: () => {
         setOpen(shown[at + 1] ?? shown[at - 1] ?? null);
         setStacks((s) =>

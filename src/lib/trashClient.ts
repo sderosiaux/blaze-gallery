@@ -84,16 +84,12 @@ export async function fetchProof(id: Photo["id"]): Promise<TrashProof> {
   return data as unknown as TrashProof;
 }
 
-/** « Annuler » after « Restaurer celle-ci »: back in the Corbeille as the proof showed it. */
-export async function putBackInTrash(proof: TrashProof): Promise<boolean> {
-  const data = await post("/api/trash/put-back", {
-    id: proof.photo.id,
-    trashed_at: proof.photo.trashed_at,
-    trashed_by: proof.photo.trashed_by,
-    trash_batch: proof.photo.trash_batch,
-    trashed_for: proof.kept?.id ?? null,
-  });
-  return data.back === true;
+/**
+ * « Annuler » after « Restaurer celle-ci »: back in the Corbeille with the
+ * marks the server kept; a TrashError says why not.
+ */
+export async function putBackInTrash(id: Photo["id"]): Promise<void> {
+  await post("/api/trash/put-back", { id: Number(id) });
 }
 
 /**

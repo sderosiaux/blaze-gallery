@@ -169,14 +169,11 @@ function Trash() {
   };
 
   // « Restaurer celle-ci » in the viewer: the next photo shows, or the viewer closes
-  const restoreViewed = (
-    photo: Photo,
-    proof: Parameters<typeof restoreShown>[2],
-  ) => {
+  const restoreViewed = (photo: Photo) => {
     const list = page?.photos ?? [];
     const at = list.findIndex((p) => String(p.id) === String(photo.id));
     const shown = list[at];
-    void restoreShown(toast, photo, proof, {
+    void restoreShown(toast, photo, {
       gone: () => {
         setOpen(list[at + 1] ?? list[at - 1] ?? null);
         setPage((p) =>
