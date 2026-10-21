@@ -22,6 +22,7 @@
 import type { PoolClient } from "pg";
 import { inGallery, OWNED, runTransaction } from "./database";
 import { GROUPS_LOCK } from "./groupsLock";
+import { linked, SHAPE_TOLERANCE } from "./keep";
 import { markTrashed, newLot, type TrashLot } from "./trash";
 
 export type DedupePass = "copies" | "near";
@@ -37,9 +38,6 @@ export const NET_GAP = 0.5;
 
 /** An ETag that is an MD5: a multipart upload's ends in -<parts> (db/schema.sql photos.etag). */
 const MD5_SQL = "^[0-9a-f]{32}$";
-
-/** Two shapes differ past this share of the aspect ratio: a crop, an edit. */
-const SHAPE_TOLERANCE = 0.01;
 
 /** What keeps a photo out of the Corbeille. */
 export type Hold =
@@ -59,6 +57,9 @@ export type Hold =
   | "crop"
   /** within NET_GAP of the photo kept (near only) */
   | "close"
+  /** the pair rule does not link it to the photo kept itself (keep.ts
+   *  linked): a stack is a star around its centre (near only) */
+  | "unlinked"
   /** a face on it or on the photo kept (near only) */
   | "faces"
   /** not the same MD5 stored for both files, or not vouched for by the bucket (copies only) */
@@ -73,13 +74,15 @@ export const HOLDS: readonly Hold[] = [
   "larger",
   "crop",
   "close",
+  "unlinked",
   "faces",
   "bytes",
 ];
 
 const PASS_HOLDS: Record<DedupePass, readonly Hold[]> = {
   copies: ["favorite", "person", "shared", "kept_thumbnail", "bytes"],
-  near: HOLDS,
+  // A near-duplicate is another file: the bytes hold is the copies' only
+  near: HOLDS.filter((hold) => hold !== "bytes"),
 };
 
 export interface Candidate {
@@ -120,6 +123,17 @@ function candidatesSql(pass: DedupePass): string {
       : "(m.copy_of IS NULL OR k.copy_of IS NULL OR m.copy_of <> k.copy_of)";
   const ratio = (x: string) =>
     `(greatest(${x}.w, ${x}.h) / nullif(least(${x}.w, ${x}.h), 0))`;
+  // A copy is the same bytes (the bytes hold); a near-duplicate must be
+  // linked to the photo kept by the pair rule, not only to the centre
+  const unlinked =
+    pass === "copies"
+      ? "false"
+      : `NOT EXISTS (
+          SELECT 1 FROM photos mp
+          JOIN photos kp ON kp.id = k.photo_id
+          JOIN photo_embeddings em ON em.photo_id = mp.id
+          JOIN photo_embeddings ek ON ek.photo_id = kp.id AND ek.model = em.model
+          WHERE mp.id = m.photo_id AND ${linked("mp", "kp", "em", "ek")})`;
   return `
     WITH member AS MATERIALIZED (
       SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id, p.s3_key, p.etag,
@@ -158,6 +172,7 @@ function candidatesSql(pass: DedupePass): string {
       coalesce(m.w * m.h > k.w * k.h, false) AS larger,
       coalesce(abs(${ratio("m")} - ${ratio("k")}) > ${SHAPE_TOLERANCE} * ${ratio("k")}, false) AS crop,
       k.score - m.score < $1::float8 AS close,
+      ${unlinked} AS unlinked,
       EXISTS (SELECT 1 FROM faces af WHERE af.photo_id IN (m.photo_id, k.photo_id)) AS faces,
       NOT coalesce(m.etag ~ '${MD5_SQL}' AND m.etag = k.etag, false) AS bytes
     FROM kept

@@ -34,6 +34,8 @@ async function photo(
     thumbnail?: string;
     /** photos.etag; by default one MD5 for all, copies are the same file */
     etag?: string | null;
+    /** EXIF camera model; one camera for all by default */
+    camera?: string;
   } = {},
 ) {
   await sql.query(
@@ -51,12 +53,18 @@ async function photo(
           width: extra.width ?? 4000,
           height: extra.height ?? 3000,
         },
+        camera: { make: "Canon", model: extra.camera ?? "R6" },
       },
       extra.thumbnail ?? "generated",
       `thumbnails/${folder.path}/p${id}.jpg`,
       extra.favorite ?? false,
       extra.etag === undefined ? "f".repeat(32) : extra.etag,
     ],
+  );
+  // One picture for all: the pair rule links them by camera and time
+  await sql.query(
+    `INSERT INTO photo_embeddings (photo_id, embedding, model) VALUES ($1, $2, 'siglip')`,
+    [id, vector(768, (i) => (i === 0 ? 1 : 0))],
   );
 }
 
@@ -160,6 +168,13 @@ beforeEach(async () => {
     [434, 1, null],
     [435, 1, null],
   ]);
+  // Stacked with the front by the centre, not linked to it: another\n  // camera, another file
+  await photo(461, TRIP);
+  await photo(462, TRIP, { camera: "R5", etag: "c".repeat(32) });
+  await stack([
+    [461, 3, null],
+    [462, 1, null],
+  ]);
   // The photo kept has no thumbnail yet
   await photo(441, TRIP, { thumbnail: "pending" });
   await photo(442, TRIP);
@@ -248,9 +263,11 @@ void describe("npm run dedupe", () => {
     // 437, a copy of the front, is the copies pass's
     assert.deepEqual(pairs(plan.held), [
       [433, 431, "close"],
-      [434, 431, "crop"],
-      [435, 431, "larger"],
+      // The burst part of the rule needs the same shape and never more pixels
+      [434, 431, "crop", "unlinked"],
+      [435, 431, "larger", "unlinked"],
       [442, 441, "kept_thumbnail"],
+      [462, 461, "unlinked"],
       [472, 471, "person", "faces"],
       [473, 471, "faces"],
     ]);
