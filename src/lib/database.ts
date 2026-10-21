@@ -367,6 +367,33 @@ export function stackFront(better: readonly string[], p = "p"): string {
 }
 
 /**
+ * stackFront for a list read whole (a count per month, the map's dots):
+ * a CTE `name` holding the photos behind another of their stack that
+ * passes `better` (over photos BETTER), read once, and the condition over
+ * photos `p` that leaves them out. The same photos as stackFront, found in
+ * one pass over the stacks instead of one probe per photo: on the library
+ * (2026-10-21), the timeline's months took 1.7 s probed, against 0.5 s
+ * without stacks.
+ */
+export function stacksBehind(
+  name: string,
+  better: readonly string[],
+  p = "p",
+): { cte: string; condition: string } {
+  const passes =
+    better.length > 0 ? `WHERE ${better.join("\n        AND ")}` : "";
+  return {
+    cte: `${name} AS MATERIALIZED (
+      SELECT photo_id FROM (
+        SELECT g.photo_id, g.rank, min(g.rank) OVER (PARTITION BY g.group_id) AS best
+        FROM photo_groups g JOIN photos ${BETTER} ON ${BETTER}.id = g.photo_id
+        ${passes}
+      ) ranked WHERE rank > best)`,
+    condition: `NOT EXISTS (SELECT 1 FROM ${name} WHERE ${name}.photo_id = ${p}.id)`,
+  };
+}
+
+/**
  * stack_id and stack_count of photos `p`, for stackOf: its stack and how
  * many of the stack's photos are in the gallery.
  */
@@ -1421,16 +1448,24 @@ export async function getColorOverview(
   const tops = filters.map(([, , colors], band) => {
     const rank = colorRank(colors);
     if (!rank) throw new Error("A band needs a color or a tone");
-    const front = stackFront([colorRanked(rank, BETTER), ...keepBetter]);
-    return `(SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
+    // On the band's candidates, picked in index order first: with the probe
+    // inside, the planner read every photo and sorted (16 s for the bands)
+    const front = stackFront(
+      [colorRanked(rank, BETTER), ...keepBetter],
+      "candidate",
+    );
+    return `(SELECT band, id, folder_id, hex, rotation, look, taken FROM (
+      SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
              pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
              p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
-             p.metadata->>'date_taken' AS taken
+             p.metadata->>'date_taken' AS taken, ${rank.score} AS score
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED, keep, front].join(" AND ")}
+      WHERE ${[...rank.where, DATED, keep].join(" AND ")}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
-      LIMIT $1)`;
+      LIMIT $1) candidate
+      WHERE ${front}
+      ORDER BY candidate.score ${rank.order}, candidate.id ${rank.order})`;
   });
   const [bands, coverage] = await Promise.all([
     listQuery<{
@@ -2570,28 +2605,34 @@ export async function getTimelineSummary(
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
   const narrow = andPhotoFilter(params, filter);
-  const front = stackFront([
+  const behind = stacksBehind("behind", [
     dated(BETTER),
     ...betterPassFilter(params, filter),
   ]);
   const totalParams: unknown[] = [];
   const totalNarrow = andPhotoFilter(totalParams, filter);
-  const totalFront = stackFront(betterPassFilter(totalParams, filter));
+  const totalBehind = stacksBehind(
+    "behind",
+    betterPassFilter(totalParams, filter),
+  );
   const [months, total] = await Promise.all([
     listQuery<{ month: string; count: number }>(
       `
+      WITH ${behind.cte}
       SELECT substr(p.metadata->>'date_taken', 1, 7) AS month, COUNT(*)::int AS count
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
         ${narrow}
-        AND ${front}
+        AND ${behind.condition}
       GROUP BY 1
       ORDER BY 1 DESC
     `,
       params,
     ),
     listQuery<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalNarrow} AND ${totalFront}`,
+      `WITH ${totalBehind.cte}
+       SELECT COUNT(*)::int AS total FROM photos p
+       WHERE true ${totalNarrow} AND ${totalBehind.condition}`,
       totalParams,
     ),
   ]);
@@ -2644,7 +2685,7 @@ function mapConditions(
   return where;
 }
 
-/** WHERE clause of mapConditions over photos p, one tile per stack. */
+/** WHERE clause of mapConditions over photos p, one tile per stack: for a page of photos. */
 function mapFilter(
   params: unknown[],
   filter: PhotoFilter,
@@ -2657,6 +2698,26 @@ function mapFilter(
   ].join("\n  AND ");
 }
 
+/** mapFilter for a count over the whole map: the CTE to put in WITH, and the WHERE clause. */
+function mapWhole(
+  params: unknown[],
+  filter: PhotoFilter,
+  period: MapPeriod,
+  box: MapBox | null,
+): { cte: string; where: string } {
+  const behind = stacksBehind(
+    "behind",
+    mapConditions(params, filter, period, box, BETTER),
+  );
+  return {
+    cte: behind.cte,
+    where: [
+      ...mapConditions(params, filter, period, box, "p"),
+      behind.condition,
+    ].join("\n  AND "),
+  };
+}
+
 /**
  * Photos per map cell as [latitude, longitude, count], placed at the mean
  * position of the cell's photos (4 decimals, about 10 m): circles land
@@ -2667,13 +2728,15 @@ export async function getMapPoints(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<[number, number, number][]> {
   const params: unknown[] = [CELLS_PER_DEGREE];
+  const whole = mapWhole(params, filter, period, null);
   const result = await listQuery<{ lat: number; lng: number; count: number }>(
     `
+    WITH ${whole.cte}
     SELECT round(AVG(${LATITUDE})::numeric, 4)::float8 AS lat,
            round(AVG(${LONGITUDE})::numeric, 4)::float8 AS lng,
            COUNT(*)::int AS count
     FROM photos p
-    WHERE ${mapFilter(params, filter, period, null)}
+    WHERE ${whole.where}
     GROUP BY round(${LATITUDE} * $1), round(${LONGITUDE} * $1)
   `,
     params,
@@ -2694,12 +2757,13 @@ export async function getMapDates(
   dates: { date: string; count: number }[];
 }> {
   const params: unknown[] = [DAY_SPAN];
+  const whole = mapWhole(params, filter, { from: null, to: null }, box);
   const result = await listQuery<{ date: string; count: number }>(
     `
-    WITH days AS (
+    WITH ${whole.cte}, days AS (
       SELECT substr(p.metadata->>'date_taken', 1, 10) AS day, COUNT(*)::int AS count
       FROM photos p
-      WHERE ${mapFilter(params, filter, { from: null, to: null }, box)}
+      WHERE ${whole.where}
       GROUP BY 1
     ), span AS (
       SELECT max(day)::date - min(day)::date <= $1::int AS by_day FROM days
@@ -2771,8 +2835,9 @@ export async function countMapPhotos(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<number> {
   const params: unknown[] = [];
+  const whole = mapWhole(params, filter, period, box);
   const result = await listQuery<{ total: number }>(
-    `SELECT COUNT(*)::int AS total FROM photos p WHERE ${mapFilter(params, filter, period, box)}`,
+    `WITH ${whole.cte} SELECT COUNT(*)::int AS total FROM photos p WHERE ${whole.where}`,
     params,
   );
   return requireRow(result).total;
