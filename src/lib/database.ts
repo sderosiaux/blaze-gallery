@@ -1459,32 +1459,32 @@ export async function getColorOverview(
   const keep = kept
     ? "pc.photo_id IN (SELECT id FROM kept)"
     : `${DATED_IN_GALLERY} ${andPhotoFilter(params, narrowed)}`;
-  // The same for a member ranked before the photo in its stack: written once, every band reads it
-  const keepBetter = kept
-    ? [`${BETTER}.id IN (SELECT id FROM kept)`]
-    : [dated(BETTER), ...betterPassFilter(params, narrowed)];
   // Band numbers, not keys, go into the SQL; the rank expressions are this file's.
   const tops = filters.map(([, , colors], band) => {
     const rank = colorRank(colors);
     if (!rank) throw new Error("A band needs a color or a tone");
-    // On the band's candidates, picked in index order first: with the probe
-    // inside, the planner read every photo and sorted (16 s for the bands)
-    const front = stackFront(
-      [colorRanked(rank, BETTER), ...keepBetter],
-      "candidate",
-    );
+    // The band's candidates, picked in index order first (with a probe per
+    // photo inside, the planner read every photo and sorted: 16 s for the
+    // bands), then one per stack among them: its best ranked. Against the
+    // whole stack, a candidate whose front missed the cut took the stack
+    // out of the band.
     return `(SELECT band, id, folder_id, hex, rotation, look, taken FROM (
-      SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
-             pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
-             p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
-             p.metadata->>'date_taken' AS taken, ${rank.score} AS score
-      FROM photo_colors pc
-      JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED, keep].join(" AND ")}
-      ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
-      LIMIT $1) candidate
-      WHERE ${front}
-      ORDER BY candidate.score ${rank.order}, candidate.id ${rank.order})`;
+      SELECT candidate.*, row_number() OVER (
+               PARTITION BY coalesce(stack_of.group_id, -candidate.id)
+               ORDER BY stack_of.rank) AS stack_pick
+      FROM (
+        SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
+               pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
+               p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
+               p.metadata->>'date_taken' AS taken, ${rank.score} AS score
+        FROM photo_colors pc
+        JOIN photos p ON p.id = pc.photo_id
+        WHERE ${[...rank.where, DATED, keep].join(" AND ")}
+        ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
+        LIMIT $1) candidate
+      LEFT JOIN photo_groups stack_of ON stack_of.photo_id = candidate.id) picked
+      WHERE stack_pick = 1
+      ORDER BY score ${rank.order}, id ${rank.order})`;
   });
   const [bands, coverage] = await Promise.all([
     listQuery<{
@@ -1975,12 +1975,38 @@ export async function searchPhotosByContent(
     return `$${params.length}`;
   };
   const narrow = andPhotoFilter(params, filter, "p", "e.photo_id");
-  // The nearest stack fronts: a burst would fill the page with one picture
-  const front = stackFront([
-    `${BETTER}.mime_type LIKE 'image/%'`,
-    `EXISTS (SELECT 1 FROM photo_embeddings be WHERE be.photo_id = ${BETTER}.id AND be.model = $2)`,
-    ...betterPassFilter(params, filter),
-  ]);
+  // A stack once (a burst would fill the page with one picture), where its
+  // member nearest to the query is: in the scan, a photo stays when no
+  // other member the list keeps is nearer (then ranked before). The pages
+  // so cut a stack at one place, whatever their window; a stack whose
+  // front is far from the query still comes by its near member.
+  const listed = (b: string) =>
+    [`${b}.mime_type LIKE 'image/%'`, ...filterConditions(params, filter, b)]
+      .map((condition) => `AND ${condition}`)
+      .join("\n             ");
+  const nearest = `NOT EXISTS (
+           SELECT 1 FROM photo_groups stack_of
+           JOIN photo_groups stack_near ON stack_near.group_id = stack_of.group_id
+             AND stack_near.photo_id <> stack_of.photo_id
+           JOIN photo_embeddings near_e ON near_e.photo_id = stack_near.photo_id
+             AND near_e.model = $2
+           JOIN photos stack_nearer ON stack_nearer.id = stack_near.photo_id
+           WHERE stack_of.photo_id = e.photo_id
+             AND (near_e.embedding <=> $1::halfvec, stack_near.rank)
+               < (e.embedding <=> $1::halfvec, stack_of.rank)
+             ${listed("stack_nearer")}
+           OFFSET 0)`;
+  // Shown as every list shows a stack: its best ranked photo the list keeps
+  const front = `LEFT JOIN LATERAL (
+         SELECT stack_front.photo_id FROM photo_groups stack_of
+         JOIN photo_groups stack_front ON stack_front.group_id = stack_of.group_id
+         JOIN photos front_p ON front_p.id = stack_front.photo_id
+         WHERE stack_of.photo_id = n.photo_id
+           AND EXISTS (SELECT 1 FROM photo_embeddings be
+                       WHERE be.photo_id = front_p.id AND be.model = $2)
+           ${listed("front_p")}
+         ORDER BY stack_front.rank
+         LIMIT 1) front ON true`;
   const floor = cut
     ? `AND n.distance <= least(
                ${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
@@ -2012,14 +2038,15 @@ export async function searchPhotosByContent(
          JOIN photos p ON p.id = e.photo_id
          WHERE e.model = $2 AND p.mime_type LIKE 'image/%'
            ${narrow}
-           AND ${front}
+           AND ${nearest}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
        )
        SELECT p.*, f.name AS folder_name, f.path AS folder_path, n.distance,
               ${stackColumns()}
        FROM nearest n
-       JOIN photos p ON p.id = n.photo_id
+       ${front}
+       JOIN photos p ON p.id = coalesce(front.photo_id, n.photo_id)
        JOIN folders f ON f.id = p.folder_id
        WHERE p.mime_type LIKE 'image/%'
          ${floor}

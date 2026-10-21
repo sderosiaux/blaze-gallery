@@ -267,6 +267,36 @@ void describe("stacks", () => {
     );
   });
 
+  void test("a band keeps a stack whose best photo missed its candidates", async () => {
+    // 252 holds the most blue, 251 is the better photo but too little blue
+    // to be among the band's 4 candidates (perBand 1)
+    const added = [251, 252, 261, 262, 263, 264];
+    try {
+      for (const id of added)
+        await photo(id, TRIP, `c${id}.jpg`, "2015-01-01T08:00:00");
+      await stack([251, 252]);
+      for (const [id, share] of [
+        [251, 0.1],
+        [252, 0.95],
+        [261, 0.9],
+        [262, 0.85],
+        [263, 0.8],
+        [264, 0.75],
+      ] as const)
+        await blue(id, share);
+      const overview = await database.getColorOverview(1, filter({}));
+      const band = overview.bands.find((b) => b.key === "blue");
+      assert.deepEqual(
+        band?.photos.map((p) => p.id),
+        [252],
+      );
+    } finally {
+      await sql.query("DELETE FROM photos WHERE id = ANY($1::bigint[])", [
+        added,
+      ]);
+    }
+  });
+
   void test("names: the best photo the name finds", async () => {
     const one = await database.searchPhotos("(1)", null, 10);
     assert.deepEqual(ids(one.items), [202]);
@@ -286,6 +316,54 @@ void describe("stacks", () => {
     // 202 is the nearest, but 201 is the stack's best
     assert.deepEqual(ids(items).slice(0, 2), [201, 211]);
     assert.ok(!ids(items).includes(202) && !ids(items).includes(212));
+  });
+
+  void test("by content: a stack comes where its nearest photo is, shown as its best", async () => {
+    // 271 is the stack's best photo but far from the query, 272 its nearest
+    const added = [271, 272, 281, 282, 283, 284];
+    const at = async (id: number, similarity: number) =>
+      sql.query(
+        "UPDATE photo_embeddings SET embedding = $2 WHERE photo_id = $1",
+        [id, near(similarity)],
+      );
+    try {
+      for (const id of added)
+        await photo(id, TRIP, `n${id}.jpg`, "2014-01-01T08:00:00");
+      await stack([271, 272]);
+      await at(271, 0.2);
+      await at(272, 0.99);
+      for (const id of [281, 282, 283, 284]) await at(id, 0.95);
+      const { items } = await database.searchPhotosByContent(
+        { embedding: near(1), model: MODEL },
+        filter({}),
+        0,
+        10,
+      );
+      // Within the cut: by its best photo, the 271 a front-first scan cut
+      assert.equal(Number(items[0]?.id), 271);
+      assert.equal(items[0]?.score, 0.99);
+      assert.ok(!ids(items).includes(272));
+      // Pages of one: every stack once
+      const seen: string[] = [];
+      for (let offset: number | null = 0; offset !== null; ) {
+        const page = await database.searchPhotosByContent(
+          { embedding: near(1), model: MODEL },
+          filter({}),
+          offset,
+          1,
+          false,
+        );
+        for (const p of page.items)
+          seen.push(p.stack ? `s${p.stack.id}` : `p${p.id}`);
+        offset = page.next;
+      }
+      assert.equal(new Set(seen).size, seen.length);
+      assert.ok(seen.includes("s271"));
+    } finally {
+      await sql.query("DELETE FROM photos WHERE id = ANY($1::bigint[])", [
+        added,
+      ]);
+    }
   });
 
   void test("a folder shows its own photos of a stack", async () => {
