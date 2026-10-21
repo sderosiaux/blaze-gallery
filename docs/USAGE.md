@@ -57,6 +57,17 @@ go through them. With a filter on, the tile is the best photo the filter
 keeps, and the viewer still opens the whole stack. The worker makes the
 stacks (DEPLOYMENT.md); a new photo joins its stack at the weekly run.
 
+## Throwing photos away
+
+The trash on a tile (held one second), Suppr in the viewer and « Garder
+celle-ci » under a stack (the photo shown stays, the others go) send photos
+to the Corbeille, under Admin. They leave every view at once; « Annuler »
+just after, or « Restaurer » in the Corbeille, brings them back. After 30
+days the weekly script erases them from the bucket, every version of the
+file; « Vider la corbeille » does it at once. Admin › Doublons goes through
+the stacks in bulk: the photo kept is ticked, a click picks another, and the
+button says how many photos will go.
+
 ## Naming people
 
 The worker finds faces; you say who they are.
@@ -85,7 +96,9 @@ Drop new photos into the bucket. Once a week (Sunday 03:30, from cron),
 `worker/weekly.sh` on the worker machine indexes them: bucket sync, folder
 colours, then thumbnails and colours, faces, embeddings, scene tags and
 stacks of near-duplicates, each worker stopping when its queue is empty so
-the database can suspend. To see new photos sooner, run the script by hand.
+the database can suspend. It also erases what has waited 30 days in the
+Corbeille (`npm run trash` says how much). To see new photos sooner, run the
+script by hand.
 
 Changing the scene vocabulary has an order to follow, written at the end of
 TAGS.md.
