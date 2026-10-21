@@ -6,8 +6,9 @@
  * 2026-10-21); the stack's rank says which.
  *
  * - copies: of the same file in several places (copy_of), the copy ranked
- *   first stays, the others go once the bucket vouches they are the same
- *   bytes (verifyCopies).
+ *   first stays, the others go when both hold the same MD5 in photos.etag
+ *   (the bucket's, not a multipart's), and the bucket still says so when
+ *   planned (verifyCopies): both, the stricter.
  * - near: of a stack, the front stays; a near-duplicate of it goes when it
  *   scores NET_GAP below it, and neither shows a face: between two
  *   moments of people (a look, a smile) the score picked the owner's
@@ -33,6 +34,9 @@ export const DEDUPE_PASSES: readonly DedupePass[] = ["copies", "near"];
  */
 export const NET_GAP = 0.5;
 
+/** An ETag that is an MD5: a multipart upload's ends in -<parts> (db/schema.sql photos.etag). */
+const MD5_SQL = "^[0-9a-f]{32}$";
+
 /** Two shapes differ past this share of the aspect ratio: a crop, an edit. */
 const SHAPE_TOLERANCE = 0.01;
 
@@ -56,7 +60,7 @@ export type Hold =
   | "close"
   /** a face on it or on the photo kept (near only) */
   | "faces"
-  /** the bucket does not vouch both files are the same bytes (copies only) */
+  /** not the same MD5 stored for both files, or not vouched for by the bucket (copies only) */
   | "bytes";
 
 export const HOLDS: readonly Hold[] = [
@@ -73,7 +77,7 @@ export const HOLDS: readonly Hold[] = [
 ];
 
 const PASS_HOLDS: Record<DedupePass, readonly Hold[]> = {
-  copies: ["favorite", "person", "shared", "kept_thumbnail"],
+  copies: ["favorite", "person", "shared", "kept_thumbnail", "bytes"],
   near: HOLDS,
 };
 
@@ -117,7 +121,7 @@ function candidatesSql(pass: DedupePass): string {
     `(greatest(${x}.w, ${x}.h) / nullif(least(${x}.w, ${x}.h), 0))`;
   return `
     WITH member AS MATERIALIZED (
-      SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id, p.s3_key,
+      SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id, p.s3_key, p.etag,
              f.path AS folder_path, coalesce(p.is_favorite, false) AS favorite,
              p.thumbnail_status,
              (p.metadata -> 'dimensions' ->> 'width')::float8 AS w,
@@ -153,7 +157,8 @@ function candidatesSql(pass: DedupePass): string {
       coalesce(m.w * m.h > k.w * k.h, false) AS larger,
       coalesce(abs(${ratio("m")} - ${ratio("k")}) > ${SHAPE_TOLERANCE} * ${ratio("k")}, false) AS crop,
       k.score - m.score < $1::float8 AS close,
-      EXISTS (SELECT 1 FROM faces af WHERE af.photo_id IN (m.photo_id, k.photo_id)) AS faces
+      EXISTS (SELECT 1 FROM faces af WHERE af.photo_id IN (m.photo_id, k.photo_id)) AS faces,
+      NOT coalesce(m.etag ~ '${MD5_SQL}' AND m.etag = k.etag, false) AS bytes
     FROM kept
     JOIN member k ON k.photo_id = kept.photo_id
     JOIN member m ON m.${unit} = kept.unit AND m.photo_id <> k.photo_id
@@ -161,16 +166,14 @@ function candidatesSql(pass: DedupePass): string {
     ORDER BY m.group_id, m.rank, m.photo_id`;
 }
 
-type Row = Omit<Candidate, "holds"> & Record<Exclude<Hold, "bytes">, boolean>;
+type Row = Omit<Candidate, "holds"> & Record<Hold, boolean>;
 
 async function plan(client: PoolClient, pass: DedupePass): Promise<DedupePlan> {
   const rows = await client.query<Row>(candidatesSql(pass), [NET_GAP]);
   const go: Candidate[] = [];
   const held: Candidate[] = [];
   for (const row of rows.rows) {
-    const holds = PASS_HOLDS[pass].filter(
-      (hold) => hold !== "bytes" && row[hold],
-    );
+    const holds = PASS_HOLDS[pass].filter((hold) => row[hold]);
     const candidate = {
       id: row.id,
       keep: row.keep,
@@ -196,11 +199,12 @@ export function planDedupe(pass: DedupePass): Promise<DedupePlan> {
 export type Fingerprint = (key: string) => Promise<string | null>;
 
 /**
- * The copies pass checked against the bucket: a copy goes only when the
- * bucket's MD5 of its file and of the kept one are the same. The sync
- * keeps no hash, and the same size, dimensions and picture are not proof
- * (an uncompressed RAW of a burst has its neighbour's size). The others
- * stay, hold "bytes". `concurrency` requests at a time.
+ * The copies pass checked against the bucket, after the stored ETags: a
+ * copy goes only when the bucket's MD5 of its file and of the kept one are
+ * the same now (a file replaced since the sync's last run holds a stale
+ * ETag). The same size, dimensions and picture are not proof (an
+ * uncompressed RAW of a burst has its neighbour's size). The others stay,
+ * hold "bytes". `concurrency` requests at a time.
  */
 export async function verifyCopies(
   shown: DedupePlan,

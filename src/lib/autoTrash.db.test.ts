@@ -32,12 +32,14 @@ async function photo(
     width?: number;
     height?: number;
     thumbnail?: string;
+    /** photos.etag; by default one MD5 for all, copies are the same file */
+    etag?: string | null;
   } = {},
 ) {
   await sql.query(
     `INSERT INTO photos (id, folder_id, filename, s3_key, size, mime_type,
-       modified_at, metadata, thumbnail_status, thumbnail_path, is_favorite)
-     VALUES ($1, $2, $3, $4, 1000, 'image/jpeg', now(), $5, $6, $7, $8)`,
+       modified_at, metadata, thumbnail_status, thumbnail_path, is_favorite, etag)
+     VALUES ($1, $2, $3, $4, 1000, 'image/jpeg', now(), $5, $6, $7, $8, $9)`,
     [
       id,
       folder.id,
@@ -53,6 +55,7 @@ async function photo(
       extra.thumbnail ?? "generated",
       `thumbnails/${folder.path}/p${id}.jpg`,
       extra.favorite ?? false,
+      extra.etag === undefined ? "f".repeat(32) : extra.etag,
     ],
   );
 }
@@ -125,6 +128,22 @@ beforeEach(async () => {
     [421, 2, 421],
     [422, 2, 421],
   ]);
+  // Copies the stored ETags do not vouch for: another MD5, a multipart
+  // upload's, none read yet
+  await photo(481, TRIP, { etag: "a".repeat(32) });
+  await photo(482, TRIP, { etag: "b".repeat(32) });
+  await stack([
+    [481, 2, 481],
+    [482, 2, 481],
+  ]);
+  await photo(491, TRIP, { etag: "0123456789abcdef-2" });
+  await photo(492, TRIP, { etag: "0123456789abcdef-2" });
+  await photo(493, TRIP, { etag: null });
+  await stack([
+    [491, 2, 491],
+    [492, 2, 491],
+    [493, 2, 491],
+  ]);
   // A burst: one clearly behind goes, the others stay for a reason each;
   // 437 copies 431, left to the copies pass
   await photo(431, TRIP);
@@ -187,6 +206,9 @@ void describe("npm run dedupe", () => {
     assert.deepEqual(pairs(plan.held), [
       [412, 411, "favorite"],
       [422, 421, "shared"],
+      [482, 481, "bytes"],
+      [492, 491, "bytes"],
+      [493, 491, "bytes"],
     ]);
   });
 
@@ -205,7 +227,14 @@ void describe("npm run dedupe", () => {
     assert.deepEqual(pairs(plan.go), [[402, 401]]);
     assert.deepEqual(
       pairs(plan.held).map((c) => c.join(" ")),
-      ["412 411 favorite", "422 421 shared", "437 431 bytes"],
+      [
+        "412 411 favorite",
+        "422 421 shared",
+        "482 481 bytes",
+        "492 491 bytes",
+        "493 491 bytes",
+        "437 431 bytes",
+      ],
     );
   });
 

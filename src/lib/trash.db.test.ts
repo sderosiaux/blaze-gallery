@@ -258,6 +258,14 @@ void describe("the Corbeille", () => {
   });
 
   void test("the Doublons page: stacks of each kind with their photos, best first", async () => {
+    // Copies by their rank, but no MD5 read yet: not shown as the same file
+    assert.deepEqual(
+      (await stacks.listStacks("copies", null, 10)).stacks.map((s) => s.id),
+      [],
+    );
+    await sql.query("UPDATE photos SET etag = $1 WHERE id IN (311, 312)", [
+      "c".repeat(32),
+    ]);
     const all = await stacks.listStacks("all", null, 10);
     assert.deepEqual(
       all.stacks.map((s) => [s.id, ids(s.photos), s.copies]),
@@ -271,6 +279,17 @@ void describe("the Corbeille", () => {
       (await stacks.listStacks("copies", null, 10)).stacks.map((s) => s.id),
       [311],
     );
+    // Another MD5, or a multipart upload's: not the same file
+    for (const etag of ["d".repeat(32), "0123456789abcdef-2"]) {
+      await sql.query("UPDATE photos SET etag = $1 WHERE id = 312", [etag]);
+      assert.deepEqual(
+        (await stacks.listStacks("bursts", null, 10)).stacks.map((s) => s.id),
+        [301, 311],
+      );
+    }
+    await sql.query("UPDATE photos SET etag = $1 WHERE id = 312", [
+      "c".repeat(32),
+    ]);
     const paged = await stacks.listStacks("all", null, 1);
     assert.ok(paged.next);
     assert.deepEqual(

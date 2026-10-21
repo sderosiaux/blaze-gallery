@@ -7,7 +7,11 @@ import type { Photo } from "@/types";
 import { inGallery, query, requireRow } from "./database";
 import { thumbnailUrl } from "./photoUrls";
 
-/** copies: every photo of the stack is the same file; bursts: the others. */
+/**
+ * copies: every photo of the stack is the same file, the same MD5 in
+ * photos.etag for each (not a multipart upload's, not one unread); bursts:
+ * the others.
+ */
 export type StackKind = "all" | "copies" | "bursts";
 
 export const STACK_KINDS: readonly StackKind[] = ["all", "copies", "bursts"];
@@ -33,13 +37,15 @@ export interface StackCursor {
 /** Per stack the gallery shows two photos of or more: its size, its kind, its newest date. */
 const STACKS = `
   visible AS MATERIALIZED (
-    SELECT g.group_id, g.copy_of, p.metadata ->> 'date_taken' AS taken
+    SELECT g.group_id, g.copy_of, p.etag, p.metadata ->> 'date_taken' AS taken
     FROM photo_groups g JOIN photos p ON p.id = g.photo_id
     WHERE ${inGallery()}
   ),
   stacks AS MATERIALIZED (
     SELECT group_id, count(*)::int AS photos,
-           bool_and(copy_of IS NOT NULL) AND count(DISTINCT copy_of) = 1 AS copies,
+           bool_and(copy_of IS NOT NULL) AND count(DISTINCT copy_of) = 1
+             AND bool_and(coalesce(etag ~ '^[0-9a-f]{32}$', false))
+             AND count(DISTINCT etag) = 1 AS copies,
            coalesce(max(taken), '') AS taken
     FROM visible GROUP BY group_id HAVING count(*) >= 2
   )`;
