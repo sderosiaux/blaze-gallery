@@ -17,6 +17,7 @@ import type { PoolClient } from "pg";
 import type { FileVersion } from "./s3";
 import type { Photo } from "@/types";
 import { inGallery, query, requireRow, runTransaction } from "./database";
+import { GROUPS_LOCK } from "./groupsLock";
 import { clientRunner, goingFor } from "./keep";
 import { logger } from "./logger";
 import { carryNames } from "./people";
@@ -117,9 +118,21 @@ export async function restoreLot(batch: string): Promise<number> {
 export async function keepFromStacks(
   keep: readonly number[],
   trash: readonly number[],
-): Promise<{ ok: boolean; trashed: number[]; count: number }> {
+): Promise<{
+  ok: boolean;
+  trashed: number[];
+  count: number;
+  /** A pass of npm run dedupe or a write of the worker holds the stacks: nothing moved */
+  passRunning?: boolean;
+}> {
   try {
     return await runTransaction(async (client) => {
+      const locked = await client.query<{ ok: boolean }>(
+        "SELECT pg_try_advisory_xact_lock($1) AS ok",
+        [GROUPS_LOCK],
+      );
+      if (!locked.rows[0]?.ok)
+        return { ok: false, trashed: [], count: 0, passRunning: true };
       await client.query(
         `SELECT p.id FROM photos p JOIN photo_groups m ON m.photo_id = p.id
          WHERE m.group_id IN (SELECT group_id FROM photo_groups WHERE photo_id = ANY($1::bigint[]))

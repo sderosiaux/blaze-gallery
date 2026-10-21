@@ -27,6 +27,15 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
     );
   try {
     const result = await keepFromStacks(keep, trash);
+    if (result.passRunning)
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PASS_RUNNING",
+          error: "Une passe est en cours, réessayez dans un moment.",
+        },
+        { status: 409 },
+      );
     if (!result.ok)
       return NextResponse.json(
         {

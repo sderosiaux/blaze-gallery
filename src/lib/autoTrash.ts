@@ -21,6 +21,7 @@
  */
 import type { PoolClient } from "pg";
 import { inGallery, OWNED, runTransaction } from "./database";
+import { GROUPS_LOCK } from "./groupsLock";
 import { markTrashed, newLot, type TrashLot } from "./trash";
 
 export type DedupePass = "copies" | "near";
@@ -252,9 +253,6 @@ export function inFolders(plan: DedupePlan, same: boolean): DedupePlan {
   };
 }
 
-/** The worker's groups lock (groups.py LOCK): no rebuild or grouper writes meanwhile. */
-const GROUPS_LOCK = 0x626c617a6567;
-
 /** The pass's plan differs from the one shown, or the database moved under it: nothing written. */
 export class DedupeRefused extends Error {}
 
@@ -284,6 +282,15 @@ export function applyDedupe(
     );
     if (!locked.rows[0]?.ok || (leased.rowCount ?? 0) > 0)
       throw new DedupeRefused("a groups worker is running");
+    // The photos of the stacks it touches, locked: one thrown away alone
+    // (the viewer's trash, which takes no lock) since this snapshot fails it
+    const stacks = [...new Set(shown.go.map((c) => c.group_id))];
+    await client.query(
+      `SELECT p.id FROM photos p JOIN photo_groups g ON g.photo_id = p.id
+       WHERE g.group_id = ANY($1::bigint[])
+       ORDER BY p.id FOR UPDATE OF p`,
+      [stacks],
+    );
     const now = await plan(client, shown.pass);
     const current = new Set(now.go.map(key));
     const gone = shown.go.filter((c) => !current.has(key(c)));
@@ -298,6 +305,18 @@ export function applyDedupe(
     if (trashed.length !== shown.go.length)
       throw new DedupeRefused(
         `${trashed.length} photos marked, ${shown.go.length} planned`,
+      );
+    const emptied = await client.query(
+      `SELECT 1 FROM photo_groups k
+       WHERE k.group_id = ANY($1::bigint[]) AND NOT EXISTS (
+         SELECT 1 FROM photo_groups m JOIN photos p ON p.id = m.photo_id
+         WHERE m.group_id = k.group_id AND ${inGallery()})
+       LIMIT 1`,
+      [stacks],
+    );
+    if (emptied.rows.length > 0)
+      throw new DedupeRefused(
+        "a stack would be left with nothing in the gallery",
       );
     if (
       after.hash !== before.hash ||

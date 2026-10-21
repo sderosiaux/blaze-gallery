@@ -11,6 +11,7 @@ import type * as Keep from "./keep";
 import type { FileVersion } from "./s3";
 import type * as Stacks from "./stacks";
 import type * as Trash from "./trash";
+import { GROUPS_LOCK } from "./groupsLock";
 import { startTestDatabase, type TestDatabase } from "./testDatabase";
 
 let db: TestDatabase;
@@ -366,6 +367,21 @@ void describe("the Corbeille", () => {
     await stack([361, 362, 363]);
     // 362 has no date_tag (probed before it was recorded): as before
     assert.deepEqual(await keep.previewKeep([361]), { 361: [362] });
+  });
+
+  void test("« Garder » waits for no pass: while one holds the groups lock it moves nothing", async () => {
+    await sql.query("SELECT pg_advisory_lock($1)", [GROUPS_LOCK]);
+    try {
+      assert.deepEqual(await trash.keepFromStacks([302], [301, 303]), {
+        ok: false,
+        trashed: [],
+        count: 0,
+        passRunning: true,
+      });
+    } finally {
+      await sql.query("SELECT pg_advisory_unlock($1)", [GROUPS_LOCK]);
+    }
+    assert.deepEqual(await trashedIds(), []);
   });
 
   void test("« Garder » refuses to leave a stack with no photo of the gallery", async () => {
