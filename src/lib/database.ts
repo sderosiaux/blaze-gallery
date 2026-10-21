@@ -508,6 +508,7 @@ type FolderListingRow = Omit<
   | "palette"
   | "excluded"
 > & {
+  shown_count: number;
   thumbnails_generated: boolean | null;
   cover_photo_id: number | null | undefined;
   date_from: string | null | undefined;
@@ -519,7 +520,8 @@ type FolderListingRow = Omit<
 /**
  * Adds listing fields (thumbnail state, size, date span, cover, palette)
  * to the folders selected by `baseSql`, which must select `f.*` from
- * `folders f`.
+ * `folders f`. Its photo_count is what the folder shows: a stack once, as
+ * getPhotosInFolder stacked lists it, not the files the sync counted.
  */
 async function listFolders(
   baseSql: string,
@@ -545,6 +547,7 @@ async function listFolders(
       s.*,
       agg.thumbnails_generated,
       agg.total_size,
+      agg.shown_count,
       agg.folder_created_at,
       agg.date_from,
       agg.date_to,
@@ -563,6 +566,7 @@ async function listFolders(
           ELSE false
         END AS thumbnails_generated,
         COALESCE(SUM(p.size), 0) AS total_size,
+        COUNT(*) FILTER (WHERE ${stackFront([`${BETTER}.folder_id = s.id`])})::int AS shown_count,
         MIN(p.modified_at) AS folder_created_at,
         MIN(p.metadata->>'date_taken') AS date_from,
         MAX(p.metadata->>'date_taken') AS date_to
@@ -623,8 +627,9 @@ async function listFolders(
 
   const result = await query<FolderListingRow>(sql, params);
 
-  return result.rows.map((folder) => ({
+  return result.rows.map(({ shown_count, ...folder }) => ({
     ...folder,
+    photo_count: shown_count,
     thumbnails_generated: Boolean(folder.thumbnails_generated),
     cover_photo_id: folder.cover_photo_id ?? null,
     date_from: folder.date_from ?? null,

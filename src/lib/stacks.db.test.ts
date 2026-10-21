@@ -302,6 +302,25 @@ void describe("stacks", () => {
     );
   });
 
+  void test("a folder's card counts what the folder shows", async () => {
+    const count = new Map(
+      (await database.getFolders()).map((f) => [f.path, f.photo_count]),
+    );
+    // As getPhotosInFolder stacked: 201 for the burst, 212, 222, 231
+    assert.equal(count.get(TRIP.path), 4);
+    assert.equal(count.get(DUMP.path), 1);
+    // Out of the gallery, every file
+    assert.equal(count.get(BOOKS.path), 3);
+    // Not the 6 files the sync counts
+    await sql.query("UPDATE folders SET photo_count = 6 WHERE id = $1", [
+      TRIP.id,
+    ]);
+    const [found] = await database
+      .searchFolders("voyage", null, 5)
+      .then((page) => page.items);
+    assert.equal(found?.photo_count, 4);
+  });
+
   void test("the photos of a stack, best first, in the gallery", async () => {
     assert.deepEqual(ids(await database.getStackPhotos(203)), [201, 202, 203]);
     assert.deepEqual(ids(await database.getStackPhotos(222)), [222]);
