@@ -225,6 +225,38 @@ or bias, change the stored scores: bump `version`, rebuild the image, and
 job's model with the vocabulary's); the worker replaces each photo's rows.
 How the scores are made and how the thresholds were set: `docs/TAGS.md`.
 
+## Stacks of near-duplicates
+
+Bursts, edits, resized and exact copies stack behind the best of them:
+`photo_groups` (`db/schema.sql`), filled by the `groups` task from the
+embeddings, the camera and the time taken, with the R2 thumbnails for the
+pixel test and the score. The rules and what they were measured on are in
+`worker/src/blaze_worker/groups.py`. It runs from the embed image (it reads
+the screen tag's threshold in `db/tags.json`), after the tags task, with the
+env file that holds the thumbnail bucket.
+
+The first fill, and after a change of rules or weights, is a rebuild: every
+embedding at once, the table replaced in one transaction, every photo's job
+closed. It reads 220k embeddings (about 350 MB) and the thumbnails of the
+photos it stacks:
+
+```bash
+docker run --rm --env-file blaze-thumbs.env blaze-worker:embed \
+  --task groups --rebuild --dry-run                 # prints the stacks, writes nothing
+docker run --rm --env-file blaze-thumbs.env blaze-worker:embed \
+  --task groups --rebuild --folder "<a folder>"     # a first trial, on an empty table only
+docker run --rm --env-file blaze-thumbs.env blaze-worker:embed \
+  --task groups --rebuild
+```
+
+A rebuild stops without writing when photos, photo_embeddings, faces,
+photo_colors or photo_tags lose rows during it, or when the new stacks hold
+under half the photos stacked before (`--allow-shrink` to confirm). New
+photos then go through the queue, as `worker/weekly.sh` does: `blaze-enqueue
+--task groups --all` (photos with an embedding), then `--task groups`, which
+compares each one with its nearest neighbours and exits when the queue is
+empty. Run one at a time: a second one exits at once.
+
 ## Health check
 
 `GET /api/health` needs no authentication. It runs one database query and

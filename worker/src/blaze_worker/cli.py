@@ -80,6 +80,9 @@ _DEFAULTS = {
     # No image read, no pipeline: batches of stored embeddings (tags.Tagger),
     # a few seconds each, so a short lease brings a dead worker's back soon
     "tags": {"lease": 60},
+    # Embeddings and thumbnails (groups.Grouper); fetchers read the thumbnails
+    # of the pixel tests and the measures
+    "groups": {"lease": 600, "fetchers": 16},
 }
 
 
@@ -210,6 +213,43 @@ def _run_tags(args: argparse.Namespace, url: str) -> None:
     tagger.run()
 
 
+def _run_groups(args: argparse.Namespace, env: dict[str, str], url: str) -> None:
+    from .groups import Aborted, Grouper, Measurer, rebuild
+    from .tags import Vocabulary
+    from .thumbstore import ThumbnailStore, thumbnail_settings
+
+    vocabulary = Vocabulary.read()
+    measurer = Measurer(ThumbnailStore(thumbnail_settings(env), args.fetchers + 2), args.fetchers)
+
+    def connect() -> psycopg.Connection:
+        conn = _connect(url)
+        register_vector(conn)
+        return conn
+
+    if args.rebuild:
+        with connect() as conn:
+            try:
+                summary = rebuild(
+                    conn,
+                    measurer,
+                    vocabulary,
+                    dry_run=args.dry_run is not None,
+                    folder=args.folder,
+                    owner=args.owner,
+                    allow_shrink=args.allow_shrink,
+                )
+            except Aborted as error:
+                raise SystemExit(f"rebuild aborted, nothing written: {error}") from error
+        print(("dry run, nothing written: " if args.dry_run is not None else "") + summary.line())
+        return
+    if args.folder or args.dry_run is not None:
+        raise SystemExit("groups: --folder and --dry-run go with --rebuild")
+    grouper = Grouper(connect, measurer, vocabulary, args.owner, args.batch, args.lease)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: grouper.stop())
+    grouper.run()
+
+
 def run_worker() -> None:
     from .describe import DEFAULT_MODEL
     from .tasks import SUPPORTED_TASKS
@@ -244,13 +284,19 @@ def run_worker() -> None:
         help="with nothing to claim, wait while TASK still runs (embed: --follow thumbs)",
     )
     parser.add_argument(
-        "--batch", type=int, default=1000, help="tags: photos per claim, written in one transaction"
+        "--batch",
+        type=int,
+        default=1000,
+        help="tags, groups: photos per claim, written in one transaction",
     )
     parser.add_argument(
         "--dry-run",
         type=int,
+        nargs="?",
+        const=0,
         metavar="N",
-        help="tags: score N photos with an embedding, print what would be stored, write nothing",
+        help="write nothing: tags scores N photos with an embedding and prints what would be "
+        "stored; groups --rebuild prints the stacks it would write",
     )
     faces = parser.add_argument_group("faces, faces_extra")
     faces.add_argument(
@@ -279,6 +325,21 @@ def run_worker() -> None:
         action="store_true",
         help="measure colors only: upload no thumbnail, write nothing in photos",
     )
+    groups = parser.add_argument_group("groups")
+    groups.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="stack the whole gallery at once and replace every stack (else: the queued photos)",
+    )
+    groups.add_argument(
+        "--folder",
+        help="with --rebuild: only this folder and below, a first trial on an empty table",
+    )
+    groups.add_argument(
+        "--allow-shrink",
+        action="store_true",
+        help="with --rebuild: write even when the new stacks hold under half the photos stacked",
+    )
     _env_arg(parser)
     args = parser.parse_args()
     for name, value in {"lease": 600, **_DEFAULTS[args.task]}.items():
@@ -292,7 +353,12 @@ def run_worker() -> None:
     env = read_env(args.env_file)
     url = database_url(env)
     if args.task == "tags":
+        if args.dry_run == 0:
+            raise SystemExit("tags: --dry-run N, the number of photos to score")
         _run_tags(args, url)
+        return
+    if args.task == "groups":
+        _run_groups(args, env, url)
         return
     # thumbs, embed: their loaders read each photo's thumbnail state on the fetch threads
     pool = ConnectionPool(
@@ -382,6 +448,12 @@ def run_enqueue() -> None:
         # A job done with an older vocabulary is queued again; a photo
         # without an embedding is not queued (the next run after embed is)
         model = Vocabulary.read().model
+        ready = embedded_sql("p.id")
+    elif args.task == "groups":
+        from .tags import embedded_sql
+
+        # Photos with an embedding only. New rules or weights are a rebuild
+        # (blaze-worker --task groups --rebuild), not a new queue
         ready = embedded_sql("p.id")
     with _connect(database_url(read_env(args.env_file))) as conn:
         pinned = ids(args.pin)

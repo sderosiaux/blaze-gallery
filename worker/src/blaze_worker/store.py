@@ -209,3 +209,47 @@ def save_description(
             (job.photo_id, model, Jsonb(data)),
         )
     return 1
+
+
+_GROUP_ROWS = """
+INSERT INTO photo_groups (photo_id, group_id, rank, score, link, copy_of, measures, model)
+SELECT * FROM unnest(%s::bigint[], %s::bigint[], %s::int[], %s::real[], %s::text[],
+                     %s::bigint[], %s::jsonb[], %s::text[])
+"""
+
+
+def _insert_groups(conn: Connection, rows: Sequence[tuple[Any, ...]]) -> None:
+    """rows: (photo_id, group_id, rank, score, link, copy_of, measures, model)."""
+    for start in range(0, len(rows), 5000):
+        part = rows[start : start + 5000]
+        columns = [list(column) for column in zip(*part, strict=True)]
+        columns[6] = [Jsonb(m) for m in columns[6]]
+        conn.execute(_GROUP_ROWS, columns)
+
+
+def save_groups(
+    conn: Connection,
+    owner: str,
+    results: Sequence[tuple[int, dict[str, Any]]],
+    centres: Sequence[int],
+    rows: Sequence[tuple[Any, ...]],
+    model: str,
+) -> None:
+    """Replaces the stacks around `centres` with `rows` and closes the batch's jobs, at once.
+
+    The stacks a batch changes depend on every photo of it: when any job is
+    no longer ours, nothing is written (LeaseLost) and the batch comes back
+    to the queue with the expired leases.
+    """
+    with conn.transaction():
+        held = jobs.complete_many(conn, owner, results, model)
+        if len(held) < len(results):
+            raise LeaseLost(sorted({job_id for job_id, _ in results} - held))
+        conn.execute("DELETE FROM photo_groups WHERE group_id = ANY(%s)", (list(centres),))
+        _insert_groups(conn, rows)
+
+
+def replace_groups(conn: Connection, rows: Sequence[tuple[Any, ...]]) -> None:
+    """Every stack replaced by `rows` (a rebuild); in the caller's transaction."""
+    conn.execute("DELETE FROM photo_groups")
+    _insert_groups(conn, rows)

@@ -1,0 +1,585 @@
+"""The groups task: which photos link, how stacks form, the score, and what it writes."""
+
+from __future__ import annotations
+
+import io
+import threading
+
+import numpy as np
+import pytest
+from pgvector import HalfVector
+from PIL import Image, ImageDraw
+from psycopg.types.json import Jsonb
+
+from blaze_worker import groups
+from blaze_worker.enqueue import enqueue_all
+from blaze_worker.gallery import EXCLUDED_NOTE
+from blaze_worker.groups import (
+    ALIKE,
+    BURST,
+    COPY,
+    IDENTICAL,
+    NONE,
+    SAME,
+    TASK,
+    Aborted,
+    Columns,
+    Face,
+    Grouper,
+    Measurer,
+    Photo,
+    Stack,
+    classify,
+    face_measures,
+    gather,
+    picture_measures,
+    place,
+    rank,
+    rebuild,
+    rules_model,
+    settle,
+)
+from blaze_worker.siglip import DIM, MODEL
+from blaze_worker.tags import Vocabulary
+
+from .conftest import add_photos, connect
+
+CAMERA = "NIKON|D7000"
+
+
+def photo(pid: int, **facts) -> Photo:
+    base = {
+        "size": 1000 + pid,
+        "width": 4000,
+        "height": 3000,
+        "camera": CAMERA,
+        "taken": 1_000_000.0,
+        "screen": False,
+        "thumbnail": f"thumbnails/{pid}.jpg",
+    }
+    return Photo(pid, **{**base, **facts})
+
+
+def code(a: Photo, b: Photo, cosine: float) -> int:
+    return int(classify(Columns.of([a, b]), np.array([0]), np.array([1]), np.array([cosine]))[0])
+
+
+# -- the rules ----------------------------------------------------------------------
+
+
+def test_one_camera_the_same_second_links_from_090():
+    a, b = photo(1), photo(2)
+    assert code(a, b, 0.91) == BURST
+    assert code(a, b, 0.89) == NONE
+
+
+def test_one_camera_within_30_seconds_links_from_0975():
+    a = photo(1)
+    assert code(a, photo(2, taken=1_000_010.0), 0.98) == BURST
+    assert code(a, photo(2, taken=1_000_030.0), 0.976) == BURST
+    assert code(a, photo(2, taken=1_000_010.0), 0.97) == NONE
+
+
+def test_one_camera_later_needs_the_identical_picture():
+    a = photo(1)
+    assert code(a, photo(2, taken=1_000_100.0), 0.99) == IDENTICAL
+    # Another shape a minute later: another shot
+    assert code(a, photo(2, taken=1_000_100.0, width=3000, height=3000), 0.99) == NONE
+    assert code(a, photo(2, taken=1_000_100.0), 0.98) == NONE
+
+
+def test_two_cameras_never_link_but_as_exact_copies():
+    a, b = photo(1), photo(2, camera="Apple|iPhone 12")
+    assert code(a, b, 0.995) == NONE
+    assert code(a, photo(2, camera="Apple|iPhone 12", size=a.size), 0.9995) == COPY
+
+
+def test_without_a_camera_date_the_pixels_decide_unless_the_shape_changed():
+    a = photo(1)
+    resized = photo(2, camera=None, taken=None, width=1600, height=1200)
+    cropped = photo(3, camera=None, taken=None, width=1600, height=1600)
+    assert code(a, resized, 0.99) == ALIKE
+    assert code(a, cropped, 0.99) == SAME
+    assert code(a, resized, 0.98) == NONE
+    # A camera without a date counts as no date
+    assert code(a, photo(4, taken=None, width=1600, height=1200), 0.99) == ALIKE
+
+
+def test_screens_and_small_images_only_stack_as_exact_copies():
+    a = photo(1)
+    assert code(a, photo(2, screen=True), 0.99) == NONE
+    assert code(photo(1, width=90, height=60), photo(2, width=90, height=60), 0.99) == NONE
+    small = photo(3, width=90, height=60)
+    assert code(small, photo(4, width=90, height=60, size=small.size), 0.9999) == COPY
+
+
+def test_exact_copies_link_whatever_their_dates():
+    a = photo(1)
+    b = photo(2, size=a.size, taken=99.0, camera="Other|Camera")
+    assert code(a, b, 0.9995) == COPY
+    assert code(a, b, 0.998) == NONE
+
+
+def test_the_owner_turning_a_photo_changes_its_shape():
+    upright = photo(1, width=3000, height=4000)
+    turned = photo(2, camera=None, taken=None, rotation=90)
+    assert code(upright, turned, 0.99) == ALIKE
+
+
+def test_pixel_tests_settle_alike_and_identical():
+    codes = np.array([ALIKE, ALIKE, IDENTICAL, IDENTICAL, ALIKE, BURST], np.int8)
+    shares = np.array([0.02, 0.05, 0.004, 0.02, np.nan, np.nan])
+    assert settle(codes, shares).tolist() == [SAME, NONE, SAME, NONE, NONE, BURST]
+
+
+def test_a_slow_series_does_not_chain():
+    # 0-1-2-3-4, each linked to the next only
+    centres = gather(5, np.array([0, 1, 2, 3]), np.array([1, 2, 3, 4]))
+    stacks: dict[int, set[int]] = {}
+    for row, centre in enumerate(centres.tolist()):
+        stacks.setdefault(centre, set()).add(row)
+    assert sorted(map(sorted, stacks.values())) == [[0, 1, 2], [3, 4]]
+
+
+def test_the_most_linked_photo_is_the_centre():
+    # 2 is linked to all; 0 and 1 to 2 only
+    centres = gather(4, np.array([0, 1, 2]), np.array([2, 2, 3]))
+    assert centres.tolist() == [2, 2, 2, 2]
+
+
+def test_a_photo_whose_neighbours_are_taken_can_join_a_later_centre():
+    # 0 claims 1, 2, 3; 4 is linked to 1 (taken) and to 5: 4 then claims 5
+    centres = gather(6, np.array([0, 0, 0, 1, 4]), np.array([1, 2, 3, 4, 5]))
+    assert centres.tolist() == [0, 0, 0, 0, 4, 4]
+
+
+# -- measures and the score ---------------------------------------------------------
+
+
+def jpeg(sharp: bool = True, size: tuple[int, int] = (400, 300), level: int = 128) -> bytes:
+    image = Image.new("L", size, level)
+    if sharp:
+        draw = ImageDraw.Draw(image)
+        for x in range(0, size[0], 8):
+            draw.line([(x, 0), (x, size[1])], fill=0 if level > 127 else 255)
+    out = io.BytesIO()
+    image.convert("RGB").save(out, "JPEG", quality=95)
+    return out.getvalue()
+
+
+def test_sharpness_is_measured_at_one_size():
+    crisp, flat = picture_measures(jpeg(True)), picture_measures(jpeg(False))
+    assert crisp["sharp"] > flat["sharp"] + 5
+    # A smaller thumbnail is brought to the same edge first: it holds less detail there
+    assert picture_measures(jpeg(True, (200, 150)))["sharp"] < crisp["sharp"]
+    assert picture_measures(jpeg(False, level=255))["clipped"] == 1.0
+
+
+def face(**v) -> Face:
+    base = {
+        "box": [0.4, 0.3, 0.1, 0.12],
+        "sharpness": 200.0,
+        "eye_left": 0.3,
+        "eye_right": 0.3,
+        "pitch": 0.0,
+        "happiness": 0.5,
+        "detect_rotation": 0,
+    }
+    return Face(**{**base, **v})
+
+
+def test_face_measures():
+    m = face_measures(
+        [
+            face(),
+            face(eye_left=0.05, eye_right=0.1),
+            # Looking down: the lids read closed, not a blink
+            face(eye_left=0.05, eye_right=0.05, pitch=-25.0),
+            face(box=[0.95, 0.3, 0.08, 0.1]),
+            # Too small to count
+            face(box=[0.1, 0.1, 0.01, 0.01], eye_left=0.0, eye_right=0.0),
+        ],
+        rotation=0,
+    )
+    assert (m["faces"], m["blinks"], m["cut"], m["sideways"]) == (4, 1, 1, 0)
+    assert m["smile"] == 0.5 and m["face_sharp"] == pytest.approx(7.6439, abs=1e-3)
+
+
+def test_faces_found_only_on_the_turned_picture_show_it_sideways():
+    assert face_measures([face(detect_rotation=90)], rotation=0)["sideways"] == 1
+    # The owner turned it the same way: upright on screen
+    assert face_measures([face(detect_rotation=90)], rotation=90)["sideways"] == 0
+    assert face_measures([], rotation=0)["sideways"] == 0
+
+
+def m(**v) -> dict:
+    base = {
+        "sharp": 10.0,
+        "clipped": 0.0,
+        "pixels": 23.5,
+        "bytes": 21.0,
+        "faces": 2,
+        "blinks": 0,
+        "cut": 0,
+        "face_sharp": 7.0,
+        "smile": 0.5,
+        "sideways": 0,
+    }
+    return {**base, **v}
+
+
+def test_closed_eyes_lose_to_a_slightly_blurrier_frame():
+    ranked = rank([(1, m(blinks=1, sharp=10.3)), (2, m(sharp=10.0))])
+    assert [pid for pid, _, _ in ranked] == [2, 1]
+    assert [place for _, place, _ in ranked] == [1, 2]
+
+
+def test_a_resized_copy_loses_to_the_original():
+    ranked = rank([(1, m(pixels=20.5, bytes=18.0)), (2, m())])
+    assert ranked[0][0] == 2
+
+
+def test_exact_copies_go_to_the_photo_held_longest():
+    ranked = rank([(7, m()), (3, m()), (5, m())])
+    assert [pid for pid, _, _ in ranked] == [3, 5, 7]
+
+
+def test_a_member_without_faces_is_neither_helped_nor_hurt_by_face_sharpness():
+    # The median fills in: only faces found and the picture's own measures differ
+    ranked = rank([(1, m(faces=0, face_sharp=None, smile=None)), (2, m(faces=0))])
+    assert ranked[0][2] == ranked[1][2]
+
+
+def test_the_rules_and_weights_name_the_model(monkeypatch):
+    before = rules_model()
+    monkeypatch.setitem(groups.WEIGHTS, "blinks", -2.0)
+    assert rules_model() != before and rules_model().startswith("groups v1 ")
+
+
+# -- incremental placement ----------------------------------------------------------
+
+
+def both(*pairs: tuple[int, int, str]) -> dict[tuple[int, int], str]:
+    out = {}
+    for a, b, kind in pairs:
+        out[(a, b)] = out[(b, a)] = kind
+    return out
+
+
+def test_a_new_photo_joins_the_stack_whose_centre_it_links_to():
+    stored = {10: Stack(10, {10: "centre", 11: "burst"})}
+    changed, alone = place(
+        [20],
+        both((20, 10, "burst"), (20, 11, "burst")),
+        {(20, 10): 0.99},
+        {10: 10, 11: 10},
+        lambda c: Stack(c, dict(stored[c].members)),
+    )
+    assert changed[10].members == {10: "centre", 11: "burst", 20: "burst"} and alone == []
+
+
+def test_a_new_photo_linked_to_a_member_only_does_not_join():
+    stored = {10: Stack(10, {10: "centre", 11: "burst"})}
+    changed, alone = place(
+        [20],
+        both((20, 11, "burst")),
+        {},
+        {10: 10, 11: 10},
+        lambda c: Stack(c, dict(stored[c].members)),
+    )
+    assert changed == {} and alone == [20]
+
+
+def test_new_photos_stack_with_each_other_and_with_photos_in_none():
+    changed, alone = place(
+        [20, 21, 30],
+        both((20, 21, "copy"), (21, 5, "burst"), (20, 5, "burst")),
+        {},
+        {},
+        lambda c: pytest.fail("no stored stack"),
+    )
+    assert alone == [30]
+    (stack,) = changed.values()
+    assert set(stack.members) == {5, 20, 21}
+    assert list(stack.members.values()).count("centre") == 1
+
+
+def test_the_closest_centre_wins():
+    stored = {10: Stack(10, {10: "centre", 11: "copy"}), 40: Stack(40, {40: "centre", 41: "copy"})}
+    changed, _ = place(
+        [20],
+        both((20, 10, "burst"), (20, 40, "burst")),
+        {(20, 10): 0.98, (20, 40): 0.995},
+        {10: 10, 11: 10, 40: 40, 41: 40},
+        lambda c: Stack(c, dict(stored[c].members)),
+    )
+    assert list(changed) == [40] and 20 in changed[40].members
+
+
+# -- on Postgres --------------------------------------------------------------------
+
+
+class Store:
+    """ThumbnailStore stand-in: get only (the groups task never writes a thumbnail)."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.lock = threading.Lock()
+        self.reads = 0
+
+    def get(self, path: str) -> bytes | None:
+        with self.lock:
+            self.reads += 1
+        return self.objects.get(path)
+
+
+def unit(rng: np.random.Generator) -> np.ndarray:
+    v = rng.normal(size=DIM)
+    return v / np.linalg.norm(v)
+
+
+def near(v: np.ndarray, cosine: float, rng: np.random.Generator) -> np.ndarray:
+    """A unit vector at exactly `cosine` from v."""
+    u = unit(rng)
+    u -= (u @ v) * v
+    u /= np.linalg.norm(u)
+    return cosine * v + np.sqrt(1 - cosine**2) * u
+
+
+def setup_library(conn, specs: list[dict]) -> list[int]:
+    """Photos with facts, thumbnails and embeddings: specs of {vector, size, taken, camera...}."""
+    ids = add_photos(conn, [("image/jpeg", None)] * len(specs))
+    for pid, spec in zip(ids, specs, strict=True):
+        metadata = {
+            "dimensions": {"width": spec.get("width", 4000), "height": spec.get("height", 3000)}
+        }
+        if spec.get("camera", True):
+            metadata["camera"] = {"make": "NIKON", "model": "D7000"}
+        if spec.get("taken"):
+            metadata["date_taken"] = spec["taken"]
+        conn.execute(
+            "UPDATE photos SET metadata = %s, size = %s, thumbnail_status = 'generated', "
+            "thumbnail_path = %s WHERE id = %s",
+            (Jsonb(metadata), spec.get("size", 1000 + pid), f"thumbnails/{pid}.jpg", pid),
+        )
+        conn.execute(
+            "INSERT INTO photo_embeddings (photo_id, embedding, model) VALUES (%s, %s, %s)",
+            (pid, HalfVector(spec["vector"].astype(np.float32)), spec.get("model", MODEL)),
+        )
+    return ids
+
+
+def thumbnails(store: Store, ids: list[int], sharp: dict[int, bool] | None = None) -> None:
+    for pid in ids:
+        store.objects[f"thumbnails/{pid}.jpg"] = jpeg((sharp or {}).get(pid, True))
+
+
+def a_library(conn, store: Store) -> dict[str, list[int]]:
+    """A burst of three, an exact copy pair, a photo two cameras took, and one alone."""
+    rng = np.random.default_rng(7)
+    burst, copy, alone = unit(rng), unit(rng), unit(rng)
+    specs = [
+        {"vector": burst, "taken": "2020-05-01T10:00:00.000Z"},
+        {"vector": near(burst, 0.985, rng), "taken": "2020-05-01T10:00:05.000Z"},
+        {"vector": near(burst, 0.985, rng), "taken": "2020-05-01T10:00:09.000Z"},
+        {"vector": copy, "taken": "2019-01-01T00:00:00.000Z", "size": 5555},
+        {"vector": copy, "taken": "2019-01-01T00:00:00.000Z", "size": 5555},
+        {"vector": alone, "taken": "2018-01-01T00:00:00.000Z"},
+    ]
+    ids = setup_library(conn, specs)
+    thumbnails(store, ids, {ids[0]: False})
+    return {"burst": ids[:3], "copy": ids[3:5], "alone": ids[5:]}
+
+
+def stacks_in(conn) -> dict[int, list[tuple[int, int, str]]]:
+    out: dict[int, list] = {}
+    for pid, group_id, place_, link in conn.execute(
+        "SELECT photo_id, group_id, rank, link FROM photo_groups ORDER BY group_id, rank"
+    ).fetchall():
+        out.setdefault(group_id, []).append((pid, place_, link))
+    return out
+
+
+def counts(conn) -> tuple:
+    return conn.execute(
+        "SELECT (SELECT count(*) FROM photo_groups), (SELECT count(*) FROM analysis_jobs)"
+    ).fetchone()
+
+
+def test_a_rebuild_stacks_the_library_and_closes_every_job(conn):
+    store = Store()
+    library = a_library(conn, store)
+    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert (summary.stacks, summary.members) == (2, 5)
+    found = stacks_in(conn)
+    by_photo = {pid: (g, r, link) for g, rows in found.items() for pid, r, link in rows}
+    burst = library["burst"]
+    assert len({by_photo[pid][0] for pid in burst}) == 1
+    # The blurred frame is not the one to keep
+    assert by_photo[burst[0]][1] != 1
+    a, b = library["copy"]
+    assert {by_photo[a][2], by_photo[b][2]} == {"centre", "copy"}
+    # Exact copies: the one held longest
+    assert by_photo[a][1] == 1
+    copy_of = dict(conn.execute("SELECT photo_id, copy_of FROM photo_groups").fetchall())
+    assert copy_of[a] == copy_of[b] == a and copy_of[burst[1]] is None
+    assert library["alone"][0] not in by_photo
+    jobs_ = conn.execute(
+        "SELECT status, model, count(*) FROM analysis_jobs WHERE task = %s GROUP BY 1, 2", (TASK,)
+    ).fetchall()
+    assert jobs_ == [("done", rules_model(), 6)]
+    measures = conn.execute(
+        "SELECT measures FROM photo_groups WHERE photo_id = %s", (a,)
+    ).fetchone()[0]
+    assert set(measures) == set(groups.WEIGHTS)
+
+
+def test_a_dry_run_writes_nothing(conn):
+    store = Store()
+    a_library(conn, store)
+    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    assert summary.stacks == 2
+    assert counts(conn) == (0, 0)
+
+
+def test_a_folder_first_and_only_on_an_empty_table(conn):
+    store = Store()
+    library = a_library(conn, store)
+    other = conn.execute(
+        "INSERT INTO folders (path, name) VALUES ('t/sub', 'sub') RETURNING id"
+    ).fetchone()[0]
+    conn.execute("UPDATE photos SET folder_id = %s WHERE id = ANY(%s)", (other, library["burst"]))
+    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, folder="t/sub")
+    assert (summary.photos, summary.stacks) == (3, 1)
+    # The trial leaves the jobs alone
+    assert counts(conn) == (3, 0)
+    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    with pytest.raises(Aborted, match="first trial"):
+        rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, folder="t/sub")
+    assert counts(conn)[0] == 5
+
+
+def test_a_rebuild_that_would_lose_half_the_stacks_stops(conn):
+    store = Store()
+    library = a_library(conn, store)
+    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    conn.execute("DELETE FROM photo_embeddings WHERE photo_id = ANY(%s)", (library["burst"],))
+    with pytest.raises(Aborted, match="allow-shrink"):
+        rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert counts(conn)[0] == 5
+    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False, allow_shrink=True)
+    assert counts(conn)[0] == 2
+
+
+def test_photos_out_of_the_gallery_are_not_stacked(conn):
+    store = Store()
+    library = a_library(conn, store)
+    conn.execute("UPDATE photos SET s3_key = 'books/' || id WHERE id = ANY(%s)", (library["copy"],))
+    conn.execute("INSERT INTO excluded_folders (path) VALUES ('books')")
+    summary = rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    assert (summary.photos, summary.stacks) == (4, 1)
+
+
+def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
+    grouper = Grouper(
+        lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), "test", batch, 600
+    )
+    grouper.run()
+    return grouper
+
+
+def test_new_photos_join_their_stack_or_form_one(conn, schema):
+    store = Store()
+    library = a_library(conn, store)
+    rebuild(conn, Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    before = stacks_in(conn)
+    rng = np.random.default_rng(11)
+    (centre,) = [g for g in before if g in library["burst"]]
+    centre_vector = np.array(
+        conn.execute("SELECT embedding::text FROM photo_embeddings WHERE photo_id = %s", (centre,))
+        .fetchone()[0]
+        .strip("[]")
+        .split(","),
+        float,
+    )
+    centre_vector /= np.linalg.norm(centre_vector)
+    alone_vector = np.array(
+        conn.execute(
+            "SELECT embedding::text FROM photo_embeddings WHERE photo_id = %s",
+            (library["alone"][0],),
+        )
+        .fetchone()[0]
+        .strip("[]")
+        .split(","),
+        float,
+    )
+    alone_vector /= np.linalg.norm(alone_vector)
+    new = setup_library(
+        conn,
+        [
+            # The burst, 4 s after its first frame
+            {"vector": near(centre_vector, 0.99, rng), "taken": "2020-05-01T10:00:04.000Z"},
+            # Taken again the second after the photo alone: they stack together
+            {"vector": near(alone_vector, 0.99, rng), "taken": "2018-01-01T00:00:01.000Z"},
+            {"vector": unit(rng), "taken": "2021-01-01T00:00:00.000Z"},
+        ],
+    )
+    thumbnails(store, new)
+    assert enqueue_all(conn, TASK, ready=groups.embedded_sql("p.id")) == 3
+
+    grouper = run_grouper(schema, store)
+
+    after = stacks_in(conn)
+    burst_stack = next(rows for g, rows in after.items() if any(p == centre for p, _, _ in rows))
+    assert new[0] in {p for p, _, _ in burst_stack} and len(burst_stack) == 4
+    pair = next(rows for rows in after.values() if any(p == new[1] for p, _, _ in rows))
+    assert {p for p, _, _ in pair} == {new[1], library["alone"][0]}
+    assert new[2] not in {p for rows in after.values() for p, _, _ in rows}
+    # Ranks stay 1..n in every stack
+    for rows in after.values():
+        assert [r for _, r, _ in rows] == list(range(1, len(rows) + 1))
+    assert (grouper.counters.done, grouper.counters.stacked, grouper.counters.alone) == (3, 2, 1)
+    statuses = conn.execute(
+        "SELECT photo_id, status, stats FROM analysis_jobs WHERE task = %s AND photo_id = ANY(%s)",
+        (TASK, new),
+    ).fetchall()
+    assert sorted((s[1:] for s in statuses), key=str) == [
+        ("done", {"stacked": False}),
+        ("done", {"stacked": True}),
+        ("done", {"stacked": True}),
+    ]
+    # Nothing left: a second run claims nothing
+    assert run_grouper(schema, store).counters.done == 0
+
+
+def test_a_photo_out_of_the_gallery_is_skipped(conn, schema):
+    store = Store()
+    rng = np.random.default_rng(3)
+    (pid,) = setup_library(conn, [{"vector": unit(rng), "taken": "2020-01-01T00:00:00.000Z"}])
+    enqueue_all(conn, TASK, ready=groups.embedded_sql("p.id"))
+    conn.execute("UPDATE photos SET s3_key = 'books/' || id WHERE id = %s", (pid,))
+    conn.execute("INSERT INTO excluded_folders (path) VALUES ('books')")
+    grouper = run_grouper(schema, store)
+    assert grouper.counters.skipped == 1
+    assert conn.execute(
+        "SELECT status, last_error FROM analysis_jobs WHERE photo_id = %s", (pid,)
+    ).fetchone() == ("skipped", EXCLUDED_NOTE)
+
+
+def test_only_one_grouper_at_a_time(conn, schema):
+    store = Store()
+    rng = np.random.default_rng(5)
+    setup_library(conn, [{"vector": unit(rng), "taken": "2020-01-01T00:00:00.000Z"}])
+    enqueue_all(conn, TASK, ready=groups.embedded_sql("p.id"))
+    with connect(schema) as holder:
+        holder.execute("SELECT pg_advisory_lock(%s)", (groups.LOCK,))
+        assert run_grouper(schema, store).counters.done == 0
+    assert run_grouper(schema, store).counters.done == 1
+
+
+def test_only_photos_with_an_embedding_are_queued(conn):
+    rng = np.random.default_rng(9)
+    (with_vector,) = setup_library(conn, [{"vector": unit(rng)}])
+    add_photos(conn, [("image/jpeg", None)])
+    assert enqueue_all(conn, TASK, ready=groups.embedded_sql("p.id")) == 1
+    assert conn.execute("SELECT photo_id FROM analysis_jobs").fetchall() == [(with_vector,)]

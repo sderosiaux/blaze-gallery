@@ -618,3 +618,40 @@ CREATE TABLE IF NOT EXISTS excluded_folders (
   ) STORED,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Near-duplicates (task 'groups', worker/src/blaze_worker/groups.py): photos
+-- of the gallery that hold the same picture (an exact copy, a resized or
+-- re-encoded copy, an edit) or the same moment (a burst, a shot taken again
+-- within seconds), stacked behind the best of them. Only photos in a stack of
+-- two or more have a row. Each stack forms around one centre, and every
+-- member is linked to that centre itself, so a slow series cannot chain.
+-- group_id: the centre's photo id, an opaque key (the centre may be deleted
+-- later; the others keep it). rank: 1 is the photo the stack proposes to keep,
+-- by score (measures and the weights in groups.py); a list of photos shows,
+-- of each stack, the member of lowest rank it keeps, so a filter that keeps
+-- only some members shows the best of those. link: how the member is linked
+-- to the centre ('centre' for the centre itself):
+--   copy   same size in bytes, same dimensions, cosine >= 0.999;
+--   burst  same camera (EXIF make and model), taken within 30 s;
+--   same   the same picture (identical once shrunk, or a crop or resized
+--          copy without camera data).
+-- copy_of: the lowest photo id among this photo's exact copies in the stack
+-- (link copy, or the centre they are copies of); NULL when it has none. The
+-- faces of exact copies are the same faces: the review queue decides them
+-- together.
+-- measures: what the score is made of (sharpness, pixels, bytes, clipped
+-- share, faces, closed eyes, faces cut by the edge, face sharpness, smile,
+-- sideways); score: the weighted sum within the stack, comparable within one
+-- stack only. model: the rules and weights that made the row.
+CREATE TABLE IF NOT EXISTS photo_groups (
+  photo_id bigint PRIMARY KEY REFERENCES photos (id) ON DELETE CASCADE,
+  group_id bigint NOT NULL,
+  rank integer NOT NULL CHECK (rank >= 1),
+  score real NOT NULL,
+  link text NOT NULL CHECK (link IN ('centre', 'copy', 'burst', 'same')),
+  copy_of bigint,
+  measures jsonb NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (group_id, rank)
+);
