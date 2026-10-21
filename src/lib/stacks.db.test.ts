@@ -154,6 +154,11 @@ before(async () => {
 
   // Alone
   await photo(231, TRIP, "z.jpg", "2017-01-01T08:00:00");
+
+  // A burst stacked before its folder left the gallery
+  await photo(241, BOOKS, "b1.jpg", "2016-01-01T08:00:00");
+  await photo(242, BOOKS, "b2.jpg", "2016-01-01T08:00:01");
+  await stack([241, 242]);
 });
 
 after(async () => {
@@ -290,6 +295,11 @@ void describe("stacks", () => {
     assert.equal(trip.find((p) => Number(p.id) === 212)?.stack?.count, 2);
     // Shares list the files as they are
     assert.equal((await database.getPhotosInFolder(TRIP.id)).length, 6);
+    // Out of the gallery a stack is no stack: every file shows
+    assert.deepEqual(
+      ids(await database.getPhotosInFolder(BOOKS.id, true)).sort(),
+      [221, 241, 242],
+    );
   });
 
   void test("the photos of a stack, best first, in the gallery", async () => {

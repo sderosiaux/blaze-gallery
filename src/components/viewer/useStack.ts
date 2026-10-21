@@ -66,10 +66,15 @@ export function useStack(front: Photo, enabled: boolean) {
       ? state.photos
       : null;
   const shownId = shown?.key === key ? shown.id : front.id;
-  const index = photos ? photos.findIndex((p) => p.id === shownId) : -1;
+  // Ids come as strings from some routes (int8), numbers from others
+  const index = photos
+    ? photos.findIndex((p) => String(p.id) === String(shownId))
+    : -1;
   // The front as the list has it (a favourite, a turn the list knows of)
   const photo =
-    shownId === front.id || !photos || index < 0 ? front : photos[index];
+    String(shownId) === String(front.id) || !photos || index < 0
+      ? front
+      : photos[index];
 
   const show = useCallback(
     (id: number) => {

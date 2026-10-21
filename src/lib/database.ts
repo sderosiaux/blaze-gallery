@@ -357,7 +357,11 @@ export const BETTER = "stack_better";
  * the list's cursor or offset: the front is the stack's, whatever the page.
  */
 export function stackFront(better: readonly string[], p = "p"): string {
-  const passes = better.length > 0 ? `AND ${better.join("\n      AND ")}` : "";
+  // Only a photo of the gallery stands in front: in the lists that show
+  // every file (a folder out of the gallery), its photos all show
+  const passes = [inGallery(BETTER), ...better]
+    .map((condition) => `AND ${condition}`)
+    .join("\n      ");
   return `NOT EXISTS (
     SELECT 1 FROM photo_groups stack_of
     JOIN photo_groups stack_ahead ON stack_ahead.group_id = stack_of.group_id
@@ -380,8 +384,8 @@ export function stacksBehind(
   better: readonly string[],
   p = "p",
 ): { cte: string; condition: string } {
-  const passes =
-    better.length > 0 ? `WHERE ${better.join("\n        AND ")}` : "";
+  // As in stackFront: only a photo of the gallery stands in front
+  const passes = `WHERE ${[inGallery(BETTER), ...better].join("\n        AND ")}`;
   return {
     cte: `${name} AS MATERIALIZED (
       SELECT photo_id FROM (
