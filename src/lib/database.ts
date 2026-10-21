@@ -2975,6 +2975,21 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
   return normalizePhoto(photo);
 }
 
+/**
+ * getPhoto, null for a photo in the Corbeille: what a share link may serve
+ * (the owner's own routes still show it, from the Corbeille page).
+ */
+export async function getPhotoOutOfCorbeille(
+  photoId: number,
+): Promise<Photo | null> {
+  const result = await query<DatabasePhoto>(
+    `SELECT * FROM photos p WHERE p.id = $1 AND ${notTrashed()}`,
+    [photoId],
+  );
+  const photo = result.rows[0];
+  return photo ? normalizePhoto(photo) : null;
+}
+
 export async function createSyncJob(
   jobData: CreateSyncJobData,
 ): Promise<SyncJob> {
