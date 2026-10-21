@@ -263,8 +263,10 @@ function Tile({
   kept?: boolean;
   children: React.ReactNode;
 }) {
+  // Sized before it loads: a lazy image of no width never comes into view
+  const width = Math.min(224, Math.round(TILE_HEIGHT * aspectRatio(photo)));
   return (
-    <figure className="flex flex-col gap-1">
+    <figure className="flex flex-col gap-1" style={{ width }}>
       <span
         className={cn(
           "relative block overflow-hidden rounded-md outline outline-2 outline-offset-2",
@@ -277,19 +279,15 @@ function Tile({
           alt=""
           loading="lazy"
           decoding="async"
-          // Sized before it loads: a lazy image of no width never comes into view
-          style={{
-            width: Math.min(224, Math.round(TILE_HEIGHT * aspectRatio(photo))),
-          }}
           className={cn(
-            "h-28 bg-surface-sunken object-cover",
+            "h-28 w-full bg-surface-sunken object-cover",
             !kept && "opacity-70",
           )}
         />
         {children}
       </span>
       <figcaption
-        className="max-w-[14rem] truncate text-xs text-ink-muted"
+        className="truncate text-xs text-ink-muted"
         title={`${photo.folder_path}/${photo.filename}`}
       >
         {photo.folder_path}
