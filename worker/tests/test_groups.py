@@ -32,6 +32,7 @@ from blaze_worker.groups import (
     classify,
     face_measures,
     gather,
+    in_dated_folder,
     picture_measures,
     place,
     rank,
@@ -247,6 +248,29 @@ def test_exact_copies_go_to_the_photo_held_longest():
     assert [pid for pid, _, _ in ranked] == [3, 5, 7]
 
 
+def test_exact_copies_go_first_to_the_one_in_a_dated_folder():
+    ranked = rank([(3, m(dated_folder=0)), (5, m(dated_folder=1)), (7, m(dated_folder=0))])
+    assert [pid for pid, _, _ in ranked] == [5, 3, 7]
+    # Only a tie: a sharper frame still goes first
+    assert rank([(3, m(sharp=10.5)), (5, m(dated_folder=1))])[0][0] == 3
+
+
+def test_the_jpeg_of_a_shot_goes_before_its_raw():
+    # As asked: the NEF led by 3.4 on its pixels and bytes
+    ranked = rank([(1, m(raw=1, pixels=24.5, bytes=25.0)), (2, m(pixels=22.5, bytes=20.4))])
+    assert ranked[0][0] == 2
+
+
+def test_a_dated_folder_is_the_one_right_under_the_top_folder():
+    assert in_dated_folder("pc-fixe/2013-04-13 - Voyage @ Japon A TRIER/2013-Japon/a.JPG")
+    assert in_dated_folder("pc-fixe/2022-05 - NYC/a.jpg")
+    assert not in_dated_folder("pc-fixe/A TRIER/TODO 2 2013/2013-03-28 japonD1/a.JPG")
+    assert not in_dated_folder("pc-fixe/Selection US 2022 - 2024/NYC mai 22/a.jpg")
+    assert not in_dated_folder("aaaa/Mariage/apero et ami/a.JPG")
+    # A file named from a date, not a folder
+    assert not in_dated_folder("pc-fixe/2020-01-05 plage.jpg")
+
+
 def test_a_member_without_faces_is_neither_helped_nor_hurt_by_face_sharpness():
     # The median fills in: only faces found and the picture's own measures differ
     ranked = rank([(1, m(faces=0, face_sharp=None, smile=None)), (2, m(faces=0))])
@@ -362,8 +386,15 @@ def setup_library(conn, specs: list[dict]) -> list[int]:
             metadata["date_taken"] = spec["taken"]
         conn.execute(
             "UPDATE photos SET metadata = %s, size = %s, thumbnail_status = 'generated', "
-            "thumbnail_path = %s WHERE id = %s",
-            (Jsonb(metadata), spec.get("size", 1000 + pid), f"thumbnails/{pid}.jpg", pid),
+            "thumbnail_path = %s, s3_key = coalesce(%s, s3_key), mime_type = %s WHERE id = %s",
+            (
+                Jsonb(metadata),
+                spec.get("size", 1000 + pid),
+                f"thumbnails/{pid}.jpg",
+                spec.get("key"),
+                spec.get("mime", "image/jpeg"),
+                pid,
+            ),
         )
         conn.execute(
             "INSERT INTO photo_embeddings (photo_id, embedding, model) VALUES (%s, %s, %s)",
@@ -434,7 +465,38 @@ def test_a_rebuild_stacks_the_library_and_closes_every_job(conn, schema):
     measures = conn.execute(
         "SELECT measures FROM photo_groups WHERE photo_id = %s", (a,)
     ).fetchone()[0]
-    assert set(measures) == set(groups.WEIGHTS)
+    assert set(measures) == {*groups.WEIGHTS, "dated_folder"}
+
+
+def test_a_rebuild_keeps_the_copy_of_the_dated_folder_and_the_jpeg_of_a_raw(conn, schema):
+    store = Store()
+    rng = np.random.default_rng(11)
+    copy, shot = unit(rng), unit(rng)
+    ids = setup_library(
+        conn,
+        [
+            # Held longest, but sorted away
+            {"vector": copy, "size": 7777, "key": "pc-fixe/A TRIER/TODO/a.jpg"},
+            {"vector": copy, "size": 7777, "key": "pc-fixe/2013-04-13 - Japon/a.jpg"},
+            {
+                "vector": shot,
+                "taken": "2020-03-01T10:00:00.000Z",
+                "size": 32_000_000,
+                "mime": "image/x-nikon-nef",
+                "width": 6000,
+                "height": 4000,
+            },
+            {
+                "vector": near(shot, 0.95, rng),
+                "taken": "2020-03-01T10:00:00.000Z",
+                "size": 3_700_000,
+            },
+        ],
+    )
+    thumbnails(store, ids)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    first = {group: rows[0][0] for group, rows in stacks_in(conn).items()}
+    assert sorted(first.values()) == [ids[1], ids[3]]
 
 
 def test_a_dry_run_writes_nothing(conn, schema):

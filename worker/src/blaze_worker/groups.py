@@ -42,6 +42,12 @@ nor of 40 drawn in proportion to their size, held a photo of another moment.
 
 A stack is ranked by a score (rank 1: the photo to keep), a weighted sum of
 measures (WEIGHTS) read from the 400 px thumbnail and the faces task's rows.
+The owner picked the photo to keep in 30 stacks (2026-10-21), chosen where
+the score hesitated most. Among frames of a burst it put his picture first
+10 times in 22 (chance: 6); weights fitted to his picks did 14 on them but 7
+or 8 on picks left out of the fit, so they stay as they were. He kept one
+photo every time, never all copies: the copy in a dated folder (3 of 3) and
+the JPEG of a RAW (2 of 2), which the rank now follows.
 
 Two ways to run. rebuild(): every embedding at once in numpy, all pairs by
 blocks of rows, the table replaced in one transaction and every photo's job
@@ -58,6 +64,7 @@ import io
 import json
 import logging
 import math
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -104,6 +111,10 @@ SAME_SHAPE = 0.02
 MIN_SIDE = 100
 # Screens and documents (db/tags.json): exact copies only
 SCREEN_TAG = "ecran_document"
+# A camera's raw files, as the sync types them
+RAW_TYPES = ("image/x-nikon-nef", "image/x-adobe-dng")
+# A folder named from the date it holds: « 2022-05 - NYC », « 2011-06-11 - Mariage »
+DATED_FOLDER = re.compile(r"\d{4}-\d{2}")
 
 # Sharpness is measured at one size, the thumbnail's long side
 SHARP_EDGE = 400
@@ -130,6 +141,8 @@ EDGE_MARGIN = 0.005
 #   face_sharp  mean log2 sharpness of the faces (aligned 112 px crops of the original)
 #   smile       mean happiness of the faces, 0..1
 #   sideways    1 when the faces were found only on the picture turned: it shows on its side
+#   raw         1 for a camera's raw file: of a RAW and its JPEG the owner kept the JPEG
+#               both times asked (2/2), where the raw led by 3.4 and 1.3 on its size
 # face_sharp and smile, unknown on a member without faces, take the stack's
 # median there, so only members with faces compare on them.
 WEIGHTS: dict[str, float] = {
@@ -143,8 +156,17 @@ WEIGHTS: dict[str, float] = {
     "face_sharp": 0.5,
     "smile": 1.0,
     "sideways": -3.0,
+    "raw": -5.0,
 }
 MEDIAN_FILLED = ("face_sharp", "smile")
+# A member trailing its front by this much (score) is one the owner would
+# not have kept: the clear gap for throwing a near-duplicate away without
+# asking. Of his 22 picks among frames, the 12 the score did not put first
+# trailed its front by 0.36 at most, and the 3 stacks he found alike spread
+# over 0.09 at most; 0.5 keeps a margin over the worst. On the library
+# (2026-10-21) 11,961 of the 53,446 members that are not a copy of their
+# front trail it by 0.5 or more.
+NET_GAP = 0.5
 
 # Grouper: neighbours read per new photo (the largest burst holds 87)
 NEIGHBOURS = 100
@@ -171,6 +193,8 @@ def rules_model() -> str:
         SCREEN_TAG,
         SHARP_EDGE,
         WEIGHTS,
+        RAW_TYPES,
+        DATED_FOLDER.pattern,
     ]
     digest = hashlib.sha256(json.dumps([MODEL, rules], sort_keys=True).encode()).hexdigest()
     return f"groups v{VERSION} {digest[:8]}"
@@ -194,6 +218,10 @@ class Photo:
     thumbnail: str | None
     # The owner's turn (metadata.user_rotation), which the thumbnail shows
     rotation: int = 0
+    # A camera's raw file (RAW_TYPES): the owner keeps the JPEG of the shot
+    raw: bool = False
+    # In a dated folder right under its top folder (in_dated_folder)
+    dated_folder: bool = False
 
     @property
     def shape(self) -> float:
@@ -208,6 +236,14 @@ class Photo:
     def plain(self) -> bool:
         """The model can tell it apart: large enough, not a screen."""
         return min(self.width, self.height) >= MIN_SIDE and not self.screen
+
+
+def in_dated_folder(key: str) -> bool:
+    """The photo lies in a folder named from a date right under its top folder
+    (« pc-fixe/2013-04-13 - Voyage @ Japon/… »), the library's own trips and events,
+    not a copy sorted away (« A TRIER/… », « Selection US 2022 - 2024/… »)."""
+    parts = key.split("/")
+    return len(parts) >= 3 and DATED_FOLDER.match(parts[1]) is not None
 
 
 def taken_at(value: str | None, camera: str | None) -> float | None:
@@ -231,7 +267,8 @@ def _photos_sql(where: str) -> str:
            EXISTS (SELECT 1 FROM photo_tags t WHERE t.photo_id = p.id AND t.tag = %(screen_tag)s
                    AND t.score >= %(screen_score)s AND t.vocab_version = %(vocabulary)s),
            p.thumbnail_path,
-           coalesce((p.metadata ->> 'user_rotation')::int, 0)
+           coalesce((p.metadata ->> 'user_rotation')::int, 0),
+           p.mime_type, p.s3_key
     FROM photos p
     WHERE p.mime_type LIKE 'image/%%' AND NOT {out_of_gallery()}
       AND {embedded_sql("p.id")}
@@ -252,10 +289,22 @@ def load_photos(
         **params,
     }
     return [
-        Photo(pid, size, width, height, camera, taken_at(taken, camera), screen, thumb, rotation)
-        for pid, size, width, height, camera, taken, screen, thumb, rotation in conn.execute(
-            _photos_sql(where), values
-        ).fetchall()
+        Photo(
+            pid,
+            size,
+            width,
+            height,
+            camera,
+            taken_at(taken, camera),
+            screen,
+            thumb,
+            rotation,
+            raw=mime in RAW_TYPES,
+            dated_folder=in_dated_folder(key),
+        )
+        for pid, size, width, height, camera, taken, screen, thumb, rotation, mime, key in (
+            conn.execute(_photos_sql(where), values).fetchall()
+        )
     ]
 
 
@@ -465,13 +514,16 @@ def measures(
         "clipped": picture["clipped"] if picture else 0.0,
         "pixels": round(math.log2(max(photo.width * photo.height, 1)), 4),
         "bytes": round(math.log2(max(photo.size, 1)), 4),
+        "raw": int(photo.raw),
+        "dated_folder": int(photo.dated_folder),
         **face_measures(faces, photo.rotation),
     }
 
 
 def rank(members: Sequence[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, int, float]]:
     """(photo id, rank, score) of a stack's members, best first. Ties (exact copies score the
-    same) go to the larger file, then to the photo the library has held longest (lowest id)."""
+    same) go to the larger file, then to the copy in a dated folder (the owner's pick among
+    copies, 3/3 asked), then to the photo the library has held longest (lowest id)."""
     filled = {}
     for name in MEDIAN_FILLED:
         known = sorted(m[name] for _, m in members if m.get(name) is not None)
@@ -487,10 +539,10 @@ def rank(members: Sequence[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, in
         )
 
     scored = sorted(
-        ((pid, score(m), m.get("bytes", 0.0)) for pid, m in members),
-        key=lambda s: (-s[1], -s[2], s[0]),
+        ((pid, score(m), m.get("bytes", 0.0), m.get("dated_folder", 0)) for pid, m in members),
+        key=lambda s: (-s[1], -s[2], -s[3], s[0]),
     )
-    return [(pid, place, value) for place, (pid, value, _) in enumerate(scored, start=1)]
+    return [(pid, place, value) for place, (pid, value, _, _) in enumerate(scored, start=1)]
 
 
 class Measurer:
