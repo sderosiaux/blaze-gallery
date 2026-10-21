@@ -748,4 +748,77 @@ void describe("the Corbeille", () => {
       1,
     );
   });
+
+  void test("the proof: the photo kept in its place, and whether the bucket says it is the same file", async () => {
+    const md5 = "0123456789abcdef0123456789abcdef";
+    await sql.query("UPDATE photos SET etag = $1 WHERE id IN (311, 312)", [
+      md5,
+    ]);
+    const lot = trash.newLot("auto", "copies.other");
+    await database.runTransaction((client) =>
+      trash.markTrashed(client, [{ id: 312, keep: 311 }], lot),
+    );
+    const proof = await trash.trashProof(312);
+    assert.ok(proof);
+    assert.equal(proof.photo.id, 312);
+    assert.equal(proof.photo.trash_batch, lot.batch);
+    assert.equal(proof.kept?.id, 311);
+    assert.equal(proof.kept_state, "present");
+    assert.equal(proof.same_bytes, true);
+    assert.equal(proof.photo.size, 7777);
+    assert.equal(proof.kept.folder_path, FOLDER.path);
+    // The Corbeille's tile knows its kept photo without asking
+    const listed = await trash.listTrash(null, 10);
+    assert.deepEqual(listed.photos[0]?.kept, {
+      id: 311,
+      trashed: false,
+      rotation: 0,
+    });
+    // Another MD5 says two files; a multipart ETag says nothing
+    await sql.query("UPDATE photos SET etag = $1 WHERE id = 311", [
+      "fedcba9876543210fedcba9876543210",
+    ]);
+    assert.equal((await trash.trashProof(312))?.same_bytes, false);
+    await sql.query("UPDATE photos SET etag = $1 WHERE id = 311", [
+      "0123456789abcdef0123456789abcdef-3",
+    ]);
+    assert.equal((await trash.trashProof(312))?.same_bytes, null);
+    // The kept photo thrown away since, then gone; a photo thrown alone
+    await trash.trashPhotos([311]);
+    assert.equal((await trash.trashProof(312))?.kept_state, "trashed");
+    await sql.query("DELETE FROM photos WHERE id = 311");
+    const gone = await trash.trashProof(312);
+    assert.deepEqual([gone?.kept, gone?.kept_state], [null, "gone"]);
+    await trash.trashPhotos([321]);
+    assert.equal((await trash.trashProof(321))?.kept_state, "none");
+    // Not in the Corbeille: no proof
+    assert.equal(await trash.trashProof(301), null);
+  });
+
+  void test("« Annuler » after « Restaurer celle-ci » puts its marks back, its date too", async () => {
+    const lot = trash.newLot("auto", "copies.other");
+    await database.runTransaction((client) =>
+      trash.markTrashed(client, [{ id: 312, keep: 311 }], lot),
+    );
+    await sql.query(
+      "UPDATE photos SET trashed_at = now() - interval '5 days' WHERE id = 312",
+    );
+    const proof = await trash.trashProof(312);
+    assert.ok(proof);
+    assert.equal(await trash.restorePhotos([312]), 1);
+    const marks = {
+      id: 312,
+      trashed_at: proof.photo.trashed_at,
+      trashed_by: proof.photo.trashed_by,
+      trash_batch: proof.photo.trash_batch,
+      trashed_for: proof.kept?.id ?? null,
+    };
+    assert.equal(await trash.putBack(marks), true);
+    const back = await trash.trashProof(312);
+    assert.equal(back?.photo.trashed_at, proof.photo.trashed_at);
+    assert.equal(back.photo.trash_batch, lot.batch);
+    assert.equal(back.kept?.id, 311);
+    // Already in the Corbeille again: left as it is
+    assert.equal(await trash.putBack(marks), false);
+  });
 });

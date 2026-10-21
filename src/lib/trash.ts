@@ -22,6 +22,7 @@ import { clientRunner, goingFor } from "./keep";
 import { logger } from "./logger";
 import { carryNames } from "./people";
 import { thumbnailUrl } from "./photoUrls";
+import { userRotation } from "./rotation";
 
 /** Who threw photos away, and the lot they went with. */
 export interface TrashLot {
@@ -178,6 +179,8 @@ class StackEmptied extends Error {
 export type TrashedPhoto = Photo & {
   folder_path: string;
   trashed_at: string;
+  /** The photo kept in its place (trashed_for), for the grid's badge; null when none is or it is gone */
+  kept: { id: number; trashed: boolean; rotation: number } | null;
 };
 
 /**
@@ -206,9 +209,21 @@ export async function listTrash(
       "AND (p.trashed_at, p.id) < ($2::timestamptz, $3::bigint)")
     : "";
   const [page, count] = await Promise.all([
-    query<Photo & { folder_path: string; trashed_at: Date }>(
-      `SELECT p.*, f.path AS folder_path FROM photos p
+    query<
+      Photo & {
+        folder_path: string;
+        trashed_at: Date;
+        kept_id: string | null;
+        kept_trashed: boolean | null;
+        kept_rotation: number | null;
+      }
+    >(
+      `SELECT p.*, f.path AS folder_path, k.id AS kept_id,
+              k.trashed_at IS NOT NULL AS kept_trashed,
+              coalesce((k.metadata ->> 'user_rotation')::int, 0) AS kept_rotation
+       FROM photos p
        JOIN folders f ON f.id = p.folder_id
+       LEFT JOIN photos k ON k.id = p.trashed_for
        WHERE p.trashed_at IS NOT NULL ${seek}
        ORDER BY p.trashed_at DESC, p.id DESC
        LIMIT $1`,
@@ -233,13 +248,23 @@ export async function listTrash(
       [TRASH_DAYS],
     ),
   ]);
-  const photos = page.rows.slice(0, limit).map((row) => ({
-    ...row,
-    id: Number(row.id),
-    is_favorite: Boolean(row.is_favorite),
-    thumbnail_url: thumbnailUrl(row.id),
-    trashed_at: new Date(row.trashed_at).toISOString(),
-  }));
+  const photos = page.rows
+    .slice(0, limit)
+    .map(({ kept_id, kept_trashed, kept_rotation, ...row }) => ({
+      ...row,
+      id: Number(row.id),
+      is_favorite: Boolean(row.is_favorite),
+      thumbnail_url: thumbnailUrl(row.id),
+      trashed_at: new Date(row.trashed_at).toISOString(),
+      kept:
+        kept_id === null
+          ? null
+          : {
+              id: Number(kept_id),
+              trashed: Boolean(kept_trashed),
+              rotation: kept_rotation ?? 0,
+            },
+    }));
   const last = photos[photos.length - 1];
   const { total, as_of, bytes, due, due_bytes, due_cutoff } = requireRow(count);
   return {
@@ -255,6 +280,140 @@ export async function listTrash(
         ? { trashedAt: last.trashed_at, id: last.id }
         : null,
   };
+}
+
+/** One side of the proof: what tells two files apart. */
+export interface ProofPhoto {
+  id: number;
+  filename: string;
+  folder_path: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  taken: string | null;
+  /** The bucket's ETag (photos.etag): an MD5 unless a multipart upload's */
+  etag: string | null;
+  trashed: boolean;
+  metadata: Photo["metadata"];
+  thumbnail_url: string;
+}
+
+/**
+ * Why a photo in the Corbeille went: the photo kept in its place
+ * (trashed_for) beside it. `kept`: "present", "trashed" (thrown away since,
+ * too), "gone" (erased), "none" (thrown away alone). `same_bytes`: both
+ * ETags are MD5s and equal (true) or differ (false); null when either is
+ * unknown or a multipart upload's, which proves nothing.
+ */
+export interface TrashProof {
+  photo: ProofPhoto & {
+    trashed_at: string;
+    trashed_by: TrashLot["by"] | null;
+    trash_batch: string | null;
+  };
+  kept: ProofPhoto | null;
+  kept_state: "present" | "trashed" | "gone" | "none";
+  same_bytes: boolean | null;
+}
+
+const MD5 = /^[0-9a-f]{32}$/;
+
+/** The proof for photo `id`; null when it is not in the Corbeille. */
+export async function trashProof(id: number): Promise<TrashProof | null> {
+  const rows = await query<{
+    id: string;
+    filename: string;
+    folder_path: string;
+    size: string;
+    metadata: Photo["metadata"];
+    etag: string | null;
+    trashed_at: Date | null;
+    trashed_by: TrashLot["by"] | null;
+    trash_batch: string | null;
+    trashed_for: string | null;
+    side: "photo" | "kept";
+  }>(
+    `SELECT p.id, p.filename, f.path AS folder_path, p.size, p.metadata, p.etag,
+            p.trashed_at, p.trashed_by, p.trash_batch, p.trashed_for,
+            CASE WHEN p.id = $1 THEN 'photo' ELSE 'kept' END AS side
+     FROM photos p JOIN folders f ON f.id = p.folder_id
+     WHERE p.id = $1
+        OR p.id = (SELECT trashed_for FROM photos WHERE id = $1 AND trashed_at IS NOT NULL)`,
+    [id],
+  );
+  const side = (row: (typeof rows.rows)[number]): ProofPhoto => {
+    const dimensions = row.metadata?.dimensions;
+    return {
+      id: Number(row.id),
+      filename: row.filename,
+      folder_path: row.folder_path,
+      size: Number(row.size),
+      width: dimensions?.width ?? null,
+      height: dimensions?.height ?? null,
+      taken: row.metadata?.date_taken ?? null,
+      etag: row.etag,
+      trashed: row.trashed_at !== null,
+      metadata: row.metadata,
+      thumbnail_url: thumbnailUrl(row.id),
+    };
+  };
+  const photo = rows.rows.find((row) => row.side === "photo");
+  if (!photo?.trashed_at) return null;
+  const keptRow = rows.rows.find((row) => row.side === "kept");
+  const kept = keptRow ? side(keptRow) : null;
+  const sums = [photo.etag, keptRow?.etag];
+  return {
+    photo: {
+      ...side(photo),
+      trashed_at: new Date(photo.trashed_at).toISOString(),
+      trashed_by: photo.trashed_by,
+      trash_batch: photo.trash_batch,
+    },
+    kept,
+    kept_state:
+      photo.trashed_for === null
+        ? "none"
+        : !kept
+          ? "gone"
+          : kept.trashed
+            ? "trashed"
+            : "present",
+    same_bytes:
+      kept && sums.every((sum) => typeof sum === "string" && MD5.test(sum))
+        ? photo.etag === keptRow?.etag
+        : null,
+  };
+}
+
+/** A photo's marks in the Corbeille, as trashProof gave them: what « Annuler » puts back. */
+export interface TrashMarks {
+  id: number;
+  trashed_at: string;
+  trashed_by: TrashLot["by"] | null;
+  trash_batch: string | null;
+  trashed_for: number | null;
+}
+
+/**
+ * « Annuler » after « Restaurer celle-ci »: the photo goes back into the
+ * Corbeille as it was, its lot, its photo kept and its date (so its 30
+ * days do not start again). A photo thrown away again meanwhile stays as
+ * it is. Whether it went back.
+ */
+export async function putBack(marks: TrashMarks): Promise<boolean> {
+  const result = await query(
+    `UPDATE photos SET trashed_at = $2::timestamptz, trashed_by = $3,
+       trash_batch = $4, trashed_for = $5
+     WHERE id = $1 AND trashed_at IS NULL`,
+    [
+      marks.id,
+      marks.trashed_at,
+      marks.trashed_by,
+      marks.trash_batch,
+      marks.trashed_for,
+    ],
+  );
+  return result.rowCount === 1;
 }
 
 /** A lot of the Corbeille: one request of the owner's, or one pass of npm run dedupe. */
@@ -347,10 +506,20 @@ export async function listLotStacks(
       kept: keptById.get(key) ?? null,
       trashed: trashed.rows
         .filter((row) => row.key === key)
-        .map(({ key: _, ...row }) => ({
-          ...shown(row),
-          trashed_at: new Date(row.trashed_at).toISOString(),
-        })),
+        .map(({ key: _, ...row }) => {
+          const k = keptById.get(key);
+          return {
+            ...shown(row),
+            trashed_at: new Date(row.trashed_at).toISOString(),
+            kept: k
+              ? {
+                  id: k.id,
+                  trashed: Boolean(k.trashed),
+                  rotation: userRotation(k.metadata),
+                }
+              : null,
+          };
+        }),
     }),
   );
   const last = page[page.length - 1];
