@@ -224,6 +224,7 @@ function TimelineContent() {
     [summaryMonths, activeYear],
   );
 
+  const { patch: patchSlot } = slots;
   const patch = useCallback(
     (id: Photo["id"], changes: PhotoPatch) => {
       setFeed((f) => ({
@@ -232,8 +233,9 @@ function TimelineContent() {
           sameId(p, { id }) ? applyPhotoPatch(p, changes) : p,
         ),
       }));
+      patchSlot(id, changes);
     },
-    [setFeed],
+    [setFeed, patchSlot],
   );
 
   const toggleFavorite = useCallback(

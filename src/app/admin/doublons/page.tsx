@@ -15,7 +15,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { asArray, readJsonObject } from "@/hooks/apiJson";
-import { formatCount } from "@/lib/albums";
+import { aspectRatio, formatCount } from "@/lib/albums";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
@@ -23,6 +23,9 @@ import { keepInStacks, restoreFromTrash, TrashError } from "@/lib/trashClient";
 import type { Photo } from "@/types";
 
 type Kind = "all" | "bursts" | "copies";
+
+/** px, the h-32 of a stack's thumbnails */
+const TILE_HEIGHT = 128;
 
 type StackPhoto = Photo & { folder_path: string; rank: number };
 
@@ -121,19 +124,8 @@ function Duplicates() {
     setSending(true);
     try {
       const trashed = await keepInStacks(keepers, going);
-      const settled = new Set(chosen.map((s) => s.id));
-      setPage((p) =>
-        p
-          ? {
-              ...p,
-              stacks: p.stacks.filter((s) => !settled.has(s.id)),
-              total: {
-                stacks: p.total.stacks - settled.size,
-                extra: p.total.extra - trashed.length,
-              },
-            }
-          : p,
-      );
+      // The next stacks come up in place of the settled ones
+      void load(kind);
       setConfirming(false);
       toast.show(
         `${formatCount(trashed.length, "photo")} dans la corbeille`,
@@ -366,8 +358,15 @@ function StackRow({
                   alt=""
                   loading="lazy"
                   decoding="async"
+                  // Sized before it loads: a lazy image of no width never comes into view
+                  style={{
+                    width: Math.min(
+                      256,
+                      Math.round(TILE_HEIGHT * aspectRatio(photo)),
+                    ),
+                  }}
                   className={cn(
-                    "h-32 w-auto max-w-[16rem] object-cover",
+                    "h-32 bg-surface-sunken object-cover",
                     !on && "opacity-80",
                   )}
                 />

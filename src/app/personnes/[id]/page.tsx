@@ -255,6 +255,7 @@ function PersonContent() {
     ? (list.find((p) => String(p.id) === selectedPhotoId) ?? null)
     : null;
 
+  const { patch: patchSlot } = slots;
   const patch = useCallback(
     (id: Photo["id"], changes: PhotoPatch) => {
       setFeed((f) => ({
@@ -263,8 +264,9 @@ function PersonContent() {
           String(p.id) === String(id) ? applyPhotoPatch(p, changes) : p,
         ),
       }));
+      patchSlot(id, changes);
     },
-    [setFeed],
+    [setFeed, patchSlot],
   );
 
   const toggleFavorite = useCallback(
