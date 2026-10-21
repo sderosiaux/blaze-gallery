@@ -277,6 +277,17 @@ def test_a_member_without_faces_is_neither_helped_nor_hurt_by_face_sharpness():
     assert ranked[0][2] == ranked[1][2]
 
 
+def test_an_unread_thumbnail_is_unknown_not_blurred():
+    unread = groups.measures(photo(1), None, [])
+    assert unread["sharp"] is None and unread["clipped"] is None
+    # The stack's median stands in: neither first nor last
+    ranked = rank(
+        [(1, m(sharp=None, clipped=None)), (2, m(sharp=12.0)), (3, m(sharp=8.0)), (4, m())]
+    )
+    # Read as the median, 10: with 4, behind 2, before 3
+    assert [pid for pid, _, _ in ranked] == [2, 1, 4, 3]
+
+
 def test_the_rules_and_weights_name_the_model(monkeypatch):
     before = rules_model()
     monkeypatch.setitem(groups.WEIGHTS, "blinks", -2.0)
@@ -497,6 +508,32 @@ def test_a_rebuild_keeps_the_copy_of_the_dated_folder_and_the_jpeg_of_a_raw(conn
     rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     first = {group: rows[0][0] for group, rows in stacks_in(conn).items()}
     assert sorted(first.values()) == [ids[1], ids[3]]
+
+
+def test_a_thumbnail_unread_at_one_rebuild_is_measured_at_the_next(conn, schema):
+    store = Store()
+    library = a_library(conn, store)
+    missing = library["burst"][1]
+    del store.objects[f"thumbnails/{missing}.jpg"]
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+
+    def sharp() -> float | None:
+        return conn.execute(
+            "SELECT measures->'sharp' FROM photo_groups WHERE photo_id = %s", (missing,)
+        ).fetchone()[0]
+
+    assert sharp() is None
+    thumbnails(store, [missing])
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert sharp() > 0
+    # One stored before as 0.0 and 0.0 (an unread one then) is read again too
+    conn.execute(
+        'UPDATE photo_groups SET measures = measures || \'{"sharp": 0.0, "clipped": 0.0}\''
+        " WHERE photo_id = %s",
+        (missing,),
+    )
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert sharp() > 0
 
 
 def test_a_dry_run_writes_nothing(conn, schema):

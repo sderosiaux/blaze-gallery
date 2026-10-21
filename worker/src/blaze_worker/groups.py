@@ -144,7 +144,9 @@ EDGE_MARGIN = 0.005
 #   raw         1 for a camera's raw file: of a RAW and its JPEG the owner kept the JPEG
 #               both times asked (2/2), where the raw led by 3.4 and 1.3 on its size
 # face_sharp and smile, unknown on a member without faces, take the stack's
-# median there, so only members with faces compare on them.
+# median there, so only members with faces compare on them; so do sharp and
+# clipped when its thumbnail could not be read (unknown, not blurred: it is
+# read again on the next run).
 WEIGHTS: dict[str, float] = {
     "sharp": 1.0,
     "pixels": 0.5,
@@ -158,7 +160,7 @@ WEIGHTS: dict[str, float] = {
     "sideways": -3.0,
     "raw": -5.0,
 }
-MEDIAN_FILLED = ("face_sharp", "smile")
+MEDIAN_FILLED = ("sharp", "clipped", "face_sharp", "smile")
 # A member trailing its front by this much (score) is one the owner would
 # not have kept: the clear gap for throwing a near-duplicate away without
 # asking. Of his 22 picks among frames, the 12 the score did not put first
@@ -193,6 +195,7 @@ def rules_model() -> str:
         SCREEN_TAG,
         SHARP_EDGE,
         WEIGHTS,
+        MEDIAN_FILLED,
         RAW_TYPES,
         DATED_FOLDER.pattern,
     ]
@@ -508,10 +511,11 @@ def load_faces(conn: psycopg.Connection, photo_ids: Sequence[int]) -> dict[int, 
 def measures(
     photo: Photo, picture: Mapping[str, float] | None, faces: list[Face]
 ) -> dict[str, Any]:
-    """What the score reads; picture None when the thumbnail could not be read."""
+    """What the score reads; picture None when the thumbnail could not be read: its two
+    measures are then unknown (None), filled by the stack's median (MEDIAN_FILLED)."""
     return {
-        "sharp": picture["sharp"] if picture else 0.0,
-        "clipped": picture["clipped"] if picture else 0.0,
+        "sharp": picture["sharp"] if picture else None,
+        "clipped": picture["clipped"] if picture else None,
         "pixels": round(math.log2(max(photo.width * photo.height, 1)), 4),
         "bytes": round(math.log2(max(photo.size, 1)), 4),
         "raw": int(photo.raw),
@@ -593,7 +597,10 @@ def pixel_shares(
 @dataclass(frozen=True)
 class Stored:
     """What the database holds for measuring photos: the picture's part of the measures
-    they already have (a photo's pixels do not change under its id), and their faces."""
+    they already have (a photo's pixels do not change under its id), and their faces. A
+    picture never read (None) is not held: it is read again. Before 2026-10-21 an
+    unread one was stored as sharp 0.0 and clipped 0.0, which no thumbnail measures (a
+    flat grey would; reading it again costs one fetch): those are read again too."""
 
     pictures: dict[int, dict[str, float]]
     faces: dict[int, list[Face]]
@@ -606,7 +613,10 @@ def stored_for(conn: psycopg.Connection, photo_ids: Sequence[int]) -> Stored:
             "SELECT photo_id, measures FROM photo_groups WHERE photo_id = ANY(%s)",
             (list(photo_ids[start : start + 20_000]),),
         ).fetchall():
-            pictures[pid] = {"sharp": m["sharp"], "clipped": m["clipped"]}
+            sharp, clipped = m.get("sharp"), m.get("clipped")
+            if sharp is None or clipped is None or (sharp == 0.0 and clipped == 0.0):
+                continue
+            pictures[pid] = {"sharp": sharp, "clipped": clipped}
     return Stored(pictures, load_faces(conn, photo_ids))
 
 
