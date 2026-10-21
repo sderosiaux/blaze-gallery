@@ -29,22 +29,6 @@ const BURST_SECONDS = 30;
 const BURST_COSINE = 0.975;
 const MIN_SIDE = 100;
 
-let etagColumn: Promise<boolean> | null = null;
-
-/** Whether photos has its etag column yet (an additive migration adds it). */
-function hasEtag(run: Runner): Promise<boolean> {
-  etagColumn ??= run(
-    `SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'photos' AND column_name = 'etag'`,
-  )
-    .then((result) => result.rows.length > 0)
-    .catch((error: unknown) => {
-      etagColumn = null;
-      throw error;
-    });
-  return etagColumn;
-}
-
 type Runner = (
   text: string,
   params?: unknown[],
@@ -68,12 +52,11 @@ const md5 = (p: string) => `nullif(trim(both '"' from ${p}.etag), '')`;
  * SQL: photo `m` (embedding `em`) is linked to photo `k` (embedding `ek`)
  * by the pair rule's copy or burst part.
  */
-function linked(m: string, k: string, em: string, ek: string, etag: boolean) {
+function linked(m: string, k: string, em: string, ek: string) {
   const cosine = `(1 - (${em}.embedding <=> ${ek}.embedding))`;
-  const sameBytes = etag
-    ? `AND (${md5(m)} !~ '^[0-9a-f]{32}$' OR ${md5(k)} !~ '^[0-9a-f]{32}$'
-            OR ${md5(m)} IS NULL OR ${md5(k)} IS NULL OR ${md5(m)} = ${md5(k)})`
-    : "";
+  // Two MD5s that differ say two files; a multipart or unread ETag says nothing
+  const sameBytes = `AND (${md5(m)} !~ '^[0-9a-f]{32}$' OR ${md5(k)} !~ '^[0-9a-f]{32}$'
+            OR ${md5(m)} IS NULL OR ${md5(k)} IS NULL OR ${md5(m)} = ${md5(k)})`;
   const gap = `abs(${taken(m)} - ${taken(k)})`;
   return `(
     (${m}.size = ${k}.size AND ${width(m)} = ${width(k)} AND ${height(m)} = ${height(k)}
@@ -100,7 +83,6 @@ export async function goingFor(
   keep: readonly number[],
 ): Promise<Going[]> {
   if (keep.length === 0) return [];
-  const etag = await hasEtag(run);
   const result = await run(
     `SELECT DISTINCT ON (m.photo_id) m.photo_id::int AS id, kept.photo_id::int AS keep
      FROM photo_groups kept
@@ -112,7 +94,7 @@ export async function goingFor(
      WHERE kept.photo_id = ANY($1::bigint[])
        AND NOT (m.photo_id = ANY($1::bigint[]))
        AND ${inGallery("p")}
-       AND ${linked("p", "k", "ep", "ek", etag)}
+       AND ${linked("p", "k", "ep", "ek")}
      ORDER BY m.photo_id, kept.photo_id`,
     [keep],
   );
