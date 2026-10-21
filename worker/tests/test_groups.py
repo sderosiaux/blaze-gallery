@@ -678,6 +678,37 @@ def test_photos_in_the_corbeille_keep_their_stack_for_when_they_come_back(conn, 
     assert (summary.photos, summary.stacks) == (6, 2)
 
 
+def test_a_rebuild_leaves_a_lot_of_the_corbeille_whole_and_restorable(conn, schema):
+    """The app's marks (src/lib/trash.ts) survive a rebuild, and the lot comes back
+    into its stack: the restore is trash.ts restoreLot's statement."""
+    store = Store()
+    library = a_library(conn, store)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    kept, thrown = library["copy"]
+    conn.execute(
+        """UPDATE photos SET trashed_at = now(), trashed_by = 'auto',
+             trash_batch = 'auto-copies.other-test', trashed_for = %s WHERE id = %s""",
+        (kept, thrown),
+    )
+    marks = "SELECT trashed_at, trashed_by, trash_batch, trashed_for FROM photos WHERE id = %s"
+    before = conn.execute(marks, (thrown,)).fetchone()
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert conn.execute(marks, (thrown,)).fetchone() == before
+    by_photo = {pid: g for g, rows in stacks_in(conn).items() for pid, _, _ in rows}
+    assert by_photo[thrown] == by_photo[kept]
+    restored = conn.execute(
+        """UPDATE photos SET trashed_at = NULL, trashed_by = NULL, trash_batch = NULL,
+             trashed_for = NULL
+           WHERE trashed_at IS NOT NULL AND trash_batch = %s""",
+        ("auto-copies.other-test",),
+    ).rowcount
+    assert restored == 1
+    assert conn.execute(marks, (thrown,)).fetchone() == (None, None, None, None)
+    assert {pid: g for g, rows in stacks_in(conn).items() for pid, _, _ in rows}[
+        thrown
+    ] == by_photo[kept]
+
+
 def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
     grouper = Grouper(
         lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), "test", batch, 600
