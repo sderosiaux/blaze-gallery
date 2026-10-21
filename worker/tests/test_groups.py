@@ -670,12 +670,12 @@ def test_a_rebuild_does_not_undo_stacks_of_newer_rules(conn, schema):
     }
 
 
-def test_photos_in_the_corbeille_are_not_stacked(conn, schema):
+def test_photos_in_the_corbeille_keep_their_stack_for_when_they_come_back(conn, schema):
     store = Store()
     library = a_library(conn, store)
     conn.execute("UPDATE photos SET trashed_at = now() WHERE id = ANY(%s)", (library["copy"][:1],))
     summary = rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=True)
-    assert (summary.photos, summary.stacks) == (5, 1)
+    assert (summary.photos, summary.stacks) == (6, 2)
 
 
 def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:

@@ -93,7 +93,7 @@ import psycopg
 from PIL import Image
 
 from . import jobs
-from .gallery import EXCLUDED_NOTE, out_of_gallery
+from .gallery import EXCLUDED_NOTE, excluded
 from .lease import Lease, LeaseHeld
 from .siglip import DIM, MODEL
 from .store import LeaseLost, replace_groups, save_groups
@@ -312,7 +312,7 @@ def _photos_sql(where: str) -> str:
            CASE WHEN jsonb_typeof(p.metadata -> 'exposure_bias') = 'number'
                 THEN (p.metadata ->> 'exposure_bias')::float8 END
     FROM photos p
-    WHERE p.mime_type LIKE 'image/%%' AND NOT {out_of_gallery()}
+    WHERE p.mime_type LIKE 'image/%%' AND NOT {excluded()}
       AND {embedded_sql("p.id")}
       AND {where}
     ORDER BY p.id
@@ -322,7 +322,12 @@ def _photos_sql(where: str) -> str:
 def load_photos(
     conn: psycopg.Connection, vocabulary: Vocabulary, where: str = "true", **params: Any
 ) -> list[Photo]:
-    """The gallery's images with an embedding (photos p) that pass `where`, by id."""
+    """The gallery's images with an embedding (photos p) that pass `where`, by id.
+
+    Photos in the Corbeille stay: every list leaves them out already, and
+    one put back finds its stack again (a stack rebuilt without it would
+    leave it alone for good, its job being done).
+    """
     screen = next(t for t in vocabulary.tags if t.tag == SCREEN_TAG)
     values = {
         "screen_tag": SCREEN_TAG,
