@@ -277,7 +277,12 @@ export function applyDedupe(
       "SELECT pg_try_advisory_xact_lock($1) AS ok",
       [GROUPS_LOCK],
     );
-    if (!locked.rows[0]?.ok)
+    // Its writes take the lock; from its first read to its end it holds the
+    // 'groups' lease (worker lease.py), which the pooler keeps
+    const leased = await client.query(
+      "SELECT 1 FROM task_leases WHERE task = 'groups' AND expires_at > now()",
+    );
+    if (!locked.rows[0]?.ok || (leased.rowCount ?? 0) > 0)
       throw new DedupeRefused("a groups worker is running");
     const now = await plan(client, shown.pass);
     const current = new Set(now.go.map(key));

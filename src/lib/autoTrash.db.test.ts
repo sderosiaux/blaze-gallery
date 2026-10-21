@@ -323,4 +323,16 @@ void describe("npm run dedupe", () => {
       await sql.query("SELECT pg_advisory_unlock($1)", [0x626c617a6567]);
     }
   });
+
+  void test("no pass while a groups worker holds its lease", async () => {
+    const plan = await auto.planDedupe("copies");
+    await sql.query(
+      "INSERT INTO task_leases (task, owner, expires_at) VALUES ('groups', 'test', now() + interval '1 minute')",
+    );
+    try {
+      await assert.rejects(auto.applyDedupe(plan), /groups worker/);
+    } finally {
+      await sql.query("DELETE FROM task_leases");
+    }
+  });
 });
