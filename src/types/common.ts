@@ -165,6 +165,8 @@ export interface CreatePhotoData {
   metadata?: PhotoMetadata;
   metadata_status?: MetadataStatus;
   thumbnail_status?: ThumbnailStatus;
+  /** The bucket's ETag of the file (photos.etag) */
+  etag?: string;
 }
 
 export interface UpdatePhotoStatus {

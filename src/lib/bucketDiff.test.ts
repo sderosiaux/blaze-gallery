@@ -16,10 +16,16 @@ function object(key: string, size = 100, modifiedAt = MAY): S3Object {
   return { key, size, lastModified: new Date(modifiedAt), etag: "e" };
 }
 
+/** Known photos; an etag not given is not read yet */
 function known(
-  entries: [key: string, photo: KnownPhoto][],
+  entries: [
+    key: string,
+    photo: Omit<KnownPhoto, "etag"> & { etag?: string | null },
+  ][],
 ): Map<string, KnownPhoto> {
-  return new Map(entries);
+  return new Map(
+    entries.map(([key, photo]) => [key, { etag: null, ...photo }]),
+  );
 }
 
 function page(
@@ -237,5 +243,23 @@ void test("known folders are not created again", () => {
       ]),
     ),
     [],
+  );
+});
+
+void test("a known file with another ETag is changed, once the stored one is known", () => {
+  const listed = [
+    page([object("same.jpg"), object("other.jpg"), object("unread.jpg")]),
+  ];
+  const diff = diffBucket(
+    known([
+      ["same.jpg", { id: 1, size: 100, modifiedAt: MAY, etag: "e" }],
+      ["other.jpg", { id: 2, size: 100, modifiedAt: MAY, etag: "f" }],
+      ["unread.jpg", { id: 3, size: 100, modifiedAt: MAY }],
+    ]),
+    listed,
+  );
+  assert.deepEqual(
+    diff.changed.map((c) => c.id),
+    [2],
   );
 });

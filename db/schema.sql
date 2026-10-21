@@ -705,3 +705,11 @@ ALTER TABLE photos ADD COLUMN IF NOT EXISTS trash_batch text;
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_for bigint;
 CREATE INDEX IF NOT EXISTS idx_photos_trash_batch
   ON photos (trash_batch) WHERE trash_batch IS NOT NULL;
+
+-- The file's ETag as the bucket lists it, quotes stripped: the MD5 of its
+-- bytes, except for a multipart upload, whose ETag ends in -<parts> and is
+-- no MD5. Two photos are the same file only when both hold the same MD5
+-- (an exact copy: src/lib/autoTrash.ts, src/lib/stacks.ts). The sync writes
+-- it for new and replaced files; `npm run etags` fills the others. NULL:
+-- not read yet.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS etag text;

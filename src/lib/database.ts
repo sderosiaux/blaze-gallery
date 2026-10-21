@@ -2319,12 +2319,34 @@ export async function getPhotosInFolder(
 }
 
 /**
- * In a photo upsert: true when the incoming file differs from the stored one.
- * A sync that rewrote metadata for every unchanged file wiped the EXIF data of
- * 91k photos on 2026-10-18; only a replaced file may lose what was extracted.
+ * In a photo upsert: true when the incoming file differs from the stored one
+ * (bucketDiff.ts isFileChanged): another size or date, or another ETag when
+ * both are known. A sync that rewrote metadata for every unchanged file wiped
+ * the EXIF data of 91k photos on 2026-10-18; only a replaced file may lose
+ * what was extracted.
  */
-const FILE_CHANGED =
-  "(photos.size IS DISTINCT FROM EXCLUDED.size OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at)";
+const FILE_CHANGED = `(photos.size IS DISTINCT FROM EXCLUDED.size
+  OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at
+  OR (photos.etag IS NOT NULL AND EXCLUDED.etag IS NOT NULL AND photos.etag <> EXCLUDED.etag))`;
+
+/**
+ * The Corbeille's marks of a photo whose file is `changed`: a new file put
+ * on a key in the Corbeille is not what the owner threw away, so it comes
+ * back (the purge would erase it).
+ */
+const TRASH_KEPT_UNLESS = (changed: string) =>
+  ["trashed_at", "trashed_by", "trash_batch", "trashed_for"]
+    .map(
+      (column) =>
+        `${column} = CASE WHEN ${changed} THEN NULL ELSE photos.${column} END`,
+    )
+    .join(",\n      ");
+
+/** An ETag as stored: quotes stripped, none when empty. */
+export function storedEtag(etag: string | undefined | null): string | null {
+  const value = etag?.replace(/"/g, "") ?? "";
+  return value === "" ? null : value;
+}
 
 export async function createOrUpdatePhoto(
   photoData: CreatePhotoData,
@@ -2337,9 +2359,9 @@ export async function createOrUpdatePhoto(
     `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
-      metadata, metadata_status, thumbnail_status, last_synced
+      metadata, metadata_status, thumbnail_status, etag, last_synced
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
     ON CONFLICT(s3_key) DO UPDATE SET
       folder_id = EXCLUDED.folder_id,
       filename = EXCLUDED.filename,
@@ -2351,6 +2373,9 @@ export async function createOrUpdatePhoto(
       metadata = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata ELSE photos.metadata END,
       metadata_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata_status ELSE photos.metadata_status END,
       thumbnail_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.thumbnail_status ELSE photos.thumbnail_status END,
+      -- The new file's, else the stored one while it is still that file's
+      etag = coalesce(EXCLUDED.etag, CASE WHEN ${FILE_CHANGED} THEN NULL ELSE photos.etag END),
+      ${TRASH_KEPT_UNLESS(FILE_CHANGED)},
       last_synced = CURRENT_TIMESTAMP
     RETURNING *
   `,
@@ -2364,6 +2389,7 @@ export async function createOrUpdatePhoto(
       photoData.metadata, // PostgreSQL JSONB handles objects directly
       metadataStatus,
       thumbnailStatus,
+      storedEtag(photoData.etag),
     ],
   );
 
@@ -2376,6 +2402,7 @@ export interface PhotoFile {
   s3_key: string;
   size: number;
   modified_at: Date;
+  etag: string | null;
 }
 
 /**
@@ -2395,7 +2422,7 @@ export async function getPhotoFiles(prefix?: string): Promise<PhotoFile[]> {
   for (;;) {
     const { rows } = await query<PhotoFile>(
       `
-      SELECT id::int AS id, s3_key, size::float8 AS size, modified_at
+      SELECT id::int AS id, s3_key, size::float8 AS size, modified_at, etag
       FROM photos
       WHERE id > $1 AND ($3::text IS NULL OR starts_with(s3_key, $3))
       ORDER BY id LIMIT $2
@@ -2433,12 +2460,12 @@ export async function insertNewPhotos(photos: NewPhoto[]): Promise<number> {
     `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
-      metadata_status, thumbnail_status, last_synced
+      metadata_status, thumbnail_status, etag, last_synced
     )
     SELECT n.*, CURRENT_TIMESTAMP
     FROM unnest(
       $1::bigint[], $2::text[], $3::text[], $4::bigint[], $5::text[],
-      $6::timestamp[], $7::text[], $8::text[]
+      $6::timestamp[], $7::text[], $8::text[], $9::text[]
     ) AS n
     ON CONFLICT (s3_key) DO NOTHING
   `,
@@ -2451,6 +2478,7 @@ export async function insertNewPhotos(photos: NewPhoto[]): Promise<number> {
       photos.map((p) => p.modified_at),
       photos.map((p) => p.metadata_status),
       photos.map((p) => p.thumbnail_status),
+      photos.map((p) => storedEtag(p.etag)),
     ],
   );
   return result.rowCount ?? 0;
@@ -2460,13 +2488,16 @@ export interface ReplacedFile {
   id: number;
   size: number;
   modified_at: string;
+  etag: string | null;
   thumbnail_status: ThumbnailStatus;
 }
 
 /**
  * Records that these photos' files were replaced: what was extracted from the
  * old file (metadata, thumbnail) is dropped so it is read again from the new
- * one. Faces, colours and descriptions are not touched here.
+ * one. Faces, colours and descriptions are not touched here. A photo in the
+ * Corbeille comes back: the new file is not the one thrown away, and the
+ * purge would erase it.
  */
 export async function resetReplacedPhotos(
   files: ReplacedFile[],
@@ -2482,9 +2513,14 @@ export async function resetReplacedPhotos(
       metadata_status = 'none',
       thumbnail_status = f.thumbnail_status,
       thumbnail_path = NULL,
+      etag = f.etag,
+      trashed_at = NULL,
+      trashed_by = NULL,
+      trash_batch = NULL,
+      trashed_for = NULL,
       last_synced = CURRENT_TIMESTAMP
-    FROM unnest($1::bigint[], $2::bigint[], $3::timestamp[], $4::text[])
-      AS f(id, size, modified_at, thumbnail_status)
+    FROM unnest($1::bigint[], $2::bigint[], $3::timestamp[], $4::text[], $5::text[])
+      AS f(id, size, modified_at, thumbnail_status, etag)
     WHERE p.id = f.id
   `,
     [
@@ -2492,6 +2528,7 @@ export async function resetReplacedPhotos(
       files.map((f) => f.size),
       files.map((f) => f.modified_at),
       files.map((f) => f.thumbnail_status),
+      files.map((f) => storedEtag(f.etag)),
     ],
   );
 }

@@ -85,6 +85,7 @@ export const POST = requireAuth(async function POST(request: NextRequest) {
       size: stored.ContentLength ?? buffer.length,
       mime_type: mimeType,
       modified_at: (stored.LastModified ?? new Date()).toISOString(),
+      etag: stored.ETag,
       metadata_status: "none",
       thumbnail_status: "pending",
     });
