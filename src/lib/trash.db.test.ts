@@ -133,6 +133,11 @@ void describe("the Corbeille", () => {
     assert.deepEqual(ids(await database.getStackPhotos(303)), [302, 303]);
     // A list showing every file shows no thrown-away one either
     assert.ok(!ids(await database.getPhotosInFolder(FOLDER.id)).includes(301));
+    // The folder's card counts what the folder shows: 302 and 311
+    const card = (await database.getFolders()).find(
+      (f) => f.path === FOLDER.path,
+    );
+    assert.equal(card?.photo_count, 2);
   });
 
   void test("restore one, or all", async () => {

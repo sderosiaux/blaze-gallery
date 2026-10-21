@@ -587,7 +587,7 @@ async function listFolders(
           ELSE false
         END AS thumbnails_generated,
         COALESCE(SUM(p.size), 0) AS total_size,
-        COUNT(*) FILTER (WHERE ${stackFront([`${BETTER}.folder_id = s.id`])})::int AS shown_count,
+        COUNT(*) FILTER (WHERE ${notTrashed()} AND ${stackFront([`${BETTER}.folder_id = s.id`])})::int AS shown_count,
         MIN(p.modified_at) AS folder_created_at,
         MIN(p.metadata->>'date_taken') AS date_from,
         MAX(p.metadata->>'date_taken') AS date_to
