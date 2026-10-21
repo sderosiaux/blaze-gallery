@@ -30,6 +30,7 @@ const SUZIE = 1;
 const TRIP = { id: 1, path: "2020-05-01 Voyage" };
 const DUMP = { id: 2, path: "A TRIER" };
 const BOOKS = { id: 3, path: "books" };
+const OTHER = { id: 4, path: "Autre" };
 
 async function photo(
   id: number,
@@ -422,5 +423,46 @@ void describe("stacks", () => {
     );
     const listed = await people.listPeople();
     assert.equal(listed.find((p) => p.id === SUZIE)?.photo_count, 1);
+  });
+
+  void test("a person's page: copies in no stack yet show once, with their stack when one has it", async () => {
+    // 291 and 292: one file in two folders, neither stacked (no
+    // photo_groups rows); 293 copies 211/212 (same name and size), not
+    // stacked yet either
+    const added = [291, 292, 293];
+    try {
+      await photo(291, TRIP, "w.jpg", "2013-01-01T08:00:00", { size: 7000 });
+      await photo(292, DUMP, "w.jpg", "2013-01-01T08:00:00", { size: 7000 });
+      await sql.query(
+        "INSERT INTO folders (id, path, name) VALUES (4, 'Autre', 'Autre')",
+      );
+      await photo(293, OTHER, "x.jpg", "2019-01-01T08:00:00", { size: 5000 });
+      for (const id of added) await face(id, SUZIE);
+      const page = await people.personPhotoPage(SUZIE, filter({}), null, 10);
+      assert.equal(page.total, 2);
+      assert.deepEqual(
+        page.photos.map((p) => [p.id, [...p.copies].sort()]),
+        [
+          // The trip's folder dates both kept copies (2020-05-01), the
+          // newer id first
+          [291, [292]],
+          [212, [211, 293]],
+        ],
+      );
+      assert.equal(page.photos[0]?.stack, undefined);
+      assert.deepEqual(page.photos[1]?.stack, { id: 211, count: 2 });
+      const all = await people.personPhotos(SUZIE);
+      assert.deepEqual(
+        all.map((p) => p.id),
+        [212, 291],
+      );
+      const listed = await people.listPeople();
+      assert.equal(listed.find((p) => p.id === SUZIE)?.photo_count, 2);
+    } finally {
+      await sql.query("DELETE FROM photos WHERE id = ANY($1::bigint[])", [
+        added,
+      ]);
+      await sql.query("DELETE FROM folders WHERE id = 4");
+    }
   });
 });

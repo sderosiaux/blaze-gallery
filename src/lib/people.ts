@@ -118,11 +118,12 @@ export async function listPeople(): Promise<PersonSummary[]> {
     `
     WITH ${VALIDATED_FACES}
     SELECT ${PERSON_COLUMNS},
-      (SELECT count(DISTINCT coalesce(pg.group_id, ph.id))::int FROM faces f
+      (SELECT count(DISTINCT k.stack_key)::int FROM (
+        SELECT ${stackKey("ph")} AS stack_key FROM faces f
         JOIN photos ph ON ph.id = f.photo_id
         LEFT JOIN photo_groups pg ON pg.photo_id = ph.id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
-          ${GALLERY}) AS photo_count,
+          ${GALLERY}) k) AS photo_count,
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
         JOIN faces f ON f.id = c.face_id JOIN photos ph ON ph.id = f.photo_id
         WHERE c.person_id = p.id AND c.status = 'pending' AND ${STILL_OPEN}
@@ -391,6 +392,8 @@ interface StackRow {
   stack_count: number | null;
   /** The lowest id of its exact copies in the stack, null without */
   copy_of: number | null;
+  /** What it shows once under (stackKey) */
+  stack_key: string;
 }
 
 type Dated<T> = T & {
@@ -399,37 +402,69 @@ type Dated<T> = T & {
   copies: number[];
 };
 
-/** Stack columns of a person's photo, photos ph (StackRow), with the stack's size in the gallery. */
-const STACK_OF_PHOTO = `pg.group_id::int AS stack_id, pg.rank AS stack_rank, pg.copy_of::int AS copy_of,
+/**
+ * What a person's photo `ph` (its stack row pg, among the query's rows)
+ * shows once under: its stack; a photo in none yet (not embedded, just
+ * synced) goes under the stack of one of its copies (copyKey: same name,
+ * same size) among the rows, else with its copies alone. The page and the
+ * count of the person's photos both use it.
+ */
+const stackKey = (ph: string) => `coalesce('s' || pg.group_id::text,
+  's' || (max(pg.group_id) OVER (PARTITION BY ${ph}.filename, ${ph}.size))::text,
+  'c' || ${ph}.filename || '/' || ${ph}.size::text)`;
+
+/** Stack columns of a person's photo, photos `ph` (StackRow), with the stack's size in the gallery. */
+const stackOfPhoto = (
+  ph: string,
+) => `pg.group_id::int AS stack_id, pg.rank AS stack_rank, pg.copy_of::int AS copy_of,
+  ${stackKey(ph)} AS stack_key,
   (SELECT count(*) FROM photo_groups sm JOIN photos sp ON sp.id = sm.photo_id
    WHERE sm.group_id = pg.group_id ${andInGallery("sp.s3_key")})::int AS stack_count`;
 
 /**
  * One photo per stack of near-duplicates (photo_groups), as every list of
- * photos shows them: of the person's photos in the stack, the one of lowest
- * rank; between its exact copies, the one whose folder dates it when the
- * camera clock disagrees (takenOn). The others are its `copies`.
+ * photos shows them, copies not stacked yet with them (stackKey): of the
+ * person's photos in the stack, the one of lowest rank; between exact
+ * copies, the one whose folder dates it when the camera clock disagrees
+ * (takenOn). The others are its `copies`. A copy kept from outside the
+ * stack still shows the stack's badge.
  */
 function onePerStack<T extends StackRow>(rows: T[]): Dated<T>[] {
   const kept = new Map<string, Dated<T>>();
+  const stacks = new Map<string, Pick<T, "stack_id" | "stack_count">>();
+  // Not stacked yet: a copy of what it shows under, ranked after the stack's
+  const copies = (a: Dated<T>, b: Dated<T>) =>
+    (a.copy_of !== null && a.copy_of === b.copy_of) ||
+    a.stack_rank === null ||
+    b.stack_rank === null;
   const better = (a: Dated<T>, b: Dated<T>) => {
     const byFolder =
       Number(a.date_source === "folder") - Number(b.date_source === "folder");
-    if (a.copy_of !== null && a.copy_of === b.copy_of && byFolder !== 0)
-      return byFolder > 0;
-    return (a.stack_rank ?? 0) < (b.stack_rank ?? 0);
+    if (copies(a, b) && byFolder !== 0) return byFolder > 0;
+    return (
+      (a.stack_rank ?? Number.POSITIVE_INFINITY) <
+      (b.stack_rank ?? Number.POSITIVE_INFINITY)
+    );
   };
   for (const row of rows) {
     const { taken, source } = takenOn(row.date_taken, row.folder_path);
     const photo: Dated<T> = { ...row, taken, date_source: source, copies: [] };
-    const key = row.stack_id === null ? `p${row.id}` : `s${row.stack_id}`;
+    const key = row.stack_key;
+    if (row.stack_id !== null) stacks.set(key, row);
     const first = kept.get(key);
+    // Two of the person's faces on one photo: one row of it is enough
+    if (first?.id === photo.id) continue;
     if (!first) kept.set(key, photo);
     else if (better(photo, first))
       kept.set(key, { ...photo, copies: [...first.copies, first.id] });
     else first.copies.push(photo.id);
   }
-  return [...kept.values()];
+  return [...kept].map(([key, photo]) => {
+    const stack = stacks.get(key);
+    return photo.stack_id === null && stack
+      ? { ...photo, stack_id: stack.stack_id, stack_count: stack.stack_count }
+      : photo;
+  });
 }
 
 /**
@@ -445,7 +480,7 @@ export async function personPhotos(
   const result = await query<PersonFaceRow & StackRow>(
     `
     SELECT p.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
-           c.similarity, c.decided_by, ${STACK_OF_PHOTO}
+           c.similarity, c.decided_by, ${stackOfPhoto("p")}
     FROM faces f
     JOIN photos p ON p.id = f.photo_id
     LEFT JOIN folders fo ON fo.id = p.folder_id
@@ -519,7 +554,7 @@ export async function personPhotoPage(
   const keys = await listQuery<StackRow>(
     `
     SELECT p.id::int AS id, fo.path AS folder_path,
-           p.metadata->>'date_taken' AS date_taken, ${STACK_OF_PHOTO}
+           p.metadata->>'date_taken' AS date_taken, ${stackOfPhoto("p")}
     FROM faces f
     JOIN photos p ON p.id = f.photo_id
     LEFT JOIN folders fo ON fo.id = p.folder_id
