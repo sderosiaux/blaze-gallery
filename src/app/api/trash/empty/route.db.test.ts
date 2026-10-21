@@ -61,7 +61,10 @@ const empty = async (body: Record<string, unknown>) => {
   };
 };
 
-const now = () => new Date().toISOString();
+// The database's clock: the route checks a cutoff against it, and this
+// machine's may run ahead of a container's
+const now = async () =>
+  (await sql.query<{ t: Date }>("SELECT now() AS t")).rows[0]?.t.toISOString();
 
 void describe("POST /api/trash/empty", () => {
   void test("without all, only what has waited 30 days, and exactly the count shown", async () => {
@@ -71,7 +74,10 @@ void describe("POST /api/trash/empty", () => {
     assert.equal(changed.status, 409);
     assert.equal(changed.data.code, "TRASH_CHANGED");
     // A cutoff later than 30 days ago needs all
-    assert.equal((await empty({ expected: 2, cutoff: now() })).status, 400);
+    assert.equal(
+      (await empty({ expected: 2, cutoff: await now() })).status,
+      400,
+    );
   });
 
   void test("all: everything up to the listing's time, never later than now", async () => {
@@ -83,11 +89,11 @@ void describe("POST /api/trash/empty", () => {
     );
     // Both are due up to now: one fewer or one more is refused
     assert.equal(
-      (await empty({ expected: 1, all: true, cutoff: now() })).status,
+      (await empty({ expected: 1, all: true, cutoff: await now() })).status,
       409,
     );
     assert.equal(
-      (await empty({ expected: 3, all: true, cutoff: now() })).status,
+      (await empty({ expected: 3, all: true, cutoff: await now() })).status,
       409,
     );
     // Nothing erased by any of these
