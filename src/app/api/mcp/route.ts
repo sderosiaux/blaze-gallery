@@ -1347,13 +1347,13 @@ const PEOPLE_TOOLS = [
   },
   {
     name: "get_person_photos",
-    description: `Every photo of one person, oldest first (undated last), one entry per photo, paginated; with the filters (expressions, e.g. [{"person": "Suzie", "expression": "triste"}] for her sad face, tags, without_tags, only, folder, color, tone, other people), only those passing them. The library holds copies of some files in several folders (same filename and size): each appears once, the other photo_ids are listed in copies.
+    description: `Every photo of one person, oldest first (undated last), one entry per photo, paginated; with the filters (expressions, e.g. [{"person": "Suzie", "expression": "triste"}] for her sad face, tags, without_tags, only, folder, color, tone, other people), only those passing them. Near-duplicates (exact copies in several folders, bursts, edits, resized copies) are stacked: each stack appears once, as its best photo of the person, and the stack's other photo_ids showing the person are listed in copies.
 Returns { person: {person_id, name, birth_date}, total (photos matching from/to and the filters), returned, next_cursor (null on the last page), untagged (tags read as words, see tags), photos: [...] }.
 Each photo: the photo fields below, plus:
 - face: the person's own face on it (face fields below) with assignment: "seed" (example picked by the owner), "manual" (confirmed by a person looking at the face), "auto" (accepted by the machine above a similarity threshold measured to be precise; rare mistakes possible); decided_by: "owner", "agent" (an assistant that checked the crop while calibrating: very likely right, not the owner's word), "auto", or null for seeds; similarity: cosine similarity 0-1 to the person's closest known face taken within 18 months (null when nobody proposed it).
 - others: who else is on the photo: named [{person_id, name, face_id}] and unknown_count (faces nobody named).
 - faces_count: all faces found on the photo.
-- copies: photo_ids of the same file elsewhere in the library (not returned again); usually empty.
+- copies: photo_ids of the other photos of its stack the person is on (not returned again); often empty.
 ${PHOTO_FIELDS}
 ${FACE_FIELDS}
 Coverage: only photos the face analysis has looked at can appear; it runs over the whole library, newest years first, except folders the owner marked as not a photo gallery, whose photos never appear here or in list_people.`,

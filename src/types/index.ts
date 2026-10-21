@@ -47,6 +47,14 @@ export interface Photo {
   metadata_status: MetadataStatus;
   thumbnail_status: ThumbnailStatus;
   is_favorite: boolean;
+  /** In a list: the stack of near-duplicates it fronts (photo_groups), two members or more */
+  stack?: PhotoStack;
+}
+
+/** A stack of near-duplicates: its group id, and how many of its photos the gallery shows. */
+export interface PhotoStack {
+  id: number;
+  count: number;
 }
 
 export interface PhotoMetadata {

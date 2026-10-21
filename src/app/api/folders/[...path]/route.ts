@@ -31,7 +31,7 @@ export const GET = requireAuth(async function GET(
     // (itself or a parent), null when it is in the gallery
     const [subfolders, photos, exclusion] = await Promise.all([
       getFolders(decodedPath),
-      getPhotosInFolder(folder.id),
+      getPhotosInFolder(folder.id, true),
       getFolderExclusion(decodedPath),
     ]);
 

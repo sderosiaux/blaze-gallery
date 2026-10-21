@@ -1,7 +1,15 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { andPhotoFilter, hasPhotoFilter, query } from "@/lib/database";
+import {
+  andPhotoFilter,
+  BETTER,
+  betterPassFilter,
+  hasPhotoFilter,
+  query,
+  stackColumns,
+  stackFront,
+} from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { PhotoWithFolderRow } from "@/app/api/_lib/db";
 import { withThumbnailUrl } from "@/app/api/_lib/db";
@@ -20,19 +28,25 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
     const list = await listFilter(request, { favorites: true });
     if (!list.ok) return list.response;
     const params: unknown[] = [];
-    const filtered =
-      hasPhotoFilter({ ...list.filter, favorites: false }) &&
-      andPhotoFilter(params, list.filter);
+    const filtering = hasPhotoFilter({ ...list.filter, favorites: false });
+    const filtered = filtering && andPhotoFilter(params, list.filter);
+    // A stack shows once: its best favorite the filter keeps
+    const front = stackFront([
+      `${BETTER}.is_favorite`,
+      ...(filtering ? betterPassFilter(params, list.filter) : []),
+    ]);
     const result = await query<PhotoWithFolderRow>(
       `
       SELECT
         p.*,
         f.name as folder_name,
-        f.path as folder_path
+        f.path as folder_path,
+        ${stackColumns()}
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
       WHERE p.is_favorite = true
         ${filtered || ""}
+        AND ${front}
       ORDER BY p.filename
     `,
       params,

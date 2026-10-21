@@ -7,6 +7,7 @@ import {
   NO_PHOTO_FILTER,
   query,
   runTransaction,
+  stackOf,
   type PhotoFilter,
 } from "./database";
 import {
@@ -117,8 +118,9 @@ export async function listPeople(): Promise<PersonSummary[]> {
     `
     WITH ${VALIDATED_FACES}
     SELECT ${PERSON_COLUMNS},
-      (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM faces f
+      (SELECT count(DISTINCT coalesce(pg.group_id, ph.id))::int FROM faces f
         JOIN photos ph ON ph.id = f.photo_id
+        LEFT JOIN photo_groups pg ON pg.photo_id = ph.id
         WHERE f.person_id = p.id AND f.assignment IN ('seed', 'manual', 'auto')
           ${GALLERY}) AS photo_count,
       (SELECT count(DISTINCT (ph.filename, ph.size))::int FROM face_candidates c
@@ -335,7 +337,7 @@ export interface PersonPhoto extends Photo {
   similarity: number | null;
   /** Who said yes: owner, agent (an assistant checking crops), auto; null for seeds */
   decided_by: "owner" | "agent" | "auto" | null;
-  /** The same file elsewhere in the library (same name and size): not listed again */
+  /** The other photos of its stack this person is on (photo_groups): not listed again */
   copies: number[];
 }
 
@@ -356,8 +358,11 @@ function byTaken<T extends { taken: string | null; id: number }>(a: T, b: T) {
 
 /**
  * The library holds copies of the same file in several folders (same name,
- * same size: the rule of the duplicates report). A person's photos and the
- * review queue show one of them; the others ride along.
+ * same size: the rule of the duplicates report). Their faces are one face
+ * found once per copy: the review queue decides them together and
+ * look-alikes count them once. A person's photos are shown one per stack
+ * instead (onePerStack), which also holds bursts: their faces are faces of
+ * different frames, never decided together.
  */
 function copyKey(photo: { filename: string; size: number | string }): string {
   return `${photo.filename}\u0000${String(photo.size)}`;
@@ -375,13 +380,17 @@ function newestFirst<T extends { taken: string | null; id: number }>(
   return b.id - a.id;
 }
 
-/** What a set of copies is told apart and dated by. */
-interface CopyRow {
+/** What a stack's photos are told apart and dated by. */
+interface StackRow {
   id: number;
-  filename: string;
-  size: number | string;
   folder_path: string | null;
   date_taken: string | null | undefined;
+  /** photo_groups: null in no stack */
+  stack_id: number | null;
+  stack_rank: number | null;
+  stack_count: number | null;
+  /** The lowest id of its exact copies in the stack, null without */
+  copy_of: number | null;
 }
 
 type Dated<T> = T & {
@@ -390,20 +399,33 @@ type Dated<T> = T & {
   copies: number[];
 };
 
+/** Stack columns of a person's photo, photos ph (StackRow), with the stack's size in the gallery. */
+const STACK_OF_PHOTO = `pg.group_id::int AS stack_id, pg.rank AS stack_rank, pg.copy_of::int AS copy_of,
+  (SELECT count(*) FROM photo_groups sm JOIN photos sp ON sp.id = sm.photo_id
+   WHERE sm.group_id = pg.group_id ${andInGallery("sp.s3_key")})::int AS stack_count`;
+
 /**
- * One photo per set of copies, rows in path order: the one whose folder
- * dates it when the camera clock disagrees (takenOn), else the first by
- * path; the others are its `copies`.
+ * One photo per stack of near-duplicates (photo_groups), as every list of
+ * photos shows them: of the person's photos in the stack, the one of lowest
+ * rank; between its exact copies, the one whose folder dates it when the
+ * camera clock disagrees (takenOn). The others are its `copies`.
  */
-function onePerCopy<T extends CopyRow>(rows: T[]): Dated<T>[] {
+function onePerStack<T extends StackRow>(rows: T[]): Dated<T>[] {
   const kept = new Map<string, Dated<T>>();
+  const better = (a: Dated<T>, b: Dated<T>) => {
+    const byFolder =
+      Number(a.date_source === "folder") - Number(b.date_source === "folder");
+    if (a.copy_of !== null && a.copy_of === b.copy_of && byFolder !== 0)
+      return byFolder > 0;
+    return (a.stack_rank ?? 0) < (b.stack_rank ?? 0);
+  };
   for (const row of rows) {
     const { taken, source } = takenOn(row.date_taken, row.folder_path);
     const photo: Dated<T> = { ...row, taken, date_source: source, copies: [] };
-    const key = copyKey(row);
+    const key = row.stack_id === null ? `p${row.id}` : `s${row.stack_id}`;
     const first = kept.get(key);
     if (!first) kept.set(key, photo);
-    else if (first.date_source !== "folder" && source === "folder")
+    else if (better(photo, first))
       kept.set(key, { ...photo, copies: [...first.copies, first.id] });
     else first.copies.push(photo.id);
   }
@@ -412,7 +434,7 @@ function onePerCopy<T extends CopyRow>(rows: T[]): Dated<T>[] {
 
 /**
  * Every photo of the person passing `filter`, oldest first (undated
- * last), one per set of copies (onePerCopy).
+ * last), one per stack (onePerStack).
  */
 export async function personPhotos(
   personId: number,
@@ -420,21 +442,22 @@ export async function personPhotos(
 ): Promise<PersonPhoto[]> {
   const params: unknown[] = [personId];
   const narrow = andPhotoFilter(params, filter);
-  const result = await query<PersonFaceRow>(
+  const result = await query<PersonFaceRow & StackRow>(
     `
     SELECT p.*, fo.path AS folder_path, f.id::int AS face_id, f.assignment,
-           c.similarity, c.decided_by
+           c.similarity, c.decided_by, ${STACK_OF_PHOTO}
     FROM faces f
     JOIN photos p ON p.id = f.photo_id
     LEFT JOIN folders fo ON fo.id = p.folder_id
     LEFT JOIN face_candidates c ON c.person_id = f.person_id AND c.face_id = f.id
+    LEFT JOIN photo_groups pg ON pg.photo_id = p.id
     WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
       ${narrow}
     ORDER BY fo.path, p.id
     `,
     params,
   );
-  return onePerCopy(
+  return onePerStack(
     result.rows.map((row) => ({
       ...row,
       id: Number(row.id),
@@ -445,12 +468,17 @@ export async function personPhotos(
     .sort(byTaken);
 }
 
-function personPhoto(row: Dated<PersonFaceRow & { id: number }>): PersonPhoto {
+function personPhoto(
+  row: Dated<PersonFaceRow & Partial<StackRow> & { id: number }>,
+): PersonPhoto {
+  const { stack_id, stack_rank: _, stack_count, copy_of: __, ...photo } = row;
+  const stack = stackOf({ stack_id, stack_count });
   return {
-    ...row,
+    ...photo,
     is_favorite: Boolean(row.is_favorite),
     thumbnail_url: thumbnailUrl(row.id),
     similarity: round3(row.similarity),
+    ...(stack ? { stack } : {}),
   };
 }
 
@@ -471,7 +499,7 @@ export interface PersonPhotoPage {
 
 /**
  * A page of the person's photos passing `filter`, newest first (undated
- * last), one per set of copies (onePerCopy), after `after`. The order
+ * last), one per stack (onePerStack), after `after`. The order
  * follows takenOn, which reads folder names: every photo of the list is
  * read in narrow rows (id, name, size, path, date) to sort them, then only
  * the page in full. 24k faces for the most photographed person: about 1 MB
@@ -488,20 +516,21 @@ export async function personPhotoPage(
 ): Promise<PersonPhotoPage> {
   const params: unknown[] = [personId];
   const narrow = andPhotoFilter(params, filter);
-  const keys = await listQuery<CopyRow>(
+  const keys = await listQuery<StackRow>(
     `
-    SELECT p.id::int AS id, p.filename, p.size::text AS size,
-           fo.path AS folder_path, p.metadata->>'date_taken' AS date_taken
+    SELECT p.id::int AS id, fo.path AS folder_path,
+           p.metadata->>'date_taken' AS date_taken, ${STACK_OF_PHOTO}
     FROM faces f
     JOIN photos p ON p.id = f.photo_id
     LEFT JOIN folders fo ON fo.id = p.folder_id
+    LEFT JOIN photo_groups pg ON pg.photo_id = p.id
     WHERE f.person_id = $1 AND f.assignment IN ('seed', 'manual', 'auto')
       ${narrow}
     ORDER BY fo.path, p.id
     `,
     params,
   );
-  const sorted = onePerCopy(keys.rows).sort(newestFirst);
+  const sorted = onePerStack(keys.rows).sort(newestFirst);
   const rest = after
     ? sorted.filter((photo) => newestFirst(photo, after) > 0)
     : sorted;
@@ -535,6 +564,8 @@ export async function personPhotoPage(
             taken: key.taken,
             date_source: key.date_source,
             copies: key.copies,
+            stack_id: key.stack_id,
+            stack_count: key.stack_count,
           }),
         ]
       : [];

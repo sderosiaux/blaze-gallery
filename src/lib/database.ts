@@ -1,6 +1,6 @@
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { Pool, types } from "pg";
-import type { Folder, Photo, PhotoMetadata } from "@/types";
+import type { Folder, Photo, PhotoMetadata, PhotoStack } from "@/types";
 import * as crypto from "crypto";
 import { compare, hash } from "bcryptjs";
 import { logger } from "./logger";
@@ -108,17 +108,33 @@ interface DatabasePhoto {
   thumbnail_status: ThumbnailStatus;
   is_favorite: boolean; // PostgreSQL native boolean
   last_synced?: string;
+  /** stackColumns: present when the query selected them */
+  stack_id?: number | null;
+  stack_count?: number | null;
+}
+
+/** The stack a row's stackColumns describe; none under two members. */
+export function stackOf(row: {
+  stack_id?: number | null;
+  stack_count?: number | null;
+}): PhotoStack | undefined {
+  return row.stack_id != null && (row.stack_count ?? 0) >= 2
+    ? { id: Number(row.stack_id), count: Number(row.stack_count) }
+    : undefined;
 }
 
 /**
  * Normalize database photo row to Photo type with proper boolean and URL handling
  */
 function normalizePhoto(dbPhoto: DatabasePhoto): Photo {
+  const { stack_id, stack_count, ...photo } = dbPhoto;
+  const stack = stackOf({ stack_id, stack_count });
   return {
-    ...dbPhoto,
+    ...photo,
     is_favorite: Boolean(dbPhoto.is_favorite),
     thumbnail_url: thumbnailUrl(dbPhoto.id),
     metadata: dbPhoto.metadata,
+    ...(stack ? { stack } : {}),
   } as Photo;
 }
 
@@ -316,6 +332,70 @@ export function outOfGallery(key: string): string {
 /** `AND` clause keeping the photos (s3_key `key`) of the gallery. */
 export function andInGallery(key = "p.s3_key"): string {
   return `AND NOT ${outOfGallery(key)}`;
+}
+
+/** The photos `p` of the gallery: in no folder out of it. */
+export function inGallery(p = "p"): string {
+  return `NOT ${outOfGallery(`${p}.s3_key`)}`;
+}
+
+// ---- stacks ---------------------------------------------------------------
+// photo_groups (db/schema.sql): near-duplicates stacked behind the one of
+// rank 1. A list of photos shows one tile per stack: of the members it
+// keeps (its own condition: a filter, a date, the map's box, a name), the
+// one of lowest rank. A filter that keeps only some members of a stack so
+// shows the best of those. The tile says how many photos the stack holds
+// in the gallery, kept by the list or not: the stack is what opens in the
+// viewer, whole.
+
+/** The alias stackFront gives a member ranked before the photo. */
+export const BETTER = "stack_better";
+
+/**
+ * Condition over photos `p`: no member of its stack ranked before it passes
+ * `better`, the list's own condition written over photos BETTER. Without
+ * the list's cursor or offset: the front is the stack's, whatever the page.
+ */
+export function stackFront(better: readonly string[], p = "p"): string {
+  const passes = better.length > 0 ? `AND ${better.join("\n      AND ")}` : "";
+  return `NOT EXISTS (
+    SELECT 1 FROM photo_groups stack_of
+    JOIN photo_groups stack_ahead ON stack_ahead.group_id = stack_of.group_id
+      AND stack_ahead.rank < stack_of.rank
+    JOIN photos ${BETTER} ON ${BETTER}.id = stack_ahead.photo_id
+    WHERE stack_of.photo_id = ${p}.id ${passes})`;
+}
+
+/**
+ * stack_id and stack_count of photos `p`, for stackOf: its stack and how
+ * many of the stack's photos are in the gallery.
+ */
+export function stackColumns(p = "p"): string {
+  return `(SELECT sg.group_id FROM photo_groups sg WHERE sg.photo_id = ${p}.id)::int AS stack_id,
+    (SELECT count(*) FROM photo_groups sg
+     JOIN photo_groups sm ON sm.group_id = sg.group_id
+     JOIN photos sp ON sp.id = sm.photo_id
+     WHERE sg.photo_id = ${p}.id AND ${inGallery("sp")})::int AS stack_count`;
+}
+
+/** The photos of a photo's stack the gallery shows, best first; [] when it is in none. */
+export async function getStackPhotos(
+  photoId: number,
+): Promise<TimelinePhoto[]> {
+  const result = await query<DatabasePhoto & { folder_path: string }>(
+    `SELECT p.*, f.path AS folder_path, ${stackColumns()}
+     FROM photo_groups g
+     JOIN photo_groups m ON m.group_id = g.group_id
+     JOIN photos p ON p.id = m.photo_id
+     JOIN folders f ON f.id = p.folder_id
+     WHERE g.photo_id = $1 AND ${inGallery()}
+     ORDER BY m.rank`,
+    [photoId],
+  );
+  return result.rows.map((row) => ({
+    ...normalizePhoto(row),
+    folder_path: row.folder_path,
+  }));
 }
 
 /** A folder marked « pas une galerie photo ». */
@@ -892,13 +972,14 @@ function anyoneLooks(f: string, expression: Expression): string {
 function filterConditions(
   params: unknown[],
   filter: PhotoFilter,
-  id = "p.id",
+  p = "p",
+  id = `${p}.id`,
 ): string[] {
   const add = (value: unknown) => {
     params.push(value);
     return `$${params.length}`;
   };
-  const conditions = [`NOT ${outOfGallery("p.s3_key")}`];
+  const conditions = [inGallery(p)];
 
   for (const personId of filter.people)
     conditions.push(`EXISTS (SELECT 1 FROM faces pf WHERE pf.photo_id = ${id}
@@ -976,7 +1057,7 @@ function filterConditions(
   }
 
   for (const dates of filter.dates) {
-    const clause = dateClause(params, dates);
+    const clause = dateClause(params, dates, p);
     if (clause) conditions.push(clause);
   }
 
@@ -985,11 +1066,11 @@ function filterConditions(
 
   if (filter.folder !== null) {
     const path = add(filter.folder);
-    conditions.push(`p.folder_id IN (SELECT fo.id FROM folders fo
+    conditions.push(`${p}.folder_id IN (SELECT fo.id FROM folders fo
       WHERE fo.path = ${path}::text OR starts_with(fo.path, ${path}::text || '/'))`);
   }
 
-  if (filter.favorites) conditions.push("p.is_favorite");
+  if (filter.favorites) conditions.push(`${p}.is_favorite`);
 
   if (filter.content) {
     conditions.push(`${id} = ANY (${add(filter.content.ids)}::bigint[])`);
@@ -1018,28 +1099,41 @@ export async function personExpressions(
   return EXPRESSIONS.filter((expression) => row[expression]);
 }
 
-/** filterConditions as `AND` lines for a WHERE clause over photos p. */
+/** filterConditions as `AND` lines for a WHERE clause over photos `p`. */
 export function andPhotoFilter(
   params: unknown[],
   filter: PhotoFilter,
+  p?: string,
   id?: string,
 ): string {
-  return filterConditions(params, filter, id)
+  return filterConditions(params, filter, p, id)
     .map((condition) => `AND ${condition}`)
     .join("\n");
 }
 
+/** filterConditions over photos BETTER, for stackFront. */
+export function betterPassFilter(
+  params: unknown[],
+  filter: PhotoFilter,
+): string[] {
+  return filterConditions(params, filter, BETTER);
+}
+
 /**
- * The photos (photos p) taken within `dates`, compared as text with the
+ * The photos (photos `p`) taken within `dates`, compared as text with the
  * ISO date_taken like the timeline and the map; the days of the year are
  * its "MM-DD". Null for any date.
  */
-function dateClause(params: unknown[], dates: DateFilter): string | null {
+function dateClause(
+  params: unknown[],
+  dates: DateFilter,
+  p = "p",
+): string | null {
   const add = (value: unknown) => {
     params.push(value);
     return `$${params.length}::text`;
   };
-  const taken = "(p.metadata->>'date_taken')";
+  const taken = `(${p}.metadata->>'date_taken')`;
   const day = `substr(${taken}, 6, 5)`;
   const clauses: string[] = [];
   if (dates.ranges.length > 0)
@@ -1122,10 +1216,20 @@ function colorRank(filter: ColorFilter): ColorRank | null {
 }
 
 /** Dated photos, the timeline's: leaves out sprites, album art and scans, which carry no date taken. */
-const DATED = "(p.metadata->>'date_taken') IS NOT NULL";
+const dated = (p: string) => `(${p}.metadata->>'date_taken') IS NOT NULL`;
+const DATED = dated("p");
 
 /** The photos a list of the gallery shows: dated, and in the gallery. */
 const DATED_IN_GALLERY = `${DATED} AND NOT ${outOfGallery("p.s3_key")}`;
+
+/**
+ * The rank's condition over photos `p` (its colors read under the alias pc
+ * the rank's expressions name, inside the subquery).
+ */
+function colorRanked(rank: ColorRank, p: string): string {
+  return `EXISTS (SELECT 1 FROM photo_colors pc WHERE pc.photo_id = ${p}.id
+    AND ${rank.where.join(" AND ") || "true"})`;
+}
 
 /** The filter of a list ranked by color: its rank says the color (HOLDS, not NARROWS). */
 function withoutColors(filter: PhotoFilter): PhotoFilter {
@@ -1156,6 +1260,11 @@ export async function getPhotosByColor(
       `(${rank.score}, pc.photo_id) ${rank.order === "DESC" ? "<" : ">"} (${add(after.score)}::real, ${add(after.id)}::bigint)`,
     );
   const narrow = andPhotoFilter(params, withoutColors(filter));
+  const front = stackFront([
+    colorRanked(rank, BETTER),
+    dated(BETTER),
+    ...betterPassFilter(params, withoutColors(filter)),
+  ]);
   const result = await listQuery<
     DatabasePhoto & { folder_path: string; color_score: number }
   >(
@@ -1166,10 +1275,11 @@ export async function getPhotosByColor(
       JOIN photos p ON p.id = pc.photo_id
       WHERE ${where.join("\n        AND ")}
         ${narrow}
+        AND ${front}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1
     )
-    SELECT p.*, f.path AS folder_path, page.score AS color_score
+    SELECT p.*, f.path AS folder_path, page.score AS color_score, ${stackColumns()}
     FROM page
     JOIN photos p ON p.id = page.id
     JOIN folders f ON f.id = p.folder_id
@@ -1303,17 +1413,22 @@ export async function getColorOverview(
   const keep = kept
     ? "pc.photo_id IN (SELECT id FROM kept)"
     : `${DATED_IN_GALLERY} ${andPhotoFilter(params, narrowed)}`;
+  // The same for a member ranked before the photo in its stack: written once, every band reads it
+  const keepBetter = kept
+    ? [`${BETTER}.id IN (SELECT id FROM kept)`]
+    : [dated(BETTER), ...betterPassFilter(params, narrowed)];
   // Band numbers, not keys, go into the SQL; the rank expressions are this file's.
   const tops = filters.map(([, , colors], band) => {
     const rank = colorRank(colors);
     if (!rank) throw new Error("A band needs a color or a tone");
+    const front = stackFront([colorRanked(rank, BETTER), ...keepBetter]);
     return `(SELECT ${band} AS band, pc.photo_id AS id, p.folder_id,
              pc.palette_hex[1] AS hex, p.metadata->'user_rotation' AS rotation,
              p.size::text || pc.palette_hex::text || pc.palette_share::text AS look,
              p.metadata->>'date_taken' AS taken
       FROM photo_colors pc
       JOIN photos p ON p.id = pc.photo_id
-      WHERE ${[...rank.where, DATED, keep].join(" AND ")}
+      WHERE ${[...rank.where, DATED, keep, front].join(" AND ")}
       ORDER BY ${rank.score} ${rank.order}, pc.photo_id ${rank.order}
       LIMIT $1)`;
   });
@@ -1528,13 +1643,22 @@ const PHOTO_HITS = `hits AS (
 )`;
 
 /**
- * Name matches passing `filter` (hits h), null without one: names find
- * every photo, filters only those of the gallery.
+ * Name matches passing `filter` (hits h): names find every photo, filters
+ * only those of the gallery. One per stack, the best of the stack's photos
+ * the name and the filter find.
  */
-function hitFilterSql(params: unknown[], filter: PhotoFilter): string | null {
-  return hasPhotoFilter(filter)
-    ? `EXISTS (SELECT 1 FROM photos p WHERE p.id = h.id ${andPhotoFilter(params, filter)})`
-    : null;
+function hitFilterSql(params: unknown[], filter: PhotoFilter): string {
+  const filtered = hasPhotoFilter(filter);
+  const front = stackFront(
+    [
+      `${BETTER}.id IN (SELECT id FROM hits)`,
+      ...(filtered ? betterPassFilter(params, filter) : []),
+    ],
+    "h",
+  );
+  return filtered
+    ? `EXISTS (SELECT 1 FROM photos p WHERE p.id = h.id ${andPhotoFilter(params, filter)}) AND ${front}`
+    : front;
 }
 
 export type SearchPhoto = Photo & { folder_name: string; folder_path: string };
@@ -1557,8 +1681,7 @@ export async function searchPhotos(
     params.push(after.folderPath, after.filename, after.id);
     where.push("(f.path, h.filename, h.id) > ($3::text, $4::text, $5::bigint)");
   }
-  const filterWhere = hitFilterSql(params, filter);
-  if (filterWhere) where.push(filterWhere);
+  where.push(hitFilterSql(params, filter));
   const result = await query<
     DatabasePhoto & { folder_name: string; folder_path: string }
   >(
@@ -1570,7 +1693,7 @@ export async function searchPhotos(
        ORDER BY f.path, h.filename, h.id
        LIMIT $2
      )
-     SELECT p.*, f.name AS folder_name, f.path AS folder_path
+     SELECT p.*, f.name AS folder_name, f.path AS folder_path, ${stackColumns()}
      FROM page
      JOIN photos p ON p.id = page.id
      JOIN folders f ON f.id = p.folder_id
@@ -1602,12 +1725,11 @@ export async function countSearchMatches(
   filter: PhotoFilter = NO_PHOTO_FILTER,
 ): Promise<{ photos: number; folders: number }> {
   const params: unknown[] = [searchTerms(q).like];
-  const colorWhere = hitFilterSql(params, filter);
   const result = await query<{ photos: number; folders: number }>(
     `WITH ${PHOTO_HITS}
      SELECT
        (SELECT COUNT(*) FROM hits h
-        ${colorWhere ? `WHERE ${colorWhere}` : ""})::int AS photos,
+        WHERE ${hitFilterSql(params, filter)})::int AS photos,
        (SELECT COUNT(*) FROM folders f
         WHERE ${containsSql("f.path", "$1")} AND ${HAS_CONTENT})::int AS folders`,
     params,
@@ -1796,7 +1918,13 @@ export async function searchPhotosByContent(
     params.push(value);
     return `$${params.length}`;
   };
-  const narrow = andPhotoFilter(params, filter, "e.photo_id");
+  const narrow = andPhotoFilter(params, filter, "p", "e.photo_id");
+  // The nearest stack fronts: a burst would fill the page with one picture
+  const front = stackFront([
+    `${BETTER}.mime_type LIKE 'image/%'`,
+    `EXISTS (SELECT 1 FROM photo_embeddings be WHERE be.photo_id = ${BETTER}.id AND be.model = $2)`,
+    ...betterPassFilter(params, filter),
+  ]);
   const floor = cut
     ? `AND n.distance <= least(
                ${add(1 - SEMANTIC_MIN_SIMILARITY)}::float8,
@@ -1828,10 +1956,12 @@ export async function searchPhotosByContent(
          JOIN photos p ON p.id = e.photo_id
          WHERE e.model = $2 AND p.mime_type LIKE 'image/%'
            ${narrow}
+           AND ${front}
          ORDER BY e.embedding <=> $1::halfvec
          LIMIT $3
        )
-       SELECT p.*, f.name AS folder_name, f.path AS folder_path, n.distance
+       SELECT p.*, f.name AS folder_name, f.path AS folder_path, n.distance,
+              ${stackColumns()}
        FROM nearest n
        JOIN photos p ON p.id = n.photo_id
        JOIN folders f ON f.id = p.folder_id
@@ -1886,6 +2016,7 @@ export async function contentPhotos(
   const narrow = andPhotoFilter(
     params,
     { ...filter, content: null },
+    "p",
     "e.photo_id",
   );
   const row = await runTransaction(async (client) => {
@@ -2069,13 +2200,21 @@ export async function createOrUpdateFolder(
   return requireRow(result);
 }
 
-export async function getPhotosInFolder(folderId: number): Promise<Photo[]> {
+/**
+ * A folder's files, by name. With `stacked` (the Bibliothèque), one per
+ * stack of near-duplicates: the best of the stack's photos in this folder.
+ * Shares and MCP list the files as they are.
+ */
+export async function getPhotosInFolder(
+  folderId: number,
+  stacked = false,
+): Promise<Photo[]> {
   const result = await query<DatabasePhoto>(
-    `
-    SELECT * FROM photos
-    WHERE folder_id = $1
-    ORDER BY filename
-  `,
+    stacked
+      ? `SELECT p.*, ${stackColumns()} FROM photos p
+         WHERE p.folder_id = $1 AND ${stackFront([`${BETTER}.folder_id = $1`])}
+         ORDER BY p.filename`
+      : "SELECT * FROM photos WHERE folder_id = $1 ORDER BY filename",
     [folderId],
   );
 
@@ -2392,15 +2531,20 @@ export async function getTimelinePhotos(
     cursorFilter = `AND ((p.metadata->>'date_taken'), p.id) < ($2::text, $3::bigint)`;
   }
   const narrow = andPhotoFilter(params, filter);
+  const front = stackFront([
+    dated(BETTER),
+    ...betterPassFilter(params, filter),
+  ]);
 
   const result = await listQuery<DatabasePhoto & { folder_path: string }>(
     `
-    SELECT p.*, f.path AS folder_path
+    SELECT p.*, f.path AS folder_path, ${stackColumns()}
     FROM photos p
     JOIN folders f ON f.id = p.folder_id
     WHERE (p.metadata->>'date_taken') IS NOT NULL
       ${cursorFilter}
       ${narrow}
+      AND ${front}
     ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
     LIMIT $1
   `,
@@ -2414,8 +2558,9 @@ export async function getTimelinePhotos(
 }
 
 export interface TimelineSummary {
+  /** Tiles per month: a stack counts once */
   months: { month: string; count: number }[];
-  /** Every photo (images and videos) of the gallery passing the filter, dated or not */
+  /** Every photo (images and videos) of the gallery passing the filter, dated or not, a stack once */
   total_photos: number;
 }
 
@@ -2425,8 +2570,13 @@ export async function getTimelineSummary(
 ): Promise<TimelineSummary> {
   const params: unknown[] = [];
   const narrow = andPhotoFilter(params, filter);
+  const front = stackFront([
+    dated(BETTER),
+    ...betterPassFilter(params, filter),
+  ]);
   const totalParams: unknown[] = [];
   const totalNarrow = andPhotoFilter(totalParams, filter);
+  const totalFront = stackFront(betterPassFilter(totalParams, filter));
   const [months, total] = await Promise.all([
     listQuery<{ month: string; count: number }>(
       `
@@ -2434,13 +2584,14 @@ export async function getTimelineSummary(
       FROM photos p
       WHERE (p.metadata->>'date_taken') IS NOT NULL
         ${narrow}
+        AND ${front}
       GROUP BY 1
       ORDER BY 1 DESC
     `,
       params,
     ),
     listQuery<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalNarrow}`,
+      `SELECT COUNT(*)::int AS total FROM photos p WHERE true ${totalNarrow} AND ${totalFront}`,
       totalParams,
     ),
   ]);
@@ -2449,42 +2600,61 @@ export async function getTimelineSummary(
 
 // On the map: a GPS fix (imageProbe only writes finite numbers, never 0,0)
 // and a date taken, which the period and the newest-first order need.
-const ON_MAP = `(p.metadata->'location') IS NOT NULL
-  AND (p.metadata->>'date_taken') IS NOT NULL`;
-const LATITUDE = `((p.metadata->'location'->>'latitude')::float8)`;
-const LONGITUDE = `((p.metadata->'location'->>'longitude')::float8)`;
+const onMap = (p: string) => `(${p}.metadata->'location') IS NOT NULL
+  AND (${p}.metadata->>'date_taken') IS NOT NULL`;
+const latitude = (p: string) =>
+  `((${p}.metadata->'location'->>'latitude')::float8)`;
+const longitude = (p: string) =>
+  `((${p}.metadata->'location'->>'longitude')::float8)`;
+const LATITUDE = latitude("p");
+const LONGITUDE = longitude("p");
 
 /**
- * WHERE clause for photos of the gallery on the map passing `filter`,
+ * Conditions over photos `p` of the gallery on the map passing `filter`,
  * within the period and the box when given; values go to `params`. The
  * period is one more date range of the filter (periodFilter): months and
  * days compare as text against the ISO date_taken, so idx_photos_date_taken
  * serves them.
  */
+function mapConditions(
+  params: unknown[],
+  filter: PhotoFilter,
+  period: MapPeriod,
+  box: MapBox | null,
+  p: string,
+): string[] {
+  const add = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const where = [
+    onMap(p),
+    ...filterConditions(
+      params,
+      { ...filter, dates: [...filter.dates, periodFilter(period)] },
+      p,
+    ),
+  ];
+  if (box) {
+    where.push(
+      `${latitude(p)} BETWEEN ${add(box.south)}::float8 AND ${add(box.north)}::float8`,
+      `${longitude(p)} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
+    );
+  }
+  return where;
+}
+
+/** WHERE clause of mapConditions over photos p, one tile per stack. */
 function mapFilter(
   params: unknown[],
   filter: PhotoFilter,
   period: MapPeriod,
   box: MapBox | null,
 ): string {
-  const add = (value: unknown) => {
-    params.push(value);
-    return `$${params.length}`;
-  };
-  const where = [
-    ON_MAP,
-    ...filterConditions(params, {
-      ...filter,
-      dates: [...filter.dates, periodFilter(period)],
-    }),
-  ];
-  if (box) {
-    where.push(
-      `${LATITUDE} BETWEEN ${add(box.south)}::float8 AND ${add(box.north)}::float8`,
-      `${LONGITUDE} BETWEEN ${add(box.west)}::float8 AND ${add(box.east)}::float8`,
-    );
-  }
-  return where.join("\n  AND ");
+  return [
+    ...mapConditions(params, filter, period, box, "p"),
+    stackFront(mapConditions(params, filter, period, box, BETTER)),
+  ].join("\n  AND ");
 }
 
 /**
@@ -2580,7 +2750,7 @@ export async function getMapPhotos(
       ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC
       LIMIT $1
     )
-    SELECT p.*, f.path AS folder_path
+    SELECT p.*, f.path AS folder_path, ${stackColumns()}
     FROM page
     JOIN photos p ON p.id = page.id
     JOIN folders f ON f.id = p.folder_id

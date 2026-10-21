@@ -44,6 +44,8 @@ import FaceLayer from "./people/FaceLayer";
 import FacePopover from "./people/FacePopover";
 import { forgetPhotoFaces, usePhotoFaces } from "./people/usePhotoFaces";
 import type { PhotoFace } from "@/lib/people";
+import StackStrip from "./viewer/StackStrip";
+import { forgetStacks, useStack } from "./viewer/useStack";
 
 /** Face boxes stay on (P) from one photo, and one opening, to the next. */
 let facesShownPreference = false;
@@ -119,9 +121,13 @@ export default function PhotoViewer({
   const [mounted, setMounted] = useState(false);
 
   const nav = usePhotoNavigation(photo, photos, onPhotoChange);
+  // Once per opening, before the first fetch: a stack may have changed since
+  useState(forgetStacks);
+  // The list's photo may front a stack of near-duplicates: ↑ ↓ show the others
+  const stack = useStack(nav.current, !isSharedView);
   // The photo as shown: a hand rotation the server has stored shows at once,
   // whether or not the parent passes the change back down.
-  const turning = usePhotoRotation(nav.current, {
+  const turning = usePhotoRotation(stack.photo, {
     enabled: !isSharedView && !isVideo(nav.current),
     onChange: (turned) => {
       onPhotoUpdate?.(turned.id, {
@@ -579,6 +585,11 @@ export default function PhotoViewer({
       return;
 
     switch (e.key) {
+      case "ArrowUp":
+      case "ArrowDown":
+        // In a stack: the photo above or below; elsewhere the page's own
+        if (stack.step(e.key === "ArrowUp" ? -1 : 1)) handled();
+        break;
       case "ArrowLeft":
         handled();
         previous();
@@ -924,6 +935,22 @@ export default function PhotoViewer({
                 </div>
               </div>
 
+              {stack.photos && (
+                <div
+                  data-chrome
+                  className={cn(
+                    "absolute inset-x-0 bottom-2 flex justify-center px-14",
+                    chromeClass,
+                  )}
+                >
+                  <StackStrip
+                    photos={stack.photos}
+                    shown={stack.index}
+                    onShow={stack.show}
+                  />
+                </div>
+              )}
+
               {nav.total > 1 && (
                 <>
                   <div
@@ -1038,6 +1065,7 @@ export default function PhotoViewer({
         {helpOpen && (
           <ShortcutsHelp
             id={helpId}
+            canStack={stack.photos !== null}
             canFavorite={canFavorite}
             canRotate={canRotate}
             canDelete={canDelete}
