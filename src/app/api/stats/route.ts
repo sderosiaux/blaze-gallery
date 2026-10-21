@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/middleware";
-import { query, requireRow } from "@/lib/database";
+import { notTrashed, query, requireRow } from "@/lib/database";
 import { logger } from "@/lib/logger";
 import type { StatsSummary } from "@/components/stats/types";
 
@@ -25,24 +25,29 @@ interface FoldersRow {
 // Force dynamic rendering for routes using auth
 export const dynamic = "force-dynamic";
 
+/** A photo out of the Corbeille (lib/database.ts notTrashed) */
+const KEPT = notTrashed("photos");
+
 // The first screen of /stats. One pass over photos and one over folders, run in
 // parallel, so the headline numbers arrive in a few hundred milliseconds. The
 // per-tab detail lives in the sibling routes and is fetched only when opened.
 export const GET = requireAuth(async function GET() {
   try {
     const [photosResult, foldersResult] = await Promise.all([
+      // The library's counts leave the Corbeille out; the storage is the
+      // bucket's, its files included until the purge erases them
       query<PhotosRow>(`
         SELECT
-          COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%')::int AS photos,
-          COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos,
+          COUNT(*) FILTER (WHERE ${KEPT} AND mime_type NOT LIKE 'video/%')::int AS photos,
+          COUNT(*) FILTER (WHERE ${KEPT} AND mime_type LIKE 'video/%')::int AS videos,
           COALESCE(SUM(size), 0)::float8 AS storage_bytes,
           COALESCE(SUM(size) FILTER (WHERE mime_type LIKE 'video/%'), 0)::float8 AS video_bytes,
-          COUNT(DISTINCT folder_id)::int AS albums,
-          COUNT(*) FILTER (WHERE is_favorite)::int AS favorites,
-          COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%' AND metadata ? 'dimensions')::int AS with_dimensions,
-          COUNT(*) FILTER (WHERE mime_type NOT LIKE 'video/%' AND metadata ? 'date_taken')::int AS with_date,
+          COUNT(DISTINCT folder_id) FILTER (WHERE ${KEPT})::int AS albums,
+          COUNT(*) FILTER (WHERE ${KEPT} AND is_favorite)::int AS favorites,
+          COUNT(*) FILTER (WHERE ${KEPT} AND mime_type NOT LIKE 'video/%' AND metadata ? 'dimensions')::int AS with_dimensions,
+          COUNT(*) FILTER (WHERE ${KEPT} AND mime_type NOT LIKE 'video/%' AND metadata ? 'date_taken')::int AS with_date,
           COUNT(*) FILTER (
-            WHERE mime_type NOT LIKE 'video/%' AND metadata IS NULL AND metadata_status IS DISTINCT FROM 'failed'
+            WHERE ${KEPT} AND mime_type NOT LIKE 'video/%' AND metadata IS NULL AND metadata_status IS DISTINCT FROM 'failed'
           )::int AS pending
         FROM photos
       `),

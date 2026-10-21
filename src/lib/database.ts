@@ -453,7 +453,7 @@ export async function getStackPhotos(
 export interface ExcludedFolder {
   path: string;
   created_at: string;
-  /** Photos and videos in it and below it, by the folders' counts */
+  /** Photos and videos in it and below it, but those in the Corbeille: what it shows */
   photo_count: number;
 }
 
@@ -461,8 +461,12 @@ export interface ExcludedFolder {
 export async function listExcludedFolders(): Promise<ExcludedFolder[]> {
   const result = await query<ExcludedFolder>(`
     SELECT x.path, x.created_at,
-      (SELECT COALESCE(SUM(f.photo_count), 0) FROM folders f
-       WHERE (f.path || '/') LIKE x.key_like)::int AS photo_count
+      -- The folders' counts (the sync's) less the Corbeille's few: counting
+      -- the photos under each took 2 s on the library, this 40 ms
+      ((SELECT COALESCE(SUM(f.photo_count), 0) FROM folders f
+        WHERE (f.path || '/') LIKE x.key_like)
+       - (SELECT count(*) FROM photos p
+          WHERE p.trashed_at IS NOT NULL AND p.s3_key LIKE x.key_like))::int AS photo_count
     FROM excluded_folders x
     ORDER BY x.path
   `);
@@ -2230,13 +2234,14 @@ export async function takenYears(): Promise<{
 }
 
 export async function getLibrarySummary(): Promise<LibrarySummary> {
-  // min/max read the ends of idx_photos_date_taken; the counts scan photos once
+  // min/max read the ends of idx_photos_date_taken; the counts scan photos
+  // once; the Corbeille's photos left out
   const [media, folders, span] = await Promise.all([
     query<{ photos: number; videos: number }>(`
       SELECT
-        COUNT(*) FILTER (WHERE mime_type LIKE 'image/%')::int AS photos,
-        COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
-      FROM photos
+        COUNT(*) FILTER (WHERE p.mime_type LIKE 'image/%')::int AS photos,
+        COUNT(*) FILTER (WHERE p.mime_type LIKE 'video/%')::int AS videos
+      FROM photos p WHERE ${notTrashed()}
     `),
     query<{ folders: number; albums: number }>(`
       SELECT COUNT(*)::int AS folders,
@@ -2245,12 +2250,12 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
     `),
     query<{ first: string | null; last: string | null }>(`
       SELECT
-        (SELECT metadata->>'date_taken' FROM photos
-         WHERE (metadata->>'date_taken') IS NOT NULL
-         ORDER BY (metadata->>'date_taken'), id LIMIT 1) AS first,
-        (SELECT metadata->>'date_taken' FROM photos
-         WHERE (metadata->>'date_taken') IS NOT NULL
-         ORDER BY (metadata->>'date_taken') DESC, id DESC LIMIT 1) AS last
+        (SELECT p.metadata->>'date_taken' FROM photos p
+         WHERE (p.metadata->>'date_taken') IS NOT NULL AND ${notTrashed()}
+         ORDER BY (p.metadata->>'date_taken'), p.id LIMIT 1) AS first,
+        (SELECT p.metadata->>'date_taken' FROM photos p
+         WHERE (p.metadata->>'date_taken') IS NOT NULL AND ${notTrashed()}
+         ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC LIMIT 1) AS last
     `),
   ]);
 
