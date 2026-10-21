@@ -8,9 +8,12 @@
  *
  *   copy   same size in bytes, same dimensions, cosine >= COPY_COSINE,
  *          and the same MD5 (photos.etag) when the bucket gave both one
- *   burst  same camera (EXIF make and model), both large enough, taken
- *          the same second at cosine >= SAME_SECOND_COSINE, or 1 to
- *          BURST_SECONDS apart at cosine >= BURST_COSINE
+ *   burst  same camera (EXIF make and model), both large enough, the
+ *          same shape (SHAPE_TOLERANCE), taken the same second at cosine
+ *          >= SAME_SECOND_COSINE, or 1 to BURST_SECONDS apart at cosine
+ *          >= BURST_COSINE
+ *
+ * and never a photo with more pixels than the one kept.
  *
  * The rest of the rule (`same`: no camera date, or later than a burst,
  * decided by a pixel test) needs the thumbnails: those members stay, and
@@ -29,6 +32,9 @@ const SAME_SECOND_COSINE = 0.9;
 const BURST_SECONDS = 30;
 const BURST_COSINE = 0.975;
 const MIN_SIDE = 100;
+
+/** Two shapes differ past this share of the aspect ratio: a crop, an edit. */
+export const SHAPE_TOLERANCE = 0.01;
 
 type Runner = (
   text: string,
@@ -51,23 +57,34 @@ const taken = (
 const plain = (p: string) =>
   `least(${width(p)}::int, ${height(p)}::int) >= ${MIN_SIDE}`;
 const md5 = (p: string) => `nullif(trim(both '"' from ${p}.etag), '')`;
+// The long side over the short one: a turned photo keeps its shape
+const ratio = (p: string) =>
+  `(greatest(${width(p)}::float8, ${height(p)}::float8) / nullif(least(${width(p)}::float8, ${height(p)}::float8), 0))`;
+const pixels = (p: string) => `(${width(p)}::float8 * ${height(p)}::float8)`;
 
 /**
  * SQL: photo `m` (embedding `em`) is linked to photo `k` (embedding `ek`)
- * by the pair rule's copy or burst part.
+ * by the pair rule's copy or burst part, so that `m` may go for `k`. A
+ * burst also needs the same shape, and `m` never has more pixels than
+ * `k`: an export or a crop that kept its EXIF time must not take the
+ * original away. Unknown dimensions link nothing.
  */
-function linked(m: string, k: string, em: string, ek: string) {
+export function linked(m: string, k: string, em: string, ek: string) {
   const cosine = `(1 - (${em}.embedding <=> ${ek}.embedding))`;
   // Two MD5s that differ say two files; a multipart or unread ETag says nothing
   const sameBytes = `AND (${md5(m)} !~ '^[0-9a-f]{32}$' OR ${md5(k)} !~ '^[0-9a-f]{32}$'
             OR ${md5(m)} IS NULL OR ${md5(k)} IS NULL OR ${md5(m)} = ${md5(k)})`;
   const gap = `abs(${taken(m)} - ${taken(k)})`;
   return `(
-    (${m}.size = ${k}.size AND ${width(m)} = ${width(k)} AND ${height(m)} = ${height(k)}
-     AND ${cosine} >= ${COPY_COSINE} ${sameBytes})
-    OR (${camera(m)} = ${camera(k)} AND ${plain(m)} AND ${plain(k)}
-        AND ((${gap} < 1 AND ${cosine} >= ${SAME_SECOND_COSINE})
-             OR (${gap} >= 1 AND ${gap} <= ${BURST_SECONDS} AND ${cosine} >= ${BURST_COSINE})))
+    ${pixels(m)} <= ${pixels(k)}
+    AND (
+      (${m}.size = ${k}.size AND ${width(m)} = ${width(k)} AND ${height(m)} = ${height(k)}
+       AND ${cosine} >= ${COPY_COSINE} ${sameBytes})
+      OR (${camera(m)} = ${camera(k)} AND ${plain(m)} AND ${plain(k)}
+          AND abs(${ratio(m)} - ${ratio(k)}) <= ${SHAPE_TOLERANCE} * ${ratio(k)}
+          AND ((${gap} < 1 AND ${cosine} >= ${SAME_SECOND_COSINE})
+               OR (${gap} >= 1 AND ${gap} <= ${BURST_SECONDS} AND ${cosine} >= ${BURST_COSINE})))
+    )
   )`;
 }
 

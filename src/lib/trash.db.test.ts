@@ -34,7 +34,13 @@ async function photo(
   id: number,
   folder: { id: number; path: string },
   taken: string,
-  extra: { favorite?: boolean; size?: number; look?: number } = {},
+  extra: {
+    favorite?: boolean;
+    size?: number;
+    look?: number;
+    width?: number;
+    height?: number;
+  } = {},
 ) {
   await sql.query(
     `INSERT INTO photos (id, folder_id, filename, s3_key, size, mime_type,
@@ -48,7 +54,10 @@ async function photo(
       extra.size ?? 1000 + id,
       {
         date_taken: `${taken}.000Z`,
-        dimensions: { width: 4000, height: 3000 },
+        dimensions: {
+          width: extra.width ?? 4000,
+          height: extra.height ?? 3000,
+        },
         camera: { make: "Canon", model: "R6" },
       },
       `thumbnails/${folder.path}/p${id}.jpg`,
@@ -355,6 +364,22 @@ void describe("the Corbeille", () => {
     // What it was shown going is not what goes now: nothing moves
     assert.deepEqual(await second, { ok: false, trashed: [], count: 1 });
     assert.deepEqual(ids(await database.getStackPhotos(301)), [301]);
+  });
+
+  void test("« Garder » takes neither another shape nor a larger photo away", async () => {
+    await photo(371, FOLDER, "2021-06-01T10:00:00");
+    await photo(372, FOLDER, "2021-06-01T10:00:02");
+    // A crop, and an export larger than the photo kept, both with its EXIF time
+    await photo(373, FOLDER, "2021-06-01T10:00:02", {
+      width: 4000,
+      height: 2000,
+    });
+    await photo(374, FOLDER, "2021-06-01T10:00:01", {
+      width: 6000,
+      height: 4500,
+    });
+    await stack([371, 372, 373, 374]);
+    assert.deepEqual(await keep.previewKeep([371]), { 371: [372] });
   });
 
   void test("« Garder » links a burst by the shot's own time, not a fallback EXIF date", async () => {
