@@ -21,14 +21,13 @@ export function slotItems<T extends Photo>(
 
 /**
  * A list's photos as the page shows them after the viewer or a tile
- * changed what stands in a slot: a photo sent to the Corbeille leaves its
- * slot (null), the next photo of its stack takes it, a kept photo stands
- * alone, « Annuler » puts the first one back. Keyed by the slot's photo in
- * the list as loaded, so a slot can change hands several times and still
- * be found. A slot that keeps its photo only takes the new stack from the
- * replacement: the list's own changes to that photo (a favourite) still show.
- * A photo shows once: the next front of a stack may come again in a page
- * the list loads later, where the server now puts it.
+ * changed a slot: a photo sent to the Corbeille empties its slot (null), a
+ * front that stays shows its stack counted again, a kept front stands
+ * alone, « Annuler » puts the photo back. Keyed by the slot's photo in the
+ * list as loaded. A slot that keeps its photo only takes the new stack
+ * from the replacement: the list's own changes to that photo (a
+ * favourite) still show. A photo shows once: the next front of a stack may
+ * come in a page the list loads later, where the server now puts it.
  */
 export function usePhotoSlots<T extends Photo>(photos: readonly T[]) {
   const [slots, setSlots] = useState<ReadonlyMap<string, T | null>>(

@@ -12,20 +12,13 @@ import type { Photo } from "@/types";
 import { useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { createHoldToConfirm, HOLD_TO_CONFIRM_MS } from "@/lib/holdToConfirm";
-import {
-  nextFront,
-  restoreFromTrash,
-  sendToTrash,
-  stackPhotos,
-  TrashError,
-} from "@/lib/trashClient";
+import { restoreFromTrash, sendToTrash, TrashError } from "@/lib/trashClient";
 
 interface PhotoDeleteButtonProps {
   photo: Photo;
   /**
-   * Once the photo is in the Corbeille: what its slot shows now (null:
-   * nothing; the next photo of its stack when it fronted one), and back to
-   * the photo on « Annuler ».
+   * Once the photo is in the Corbeille: its slot empties (null), and gets
+   * the photo back on « Annuler ».
    */
   onReplace: (id: Photo["id"], next: Photo | null) => void;
 }
@@ -47,20 +40,16 @@ export default function PhotoDeleteButton({
     setDeleting(true);
     try {
       await sendToTrash([photo.id]);
-      // A stack's front gives way to the next photo of it
-      const next = photo.stack
-        ? await stackPhotos(photo.id)
-            .then((left) => nextFront(left, [photo.id], photo.stack?.id))
-            .catch(() => null)
-        : null;
-      onReplace(photo.id, next);
+      // The slot empties, a stack's front too: the next photo of its stack
+      // may not be the list's (frontAfter); it shows once the list reloads
+      onReplace(photo.id, null);
       toast.show("Dans la corbeille", "success", {
         action: {
           label: "Annuler",
           onClick: () => {
             restoreFromTrash([photo.id])
               .then(() => {
-                onReplace(next?.id ?? photo.id, photo);
+                onReplace(photo.id, photo);
               })
               .catch(() => {
                 toast.show("La photo n’est pas revenue", "error");

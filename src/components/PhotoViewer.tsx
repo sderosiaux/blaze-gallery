@@ -46,8 +46,8 @@ import type { PhotoFace } from "@/lib/people";
 import StackStrip from "./viewer/StackStrip";
 import { forgetStacks, useStack } from "./viewer/useStack";
 import {
+  frontAfter,
   keepInStacks,
-  nextFront,
   restoreFromTrash,
   sendToTrash,
   stackPhotos as readStack,
@@ -349,23 +349,14 @@ export default function PhotoViewer({
     const shown = current;
     try {
       await sendToTrash([shown.id]);
-      // In a stack the slot stays: the next photo of it when the front went,
-      // else the front with one photo fewer behind it
-      let next: Photo | null = null;
-      if (stackPhotos && String(shown.id) === String(front.id))
-        next = nextFront(stackPhotos, [shown.id], front.stack?.id);
-      else if (stackPhotos) {
-        const { stack: was, ...alone } = front;
-        const left = stackPhotos.length - 1;
-        next =
-          was && left >= 2
-            ? { ...alone, stack: { ...was, count: left } }
-            : alone;
-      } else if (front.stack)
-        // The stack was not read yet (the front is the photo shown): what is left of it
-        next = await readStack(shown.id)
-          .then((left) => nextFront(left, [shown.id], front.stack?.id))
-          .catch(() => null);
+      // The slot keeps its photo, its badge counted again by the server,
+      // or empties when that photo went (frontAfter)
+      const kept = String(shown.id) !== String(front.id);
+      const left =
+        kept && front.stack
+          ? await readStack(front.id).catch(() => null)
+          : null;
+      const next = frontAfter(front, [shown.id], left);
       forgetStack();
       settleSlot(next);
       toast.show("Dans la corbeille", "success", {
@@ -375,7 +366,7 @@ export default function PhotoViewer({
             restoreFromTrash([shown.id])
               .then(() => {
                 forgetStack();
-                onPhotoReplace?.(next?.id ?? front.id, front);
+                onPhotoReplace?.(front.id, front);
               })
               .catch(() => {
                 toast.show("La photo n’est pas revenue", "error");
@@ -397,7 +388,6 @@ export default function PhotoViewer({
     canTrash,
     trashing,
     current,
-    stackPhotos,
     front,
     forgetStack,
     settleSlot,
@@ -415,9 +405,10 @@ export default function PhotoViewer({
       .map((p) => Number(p.id));
     try {
       const trashed = await keepInStacks([Number(kept.id)], others);
-      const { stack: _, ...alone } = kept;
+      // The front kept stands alone; another kept, the front went: the
+      // slot empties (frontAfter), the kept photo shows once the list reloads
       forgetStack();
-      settleSlot(alone);
+      settleSlot(frontAfter(front, trashed, []));
       toast.show(
         `${formatNumber(trashed.length)} ${trashed.length > 1 ? "photos" : "photo"} dans la corbeille`,
         "success",
@@ -428,7 +419,7 @@ export default function PhotoViewer({
               restoreFromTrash(trashed)
                 .then(() => {
                   forgetStack();
-                  onPhotoReplace?.(kept.id, front);
+                  onPhotoReplace?.(front.id, front);
                 })
                 .catch(() => {
                   toast.show("Les photos ne sont pas revenues", "error");

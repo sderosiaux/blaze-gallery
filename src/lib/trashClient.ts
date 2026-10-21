@@ -70,21 +70,22 @@ export async function stackPhotos(photoId: Photo["id"]): Promise<Photo[]> {
 }
 
 /**
- * What a list shows in a stack's place once `gone` left it: the best of
- * `photos` still there, fronting what is left; null when none is.
+ * What a list's slot shows once `gone` went to the Corbeille: its own
+ * photo `front` still, its badge counting `left` (its stack's photos the
+ * server now shows; null when unknown: the badge stays as it was), or
+ * nothing when `front` itself went. Never another photo of the stack: it
+ * may not pass the list's own condition (its folder, its filter, its
+ * dates), which only the server knows; the list shows it once reloaded.
  */
-export function nextFront(
-  photos: readonly Photo[],
+export function frontAfter(
+  front: Photo,
   gone: readonly Photo["id"][],
-  stackId: number | undefined,
+  left: readonly Photo[] | null,
 ): Photo | null {
-  const left = photos.filter(
-    (p) => !gone.some((id) => String(id) === String(p.id)),
-  );
-  const [first] = left;
-  if (!first) return null;
-  const { stack: _, ...photo } = first;
-  return left.length >= 2 && stackId !== undefined
-    ? { ...photo, stack: { id: stackId, count: left.length } }
-    : photo;
+  const went = (id: Photo["id"]) => gone.some((g) => String(g) === String(id));
+  if (went(front.id)) return null;
+  const { stack: was, ...alone } = front;
+  if (!was || left === null) return front;
+  const count = left.filter((p) => !went(p.id)).length;
+  return count >= 2 ? { ...alone, stack: { ...was, count } } : alone;
 }

@@ -37,3 +37,21 @@ void test("a photo the list loads again where the server now puts it shows once"
     [11, 5],
   );
 });
+
+void test("an emptied slot shows nothing, and its photo again once put back", () => {
+  const front = photo(1, { stack: { id: 1, count: 2 } });
+  const list = [front, photo(5)];
+  const emptied = new Map<string, Photo | null>([["1", null]]);
+  assert.deepEqual(
+    slotItems(list, emptied).map((p) => p.id),
+    [5],
+  );
+  const back = new Map<string, Photo | null>([["1", front]]);
+  assert.deepEqual(
+    slotItems(list, back).map((p) => [p.id, p.stack?.count]),
+    [
+      [1, 2],
+      [5, undefined],
+    ],
+  );
+});
