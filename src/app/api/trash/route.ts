@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { listTrash, TRASH_BATCH, trashPhotos } from "@/lib/trash";
 import { badRequest, failure, positiveId } from "@/app/api/_lib/people";
 import { idList, jsonBody } from "@/app/api/_lib/ids";
+import { refusedOrigin } from "@/app/api/_lib/request";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,8 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
 
 /** POST /api/trash { photo_ids }: into the Corbeille; answers the ids just thrown away. */
 export const POST = requireAuth(async function POST(request: NextRequest) {
+  const foreign = refusedOrigin(request);
+  if (foreign) return foreign;
   const body = await jsonBody(request);
   const ids = idList(body?.photo_ids, TRASH_BATCH);
   if (!ids) return badRequest(`photo_ids must hold 1 to ${TRASH_BATCH} ids`);

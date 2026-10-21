@@ -4,11 +4,14 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { restoreLot, restorePhotos, TRASH_BATCH } from "@/lib/trash";
 import { badRequest, failure } from "@/app/api/_lib/people";
 import { idList, jsonBody } from "@/app/api/_lib/ids";
+import { refusedOrigin } from "@/app/api/_lib/request";
 
 export const dynamic = "force-dynamic";
 
 /** POST /api/trash/restore { photo_ids }, { lot } or { all: true }: back in the gallery. */
 export const POST = requireAuth(async function POST(request: NextRequest) {
+  const foreign = refusedOrigin(request);
+  if (foreign) return foreign;
   const body = await jsonBody(request);
   const lot =
     typeof body?.lot === "string" && body.lot !== "" ? body.lot : null;

@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth/middleware";
 import { keepFromStacks, TRASH_BATCH } from "@/lib/trash";
 import { badRequest, failure } from "@/app/api/_lib/people";
 import { idList, jsonBody } from "@/app/api/_lib/ids";
+import { refusedOrigin } from "@/app/api/_lib/request";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
  * the stacks now hold.
  */
 export const POST = requireAuth(async function POST(request: NextRequest) {
+  const foreign = refusedOrigin(request);
+  if (foreign) return foreign;
   const body = await jsonBody(request);
   const keep = idList(body?.keep, TRASH_BATCH);
   const trash = idList(body?.trash, TRASH_BATCH);
