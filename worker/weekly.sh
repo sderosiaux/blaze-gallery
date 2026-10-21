@@ -2,9 +2,14 @@
 # Weekly bucket sync for Blaze Gallery (indexes photos dropped straight into B2).
 # Runs `npm run sync`, then `npm run palettes` (folder colour strips), from
 # the latest main in a throwaway Node container; the container name doubles
-# as a lock, so two runs never overlap. Then queues the new photos for every
-# analysis (existing jobs are left alone) and starts the workers, which stop
-# by themselves once their queue is empty (so Neon can suspend).
+# as a lock, so two runs never overlap. Then `npm run trash -- purge` erases
+# what has waited 30 days in the Corbeille (refusing past a twentieth of the
+# library), with blaze-purge.env, the only keys that can erase
+# (docs/DEPLOYMENT.md), skipped with a log line while that file does not
+# exist; a purge that refuses or stops leaves an ALERT-purge file beside the
+# logs. Then queues the new photos for every analysis
+# (existing jobs are left alone) and starts the workers, which stop by
+# themselves once their queue is empty (so Neon can suspend).
 set -eu
 BASE="$HOME/blaze-sync"
 LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
@@ -15,6 +20,24 @@ LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
     --env-file "$HOME/blaze-worker/blaze-worker.env" \
     -v "$BASE/repo:/app" -v blaze-sync-npm:/root/.npm -w /app \
     node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; exit \$s; }"
+  # No blaze-purge.env yet: the owner has not chosen to erase anything, so
+  # no purge and no alert. A purge that refuses or stops leaves the indexing
+  # to run, and an ALERT file that outlives the logs' fortnight
+  PURGE_ENV="$HOME/blaze-worker/blaze-purge.env"
+  if [ ! -f "$PURGE_ENV" ]; then
+    echo "== $(date -Is) purge skipped: no blaze-purge.env"
+  else
+    purge=0
+    docker run --rm --name blaze-trash --env-file "$PURGE_ENV" \
+      -v "$BASE/repo:/app" -w /app node:22-slim npm run -s trash -- purge ||
+      purge=$?
+    if [ "$purge" -ne 0 ]; then
+      ALERT="$BASE/logs/ALERT-purge-$(date +%Y-%m-%d)"
+      { echo "purge exited $purge at $(date -Is), see $LOG"
+        grep '^ALERT' "$LOG" | tail -5 || true; } >"$ALERT"
+      echo "== $(date -Is) ALERT purge exited $purge: $ALERT"
+    fi
+  fi
   for task in faces thumbs embed; do
     docker run --rm --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
       --entrypoint blaze-enqueue blaze-worker:embed --task "$task" --all

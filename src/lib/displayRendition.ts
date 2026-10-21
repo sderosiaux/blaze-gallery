@@ -95,6 +95,13 @@ function storageKey(photo: RenditionPhoto, rotation: QuarterTurn): string {
   );
 }
 
+/** Where every rendition of a photo would be stored, one per hand rotation: what a purge deletes. */
+export function renditionKeys(photo: RenditionPhoto): string[] {
+  return ([0, 90, 180, 270] as const).map((rotation) =>
+    storageKey(photo, rotation),
+  );
+}
+
 /**
  * EXIF orientations as sharp applies them (see orientJpeg): mirror first,
  * then turn clockwise. Index = orientation - 1.

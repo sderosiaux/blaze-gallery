@@ -23,6 +23,7 @@ import {
 } from "./faces";
 import { logger } from "./logger";
 import {
+  AUTO_THRESHOLD,
   chooseLookalikes,
   REJECTED_MARGIN,
   REVIEW_THRESHOLD,
@@ -70,7 +71,7 @@ export interface PersonSummary extends PersonRow {
 const STILL_OPEN = `(f.assignment IS NULL OR f.assignment = 'rejected')`;
 
 /** The face's photo (ph = photos) is in the gallery. */
-const GALLERY = andInGallery("ph.s3_key");
+const GALLERY = andInGallery("ph");
 
 const PERSON_COLUMNS =
   "p.id::int AS id, p.name, p.birth_date::text AS birth_date";
@@ -419,7 +420,7 @@ const stackOfPhoto = (
 ) => `pg.group_id::int AS stack_id, pg.rank AS stack_rank, pg.copy_of::int AS copy_of,
   ${stackKey(ph)} AS stack_key,
   (SELECT count(*) FROM photo_groups sm JOIN photos sp ON sp.id = sm.photo_id
-   WHERE sm.group_id = pg.group_id ${andInGallery("sp.s3_key")})::int AS stack_count`;
+   WHERE sm.group_id = pg.group_id ${andInGallery("sp")})::int AS stack_count`;
 
 /**
  * One photo per stack of near-duplicates (photo_groups), as every list of
@@ -787,8 +788,18 @@ async function acceptFaces(
     [personId, ids],
   );
   await recordDecision(client, personId, ids, "accepted");
-  // The photo holds her now: its other proposals for her go, and so do
-  // other people's proposals for these faces
+  await dropSettledProposals(client, personId, ids);
+}
+
+/**
+ * The faces `ids` are the person's now: their photos' other proposals for
+ * her go, and so do other people's proposals for these faces.
+ */
+async function dropSettledProposals(
+  client: PoolClient,
+  personId: number,
+  ids: readonly number[],
+): Promise<void> {
   await client.query(
     `DELETE FROM face_candidates c USING faces f, faces a
      WHERE c.status = 'pending' AND f.id = c.face_id AND a.id = ANY($2::bigint[])
@@ -796,6 +807,66 @@ async function acceptFaces(
             OR (c.person_id <> $1 AND f.id = a.id))`,
     [personId, ids],
   );
+}
+
+/**
+ * Before photos leave for the Corbeille in favour of another of their
+ * stack (« Garder celle-ci », `pairs` of the photo going and the photo
+ * kept): each name on a face of one going moves to the closest unnamed
+ * face of the photo kept, at AUTO_THRESHOLD or more, unless that photo
+ * holds the person already or the owner turned that face down for her.
+ * The purge erases a photo's faces with it; the name stays on the photo
+ * kept. A seed or manual name comes over as manual (the owner named the
+ * same face), an auto one as auto. Returns how many names moved.
+ */
+export async function carryNames(
+  client: PoolClient,
+  pairs: readonly { id: number; keep: number }[],
+): Promise<number> {
+  if (pairs.length === 0) return 0;
+  const found = await client.query<{
+    to_face: number;
+    person: number;
+    keep: number;
+    assignment: Assignment;
+  }>(
+    `WITH pairs AS (SELECT * FROM unnest($1::bigint[], $2::bigint[]) AS t(id, keep))
+     SELECT kf.id::int AS to_face, mf.person_id::int AS person, t.keep::int AS keep,
+            mf.assignment
+     FROM pairs t
+     JOIN faces mf ON mf.photo_id = t.id AND mf.person_id IS NOT NULL
+       AND mf.assignment IN ('seed', 'manual', 'auto')
+     JOIN faces kf ON kf.photo_id = t.keep AND kf.person_id IS NULL AND kf.model = mf.model
+     WHERE 1 - (mf.embedding <=> kf.embedding) >= $3
+       AND NOT EXISTS (
+         SELECT 1 FROM faces o WHERE o.photo_id = t.keep AND o.person_id = mf.person_id
+           AND o.assignment IN ('seed', 'manual', 'auto'))
+       AND NOT EXISTS (
+         SELECT 1 FROM face_candidates c
+         WHERE c.face_id = kf.id AND c.person_id = mf.person_id AND c.status = 'rejected')
+     ORDER BY 1 - (mf.embedding <=> kf.embedding) DESC, kf.id, mf.id`,
+    [pairs.map((p) => p.id), pairs.map((p) => p.keep), AUTO_THRESHOLD],
+  );
+  // Closest first: a face of the photo kept takes one name, a person one face
+  const faces = new Set<number>();
+  const held = new Set<string>();
+  let moved = 0;
+  for (const row of found.rows) {
+    const person = `${row.keep}:${row.person}`;
+    if (faces.has(row.to_face) || held.has(person)) continue;
+    faces.add(row.to_face);
+    held.add(person);
+    const assignment = row.assignment === "auto" ? "auto" : "manual";
+    await client.query(
+      "UPDATE faces SET person_id = $1, assignment = $2 WHERE id = $3 AND person_id IS NULL",
+      [row.person, assignment, row.to_face],
+    );
+    if (assignment === "manual")
+      await recordDecision(client, row.person, [row.to_face], "accepted");
+    await dropSettledProposals(client, row.person, [row.to_face]);
+    moved += 1;
+  }
+  return moved;
 }
 
 async function rejectFaces(
@@ -1002,7 +1073,7 @@ const NEIGHBOURS_SQL = `
     AND NOT EXISTS (
       SELECT 1 FROM photos cp JOIN faces o ON o.photo_id = cp.id
       WHERE cp.filename = ph.filename AND cp.size = ph.size AND o.id <> n.id
-        ${andInGallery("cp.s3_key")}
+        ${andInGallery("cp")}
         AND ((o.person_id = $2 AND o.assignment IN ('seed', 'manual', 'auto'))
           OR EXISTS (SELECT 1 FROM face_candidates oc
                      WHERE oc.person_id = $2 AND oc.face_id = o.id AND oc.status = 'pending')))

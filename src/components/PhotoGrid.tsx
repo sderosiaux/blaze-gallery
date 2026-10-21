@@ -8,13 +8,13 @@ import { asString, readJsonObject } from "@/hooks/apiJson";
 import PhotoTile from "./photos/PhotoTile";
 import { useToast } from "@/components/ui";
 import { applyPhotoPatch, type PhotoPatch } from "@/lib/photoPatch";
+import { usePhotoSlots } from "@/hooks/usePhotoSlots";
 
 interface PhotoGridProps {
   photos: Photo[];
   loading?: boolean;
   selectedPhotoId?: string | null;
   onPhotoUrlChange?: (photoId: string | null) => void;
-  onPhotoDeleted?: (photo: Photo) => void;
   /** Lets the page keep its own copy in sync (favorites page drops un-favorited photos). */
   onPhotoUpdated?: (photo: Photo) => void;
   isSharedView?: boolean;
@@ -53,7 +53,6 @@ export default function PhotoGrid({
   loading = false,
   selectedPhotoId,
   onPhotoUrlChange,
-  onPhotoDeleted,
   onPhotoUpdated,
   isSharedView = false,
   shareToken,
@@ -70,16 +69,15 @@ export default function PhotoGrid({
   const [changes, setChanges] = useState<ReadonlyMap<string, PhotoPatch>>(
     () => new Map(),
   );
-  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
+  // A photo sent to the Corbeille leaves its slot, or gives it to the next of its stack
+  const slots = usePhotoSlots(photos);
   const items = useMemo(
     () =>
-      photos
-        .filter((p) => !deleted.has(String(p.id)))
-        .map((p) => {
-          const local = changes.get(String(p.id));
-          return local ? applyPhotoPatch(p, local) : p;
-        }),
-    [photos, changes, deleted],
+      slots.items.map((p) => {
+        const local = changes.get(String(p.id));
+        return local ? applyPhotoPatch(p, local) : p;
+      }),
+    [slots.items, changes],
   );
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -144,14 +142,6 @@ export default function PhotoGrid({
     [saveFavorite],
   );
 
-  const removeDeleted = useCallback(
-    (removed: Photo) => {
-      setDeleted((all) => new Set(all).add(String(removed.id)));
-      onPhotoDeleted?.(removed);
-    },
-    [onPhotoDeleted],
-  );
-
   if (loading) return <PhotoGridSkeleton />;
   if (items.length === 0) return null;
 
@@ -170,7 +160,7 @@ export default function PhotoGrid({
             sessionToken={isSharedView ? sessionToken : undefined}
             onOpen={open}
             onToggleFavorite={isSharedView ? undefined : toggleFavorite}
-            onDeleted={isSharedView ? undefined : removeDeleted}
+            onReplace={isSharedView ? undefined : slots.replace}
           />
         )}
       />
@@ -186,7 +176,7 @@ export default function PhotoGrid({
             setSelectedPhoto(next);
             onPhotoUrlChange?.(String(next.id));
           }}
-          onDelete={isSharedView ? undefined : removeDeleted}
+          onPhotoReplace={isSharedView ? undefined : slots.replace}
           isSharedView={isSharedView}
           shareToken={shareToken}
           allowDownload={allowDownload}

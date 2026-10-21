@@ -36,6 +36,8 @@ export const GET = requireAuth(async function GET() {
           AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
           AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
           AND p.size > 10240
+          -- Already thrown away: no longer a copy to decide on
+          AND p.trashed_at IS NULL
       ),
       groups AS MATERIALIZED (
         SELECT filename, size, COUNT(*)::int AS copies

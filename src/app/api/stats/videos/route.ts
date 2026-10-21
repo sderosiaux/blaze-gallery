@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const LIMIT = 25;
 
+// The library's videos: those in the Corbeille wait for the purge, out of sight
 export const GET = requireAuth(async function GET() {
   try {
     const [summaryResult, formatsResult, largestResult, albumsResult] =
@@ -20,7 +21,7 @@ export const GET = requireAuth(async function GET() {
           COALESCE(MAX(size), 0)::float8 AS max_size_bytes,
           COUNT(DISTINCT folder_id)::int AS albums_with_videos
         FROM photos
-        WHERE mime_type LIKE 'video/%'
+        WHERE mime_type LIKE 'video/%' AND trashed_at IS NULL
       `),
         query<VideoStats["formats"][number]>(`
         SELECT
@@ -28,7 +29,7 @@ export const GET = requireAuth(async function GET() {
           COUNT(*)::int AS count,
           COALESCE(SUM(size), 0)::float8 AS total_size_bytes
         FROM photos
-        WHERE mime_type LIKE 'video/%'
+        WHERE mime_type LIKE 'video/%' AND trashed_at IS NULL
         GROUP BY 1
         ORDER BY count DESC
       `),
@@ -43,7 +44,7 @@ export const GET = requireAuth(async function GET() {
           f.name AS folder_name
         FROM photos p
         JOIN folders f ON f.id = p.folder_id
-        WHERE p.mime_type LIKE 'video/%'
+        WHERE p.mime_type LIKE 'video/%' AND p.trashed_at IS NULL
         ORDER BY p.size DESC
         LIMIT $1
         `,
@@ -60,7 +61,7 @@ export const GET = requireAuth(async function GET() {
         FROM (
           SELECT folder_id, COUNT(*)::int AS video_count, COALESCE(SUM(size), 0)::float8 AS total_size_bytes
           FROM photos
-          WHERE mime_type LIKE 'video/%'
+          WHERE mime_type LIKE 'video/%' AND trashed_at IS NULL
           GROUP BY folder_id
           ORDER BY video_count DESC, total_size_bytes DESC
           LIMIT $1

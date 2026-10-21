@@ -149,6 +149,7 @@ function newPhoto(
     size: object.size,
     mime_type: getMimeType(filename),
     modified_at: object.lastModified.toISOString(),
+    etag: object.etag,
     // Metadata has no size threshold: the head probe reads 64 KB whatever the file size
     metadata_status: "none",
     thumbnail_status: thumbnailStatusFor(object.size, thresholdMb),
@@ -192,7 +193,12 @@ export async function planBucketSync(options: PlanOptions): Promise<SyncPlan> {
   const known = new Map<string, KnownPhoto>(
     files.map((file) => [
       file.s3_key,
-      { id: file.id, size: file.size, modifiedAt: file.modified_at.getTime() },
+      {
+        id: file.id,
+        size: file.size,
+        modifiedAt: file.modified_at.getTime(),
+        etag: file.etag,
+      },
     ]),
   );
   const differ = new BucketDiffer(known);
@@ -740,6 +746,7 @@ export class SyncService {
           id,
           size: object.size,
           modified_at: object.lastModified.toISOString(),
+          etag: object.etag,
           thumbnail_status: thumbnailStatusFor(
             object.size,
             config.auto_thumbnail_threshold_mb,
@@ -922,6 +929,7 @@ export class SyncService {
           mime_type: getMimeType(filename),
           modified_at: object.lastModified.toISOString(),
           metadata: metadata,
+          etag: object.etag,
         });
 
         processedCount++;

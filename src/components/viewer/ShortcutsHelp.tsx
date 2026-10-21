@@ -49,7 +49,7 @@ export default function ShortcutsHelp({
         ]
       : []),
     ...(canDelete
-      ? [{ keys: ["Suppr"], label: "Supprimer la photo, après confirmation" }]
+      ? [{ keys: ["Suppr"], label: "Mettre la photo à la corbeille" }]
       : []),
     { keys: ["Échap"], label: "Fermer la photo" },
     { keys: ["?"], label: "Afficher ou masquer ces raccourcis" },

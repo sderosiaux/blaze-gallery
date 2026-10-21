@@ -16,6 +16,8 @@ import { dayOf } from "./faces";
 
 /** people.py REVIEW_THRESHOLD: under this cosine similarity, nothing is proposed. */
 export const REVIEW_THRESHOLD = 0.3;
+/** people.py AUTO_THRESHOLD: from this cosine similarity a face is the person's without asking. */
+export const AUTO_THRESHOLD = 0.6;
 /** people.py WINDOW_DAYS: 18 months, how far a reference face reaches. */
 export const WINDOW_DAYS = 548;
 /** people.py Thresholds.margin: as close to a face rejected for her, minus this, is no. */

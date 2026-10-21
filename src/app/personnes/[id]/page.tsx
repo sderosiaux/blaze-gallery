@@ -23,6 +23,7 @@ import type { PersonPhoto, PersonRow } from "@/lib/people";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoViewer from "@/components/PhotoViewer";
+import { usePhotoSlots } from "@/hooks/usePhotoSlots";
 import { PhotoGridSkeleton } from "@/components/PhotoGrid";
 import JustifiedGrid from "@/components/photos/JustifiedGrid";
 import PhotoTile from "@/components/photos/PhotoTile";
@@ -109,7 +110,7 @@ function YearSection({
   count,
   onOpen,
   onToggleFavorite,
-  onDeleted,
+  onReplace,
 }: {
   group: YearGroup;
   birthDate: string | null;
@@ -117,7 +118,8 @@ function YearSection({
   count: number;
   onOpen: (photo: Photo) => void;
   onToggleFavorite: (photo: Photo) => void;
-  onDeleted: (photo: Photo) => void;
+  /** A tile's photo went to the Corbeille: what its slot shows now */
+  onReplace: (id: Photo["id"], next: Photo | null) => void;
 }) {
   const age = ageLabel(birthDate, group);
   const headingId = `year-${group.key}`;
@@ -148,7 +150,7 @@ function YearSection({
             height={size.height}
             onOpen={onOpen}
             onToggleFavorite={onToggleFavorite}
-            onDeleted={onDeleted}
+            onReplace={onReplace}
           />
         )}
       />
@@ -245,11 +247,15 @@ function PersonContent() {
 
   // -- viewer ---------------------------------------------------------------
   const [viewerList, setViewerList] = useState<Photo[] | null>(null);
-  const list = viewerList ?? feed.items;
+  // A photo sent to the Corbeille leaves its slot, or gives it to the next of its stack
+  const slots = usePhotoSlots(feed.items);
+  const items = slots.items;
+  const list = viewerList ?? items;
   const selected = selectedPhotoId
     ? (list.find((p) => String(p.id) === selectedPhotoId) ?? null)
     : null;
 
+  const { patch: patchSlot } = slots;
   const patch = useCallback(
     (id: Photo["id"], changes: PhotoPatch) => {
       setFeed((f) => ({
@@ -258,8 +264,9 @@ function PersonContent() {
           String(p.id) === String(id) ? applyPhotoPatch(p, changes) : p,
         ),
       }));
+      patchSlot(id, changes);
     },
-    [setFeed],
+    [setFeed, patchSlot],
   );
 
   const toggleFavorite = useCallback(
@@ -277,19 +284,13 @@ function PersonContent() {
     [patch, toast],
   );
 
-  const removeDeleted = useCallback(
-    (deleted: Photo) => {
-      setFeed((f) => ({
-        ...f,
-        items: f.items.filter((p) => String(p.id) !== String(deleted.id)),
-      }));
-      setViewerList(
-        (all) =>
-          all?.filter((p) => String(p.id) !== String(deleted.id)) ?? null,
-      );
+  const { replace: replaceSlot } = slots;
+  const replace = useCallback(
+    (id: Photo["id"], next: Photo | null) => {
+      replaceSlot(id, next);
       stale.current = true;
     },
-    [setFeed],
+    [replaceSlot],
   );
 
   const openFromGrid = useCallback(
@@ -334,14 +335,13 @@ function PersonContent() {
   }, [feed.phase, feed.next, loadMore, tab]);
   const selectedIndex =
     selected && viewerList === null
-      ? feed.items.indexOf(selected as PersonPhoto)
+      ? items.indexOf(selected as PersonPhoto)
       : -1;
   useEffect(() => {
-    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6)
-      loadMore();
-  }, [selectedIndex, feed.items.length, feed.phase, loadMore]);
+    if (selectedIndex !== -1 && selectedIndex >= items.length - 6) loadMore();
+  }, [selectedIndex, items.length, feed.phase, loadMore]);
 
-  const groups = useMemo(() => byYear(feed.items), [feed.items]);
+  const groups = useMemo(() => byYear(items), [items]);
 
   // The year index of Chronologie over every photo of the list, loaded or not
   const years = useMemo(
@@ -618,7 +618,7 @@ function PersonContent() {
                       }
                       onOpen={openFromGrid}
                       onToggleFavorite={(photo) => void toggleFavorite(photo)}
-                      onDeleted={removeDeleted}
+                      onReplace={replace}
                     />
                   ))}
                   <div ref={sentinel} aria-hidden />
@@ -704,6 +704,8 @@ function PersonContent() {
             setPhotoParam(String(photo.id));
           }}
           onPhotoUpdate={patch}
+          // The photos tab only: the review queue decides faces, not photos
+          onPhotoReplace={viewerList === null ? replace : undefined}
           onFacesChange={() => {
             stale.current = true;
           }}

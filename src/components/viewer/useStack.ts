@@ -39,6 +39,7 @@ export function useStack(front: Photo, enabled: boolean) {
   const stacked = enabled && front.stack !== undefined;
   const [state, setState] = useState<State | null>(null);
   const [shown, setShown] = useState<{ key: string; id: number } | null>(null);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     if (!stacked) return;
@@ -59,7 +60,7 @@ export function useStack(front: Photo, enabled: boolean) {
     return () => {
       controller.abort();
     };
-  }, [key, stacked]);
+  }, [key, stacked, version]);
 
   const photos =
     stacked && state?.key === key && state.photos.length > 1
@@ -94,7 +95,16 @@ export function useStack(front: Photo, enabled: boolean) {
     [photos, index, key],
   );
 
+  /** After a photo of it went to the Corbeille or came back: read the stack again. */
+  const forget = useCallback(() => {
+    cache.clear();
+    setState(null);
+    setShown(null);
+    setVersion((v) => v + 1);
+  }, []);
+
   return {
+    forget,
     /** The stack's photos, best first; null when the front is alone */
     photos,
     /** The photo shown: the front, or the one chosen in its stack */

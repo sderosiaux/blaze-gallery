@@ -1,9 +1,18 @@
 "use client";
 
+import { Check } from "lucide-react";
 import type { Photo } from "@/types";
+import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
+
+/** « Garder celle-ci », and how many photos it sends away once the server said. */
+export function keepLabel(going: number | null): string {
+  if (going === null) return "Garder celle-ci";
+  if (going === 0) return "Garder celle-ci · aucune ne part";
+  return `Garder celle-ci · ${going} ${going > 1 ? "partent" : "part"}`;
+}
 
 /**
  * The photos of a stack of near-duplicates, best first, under the photo:
@@ -13,16 +22,24 @@ export default function StackStrip({
   photos,
   shown,
   onShow,
+  onKeep,
+  going = null,
+  busy = false,
 }: {
   photos: Photo[];
   shown: number;
   onShow: (id: number) => void;
+  /** « Garder celle-ci »: the photo shown stays, the others linked to it go to the Corbeille */
+  onKeep?: () => void;
+  /** How many keeping the photo shown sends to the Corbeille (the server's preview); null until known */
+  going?: number | null;
+  busy?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-label={`Pile de ${photos.length} photos`}
-      className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-surface/90 p-1 shadow-lift backdrop-blur-sm"
+      className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-surface/90 p-1 shadow-lift backdrop-blur-sm"
     >
       {photos.map((photo, i) => (
         <button
@@ -55,6 +72,19 @@ export default function StackStrip({
           />
         </button>
       ))}
+      {onKeep && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Check}
+          loading={busy}
+          disabled={going === 0}
+          onClick={onKeep}
+          className="ml-1 shrink-0"
+        >
+          {keepLabel(going)}
+        </Button>
+      )}
     </div>
   );
 }

@@ -13,6 +13,8 @@ export interface KnownPhoto {
   size: number;
   /** photos.modified_at, epoch milliseconds */
   modifiedAt: number;
+  /** photos.etag; null until read */
+  etag: string | null;
 }
 
 /** One ListObjectsV2 page */
@@ -53,11 +55,15 @@ export class IncompleteListingError extends Error {
   }
 }
 
-/** Same comparison as FILE_CHANGED in database.ts: a replaced file has a new size or date */
+/**
+ * Same comparison as FILE_CHANGED in database.ts: a replaced file has a new
+ * size or date, or another ETag once the stored one is known.
+ */
 export function isFileChanged(known: KnownPhoto, object: S3Object): boolean {
   return (
     known.size !== object.size ||
-    known.modifiedAt !== object.lastModified.getTime()
+    known.modifiedAt !== object.lastModified.getTime() ||
+    (known.etag !== null && object.etag !== "" && known.etag !== object.etag)
   );
 }
 

@@ -1,0 +1,344 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, RotateCcw, RotateCw, Trash2 } from "lucide-react";
+import AppLayout from "@/components/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import PhotoViewer from "@/components/PhotoViewer";
+import JustifiedGrid from "@/components/photos/JustifiedGrid";
+import PhotoTile from "@/components/photos/PhotoTile";
+import { PhotoGridSkeleton } from "@/components/PhotoGrid";
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  PageHeader,
+  useToast,
+} from "@/components/ui";
+import { asArray, readJsonObject } from "@/hooks/apiJson";
+import { formatCount } from "@/lib/albums";
+import {
+  emptyTrash,
+  restoreFromTrash,
+  TrashError,
+  type EmptyConfirmed,
+} from "@/lib/trashClient";
+import type { Photo } from "@/types";
+import EmptyDialog from "./EmptyDialog";
+import { fetchLots, LotList, LotView, type Lot } from "./Lots";
+
+/** Days a photo waits in the Corbeille (lib/trash.ts TRASH_DAYS). */
+const TRASH_DAYS = 30;
+
+type TrashedPhoto = Photo & { trashed_at: string };
+
+interface Page {
+  photos: TrashedPhoto[];
+  total: number;
+  /** When the server counted `total`: the cutoff of « Vider » */
+  asOf: string;
+  bytes: number;
+  due: number;
+  dueBytes: number;
+  dueCutoff: string;
+  next: { trashedAt: string; id: number } | null;
+}
+
+async function fetchTrash(after: Page["next"]): Promise<Page> {
+  const query = after
+    ? `?after=${encodeURIComponent(after.trashedAt)}&id=${after.id}`
+    : "";
+  const response = await fetch(`/api/trash${query}`);
+  const data = await readJsonObject(response);
+  if (!response.ok || data.success !== true) throw new Error("trash");
+  return {
+    photos: asArray(data.photos) as TrashedPhoto[],
+    total: Number(data.total),
+    asOf: String(data.as_of),
+    bytes: Number(data.bytes),
+    due: Number(data.due),
+    dueBytes: Number(data.due_bytes),
+    dueCutoff: String(data.due_cutoff),
+    next: (data.next as Page["next"]) ?? null,
+  };
+}
+
+/** Whole days left before the purge erases it, 0 on its last day. */
+function daysLeft(trashedAt: string): number {
+  const elapsed = (Date.now() - Date.parse(trashedAt)) / 86_400_000;
+  return Math.max(0, Math.ceil(TRASH_DAYS - elapsed));
+}
+
+export default function TrashPage() {
+  return (
+    <AppLayout>
+      <ProtectedRoute>
+        <Trash />
+      </ProtectedRoute>
+    </AppLayout>
+  );
+}
+
+function Trash() {
+  const toast = useToast();
+  const [page, setPage] = useState<Page | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [open, setOpen] = useState<Photo | null>(null);
+  const [emptying, setEmptying] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [lots, setLots] = useState<Lot[]>([]);
+  const [lot, setLot] = useState<Lot | null>(null);
+
+  const load = useCallback(async () => {
+    setFailed(false);
+    try {
+      const [trash, all] = await Promise.all([fetchTrash(null), fetchLots()]);
+      setPage(trash);
+      setLots(all);
+    } catch {
+      setFailed(true);
+    }
+  }, []);
+
+  const restoreLot = async (chosen: Lot) => {
+    try {
+      const n = await restoreFromTrash({ lot: chosen.batch });
+      toast.show(
+        formatCount(n, "photo restaurée", "photos restaurées"),
+        "success",
+      );
+    } catch {
+      toast.show("Le lot n’est pas revenu", "error");
+    }
+    setLot(null);
+    void load();
+  };
+
+  useEffect(() => {
+    document.title = "Corbeille · Blaze Gallery";
+    void load();
+  }, [load]);
+
+  const more = async () => {
+    if (!page?.next || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const next = await fetchTrash(page.next);
+      setPage((p) =>
+        p ? { ...next, photos: [...p.photos, ...next.photos] } : next,
+      );
+    } catch {
+      toast.show("La suite n’a pas pu être chargée", "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const restore = async (photo: TrashedPhoto) => {
+    setPage((p) =>
+      p
+        ? {
+            ...p,
+            photos: p.photos.filter((x) => x.id !== photo.id),
+            total: p.total - 1,
+          }
+        : p,
+    );
+    try {
+      await restoreFromTrash([photo.id]);
+      toast.show("Restaurée", "success");
+    } catch {
+      toast.show("La photo n’est pas revenue", "error");
+      void load();
+    }
+  };
+
+  const restoreAll = async () => {
+    try {
+      const n = await restoreFromTrash("all");
+      setPage((p) => p && { ...p, photos: [], total: 0, next: null });
+      toast.show(
+        formatCount(n, "photo restaurée", "photos restaurées"),
+        "success",
+      );
+    } catch {
+      toast.show("Les photos ne sont pas revenues", "error");
+      void load();
+    }
+  };
+
+  // « Vider »: a batch per request until none is left, never more than confirmed
+  const empty = async (confirmed: EmptyConfirmed) => {
+    setProgress(0);
+    try {
+      const done = await emptyTrash(confirmed, setProgress);
+      toast.show(
+        formatCount(done, "photo effacée", "photos effacées"),
+        "success",
+      );
+    } catch (error) {
+      toast.show(
+        error instanceof TrashError
+          ? error.message
+          : "La corbeille n’a pas été vidée",
+        "error",
+      );
+    } finally {
+      setEmptying(false);
+      setProgress(null);
+      void load();
+    }
+  };
+
+  const total = page?.total ?? 0;
+  const header = (
+    <PageHeader
+      title="Corbeille"
+      meta={`Les photos y restent ${TRASH_DAYS} jours, puis sont effacées du stockage.`}
+      actions={
+        total > 0 && (
+          <>
+            <Button icon={RotateCcw} onClick={() => void restoreAll()}>
+              Tout restaurer
+            </Button>
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={() => {
+                setEmptying(true);
+              }}
+            >
+              Vider la corbeille
+            </Button>
+          </>
+        )
+      }
+    />
+  );
+
+  if (failed && !page)
+    return (
+      <>
+        {header}
+        <EmptyState
+          icon={AlertCircle}
+          title="La corbeille n'a pas pu être chargée"
+          action={
+            <Button
+              variant="primary"
+              icon={RotateCw}
+              onClick={() => void load()}
+            >
+              Réessayer
+            </Button>
+          }
+        />
+      </>
+    );
+
+  if (!page)
+    return (
+      <>
+        {header}
+        <PhotoGridSkeleton />
+      </>
+    );
+
+  if (lot)
+    return (
+      <>
+        {header}
+        <LotView
+          lot={lot}
+          onBack={() => {
+            setLot(null);
+            void load();
+          }}
+          onRestore={(chosen) => void restoreLot(chosen)}
+        />
+      </>
+    );
+
+  return (
+    <>
+      {header}
+      {lots.length > 0 && (
+        <LotList
+          lots={lots}
+          onOpen={setLot}
+          onRestore={(chosen) => void restoreLot(chosen)}
+        />
+      )}
+      {page.photos.length === 0 ? (
+        <EmptyState
+          icon={Trash2}
+          title="La corbeille est vide"
+          body={`Une photo mise à la corbeille y reste ${TRASH_DAYS} jours, le temps de changer d’avis.`}
+        />
+      ) : (
+        <>
+          <p className="tabular mb-3 text-sm text-ink-muted">
+            {formatCount(total, "photo")}
+          </p>
+          <JustifiedGrid
+            photos={page.photos}
+            renderTile={(photo, size) => (
+              <div
+                className="group relative"
+                style={{ width: size.width, height: size.height }}
+              >
+                <PhotoTile
+                  photo={photo}
+                  width={size.width}
+                  height={size.height}
+                  onOpen={setOpen}
+                />
+                <span className="tabular pointer-events-none absolute bottom-1.5 left-1.5 rounded-full bg-scrim/45 px-1.5 py-0.5 text-[11px] font-medium leading-none text-on-photo backdrop-blur-sm">
+                  {daysLeft((photo as TrashedPhoto).trashed_at)} j
+                </span>
+                <IconButton
+                  icon={RotateCcw}
+                  label={`Restaurer ${photo.filename}`}
+                  size="sm"
+                  variant="overlay"
+                  onClick={() => void restore(photo as TrashedPhoto)}
+                  className="absolute right-1.5 top-1.5 opacity-0 transition-opacity duration-200 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                />
+              </div>
+            )}
+          />
+          {page.next && (
+            <div className="mt-6 flex justify-center">
+              <Button loading={loadingMore} onClick={() => void more()}>
+                Afficher la suite
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+
+      {open && (
+        <PhotoViewer
+          photo={open}
+          photos={page.photos}
+          onClose={() => {
+            setOpen(null);
+          }}
+          onPhotoChange={setOpen}
+        />
+      )}
+
+      <EmptyDialog
+        open={emptying}
+        counts={page}
+        days={TRASH_DAYS}
+        progress={progress}
+        onClose={() => {
+          setEmptying(false);
+        }}
+        onEmpty={(confirmed) => void empty(confirmed)}
+      />
+    </>
+  );
+}

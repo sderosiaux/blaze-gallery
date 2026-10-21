@@ -9,7 +9,7 @@ from psycopg.types.json import Jsonb
 
 from blaze_worker import jobs
 from blaze_worker.enqueue import enqueue_all, enqueue_ids, sample_ids
-from blaze_worker.gallery import EXCLUDED_NOTE, out_of_gallery
+from blaze_worker.gallery import EXCLUDED_NOTE, excluded
 from blaze_worker.people import expand
 from blaze_worker.people_store import (
     create_person,
@@ -59,7 +59,7 @@ def include(conn: psycopg.Connection, path: str) -> None:
 
 
 def out(conn: psycopg.Connection, key: str) -> bool:
-    return conn.execute(f"SELECT {out_of_gallery('%s::text')}", (key,)).fetchone()[0]
+    return conn.execute(f"SELECT {excluded('%s::text')}", (key,)).fetchone()[0]
 
 
 def jobs_by_photo(conn: psycopg.Connection, task: str) -> dict[int, tuple]:
@@ -160,6 +160,31 @@ def test_a_job_claimed_out_of_the_gallery_closes_skipped_and_comes_back_with_its
     states = jobs_by_photo(conn, "faces")
     assert states[left] == ("queued", None)
     assert states[kept][0] == "done" and states[svg][0] == "skipped"
+
+
+def trash(conn: psycopg.Connection, *photo_ids: int) -> None:
+    conn.execute("UPDATE photos SET trashed_at = now() WHERE id = ANY(%s)", (list(photo_ids),))
+
+
+def test_a_photo_in_the_corbeille_is_out_of_the_gallery_until_restored(conn, pool):
+    kept = photo_at(conn, "trip/a.jpg")
+    thrown = photo_at(conn, "trip/b.jpg")
+    trash(conn, thrown)
+    assert enqueue_all(conn, "faces") == 1
+    assert set(jobs_by_photo(conn, "faces")) == {kept}
+
+    # Thrown away once queued: closes skipped, comes back with --all once restored
+    conn.execute("UPDATE photos SET trashed_at = NULL WHERE id = %s", (thrown,))
+    enqueue_all(conn, "faces")
+    trash(conn, thrown)
+    bucket = Bucket()
+    analyzer = FacesAnalyzer(GatedModel(False), FILES, 640)  # type: ignore[arg-type]
+    Worker(options("faces"), pool, bucket, [analyzer]).run()  # type: ignore[arg-type]
+    assert jobs_by_photo(conn, "faces")[thrown] == ("skipped", EXCLUDED_NOTE)
+    assert "trip/b.jpg" not in bucket.reads
+    conn.execute("UPDATE photos SET trashed_at = NULL WHERE id = %s", (thrown,))
+    assert enqueue_all(conn, "faces") == 1
+    assert jobs_by_photo(conn, "faces")[thrown] == ("queued", None)
 
 
 def test_thumbs_makes_the_thumbnail_without_colors_out_of_the_gallery(conn, pool):

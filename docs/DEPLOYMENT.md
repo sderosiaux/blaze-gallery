@@ -257,6 +257,19 @@ photos then go through the queue, as `worker/weekly.sh` does: `blaze-enqueue
 compares each one with its nearest neighbours and exits when the queue is
 empty. Run one at a time: a second one exits at once.
 
+## The Corbeille's purge
+
+`worker/weekly.sh` runs `npm run trash -- purge` with its own env file,
+`~/blaze-worker/blaze-purge.env` (chmod 600), so that no worker holds keys
+that can erase. It does not exist yet: create it with `DATABASE_URL`, a
+`BACKBLAZE_*` key that has listFiles and deleteFiles, and the
+`THUMBNAIL_STORAGE` and `THUMBNAIL_S3_*` keys of the thumbnail storage.
+Until then the run skips the purge with one log line (« purge skipped: no
+blaze-purge.env »), and nothing waiting in the Corbeille is erased. Once it
+exists, a purge that refuses or stops leaves
+`~/blaze-sync/logs/ALERT-purge-<date>` with the reason, and the indexing
+goes on.
+
 ## Health check
 
 `GET /api/health` needs no authentication. It runs one database query and

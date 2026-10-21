@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import threading
 
 import numpy as np
@@ -670,6 +671,45 @@ def test_a_rebuild_does_not_undo_stacks_of_newer_rules(conn, schema):
     }
 
 
+def test_photos_in_the_corbeille_keep_their_stack_for_when_they_come_back(conn, schema):
+    store = Store()
+    library = a_library(conn, store)
+    conn.execute("UPDATE photos SET trashed_at = now() WHERE id = ANY(%s)", (library["copy"][:1],))
+    summary = rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    assert (summary.photos, summary.stacks) == (6, 2)
+
+
+def test_a_rebuild_leaves_a_lot_of_the_corbeille_whole_and_restorable(conn, schema):
+    """The app's marks (src/lib/trash.ts) survive a rebuild, and the lot comes back
+    into its stack: the restore is trash.ts restoreLot's statement."""
+    store = Store()
+    library = a_library(conn, store)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    kept, thrown = library["copy"]
+    conn.execute(
+        """UPDATE photos SET trashed_at = now(), trashed_by = 'auto',
+             trash_batch = 'auto-copies.other-test', trashed_for = %s WHERE id = %s""",
+        (kept, thrown),
+    )
+    marks = "SELECT trashed_at, trashed_by, trash_batch, trashed_for FROM photos WHERE id = %s"
+    before = conn.execute(marks, (thrown,)).fetchone()
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert conn.execute(marks, (thrown,)).fetchone() == before
+    by_photo = {pid: g for g, rows in stacks_in(conn).items() for pid, _, _ in rows}
+    assert by_photo[thrown] == by_photo[kept]
+    restored = conn.execute(
+        """UPDATE photos SET trashed_at = NULL, trashed_by = NULL, trash_batch = NULL,
+             trashed_for = NULL
+           WHERE trashed_at IS NOT NULL AND trash_batch = %s""",
+        ("auto-copies.other-test",),
+    ).rowcount
+    assert restored == 1
+    assert conn.execute(marks, (thrown,)).fetchone() == (None, None, None, None)
+    assert {pid: g for g, rows in stacks_in(conn).items() for pid, _, _ in rows}[
+        thrown
+    ] == by_photo[kept]
+
+
 def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
     grouper = Grouper(
         lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), "test", batch, 600
@@ -768,7 +808,7 @@ def test_only_one_grouper_at_a_time(conn, schema):
     assert conn.execute("SELECT count(*) FROM task_leases").fetchone()[0] == 0
 
 
-def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema):
+def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema, caplog):
     store = Store()
     library = a_library(conn, store)
     rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
@@ -777,7 +817,11 @@ def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema):
         "UPDATE analysis_jobs SET status = 'queued' WHERE task = %s AND photo_id = %s",
         (TASK, library["alone"][0]),
     )
-    assert run_grouper(schema, store).counters.done == 0
+    with caplog.at_level(logging.WARNING, logger="blaze_worker"):
+        assert run_grouper(schema, store).counters.done == 0
+    alerts = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ALERT")]
+    assert len(alerts) == 1
+    assert "groups v1 0000abcd" in alerts[0] and rules_model() in alerts[0]
     # Its own: it goes on
     conn.execute("UPDATE photo_groups SET model = %s", (rules_model(),))
     assert run_grouper(schema, store).counters.done == 1

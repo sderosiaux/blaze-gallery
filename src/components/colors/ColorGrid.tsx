@@ -47,7 +47,7 @@ export default function ColorGrid({
 }) {
   const [selectedPhotoId, setPhotoParam] = usePhotoParam();
   const [attempt, setAttempt] = useState(0);
-  const { feed, loadMore, remove } = useColorPhotos(filter, attempt);
+  const { feed, loadMore } = useColorPhotos(filter, attempt);
   const onColorsChange = (next: ColorFilter) => {
     const said = understood(filter.q, vocabulary).parts.filter(
       (part) => part.kind === "color" || part.kind === "tone",
@@ -166,9 +166,6 @@ export default function ColorGrid({
         photos={feed.items}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={setPhotoParam}
-        onPhotoDeleted={(deleted) => {
-          remove(deleted.id);
-        }}
       />
 
       <div ref={sentinel} aria-hidden />

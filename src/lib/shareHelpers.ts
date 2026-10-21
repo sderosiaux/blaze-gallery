@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import type { Photo } from "@/types";
 import type { SharedFolder } from "@/lib/database";
-import { getSharedFolder, getPhoto } from "@/lib/database";
+import { getSharedFolder, getPhotoOutOfCorbeille } from "@/lib/database";
 import { isValidShareSession } from "@/lib/shareSession";
 import { DatabaseRateLimiter } from "@/lib/rateLimiter";
 import { getClientIP } from "@/lib/requestContext";
@@ -153,7 +153,8 @@ export async function validateSharedPhotoAccess(
       error: NextResponse.json({ error: "Invalid photo id" }, { status: 400 }),
     };
   }
-  const photo = await getPhoto(Number(photoId));
+  // A photo in the Corbeille is gone for the link too, as from its folder's list
+  const photo = await getPhotoOutOfCorbeille(Number(photoId));
   if (!photo) {
     return {
       share,

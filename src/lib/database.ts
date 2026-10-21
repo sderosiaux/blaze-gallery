@@ -329,14 +329,23 @@ export function outOfGallery(key: string): string {
   return `(${key} LIKE ANY (ARRAY(SELECT key_like FROM excluded_folders)))`;
 }
 
-/** `AND` clause keeping the photos (s3_key `key`) of the gallery. */
-export function andInGallery(key = "p.s3_key"): string {
-  return `AND NOT ${outOfGallery(key)}`;
+/** Photos `p` not in the Corbeille (photos.trashed_at, db/schema.sql). */
+export function notTrashed(p = "p"): string {
+  return `${p}.trashed_at IS NULL`;
 }
 
-/** The photos `p` of the gallery: in no folder out of it. */
+/**
+ * The photos `p` of the gallery: in no folder out of it, not in the
+ * Corbeille. A trashed photo counts as absent wherever an excluded one
+ * does, and from the lists that show every file too (notTrashed).
+ */
 export function inGallery(p = "p"): string {
-  return `NOT ${outOfGallery(`${p}.s3_key`)}`;
+  return `NOT ${outOfGallery(`${p}.s3_key`)} AND ${notTrashed(p)}`;
+}
+
+/** `AND` clause keeping the photos `p` of the gallery (inGallery). */
+export function andInGallery(p = "p"): string {
+  return `AND ${inGallery(p)}`;
 }
 
 // ---- stacks ---------------------------------------------------------------
@@ -360,8 +369,9 @@ export const BETTER = "stack_better";
  * into an anti-join over every stack, which a paged list never needs.
  */
 export function stackFront(better: readonly string[], p = "p"): string {
-  // Only a photo of the gallery stands in front: in the lists that show
-  // every file (a folder out of the gallery), its photos all show
+  // Only a photo of the gallery, and not in the Corbeille, stands in
+  // front: in the lists that show every file (a folder out of the
+  // gallery), its photos all show
   const passes = [inGallery(BETTER), ...better]
     .map((condition) => `AND ${condition}`)
     .join("\n      ");
@@ -443,7 +453,7 @@ export async function getStackPhotos(
 export interface ExcludedFolder {
   path: string;
   created_at: string;
-  /** Photos and videos in it and below it, by the folders' counts */
+  /** Photos and videos in it and below it, but those in the Corbeille: what it shows */
   photo_count: number;
 }
 
@@ -451,8 +461,12 @@ export interface ExcludedFolder {
 export async function listExcludedFolders(): Promise<ExcludedFolder[]> {
   const result = await query<ExcludedFolder>(`
     SELECT x.path, x.created_at,
-      (SELECT COALESCE(SUM(f.photo_count), 0) FROM folders f
-       WHERE (f.path || '/') LIKE x.key_like)::int AS photo_count
+      -- The folders' counts (the sync's) less the Corbeille's few: counting
+      -- the photos under each took 2 s on the library, this 40 ms
+      ((SELECT COALESCE(SUM(f.photo_count), 0) FROM folders f
+        WHERE (f.path || '/') LIKE x.key_like)
+       - (SELECT count(*) FROM photos p
+          WHERE p.trashed_at IS NOT NULL AND p.s3_key LIKE x.key_like))::int AS photo_count
     FROM excluded_folders x
     ORDER BY x.path
   `);
@@ -548,7 +562,8 @@ async function listFolders(
   // (C.UTF-8 orders by code point, and '/' + 1 = '0'); starts_with keeps it
   // exact when names contain LIKE wildcards.
   // A folder out of the gallery keeps its cover but shows no colors; one in
-  // the gallery takes no cover from a sub-folder out of it.
+  // the gallery takes no cover from a sub-folder out of it. A photo in the
+  // Corbeille is no cover.
   const excluded = outOfGallery("s.path || '/'");
   const coverable = `(${excluded} OR NOT ${outOfGallery("d.path || '/'")})`;
   const sql = `
@@ -576,7 +591,7 @@ async function listFolders(
           ELSE false
         END AS thumbnails_generated,
         COALESCE(SUM(p.size), 0) AS total_size,
-        COUNT(*) FILTER (WHERE ${stackFront([`${BETTER}.folder_id = s.id`])})::int AS shown_count,
+        COUNT(*) FILTER (WHERE ${notTrashed()} AND ${stackFront([`${BETTER}.folder_id = s.id`])})::int AS shown_count,
         MIN(p.modified_at) AS folder_created_at,
         MIN(p.metadata->>'date_taken') AS date_from,
         MAX(p.metadata->>'date_taken') AS date_to
@@ -586,14 +601,14 @@ async function listFolders(
     LEFT JOIN LATERAL (
       SELECT p.id, ${PHOTO_LIKE} AS is_photo
       FROM photos p
-      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%'
+      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
       ORDER BY ${COVER_RANK}
       LIMIT 1
     ) own_cover ON true
     LEFT JOIN LATERAL (
       SELECT (
         SELECT p.id FROM photos p
-        WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        WHERE p.folder_id = d.id AND ${PHOTO_LIKE} AND ${notTrashed()}
         ORDER BY ${COVER_RANK}
         LIMIT 1
       ) AS id
@@ -606,6 +621,7 @@ async function listFolders(
         AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+            AND ${notTrashed()}
         )
       ORDER BY d.path
       LIMIT 1
@@ -613,7 +629,7 @@ async function listFolders(
     LEFT JOIN LATERAL (
       SELECT (
         SELECT p.id FROM photos p
-        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
         ORDER BY ${COVER_RANK}
         LIMIT 1
       ) AS id
@@ -627,7 +643,7 @@ async function listFolders(
         AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p
-          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
         )
       ORDER BY d.path
       LIMIT 1
@@ -931,7 +947,7 @@ export function hasPhotoFilter(filter: PhotoFilter): boolean {
 }
 
 /** A face named as its person: seed, manual or auto ("rejected" says it is not). */
-const OWNED = "('seed', 'manual', 'auto')";
+export const OWNED = "('seed', 'manual', 'auto')";
 
 /**
  * A face good enough to read how it looks: cluster_eligible (det_score >=
@@ -1138,7 +1154,7 @@ export async function personExpressions(
     ).join(", ")}
      FROM faces f JOIN photos p ON p.id = f.photo_id
      WHERE f.person_id = $1 AND f.assignment IN ${OWNED}
-       AND NOT ${outOfGallery("p.s3_key")}`,
+       AND ${inGallery()}`,
     [personId],
   );
   const row = requireRow(result, "Person expressions");
@@ -1266,7 +1282,7 @@ const dated = (p: string) => `(${p}.metadata->>'date_taken') IS NOT NULL`;
 const DATED = dated("p");
 
 /** The photos a list of the gallery shows: dated, and in the gallery. */
-const DATED_IN_GALLERY = `${DATED} AND NOT ${outOfGallery("p.s3_key")}`;
+const DATED_IN_GALLERY = `${DATED} AND ${inGallery()}`;
 
 /**
  * The rank's condition over photos `p` (its colors read under the alias pc
@@ -1690,10 +1706,10 @@ const PHOTO_HITS = `hits AS (
   SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
   WHERE p.folder_id IN (
     SELECT f.id FROM folders f WHERE ${containsSql("f.path", "$1")}
-  )
+  ) AND ${notTrashed()}
   UNION
   SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
-  WHERE ${containsSql("p.filename", "$1")}
+  WHERE ${containsSql("p.filename", "$1")} AND ${notTrashed()}
 )`;
 
 /**
@@ -2218,13 +2234,14 @@ export async function takenYears(): Promise<{
 }
 
 export async function getLibrarySummary(): Promise<LibrarySummary> {
-  // min/max read the ends of idx_photos_date_taken; the counts scan photos once
+  // min/max read the ends of idx_photos_date_taken; the counts scan photos
+  // once; the Corbeille's photos left out
   const [media, folders, span] = await Promise.all([
     query<{ photos: number; videos: number }>(`
       SELECT
-        COUNT(*) FILTER (WHERE mime_type LIKE 'image/%')::int AS photos,
-        COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS videos
-      FROM photos
+        COUNT(*) FILTER (WHERE p.mime_type LIKE 'image/%')::int AS photos,
+        COUNT(*) FILTER (WHERE p.mime_type LIKE 'video/%')::int AS videos
+      FROM photos p WHERE ${notTrashed()}
     `),
     query<{ folders: number; albums: number }>(`
       SELECT COUNT(*)::int AS folders,
@@ -2233,12 +2250,12 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
     `),
     query<{ first: string | null; last: string | null }>(`
       SELECT
-        (SELECT metadata->>'date_taken' FROM photos
-         WHERE (metadata->>'date_taken') IS NOT NULL
-         ORDER BY (metadata->>'date_taken'), id LIMIT 1) AS first,
-        (SELECT metadata->>'date_taken' FROM photos
-         WHERE (metadata->>'date_taken') IS NOT NULL
-         ORDER BY (metadata->>'date_taken') DESC, id DESC LIMIT 1) AS last
+        (SELECT p.metadata->>'date_taken' FROM photos p
+         WHERE (p.metadata->>'date_taken') IS NOT NULL AND ${notTrashed()}
+         ORDER BY (p.metadata->>'date_taken'), p.id LIMIT 1) AS first,
+        (SELECT p.metadata->>'date_taken' FROM photos p
+         WHERE (p.metadata->>'date_taken') IS NOT NULL AND ${notTrashed()}
+         ORDER BY (p.metadata->>'date_taken') DESC, p.id DESC LIMIT 1) AS last
     `),
   ]);
 
@@ -2284,9 +2301,9 @@ export async function createOrUpdateFolder(
 }
 
 /**
- * A folder's files, by name. With `stacked` (the Bibliothèque), one per
- * stack of near-duplicates: the best of the stack's photos in this folder.
- * Shares and MCP list the files as they are.
+ * A folder's files, by name, but those in the Corbeille. With `stacked`
+ * (the Bibliothèque), one per stack of near-duplicates: the best of the
+ * stack's photos in this folder. Shares and MCP list the files as they are.
  */
 export async function getPhotosInFolder(
   folderId: number,
@@ -2295,9 +2312,11 @@ export async function getPhotosInFolder(
   const result = await query<DatabasePhoto>(
     stacked
       ? `SELECT p.*, ${stackColumns()} FROM photos p
-         WHERE p.folder_id = $1 AND ${stackFront([`${BETTER}.folder_id = $1`])}
+         WHERE p.folder_id = $1 AND ${notTrashed()}
+           AND ${stackFront([`${BETTER}.folder_id = $1`])}
          ORDER BY p.filename`
-      : "SELECT * FROM photos WHERE folder_id = $1 ORDER BY filename",
+      : `SELECT * FROM photos p WHERE p.folder_id = $1 AND ${notTrashed()}
+         ORDER BY p.filename`,
     [folderId],
   );
 
@@ -2305,12 +2324,34 @@ export async function getPhotosInFolder(
 }
 
 /**
- * In a photo upsert: true when the incoming file differs from the stored one.
- * A sync that rewrote metadata for every unchanged file wiped the EXIF data of
- * 91k photos on 2026-10-18; only a replaced file may lose what was extracted.
+ * In a photo upsert: true when the incoming file differs from the stored one
+ * (bucketDiff.ts isFileChanged): another size or date, or another ETag when
+ * both are known. A sync that rewrote metadata for every unchanged file wiped
+ * the EXIF data of 91k photos on 2026-10-18; only a replaced file may lose
+ * what was extracted.
  */
-const FILE_CHANGED =
-  "(photos.size IS DISTINCT FROM EXCLUDED.size OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at)";
+const FILE_CHANGED = `(photos.size IS DISTINCT FROM EXCLUDED.size
+  OR photos.modified_at IS DISTINCT FROM EXCLUDED.modified_at
+  OR (photos.etag IS NOT NULL AND EXCLUDED.etag IS NOT NULL AND photos.etag <> EXCLUDED.etag))`;
+
+/**
+ * The Corbeille's marks of a photo whose file is `changed`: a new file put
+ * on a key in the Corbeille is not what the owner threw away, so it comes
+ * back (the purge would erase it).
+ */
+const TRASH_KEPT_UNLESS = (changed: string) =>
+  ["trashed_at", "trashed_by", "trash_batch", "trashed_for"]
+    .map(
+      (column) =>
+        `${column} = CASE WHEN ${changed} THEN NULL ELSE photos.${column} END`,
+    )
+    .join(",\n      ");
+
+/** An ETag as stored: quotes stripped, none when empty. */
+export function storedEtag(etag: string | undefined | null): string | null {
+  const value = etag?.replace(/"/g, "") ?? "";
+  return value === "" ? null : value;
+}
 
 export async function createOrUpdatePhoto(
   photoData: CreatePhotoData,
@@ -2323,9 +2364,9 @@ export async function createOrUpdatePhoto(
     `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
-      metadata, metadata_status, thumbnail_status, last_synced
+      metadata, metadata_status, thumbnail_status, etag, last_synced
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
     ON CONFLICT(s3_key) DO UPDATE SET
       folder_id = EXCLUDED.folder_id,
       filename = EXCLUDED.filename,
@@ -2337,6 +2378,9 @@ export async function createOrUpdatePhoto(
       metadata = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata ELSE photos.metadata END,
       metadata_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.metadata_status ELSE photos.metadata_status END,
       thumbnail_status = CASE WHEN ${FILE_CHANGED} THEN EXCLUDED.thumbnail_status ELSE photos.thumbnail_status END,
+      -- The new file's, else the stored one while it is still that file's
+      etag = coalesce(EXCLUDED.etag, CASE WHEN ${FILE_CHANGED} THEN NULL ELSE photos.etag END),
+      ${TRASH_KEPT_UNLESS(FILE_CHANGED)},
       last_synced = CURRENT_TIMESTAMP
     RETURNING *
   `,
@@ -2350,6 +2394,7 @@ export async function createOrUpdatePhoto(
       photoData.metadata, // PostgreSQL JSONB handles objects directly
       metadataStatus,
       thumbnailStatus,
+      storedEtag(photoData.etag),
     ],
   );
 
@@ -2362,6 +2407,7 @@ export interface PhotoFile {
   s3_key: string;
   size: number;
   modified_at: Date;
+  etag: string | null;
 }
 
 /**
@@ -2381,7 +2427,7 @@ export async function getPhotoFiles(prefix?: string): Promise<PhotoFile[]> {
   for (;;) {
     const { rows } = await query<PhotoFile>(
       `
-      SELECT id::int AS id, s3_key, size::float8 AS size, modified_at
+      SELECT id::int AS id, s3_key, size::float8 AS size, modified_at, etag
       FROM photos
       WHERE id > $1 AND ($3::text IS NULL OR starts_with(s3_key, $3))
       ORDER BY id LIMIT $2
@@ -2419,12 +2465,12 @@ export async function insertNewPhotos(photos: NewPhoto[]): Promise<number> {
     `
     INSERT INTO photos (
       folder_id, filename, s3_key, size, mime_type, modified_at,
-      metadata_status, thumbnail_status, last_synced
+      metadata_status, thumbnail_status, etag, last_synced
     )
     SELECT n.*, CURRENT_TIMESTAMP
     FROM unnest(
       $1::bigint[], $2::text[], $3::text[], $4::bigint[], $5::text[],
-      $6::timestamp[], $7::text[], $8::text[]
+      $6::timestamp[], $7::text[], $8::text[], $9::text[]
     ) AS n
     ON CONFLICT (s3_key) DO NOTHING
   `,
@@ -2437,6 +2483,7 @@ export async function insertNewPhotos(photos: NewPhoto[]): Promise<number> {
       photos.map((p) => p.modified_at),
       photos.map((p) => p.metadata_status),
       photos.map((p) => p.thumbnail_status),
+      photos.map((p) => storedEtag(p.etag)),
     ],
   );
   return result.rowCount ?? 0;
@@ -2446,13 +2493,16 @@ export interface ReplacedFile {
   id: number;
   size: number;
   modified_at: string;
+  etag: string | null;
   thumbnail_status: ThumbnailStatus;
 }
 
 /**
  * Records that these photos' files were replaced: what was extracted from the
  * old file (metadata, thumbnail) is dropped so it is read again from the new
- * one. Faces, colours and descriptions are not touched here.
+ * one. Faces, colours and descriptions are not touched here. A photo in the
+ * Corbeille comes back: the new file is not the one thrown away, and the
+ * purge would erase it.
  */
 export async function resetReplacedPhotos(
   files: ReplacedFile[],
@@ -2468,9 +2518,14 @@ export async function resetReplacedPhotos(
       metadata_status = 'none',
       thumbnail_status = f.thumbnail_status,
       thumbnail_path = NULL,
+      etag = f.etag,
+      trashed_at = NULL,
+      trashed_by = NULL,
+      trash_batch = NULL,
+      trashed_for = NULL,
       last_synced = CURRENT_TIMESTAMP
-    FROM unnest($1::bigint[], $2::bigint[], $3::timestamp[], $4::text[])
-      AS f(id, size, modified_at, thumbnail_status)
+    FROM unnest($1::bigint[], $2::bigint[], $3::timestamp[], $4::text[], $5::text[])
+      AS f(id, size, modified_at, thumbnail_status, etag)
     WHERE p.id = f.id
   `,
     [
@@ -2478,6 +2533,7 @@ export async function resetReplacedPhotos(
       files.map((f) => f.size),
       files.map((f) => f.modified_at),
       files.map((f) => f.thumbnail_status),
+      files.map((f) => storedEtag(f.etag)),
     ],
   );
 }
@@ -2924,11 +2980,19 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
   return normalizePhoto(photo);
 }
 
-export async function deletePhoto(photoId: number): Promise<boolean> {
-  const result = await query("DELETE FROM photos WHERE id = $1 RETURNING id", [
-    photoId,
-  ]);
-  return result.rowCount !== null && result.rowCount > 0;
+/**
+ * getPhoto, null for a photo in the Corbeille: what a share link may serve
+ * (the owner's own routes still show it, from the Corbeille page).
+ */
+export async function getPhotoOutOfCorbeille(
+  photoId: number,
+): Promise<Photo | null> {
+  const result = await query<DatabasePhoto>(
+    `SELECT * FROM photos p WHERE p.id = $1 AND ${notTrashed()}`,
+    [photoId],
+  );
+  const photo = result.rows[0];
+  return photo ? normalizePhoto(photo) : null;
 }
 
 export async function createSyncJob(

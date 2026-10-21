@@ -133,7 +133,7 @@ export default function PhotoViewerControls({
       {onDelete && (
         <IconButton
           icon={Trash2}
-          label="Supprimer la photo (Suppr)"
+          label="Mettre à la corbeille (Suppr)"
           aria-keyshortcuts="Delete"
           onClick={onDelete}
           className="hover:bg-danger-soft hover:text-danger"

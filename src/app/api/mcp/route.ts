@@ -77,6 +77,8 @@ interface GalleryStats {
   total_size: PgBigint;
   favorite_photos: PgBigint;
   photos_with_metadata: PgBigint;
+  /** Thrown away, not yet erased: left out of the others */
+  photos_in_corbeille: PgBigint;
 }
 
 type AnalyticsGroupBy = "year" | "month" | "year-month" | "folder";
@@ -151,7 +153,9 @@ class BlazeGalleryMCPHandler {
       .gte("p.size", filters.min_size)
       .lte("p.size", filters.max_size)
       .gte("p.modified_at", filters.date_from)
-      .lte("p.modified_at", filters.date_to);
+      .lte("p.modified_at", filters.date_to)
+      // The Corbeille's photos are gone, for everything but the Corbeille
+      .custom("p.trashed_at IS NULL");
 
     const { limitParam, offsetParam } = qb.pagination(
       filters.limit ? filters.limit : 100,
@@ -234,7 +238,7 @@ class BlazeGalleryMCPHandler {
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE p.is_favorite = true
+      WHERE p.is_favorite = true AND p.trashed_at IS NULL
       ORDER BY p.created_at DESC
       LIMIT $1
     `,
@@ -250,6 +254,7 @@ class BlazeGalleryMCPHandler {
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
+      WHERE p.trashed_at IS NULL
       ORDER BY p.modified_at DESC
       LIMIT $1
     `,
@@ -262,11 +267,12 @@ class BlazeGalleryMCPHandler {
   async getGalleryStats(): Promise<GalleryStats> {
     const result = await query<GalleryStats>(`
       SELECT
-        (SELECT COUNT(*) FROM photos) as total_photos,
+        (SELECT COUNT(*) FROM photos WHERE trashed_at IS NULL) as total_photos,
         (SELECT COUNT(*) FROM folders) as total_folders,
-        (SELECT COALESCE(SUM(size), 0) FROM photos) as total_size,
-        (SELECT COUNT(*) FROM photos WHERE is_favorite = true) as favorite_photos,
-        (SELECT COUNT(*) FROM photos WHERE metadata IS NOT NULL) as photos_with_metadata
+        (SELECT COALESCE(SUM(size), 0) FROM photos WHERE trashed_at IS NULL) as total_size,
+        (SELECT COUNT(*) FROM photos WHERE is_favorite = true AND trashed_at IS NULL) as favorite_photos,
+        (SELECT COUNT(*) FROM photos WHERE metadata IS NOT NULL AND trashed_at IS NULL) as photos_with_metadata,
+        (SELECT COUNT(*) FROM photos WHERE trashed_at IS NOT NULL) as photos_in_corbeille
     `);
 
     return requireRow(result, "Gallery stats");
@@ -343,10 +349,11 @@ class BlazeGalleryMCPHandler {
       groupBy !== "folder"
         ? `,\n        COUNT(DISTINCT p.folder_id) as folders_involved`
         : "";
+    // The Corbeille's photos are not the gallery's
     const whereClause =
       groupBy !== "year" && groupBy !== "folder"
-        ? `WHERE ${groupByClause} IS NOT NULL`
-        : "";
+        ? `WHERE p.trashed_at IS NULL AND ${groupByClause} IS NOT NULL`
+        : "WHERE p.trashed_at IS NULL";
 
     return `
       ${baseSelect}${foldersInvolved}
@@ -424,7 +431,7 @@ class BlazeGalleryMCPHandler {
         ${selectFields},
         ${valueClause}
       FROM photos
-      WHERE ${groupByClause} IS NOT NULL ${dateFilter}
+      WHERE trashed_at IS NULL AND ${groupByClause} IS NOT NULL ${dateFilter}
       GROUP BY ${groupByClause}
       ORDER BY period ASC
     `;
@@ -1486,7 +1493,8 @@ export const POST = requireAuthOrApiKey(async function POST(
             },
             {
               name: "get_gallery_stats",
-              description: "Get overall gallery statistics and metrics",
+              description:
+                "Get overall gallery statistics and metrics: photos, folders, size, favourites, photos with metadata, all but the Corbeille's photos, counted apart in photos_in_corbeille (thrown away, erased 30 days later)",
               inputSchema: toolSchemas.get_gallery_stats.inputSchema,
             },
             {

@@ -35,7 +35,7 @@ export default function FilteredPhotos({
   onPhotoUrlChange: (id: string | null) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
-  const { feed, setFeed, loadMore } = useTimelineFeed(
+  const { feed, loadMore } = useTimelineFeed(
     filter,
     filterKey(filter),
     path,
@@ -128,12 +128,6 @@ export default function FilteredPhotos({
         photos={items}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={onPhotoUrlChange}
-        onPhotoDeleted={(deleted) => {
-          setFeed((f) => ({
-            ...f,
-            items: f.items.filter((p) => String(p.id) !== String(deleted.id)),
-          }));
-        }}
       />
       <div ref={sentinel} aria-hidden />
       {phase === "more" && (

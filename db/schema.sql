@@ -181,6 +181,8 @@ CREATE INDEX IF NOT EXISTS idx_shared_folders_share_token ON shared_folders (sha
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_accessed_at ON share_access_logs (accessed_at);
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_ip_address ON share_access_logs (ip_address);
 CREATE INDEX IF NOT EXISTS idx_share_access_logs_shared_folder_id ON share_access_logs (shared_folder_id);
+-- The purge sets photo_id to NULL for each photo it erases (src/lib/trash.ts)
+CREATE INDEX IF NOT EXISTS idx_share_access_logs_photo_id ON share_access_logs (photo_id);
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_email ON user_sessions (email);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions (expires_at);
@@ -683,3 +685,33 @@ CREATE TABLE IF NOT EXISTS task_leases (
   owner text NOT NULL,
   expires_at timestamptz NOT NULL
 );
+
+-- The Corbeille. A photo the owner threw away (the viewer's trash, « Garder
+-- celle-ci » on a stack, the Doublons page) keeps its file and its row for 30
+-- days: trashed_at says since when. Until then it counts as absent everywhere,
+-- like a folder out of the gallery, and in every worker task but thumbnails;
+-- putting it back is clearing trashed_at. The purge (npm run trash, or
+-- « Vider la corbeille ») deletes every version of its file from the bucket,
+-- its thumbnail and renditions, then its row.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_photos_trashed
+  ON photos (trashed_at) WHERE trashed_at IS NOT NULL;
+-- Who threw it away: the owner, from the app, or 'auto', a pass of
+-- `npm run dedupe` over the stacks. trash_batch: the request or the pass it
+-- went with, all of which « Restaurer le lot » puts back. trashed_for: the
+-- photo kept in its place when it left a stack (no foreign key: the purge
+-- may erase that one later). All three are cleared with trashed_at.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_by text
+  CHECK (trashed_by IN ('owner', 'auto'));
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trash_batch text;
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_for bigint;
+CREATE INDEX IF NOT EXISTS idx_photos_trash_batch
+  ON photos (trash_batch) WHERE trash_batch IS NOT NULL;
+
+-- The file's ETag as the bucket lists it, quotes stripped: the MD5 of its
+-- bytes, except for a multipart upload, whose ETag ends in -<parts> and is
+-- no MD5. Two photos are the same file only when both hold the same MD5
+-- (an exact copy: src/lib/autoTrash.ts, src/lib/stacks.ts). The sync writes
+-- it for new and replaced files; `npm run etags` fills the others. NULL:
+-- not read yet.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS etag text;
