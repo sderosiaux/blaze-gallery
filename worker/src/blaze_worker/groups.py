@@ -22,9 +22,13 @@ Two photos are linked when one of these rules holds:
 and never otherwise: two cameras never make a near-duplicate (two people
 photographing one view), and screens, documents and images under MIN_SIDE
 px only stack as exact copies (pages and flags look alike to the model).
-A crop (another shape) stays out: the pixel test compares two pictures
-squeezed into one square, which two shapes never match, and the cosine
-alone was right on 11 of 16 such pairs. "Same camera" is the make and
+A crop (another shape) gets no same link: the pixel test compares two
+pictures squeezed into one square, which two shapes never match, and the
+cosine alone was right on 11 of 16 such pairs. A burst link does not
+compare shapes, though: a crop, or an export that kept the EXIF time,
+stacks with its original as a burst. Nothing here throws a photo away;
+« Garder » and the passes of npm run dedupe check the shape themselves
+(src/lib/keep.ts, src/lib/autoTrash.ts). "Same camera" is the make and
 model: two bodies of one model (two family iPhones) count as one, as the
 metadata holds no serial number. imageProbe records date_tag and
 exposure_bias since 2026-10-21: photos probed before have neither, and are
@@ -426,6 +430,8 @@ def classify(c: Columns, i: np.ndarray, j: np.ndarray, cosine: np.ndarray) -> np
         burst = timed & (gap >= 1) & (gap <= BURST_SECONDS)
         later = timed & (gap > BURST_SECONDS)
     same_shape = np.abs(c.shape[i] - c.shape[j]) <= SAME_SHAPE
+    # By the time taken alone, whatever the shapes: a crop or an export with its
+    # EXIF time joins its original (module docstring)
     code[same_second & (cosine >= SAME_SECOND_COSINE)] = BURST
     code[burst & (cosine >= BURST_COSINE)] = BURST
     # Of the frames of a burst: a raw file and its JPEG, or the same view at other exposures
@@ -434,7 +440,8 @@ def classify(c: Columns, i: np.ndarray, j: np.ndarray, cosine: np.ndarray) -> np
     code[(code == BURST) & bracket] = BRACKET
     code[(code == BURST) & (c.raw[i] != c.raw[j])] = RAW
     code[later & same_shape & (cosine >= SAME_COSINE)] = IDENTICAL
-    # Another shape: the pixel test cannot compare them, so no link (module docstring)
+    # Not timed, or later than a burst, and another shape: the pixel test cannot
+    # compare them, so no link (module docstring)
     untimed = ~timed & ~two_cameras & same_shape & (cosine >= SAME_COSINE)
     code[untimed] = ALIKE
     code[~(c.plain[i] & c.plain[j])] = NONE
