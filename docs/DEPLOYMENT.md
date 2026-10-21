@@ -264,7 +264,9 @@ empty. Run one at a time: a second one exits at once.
 that can erase. It does not exist yet: create it with `DATABASE_URL`, a
 `BACKBLAZE_*` key that has listFiles and deleteFiles, and the
 `THUMBNAIL_STORAGE` and `THUMBNAIL_S3_*` keys of the thumbnail storage.
-Until then, and whenever a purge refuses or stops, the run leaves
+Until then the run skips the purge with one log line (« purge skipped: no
+blaze-purge.env »), and nothing waiting in the Corbeille is erased. Once it
+exists, a purge that refuses or stops leaves
 `~/blaze-sync/logs/ALERT-purge-<date>` with the reason, and the indexing
 goes on.
 
