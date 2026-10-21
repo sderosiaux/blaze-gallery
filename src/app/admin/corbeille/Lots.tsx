@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Layers, RotateCcw, Sparkles } from "lucide-react";
 import { Badge, Button, IconButton, Skeleton, useToast } from "@/components/ui";
 import { asArray, readJsonObject } from "@/hooks/apiJson";
@@ -8,8 +8,10 @@ import { aspectRatio, formatCount } from "@/lib/albums";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
+import PhotoViewer from "@/components/PhotoViewer";
 import { restoreFromTrash } from "@/lib/trashClient";
 import type { Photo } from "@/types";
+import TrashProofPanel, { forgetProof, restoreShown } from "./TrashProof";
 
 /** A lot of the Corbeille (lib/trash.ts TrashLotSummary). */
 export interface Lot {
@@ -131,6 +133,12 @@ export function LotView({
   const [stacks, setStacks] = useState<LotStack[] | null>(null);
   const [next, setNext] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [open, setOpen] = useState<Photo | null>(null);
+  // The viewer walks the lot's photos in the Corbeille, stack after stack
+  const shown = useMemo(
+    () => (stacks ?? []).flatMap((stack) => stack.trashed),
+    [stacks],
+  );
 
   const load = useCallback(
     async (after: number | null) => {
@@ -190,6 +198,49 @@ export function LotView({
     }
   };
 
+  const restoreViewed = (
+    photo: Photo,
+    proof: Parameters<typeof restoreShown>[2],
+  ) => {
+    const at = shown.findIndex((p) => String(p.id) === String(photo.id));
+    const where = (stacks ?? []).findIndex((stack) =>
+      stack.trashed.some((p) => String(p.id) === String(photo.id)),
+    );
+    const before = stacks?.[where];
+    void restoreShown(toast, photo, proof, {
+      gone: () => {
+        setOpen(shown[at + 1] ?? shown[at - 1] ?? null);
+        setStacks((s) =>
+          (s ?? [])
+            .map((stack) => ({
+              ...stack,
+              trashed: stack.trashed.filter(
+                (p) => String(p.id) !== String(photo.id),
+              ),
+            }))
+            .filter((stack) => stack.trashed.length > 0),
+        );
+      },
+      back: () => {
+        if (!before) return;
+        forgetProof(photo.id);
+        setStacks((s) => {
+          const list = s ?? [];
+          const key = (stack: LotStack) =>
+            String(stack.kept?.id ?? stack.trashed[0]?.id);
+          const i = list.findIndex((stack) => key(stack) === key(before));
+          // Its stack as it was: still there with the others, or back alone
+          if (i === -1) {
+            const copy = [...list];
+            copy.splice(Math.min(where, copy.length), 0, before);
+            return copy;
+          }
+          return list.map((stack, j) => (j === i ? before : stack));
+        });
+      },
+    });
+  };
+
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -232,7 +283,13 @@ export function LotView({
                 </Tile>
               )}
               {stack.trashed.map((photo) => (
-                <Tile key={photo.id} photo={photo}>
+                <Tile
+                  key={photo.id}
+                  photo={photo}
+                  onOpen={() => {
+                    setOpen(photo);
+                  }}
+                >
                   <IconButton
                     icon={RotateCcw}
                     label={`Restaurer ${photo.filename}`}
@@ -254,6 +311,19 @@ export function LotView({
           </Button>
         </div>
       )}
+      {open && (
+        <PhotoViewer
+          photo={open}
+          photos={shown}
+          onClose={() => {
+            setOpen(null);
+          }}
+          onPhotoChange={setOpen}
+          aside={(photo) => (
+            <TrashProofPanel photo={photo} onRestore={restoreViewed} />
+          )}
+        />
+      )}
     </>
   );
 }
@@ -261,10 +331,13 @@ export function LotView({
 function Tile({
   photo,
   kept = false,
+  onOpen,
   children,
 }: {
   photo: LotPhoto;
   kept?: boolean;
+  /** Opens the photo in the viewer */
+  onOpen?: () => void;
   children: React.ReactNode;
 }) {
   // Sized before it loads: a lazy image of no width never comes into view
@@ -288,6 +361,14 @@ function Tile({
             !kept && "opacity-70",
           )}
         />
+        {onOpen && (
+          <button
+            type="button"
+            aria-label={`Ouvrir ${photo.filename}`}
+            onClick={onOpen}
+            className="absolute inset-0 rounded-md outline-offset-2 cursor-zoom-in"
+          />
+        )}
         {children}
       </span>
       <figcaption

@@ -85,6 +85,8 @@ interface PhotoViewerProps {
   onFacesChange?: (photo: Photo) => void;
   /** Opens with the face boxes on (the review queue), whatever P was last. */
   showFaces?: boolean;
+  /** A panel beside the photo shown, for the page's own matter (the Corbeille's proof). */
+  aside?: (photo: Photo) => React.ReactNode;
 }
 
 interface Keyed<T> {
@@ -127,6 +129,7 @@ export default function PhotoViewer({
   sessionToken,
   onFacesChange,
   showFaces,
+  aside,
 }: PhotoViewerProps) {
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1224,6 +1227,7 @@ export default function PhotoViewer({
             </div>
           </div>
 
+          {aside?.(current)}
           {infoOpen && (
             <InfoPanel
               id={infoId}
