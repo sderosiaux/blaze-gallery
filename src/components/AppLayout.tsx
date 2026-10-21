@@ -17,8 +17,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Layers,
   Share2,
   Shuffle,
+  Trash2,
   UsersRound,
   X,
   type LucideIcon,
@@ -111,6 +113,18 @@ const ADMIN_NAV: NavLinkItem[] = [
     label: "Hors galerie",
     icon: ImageOff,
     match: (p) => p.startsWith("/admin/hors-galerie"),
+  },
+  {
+    href: "/admin/doublons",
+    label: "Doublons",
+    icon: Layers,
+    match: (p) => p.startsWith("/admin/doublons"),
+  },
+  {
+    href: "/admin/corbeille",
+    label: "Corbeille",
+    icon: Trash2,
+    match: (p) => p.startsWith("/admin/corbeille"),
   },
 ];
 

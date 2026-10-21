@@ -10,19 +10,30 @@ import {
 import { Loader2, Trash2 } from "lucide-react";
 import type { Photo } from "@/types";
 import { useToast } from "@/components/ui";
-import { asString, readJsonObject } from "@/hooks/apiJson";
 import { cn } from "@/lib/cn";
 import { createHoldToConfirm, HOLD_TO_CONFIRM_MS } from "@/lib/holdToConfirm";
+import {
+  nextFront,
+  restoreFromTrash,
+  sendToTrash,
+  stackPhotos,
+  TrashError,
+} from "@/lib/trashClient";
 
 interface PhotoDeleteButtonProps {
   photo: Photo;
-  /** Called only after storage and the database confirm deletion. */
-  onDeleted: (photo: Photo) => void;
+  /**
+   * Once the photo is in the Corbeille: what its slot shows now (null:
+   * nothing; the next photo of its stack when it fronted one), and back to
+   * the photo on « Annuler ».
+   */
+  onReplace: (id: Photo["id"], next: Photo | null) => void;
 }
 
+/** The Corbeille, held one second: the photo leaves the list, « Annuler » brings it back. */
 export default function PhotoDeleteButton({
   photo,
-  onDeleted,
+  onReplace,
 }: PhotoDeleteButtonProps) {
   const toast = useToast();
   const [holding, setHolding] = useState(false);
@@ -35,24 +46,37 @@ export default function PhotoDeleteButton({
     setHolding(false);
     setDeleting(true);
     try {
-      const response = await fetch(`/api/photos/${photo.id}`, {
-        method: "DELETE",
+      await sendToTrash([photo.id]);
+      // A stack's front gives way to the next photo of it
+      const next = photo.stack
+        ? await stackPhotos(photo.id)
+            .then((left) => nextFront(left, [photo.id], photo.stack?.id))
+            .catch(() => null)
+        : null;
+      onReplace(photo.id, next);
+      toast.show("Dans la corbeille", "success", {
+        action: {
+          label: "Annuler",
+          onClick: () => {
+            restoreFromTrash([photo.id])
+              .then(() => {
+                onReplace(next?.id ?? photo.id, photo);
+              })
+              .catch(() => {
+                toast.show("La photo n’est pas revenue", "error");
+              });
+          },
+        },
       });
-      const data = await readJsonObject(response);
-      if (!response.ok || data.success !== true) {
-        toast.show(
-          asString(data.error) ?? "La photo n’a pas été supprimée",
-          "error",
-        );
-        busy.current = false;
-        return;
-      }
-      onDeleted(photo);
-      toast.show("Photo supprimée", "success");
-      // Stay locked until the parent removes the tile: no second DELETE.
-    } catch {
+      // Stay locked until the parent removes the tile: no second request.
+    } catch (error) {
       busy.current = false;
-      toast.show("La photo n’a pas été supprimée", "error");
+      toast.show(
+        error instanceof TrashError
+          ? error.message
+          : "La photo n’est pas allée à la corbeille",
+        "error",
+      );
     } finally {
       setDeleting(false);
     }
@@ -89,8 +113,8 @@ export default function PhotoDeleteButton({
     hold.start();
   };
   const label = deleting
-    ? "Suppression en cours"
-    : `Supprimer ${photo.filename} — maintenir 1 seconde`;
+    ? "Mise à la corbeille"
+    : `Mettre ${photo.filename} à la corbeille — maintenir 1 seconde`;
 
   return (
     <button

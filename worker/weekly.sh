@@ -1,8 +1,10 @@
 #!/bin/sh
 # Weekly bucket sync for Blaze Gallery (indexes photos dropped straight into B2).
-# Runs `npm run sync`, then `npm run palettes` (folder colour strips), from
-# the latest main in a throwaway Node container; the container name doubles
-# as a lock, so two runs never overlap. Then queues the new photos for every
+# Runs `npm run sync`, then `npm run palettes` (folder colour strips), then
+# `npm run trash -- purge` (erases what has waited 30 days in the Corbeille,
+# refusing past a twentieth of the library), from the latest main in a
+# throwaway Node container; the container name doubles as a lock, so two
+# runs never overlap. Then queues the new photos for every
 # analysis (existing jobs are left alone) and starts the workers, which stop
 # by themselves once their queue is empty (so Neon can suspend).
 set -eu
@@ -14,7 +16,7 @@ LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
   docker run --rm --name blaze-sync \
     --env-file "$HOME/blaze-worker/blaze-worker.env" \
     -v "$BASE/repo:/app" -v blaze-sync-npm:/root/.npm -w /app \
-    node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; exit \$s; }"
+    node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; npm run trash -- purge; exit \$s; }"
   for task in faces thumbs embed; do
     docker run --rm --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
       --entrypoint blaze-enqueue blaze-worker:embed --task "$task" --all

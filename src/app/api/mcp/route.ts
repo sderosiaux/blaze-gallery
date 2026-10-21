@@ -151,7 +151,9 @@ class BlazeGalleryMCPHandler {
       .gte("p.size", filters.min_size)
       .lte("p.size", filters.max_size)
       .gte("p.modified_at", filters.date_from)
-      .lte("p.modified_at", filters.date_to);
+      .lte("p.modified_at", filters.date_to)
+      // The Corbeille's photos are gone, for everything but the Corbeille
+      .custom("p.trashed_at IS NULL");
 
     const { limitParam, offsetParam } = qb.pagination(
       filters.limit ? filters.limit : 100,
@@ -234,7 +236,7 @@ class BlazeGalleryMCPHandler {
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE p.is_favorite = true
+      WHERE p.is_favorite = true AND p.trashed_at IS NULL
       ORDER BY p.created_at DESC
       LIMIT $1
     `,
@@ -250,6 +252,7 @@ class BlazeGalleryMCPHandler {
       SELECT p.*, f.path as folder_path, f.name as folder_name
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
+      WHERE p.trashed_at IS NULL
       ORDER BY p.modified_at DESC
       LIMIT $1
     `,

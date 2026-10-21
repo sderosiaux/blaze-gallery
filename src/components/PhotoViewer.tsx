@@ -13,8 +13,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Photo } from "@/types";
 import PhotoViewerControls from "./PhotoViewerControls";
-import { Button, Dialog, IconButton, useToast } from "@/components/ui";
-import { asString, readJsonObject } from "@/hooks/apiJson";
+import { Button, IconButton, useToast } from "@/components/ui";
 import { useFavoriteToggle } from "@/hooks/useFavoriteToggle";
 import { usePhotoNavigation } from "@/hooks/usePhotoNavigation";
 import { usePhotoRotation } from "@/hooks/usePhotoRotation";
@@ -46,6 +45,13 @@ import { forgetPhotoFaces, usePhotoFaces } from "./people/usePhotoFaces";
 import type { PhotoFace } from "@/lib/people";
 import StackStrip from "./viewer/StackStrip";
 import { forgetStacks, useStack } from "./viewer/useStack";
+import {
+  keepInStacks,
+  nextFront,
+  restoreFromTrash,
+  sendToTrash,
+  TrashError,
+} from "@/lib/trashClient";
 
 /** Face boxes stay on (P) from one photo, and one opening, to the next. */
 let facesShownPreference = false;
@@ -60,8 +66,12 @@ interface PhotoViewerProps {
   /** What the server now has after a favourite toggle or a hand rotation. */
   onPhotoUpdate?: (id: Photo["id"], patch: PhotoPatch) => void;
   onPhotoChange?: (photo: Photo) => void;
-  /** Called once the photo is deleted from storage. Without it, delete is not offered. */
-  onDelete?: (photo: Photo) => void;
+  /**
+   * A photo went to the Corbeille, or « Garder celle-ci » settled its stack:
+   * what its slot in the list shows now (null: nothing). Without it, neither
+   * is offered.
+   */
+  onPhotoReplace?: (id: Photo["id"], next: Photo | null) => void;
   isSharedView?: boolean;
   shareToken?: string;
   allowDownload?: boolean;
@@ -106,7 +116,7 @@ export default function PhotoViewer({
   total,
   onPhotoUpdate,
   onPhotoChange,
-  onDelete,
+  onPhotoReplace,
   isSharedView = false,
   shareToken,
   allowDownload = true,
@@ -151,7 +161,7 @@ export default function PhotoViewer({
   const video = isVideo(current);
   const canFavorite = !isSharedView;
   const canRotate = !isSharedView && !video;
-  const canDelete = !isSharedView && Boolean(onDelete);
+  const canTrash = !isSharedView && Boolean(onPhotoReplace);
   // Who is on a photo is the owner's business: never in a shared view
   const canFaces = !isSharedView && !video;
 
@@ -173,8 +183,7 @@ export default function PhotoViewer({
 
   const [infoOpen, setInfoOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [trashing, setTrashing] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   // Per-photo state is keyed by id so a new photo starts clean without a reset pass.
@@ -318,30 +327,130 @@ export default function PhotoViewer({
     void download();
   }, [download]);
 
-  const confirmDelete = useCallback(async () => {
-    setDeleting(true);
+  // The list's photo, and the stack it fronts as the strip shows it
+  const front = nav.current;
+  const stackPhotos = stack.photos;
+  const { forget: forgetStack } = stack;
+
+  /** Puts `next` in the list's slot and follows it there; `undo` restores what was. */
+  const settleSlot = useCallback(
+    (next: Photo | null) => {
+      onPhotoReplace?.(front.id, next);
+      if (next) onPhotoChange?.(next);
+      else onClose();
+    },
+    [front.id, onPhotoReplace, onPhotoChange, onClose],
+  );
+
+  const trashShown = useCallback(async () => {
+    if (!canTrash || trashing) return;
+    setTrashing(true);
+    const shown = current;
     try {
-      const response = await fetch(`/api/photos/${currentId}`, {
-        method: "DELETE",
-      });
-      const data = await readJsonObject(response);
-      if (!response.ok || data.success !== true) {
-        toast.show(
-          asString(data.error) ?? "La photo n’a pas été supprimée",
-          "error",
-        );
-        return;
+      await sendToTrash([shown.id]);
+      // In a stack the slot stays: the next photo of it when the front went,
+      // else the front with one photo fewer behind it
+      let next: Photo | null = null;
+      if (stackPhotos && String(shown.id) === String(front.id))
+        next = nextFront(stackPhotos, [shown.id], front.stack?.id);
+      else if (stackPhotos) {
+        const { stack: was, ...alone } = front;
+        const left = stackPhotos.length - 1;
+        next =
+          was && left >= 2
+            ? { ...alone, stack: { ...was, count: left } }
+            : alone;
       }
-      onDelete?.(current);
-      toast.show("Photo supprimée", "success");
-      setConfirmOpen(false);
-      onClose();
-    } catch {
-      toast.show("La photo n’a pas été supprimée", "error");
+      forgetStack();
+      settleSlot(next);
+      toast.show("Dans la corbeille", "success", {
+        action: {
+          label: "Annuler",
+          onClick: () => {
+            restoreFromTrash([shown.id])
+              .then(() => {
+                forgetStack();
+                onPhotoReplace?.(next?.id ?? front.id, front);
+              })
+              .catch(() => {
+                toast.show("La photo n’est pas revenue", "error");
+              });
+          },
+        },
+      });
+    } catch (error) {
+      toast.show(
+        error instanceof TrashError
+          ? error.message
+          : "La photo n’est pas allée à la corbeille",
+        "error",
+      );
     } finally {
-      setDeleting(false);
+      setTrashing(false);
     }
-  }, [currentId, current, onDelete, onClose, toast]);
+  }, [
+    canTrash,
+    trashing,
+    current,
+    stackPhotos,
+    front,
+    forgetStack,
+    settleSlot,
+    toast,
+    onPhotoReplace,
+  ]);
+
+  /** « Garder celle-ci »: the photo shown stays, the rest of its stack goes. */
+  const keepShown = useCallback(async () => {
+    if (!canTrash || trashing || !stackPhotos) return;
+    setTrashing(true);
+    const kept = current;
+    const others = stackPhotos.length - 1;
+    try {
+      const trashed = await keepInStacks([kept.id], others);
+      const { stack: _, ...alone } = kept;
+      forgetStack();
+      settleSlot(alone);
+      toast.show(
+        `${formatNumber(trashed.length)} ${trashed.length > 1 ? "photos" : "photo"} dans la corbeille`,
+        "success",
+        {
+          action: {
+            label: "Annuler",
+            onClick: () => {
+              restoreFromTrash(trashed)
+                .then(() => {
+                  forgetStack();
+                  onPhotoReplace?.(kept.id, front);
+                })
+                .catch(() => {
+                  toast.show("Les photos ne sont pas revenues", "error");
+                });
+            },
+          },
+        },
+      );
+    } catch (error) {
+      toast.show(
+        error instanceof TrashError
+          ? error.message
+          : "La pile n’a pas été réglée",
+        "error",
+      );
+    } finally {
+      setTrashing(false);
+    }
+  }, [
+    canTrash,
+    trashing,
+    stackPhotos,
+    current,
+    forgetStack,
+    settleSlot,
+    toast,
+    onPhotoReplace,
+    front,
+  ]);
 
   // ---- navigation, slideshow, zoom --------------------------------------
 
@@ -471,15 +580,6 @@ export default function PhotoViewer({
 
   // ---- focus, keyboard, scroll lock -------------------------------------
 
-  const confirmOpenRef = useRef(confirmOpen);
-  confirmOpenRef.current = confirmOpen;
-  const deletingRef = useRef(deleting);
-  deletingRef.current = deleting;
-  // Stable: the Dialog re-runs its focus effect whenever onClose changes.
-  const closeConfirm = useCallback(() => {
-    if (!deletingRef.current) setConfirmOpen(false);
-  }, []);
-
   useEffect(() => {
     if (!mounted) return;
     const opener = document.activeElement as HTMLElement | null;
@@ -490,7 +590,7 @@ export default function PhotoViewer({
     // Focus that wanders out (a click on something behind) is brought back.
     const onFocusIn = (e: FocusEvent) => {
       const root = rootRef.current;
-      if (!root || confirmOpenRef.current) return;
+      if (!root) return;
       if (e.target instanceof Node && !root.contains(e.target))
         root.focus({ preventScroll: true });
     };
@@ -521,8 +621,6 @@ export default function PhotoViewer({
   }, [mounted]);
 
   const onKey = (e: KeyboardEvent) => {
-    // The delete confirmation owns the keyboard while it is open.
-    if (confirmOpenRef.current) return;
     const root = rootRef.current;
     if (!root) return;
     const target = e.target instanceof HTMLElement ? e.target : null;
@@ -649,9 +747,9 @@ export default function PhotoViewer({
         break;
       case "Delete":
       case "Backspace":
-        if (!canDelete) return;
+        if (!canTrash) return;
         handled();
-        setConfirmOpen(true);
+        void trashShown();
         break;
     }
   };
@@ -671,7 +769,7 @@ export default function PhotoViewer({
 
   const chromeVisible = useAutoHide(
     rootRef,
-    infoOpen || helpOpen || confirmOpen || Boolean(openFaceMenu),
+    infoOpen || helpOpen || Boolean(openFaceMenu),
     mounted,
   );
   const chromeClass = cn(
@@ -865,9 +963,9 @@ export default function PhotoViewer({
             }
             onDownload={allowDownload ? startDownload : undefined}
             onDelete={
-              canDelete
+              canTrash
                 ? () => {
-                    setConfirmOpen(true);
+                    void trashShown();
                   }
                 : undefined
             }
@@ -947,6 +1045,14 @@ export default function PhotoViewer({
                     photos={stack.photos}
                     shown={stack.index}
                     onShow={stack.show}
+                    onKeep={
+                      canTrash
+                        ? () => {
+                            void keepShown();
+                          }
+                        : undefined
+                    }
+                    busy={trashing}
                   />
                 </div>
               )}
@@ -1068,7 +1174,7 @@ export default function PhotoViewer({
             canStack={stack.photos !== null}
             canFavorite={canFavorite}
             canRotate={canRotate}
-            canDelete={canDelete}
+            canDelete={canTrash}
             canFaces={canFaces}
             onClose={() => {
               setHelpOpen(false);
@@ -1093,28 +1199,6 @@ export default function PhotoViewer({
           {announcement}
         </p>
       </div>
-
-      <Dialog
-        open={confirmOpen}
-        onClose={closeConfirm}
-        size="sm"
-        title={"Supprimer cette photo\u00a0?"}
-        description={`«\u00a0${current.filename}\u00a0» sera effacée du stockage, définitivement.`}
-        footer={
-          <>
-            <Button data-autofocus onClick={closeConfirm} disabled={deleting}>
-              Garder
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => void confirmDelete()}
-              loading={deleting}
-            >
-              Supprimer
-            </Button>
-          </>
-        }
-      />
     </>,
     document.body,
   );

@@ -180,12 +180,7 @@ function MapContent() {
   }, [period, filter, pointsAttempt]);
 
   const [attempt, setAttempt] = useState(0);
-  const { feed, loadMore, remove } = useAreaPhotos(
-    box,
-    period,
-    filter,
-    attempt,
-  );
+  const { feed, loadMore } = useAreaPhotos(box, period, filter, attempt);
   const { phase, cursor } = feed;
 
   // Scrolling near the end of the grid brings the next page.
@@ -334,9 +329,6 @@ function MapContent() {
           total={feed.total}
           selectedPhotoId={selectedPhotoId}
           onPhotoUrlChange={setPhotoParam}
-          onPhotoDeleted={(deleted) => {
-            remove(deleted.id);
-          }}
           eagerCount={12}
         />
 

@@ -70,7 +70,7 @@ export interface PersonSummary extends PersonRow {
 const STILL_OPEN = `(f.assignment IS NULL OR f.assignment = 'rejected')`;
 
 /** The face's photo (ph = photos) is in the gallery. */
-const GALLERY = andInGallery("ph.s3_key");
+const GALLERY = andInGallery("ph");
 
 const PERSON_COLUMNS =
   "p.id::int AS id, p.name, p.birth_date::text AS birth_date";
@@ -419,7 +419,7 @@ const stackOfPhoto = (
 ) => `pg.group_id::int AS stack_id, pg.rank AS stack_rank, pg.copy_of::int AS copy_of,
   ${stackKey(ph)} AS stack_key,
   (SELECT count(*) FROM photo_groups sm JOIN photos sp ON sp.id = sm.photo_id
-   WHERE sm.group_id = pg.group_id ${andInGallery("sp.s3_key")})::int AS stack_count`;
+   WHERE sm.group_id = pg.group_id ${andInGallery("sp")})::int AS stack_count`;
 
 /**
  * One photo per stack of near-duplicates (photo_groups), as every list of
@@ -1002,7 +1002,7 @@ const NEIGHBOURS_SQL = `
     AND NOT EXISTS (
       SELECT 1 FROM photos cp JOIN faces o ON o.photo_id = cp.id
       WHERE cp.filename = ph.filename AND cp.size = ph.size AND o.id <> n.id
-        ${andInGallery("cp.s3_key")}
+        ${andInGallery("cp")}
         AND ((o.person_id = $2 AND o.assignment IN ('seed', 'manual', 'auto'))
           OR EXISTS (SELECT 1 FROM face_candidates oc
                      WHERE oc.person_id = $2 AND oc.face_id = o.id AND oc.status = 'pending')))

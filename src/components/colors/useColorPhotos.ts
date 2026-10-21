@@ -55,8 +55,7 @@ async function fetchPage(
  * Photos holding the filter's color (or in its tone), most marked first,
  * passing the rest of it, a page at a time: starts over when the filter or
  * `attempt` changes; `loadMore` appends the next page (one request at a
- * time, again after a failure only with `retry`), `remove` drops a photo
- * deleted from the viewer.
+ * time, again after a failure only with `retry`).
  */
 export function useColorPhotos(filter: UrlFilter, attempt: number) {
   const [feed, setFeed] = useState<ColorFeed>(START);
@@ -123,12 +122,5 @@ export function useColorPhotos(filter: UrlFilter, attempt: number) {
       });
   }, []);
 
-  const remove = useCallback((id: TimelinePhoto["id"]) => {
-    setFeed((f) => ({
-      ...f,
-      items: f.items.filter((p) => String(p.id) !== String(id)),
-    }));
-  }, []);
-
-  return { feed, loadMore, remove };
+  return { feed, loadMore };
 }

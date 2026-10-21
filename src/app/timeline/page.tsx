@@ -21,6 +21,7 @@ import type { Photo } from "@/types";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PhotoViewer from "@/components/PhotoViewer";
+import { usePhotoSlots } from "@/hooks/usePhotoSlots";
 import {
   Button,
   ButtonLink,
@@ -142,11 +143,14 @@ function TimelineContent() {
   }, [feed.phase, feed.cursor, loadMore]);
 
   const groupsRef = useRef<MonthGroup[]>([]);
+  // A photo sent to the Corbeille leaves its slot, or gives it to the next of its stack
+  const slots = usePhotoSlots(feed.items);
+  const items = slots.items;
   const groups = useMemo(() => {
-    const next = groupByMonth(feed.items, groupsRef.current);
+    const next = groupByMonth(items, groupsRef.current);
     groupsRef.current = next;
     return next;
-  }, [feed.items]);
+  }, [items]);
 
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
   useEffect(() => {
@@ -247,23 +251,13 @@ function TimelineContent() {
     [patch, toast],
   );
 
-  const removeDeleted = useCallback(
-    (deleted: Photo) => {
-      setFeed((f) => ({
-        ...f,
-        items: f.items.filter((p) => !sameId(p, deleted)),
-      }));
-    },
-    [setFeed],
-  );
-
   // The viewer opens at once; the URL follows so Back closes it.
   const [openId, setOpenId] = useState<string | null>(selectedPhotoId);
   useEffect(() => {
     setOpenId(selectedPhotoId);
   }, [selectedPhotoId]);
   const selected = openId
-    ? (feed.items.find((p) => String(p.id) === openId) ?? null)
+    ? (items.find((p) => String(p.id) === openId) ?? null)
     : null;
 
   const openPhoto = useCallback(
@@ -280,11 +274,10 @@ function TimelineContent() {
   };
 
   // The viewer walks every loaded photo: near the end of them, fetch the next page.
-  const selectedIndex = selected ? feed.items.indexOf(selected) : -1;
+  const selectedIndex = selected ? items.indexOf(selected) : -1;
   useEffect(() => {
-    if (selectedIndex !== -1 && selectedIndex >= feed.items.length - 6)
-      loadMore();
-  }, [selectedIndex, feed.items.length, feed.phase, loadMore]);
+    if (selectedIndex !== -1 && selectedIndex >= items.length - 6) loadMore();
+  }, [selectedIndex, items.length, feed.phase, loadMore]);
 
   const closePhoto = () => {
     setOpenId(null);
@@ -407,7 +400,7 @@ function TimelineContent() {
                 eagerCount={i === 0 ? 12 : 0}
                 onOpen={openPhoto}
                 onToggleFavorite={(photo) => void toggleFavorite(photo)}
-                onDeleted={removeDeleted}
+                onReplace={slots.replace}
               />
             );
           })}
@@ -465,11 +458,11 @@ function TimelineContent() {
       {selected && (
         <PhotoViewer
           photo={selected}
-          photos={feed.items}
+          photos={items}
           onClose={closePhoto}
           onPhotoChange={changePhoto}
           onPhotoUpdate={patch}
-          onDelete={removeDeleted}
+          onPhotoReplace={slots.replace}
         />
       )}
     </>

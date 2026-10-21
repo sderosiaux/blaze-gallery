@@ -6,6 +6,7 @@ import {
   BETTER,
   betterPassFilter,
   hasPhotoFilter,
+  notTrashed,
   query,
   stackColumns,
   stackFront,
@@ -44,7 +45,7 @@ export const GET = requireAuth(async function GET(request: NextRequest) {
         ${stackColumns()}
       FROM photos p
       LEFT JOIN folders f ON p.folder_id = f.id
-      WHERE p.is_favorite = true
+      WHERE p.is_favorite = true AND ${notTrashed()}
         ${filtered || ""}
         AND ${front}
       ORDER BY p.filename

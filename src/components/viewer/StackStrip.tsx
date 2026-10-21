@@ -1,6 +1,8 @@
 "use client";
 
+import { Check } from "lucide-react";
 import type { Photo } from "@/types";
+import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
@@ -13,16 +15,21 @@ export default function StackStrip({
   photos,
   shown,
   onShow,
+  onKeep,
+  busy = false,
 }: {
   photos: Photo[];
   shown: number;
   onShow: (id: number) => void;
+  /** « Garder celle-ci »: the photo shown stays, the others go to the Corbeille */
+  onKeep?: () => void;
+  busy?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-label={`Pile de ${photos.length} photos`}
-      className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-surface/90 p-1 shadow-lift backdrop-blur-sm"
+      className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-surface/90 p-1 shadow-lift backdrop-blur-sm"
     >
       {photos.map((photo, i) => (
         <button
@@ -55,6 +62,18 @@ export default function StackStrip({
           />
         </button>
       ))}
+      {onKeep && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Check}
+          loading={busy}
+          onClick={onKeep}
+          className="ml-1 shrink-0"
+        >
+          Garder celle-ci
+        </Button>
+      )}
     </div>
   );
 }

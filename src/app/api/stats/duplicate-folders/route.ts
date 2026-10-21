@@ -38,6 +38,7 @@ export const GET = requireAuth(async function GET() {
           AND p.filename NOT LIKE 'SYNOPHOTO_THUMB_%'
           AND p.filename NOT IN ('Thumbs.db', '.DS_Store')
           AND p.size > 10240
+          AND p.trashed_at IS NULL
         GROUP BY f.id, f.name, f.path
       ),
       groups AS MATERIALIZED (

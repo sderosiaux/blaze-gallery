@@ -21,7 +21,7 @@ const START: AreaFeed = { items: [], total: 0, cursor: null, phase: "loading" };
  * Photos of the selected zone and period passing the filter, newest first, a page at
  * a time: starts over whenever one of them or `attempt` changes; `loadMore`
  * appends the next page (one request at a time, again after a failure only
- * with `retry`), `remove` drops a photo deleted from the viewer.
+ * with `retry`).
  */
 export function useAreaPhotos(
   box: MapBox | null,
@@ -110,12 +110,5 @@ export function useAreaPhotos(
       });
   }, []);
 
-  const remove = useCallback((id: TimelinePhoto["id"]) => {
-    setFeed((f) => {
-      const items = f.items.filter((p) => String(p.id) !== String(id));
-      return { ...f, items, total: f.total - (f.items.length - items.length) };
-    });
-  }, []);
-
-  return { feed, loadMore, remove };
+  return { feed, loadMore };
 }

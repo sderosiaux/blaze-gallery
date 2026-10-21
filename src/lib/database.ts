@@ -329,14 +329,23 @@ export function outOfGallery(key: string): string {
   return `(${key} LIKE ANY (ARRAY(SELECT key_like FROM excluded_folders)))`;
 }
 
-/** `AND` clause keeping the photos (s3_key `key`) of the gallery. */
-export function andInGallery(key = "p.s3_key"): string {
-  return `AND NOT ${outOfGallery(key)}`;
+/** Photos `p` not in the Corbeille (photos.trashed_at, db/schema.sql). */
+export function notTrashed(p = "p"): string {
+  return `${p}.trashed_at IS NULL`;
 }
 
-/** The photos `p` of the gallery: in no folder out of it. */
+/**
+ * The photos `p` of the gallery: in no folder out of it, not in the
+ * Corbeille. A trashed photo counts as absent wherever an excluded one
+ * does, and from the lists that show every file too (notTrashed).
+ */
 export function inGallery(p = "p"): string {
-  return `NOT ${outOfGallery(`${p}.s3_key`)}`;
+  return `NOT ${outOfGallery(`${p}.s3_key`)} AND ${notTrashed(p)}`;
+}
+
+/** `AND` clause keeping the photos `p` of the gallery (inGallery). */
+export function andInGallery(p = "p"): string {
+  return `AND ${inGallery(p)}`;
 }
 
 // ---- stacks ---------------------------------------------------------------
@@ -360,8 +369,9 @@ export const BETTER = "stack_better";
  * into an anti-join over every stack, which a paged list never needs.
  */
 export function stackFront(better: readonly string[], p = "p"): string {
-  // Only a photo of the gallery stands in front: in the lists that show
-  // every file (a folder out of the gallery), its photos all show
+  // Only a photo of the gallery, and not in the Corbeille, stands in
+  // front: in the lists that show every file (a folder out of the
+  // gallery), its photos all show
   const passes = [inGallery(BETTER), ...better]
     .map((condition) => `AND ${condition}`)
     .join("\n      ");
@@ -548,7 +558,8 @@ async function listFolders(
   // (C.UTF-8 orders by code point, and '/' + 1 = '0'); starts_with keeps it
   // exact when names contain LIKE wildcards.
   // A folder out of the gallery keeps its cover but shows no colors; one in
-  // the gallery takes no cover from a sub-folder out of it.
+  // the gallery takes no cover from a sub-folder out of it. A photo in the
+  // Corbeille is no cover.
   const excluded = outOfGallery("s.path || '/'");
   const coverable = `(${excluded} OR NOT ${outOfGallery("d.path || '/'")})`;
   const sql = `
@@ -586,14 +597,14 @@ async function listFolders(
     LEFT JOIN LATERAL (
       SELECT p.id, ${PHOTO_LIKE} AS is_photo
       FROM photos p
-      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%'
+      WHERE p.folder_id = s.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
       ORDER BY ${COVER_RANK}
       LIMIT 1
     ) own_cover ON true
     LEFT JOIN LATERAL (
       SELECT (
         SELECT p.id FROM photos p
-        WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+        WHERE p.folder_id = d.id AND ${PHOTO_LIKE} AND ${notTrashed()}
         ORDER BY ${COVER_RANK}
         LIMIT 1
       ) AS id
@@ -606,6 +617,7 @@ async function listFolders(
         AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p WHERE p.folder_id = d.id AND ${PHOTO_LIKE}
+            AND ${notTrashed()}
         )
       ORDER BY d.path
       LIMIT 1
@@ -613,7 +625,7 @@ async function listFolders(
     LEFT JOIN LATERAL (
       SELECT (
         SELECT p.id FROM photos p
-        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+        WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
         ORDER BY ${COVER_RANK}
         LIMIT 1
       ) AS id
@@ -627,7 +639,7 @@ async function listFolders(
         AND ${coverable}
         AND EXISTS (
           SELECT 1 FROM photos p
-          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%'
+          WHERE p.folder_id = d.id AND p.mime_type LIKE 'image/%' AND ${notTrashed()}
         )
       ORDER BY d.path
       LIMIT 1
@@ -1138,7 +1150,7 @@ export async function personExpressions(
     ).join(", ")}
      FROM faces f JOIN photos p ON p.id = f.photo_id
      WHERE f.person_id = $1 AND f.assignment IN ${OWNED}
-       AND NOT ${outOfGallery("p.s3_key")}`,
+       AND ${inGallery()}`,
     [personId],
   );
   const row = requireRow(result, "Person expressions");
@@ -1266,7 +1278,7 @@ const dated = (p: string) => `(${p}.metadata->>'date_taken') IS NOT NULL`;
 const DATED = dated("p");
 
 /** The photos a list of the gallery shows: dated, and in the gallery. */
-const DATED_IN_GALLERY = `${DATED} AND NOT ${outOfGallery("p.s3_key")}`;
+const DATED_IN_GALLERY = `${DATED} AND ${inGallery()}`;
 
 /**
  * The rank's condition over photos `p` (its colors read under the alias pc
@@ -1690,10 +1702,10 @@ const PHOTO_HITS = `hits AS (
   SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
   WHERE p.folder_id IN (
     SELECT f.id FROM folders f WHERE ${containsSql("f.path", "$1")}
-  )
+  ) AND ${notTrashed()}
   UNION
   SELECT p.id, p.folder_id, p.filename, p.s3_key FROM photos p
-  WHERE ${containsSql("p.filename", "$1")}
+  WHERE ${containsSql("p.filename", "$1")} AND ${notTrashed()}
 )`;
 
 /**
@@ -2284,9 +2296,9 @@ export async function createOrUpdateFolder(
 }
 
 /**
- * A folder's files, by name. With `stacked` (the Bibliothèque), one per
- * stack of near-duplicates: the best of the stack's photos in this folder.
- * Shares and MCP list the files as they are.
+ * A folder's files, by name, but those in the Corbeille. With `stacked`
+ * (the Bibliothèque), one per stack of near-duplicates: the best of the
+ * stack's photos in this folder. Shares and MCP list the files as they are.
  */
 export async function getPhotosInFolder(
   folderId: number,
@@ -2295,9 +2307,11 @@ export async function getPhotosInFolder(
   const result = await query<DatabasePhoto>(
     stacked
       ? `SELECT p.*, ${stackColumns()} FROM photos p
-         WHERE p.folder_id = $1 AND ${stackFront([`${BETTER}.folder_id = $1`])}
+         WHERE p.folder_id = $1 AND ${notTrashed()}
+           AND ${stackFront([`${BETTER}.folder_id = $1`])}
          ORDER BY p.filename`
-      : "SELECT * FROM photos WHERE folder_id = $1 ORDER BY filename",
+      : `SELECT * FROM photos p WHERE p.folder_id = $1 AND ${notTrashed()}
+         ORDER BY p.filename`,
     [folderId],
   );
 
@@ -2922,13 +2936,6 @@ export async function getPhoto(photoId: number): Promise<Photo | null> {
   if (!photo) return null;
 
   return normalizePhoto(photo);
-}
-
-export async function deletePhoto(photoId: number): Promise<boolean> {
-  const result = await query("DELETE FROM photos WHERE id = $1 RETURNING id", [
-    photoId,
-  ]);
-  return result.rowCount !== null && result.rowCount > 0;
 }
 
 export async function createSyncJob(

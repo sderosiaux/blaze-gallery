@@ -94,7 +94,7 @@ export function readSearchTotal(
 /**
  * One result list of /api/search past its first page: `loadMore` appends
  * the next page (one request at a time, ignored once everything is in or
- * after a failure unless `retry`), `remove` drops an item the user deleted.
+ * after a failure unless `retry`).
  * The source is read when a page is asked for: it may be a new object on
  * every render.
  */
@@ -155,16 +155,5 @@ export function useSearchFeed<T extends { id: number | string }>(
       });
   }, []);
 
-  const remove = useCallback((id: number | string) => {
-    setFeed((f) => {
-      const items = f.items.filter((item) => String(item.id) !== String(id));
-      return {
-        ...f,
-        items,
-        total: f.total - (f.items.length - items.length),
-      };
-    });
-  }, []);
-
-  return { feed, loadMore, remove };
+  return { feed, loadMore };
 }

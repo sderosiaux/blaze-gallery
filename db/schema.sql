@@ -683,3 +683,14 @@ CREATE TABLE IF NOT EXISTS task_leases (
   owner text NOT NULL,
   expires_at timestamptz NOT NULL
 );
+
+-- The Corbeille. A photo the owner threw away (the viewer's trash, « Garder
+-- celle-ci » on a stack, the Doublons page) keeps its file and its row for 30
+-- days: trashed_at says since when. Until then it counts as absent everywhere,
+-- like a folder out of the gallery, and in every worker task but thumbnails;
+-- putting it back is clearing trashed_at. The purge (npm run trash, or
+-- « Vider la corbeille ») deletes every version of its file from the bucket,
+-- its thumbnail and renditions, then its row.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_photos_trashed
+  ON photos (trashed_at) WHERE trashed_at IS NOT NULL;

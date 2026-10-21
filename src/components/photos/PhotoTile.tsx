@@ -45,7 +45,8 @@ interface PhotoTileProps {
   sessionToken?: string;
   onOpen: (photo: Photo) => void;
   onToggleFavorite?: (photo: Photo) => void;
-  onDeleted?: (photo: Photo) => void;
+  /** The Corbeille's button: what the photo's slot shows once it went (PhotoDeleteButton) */
+  onReplace?: (id: Photo["id"], next: Photo | null) => void;
 }
 
 function PhotoTile({
@@ -58,7 +59,7 @@ function PhotoTile({
   sessionToken,
   onOpen,
   onToggleFavorite,
-  onDeleted,
+  onReplace,
 }: PhotoTileProps) {
   const [failed, setFailed] = useState(false);
   // A thumbnail built later (folder warm-up) replaces the "no preview" state.
@@ -170,11 +171,11 @@ function PhotoTile({
             />
           </button>
         )}
-        {onDeleted && !shareToken && (
+        {onReplace && !shareToken && (
           <PhotoDeleteButton
             key={String(photo.id)}
             photo={photo}
-            onDeleted={onDeleted}
+            onReplace={onReplace}
           />
         )}
       </div>

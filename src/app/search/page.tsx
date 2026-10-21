@@ -499,7 +499,6 @@ function PhotoResults({
     <PhotoFeed
       feed={photos.feed}
       loadMore={photos.loadMore}
-      remove={photos.remove}
       selectedPhotoId={viewerList === "names" ? selectedPhotoId : null}
       onPhotoUrlChange={urlChangeFrom("names")}
       more="scroll"
@@ -512,7 +511,6 @@ function PhotoResults({
         <PhotoFeed
           feed={semantic.feed}
           loadMore={semantic.loadMore}
-          remove={semantic.remove}
           selectedPhotoId={viewerList === "semantic" ? selectedPhotoId : null}
           onPhotoUrlChange={urlChangeFrom("semantic")}
           more={mainMore}
@@ -522,7 +520,6 @@ function PhotoResults({
         <PhotoFeed
           feed={filtered.feed}
           loadMore={filtered.loadMore}
-          remove={filtered.remove}
           selectedPhotoId={viewerList === "filtered" ? selectedPhotoId : null}
           onPhotoUrlChange={urlChangeFrom("filtered")}
           more={mainMore}
@@ -550,14 +547,12 @@ function PhotoResults({
 function PhotoFeed({
   feed,
   loadMore,
-  remove,
   selectedPhotoId,
   onPhotoUrlChange,
   more,
 }: {
   feed: SearchFeed<Photo>;
   loadMore: (retry?: boolean) => void;
-  remove: (id: number | string) => void;
   selectedPhotoId: string | null;
   onPhotoUrlChange: (id: string | null) => void;
   more: "scroll" | "button";
@@ -596,9 +591,6 @@ function PhotoFeed({
         total={feed.total}
         selectedPhotoId={selectedPhotoId}
         onPhotoUrlChange={onPhotoUrlChange}
-        onPhotoDeleted={(deleted) => {
-          remove(deleted.id);
-        }}
         eagerCount={12}
       />
 
