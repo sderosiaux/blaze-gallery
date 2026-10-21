@@ -10,12 +10,15 @@ Two photos are linked when one of these rules holds:
           cosine >= 0.90, or within 30 s and cosine >= 0.975
   same    cosine >= 0.985 and the same picture: identical once shrunk for
           the same camera more than 30 s apart (IDENTICAL_SHARE), alike once
-          shrunk when one of them has no camera date (DIFFERENT_SHARE); a
-          change of shape (a crop) passes on its cosine
+          shrunk when one of them has no camera date (DIFFERENT_SHARE), both
+          of one shape (SAME_SHAPE)
 
 and never otherwise: two cameras never make a near-duplicate (two people
 photographing one view), and screens, documents and images under MIN_SIDE
 px only stack as exact copies (pages and flags look alike to the model).
+A crop (another shape) stays out: the pixel test compares two pictures
+squeezed into one square, which two shapes never match, and the cosine
+alone was right on 11 of 16 such pairs.
 Every member of a stack must be linked to its centre itself, so a slow
 series cannot chain into one long stack, and the photos with the most
 links claim theirs first, so centres sit in the middle of a burst.
@@ -86,7 +89,9 @@ from .tags import Vocabulary, embedded_sql, load_embeddings
 log = logging.getLogger("blaze_worker")
 
 TASK = "groups"
-VERSION = 1
+# Raised when a rule changes in the code rather than in a constant (rules_model):
+# 2, a crop without a camera date no longer stacks
+VERSION = 2
 
 COPY_COSINE = 0.999
 SAME_SECOND_COSINE = 0.90
@@ -365,9 +370,9 @@ def classify(c: Columns, i: np.ndarray, j: np.ndarray, cosine: np.ndarray) -> np
     code[same_second & (cosine >= SAME_SECOND_COSINE)] = BURST
     code[burst & (cosine >= BURST_COSINE)] = BURST
     code[later & same_shape & (cosine >= SAME_COSINE)] = IDENTICAL
-    untimed = ~timed & ~two_cameras & (cosine >= SAME_COSINE)
-    code[untimed & same_shape] = ALIKE
-    code[untimed & ~same_shape] = SAME
+    # Another shape: the pixel test cannot compare them, so no link (module docstring)
+    untimed = ~timed & ~two_cameras & same_shape & (cosine >= SAME_COSINE)
+    code[untimed] = ALIKE
     code[~(c.plain[i] & c.plain[j])] = NONE
     copy = (
         (c.size[i] == c.size[j])

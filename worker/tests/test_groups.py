@@ -95,12 +95,13 @@ def test_two_cameras_never_link_but_as_exact_copies():
     assert code(a, photo(2, camera="Apple|iPhone 12", size=a.size), 0.9995) == COPY
 
 
-def test_without_a_camera_date_the_pixels_decide_unless_the_shape_changed():
+def test_without_a_camera_date_the_pixels_decide_and_a_crop_stays_out():
     a = photo(1)
     resized = photo(2, camera=None, taken=None, width=1600, height=1200)
     cropped = photo(3, camera=None, taken=None, width=1600, height=1600)
     assert code(a, resized, 0.99) == ALIKE
-    assert code(a, cropped, 0.99) == SAME
+    # Two shapes: no pixel test can compare them, the cosine alone is not enough
+    assert code(a, cropped, 0.999) == NONE
     assert code(a, resized, 0.98) == NONE
     # A camera without a date counts as no date
     assert code(a, photo(4, taken=None, width=1600, height=1200), 0.99) == ALIKE
@@ -291,7 +292,7 @@ def test_an_unread_thumbnail_is_unknown_not_blurred():
 def test_the_rules_and_weights_name_the_model(monkeypatch):
     before = rules_model()
     monkeypatch.setitem(groups.WEIGHTS, "blinks", -2.0)
-    assert rules_model() != before and rules_model().startswith("groups v1 ")
+    assert rules_model() != before and rules_model().startswith("groups v2 ")
 
 
 # -- incremental placement ----------------------------------------------------------
