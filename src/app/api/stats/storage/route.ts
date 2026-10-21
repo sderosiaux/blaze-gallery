@@ -14,7 +14,8 @@ const LIMIT = 50;
 
 // Albums ranked by size and by count come from the same per-folder aggregate,
 // computed once; folders.photo_count is not trusted here because it lags the
-// photos table between syncs.
+// photos table between syncs. What the library holds: the Corbeille's files,
+// still in the bucket until the purge, are counted in the Corbeille itself.
 export const GET = requireAuth(async function GET() {
   try {
     const [albumsResult, typesResult] = await Promise.all([
@@ -27,6 +28,7 @@ export const GET = requireAuth(async function GET() {
             COUNT(*) FILTER (WHERE mime_type LIKE 'video/%')::int AS video_count,
             COALESCE(SUM(size), 0)::float8 AS total_size
           FROM photos
+          WHERE trashed_at IS NULL
           GROUP BY folder_id
         ),
         by_size AS (
@@ -48,6 +50,7 @@ export const GET = requireAuth(async function GET() {
           COUNT(*)::int AS count,
           COALESCE(SUM(size), 0)::float8 AS total_size_bytes
         FROM photos
+        WHERE trashed_at IS NULL
         GROUP BY 1, 2
         ORDER BY total_size_bytes DESC
       `),

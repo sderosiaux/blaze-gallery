@@ -119,6 +119,54 @@ void describe("the gallery's counts and the Corbeille", () => {
     );
   });
 
+  void test("the Storage and Videos tabs count what the library holds", async () => {
+    await sql.query(
+      `INSERT INTO photos (id, folder_id, filename, s3_key, size, mime_type, modified_at, metadata)
+       VALUES (6, 1, 'v6.mp4', '2020 Voyage/v6.mp4', 9000, 'video/mp4', '2020-05-01', '{}'),
+              (7, 1, 'v7.mp4', '2020 Voyage/v7.mp4', 8000, 'video/mp4', '2020-05-01', '{}')`,
+    );
+    await trash.trashPhotos([7]);
+    try {
+      const storage = await import("../app/api/stats/storage/route");
+      const { data: store } = (await (
+        await storage.GET(new NextRequest("http://localhost/api/stats/storage"))
+      ).json()) as {
+        data: {
+          largest_by_size: {
+            path: string;
+            photo_count: number;
+            video_count: number;
+            total_size: number;
+          }[];
+        };
+      };
+      const trip = store.largest_by_size.find((f) => f.path === "2020 Voyage");
+      assert.deepEqual(
+        [trip?.photo_count, trip?.video_count, trip?.total_size],
+        [2, 1, 11000],
+      );
+      const videos = await import("../app/api/stats/videos/route");
+      const { data: video } = (await (
+        await videos.GET(new NextRequest("http://localhost/api/stats/videos"))
+      ).json()) as {
+        data: {
+          summary: { total_videos: number; total_size_bytes: number };
+          largest: { id: number }[];
+        };
+      };
+      assert.deepEqual(
+        [video.summary.total_videos, video.summary.total_size_bytes],
+        [1, 9000],
+      );
+      assert.deepEqual(
+        video.largest.map((x) => x.id),
+        [6],
+      );
+    } finally {
+      await sql.query("DELETE FROM photos WHERE id IN (6, 7)");
+    }
+  });
+
   void test("the library summary and the Hors galerie cards leave it out", async () => {
     const summary = await database.getLibrarySummary();
     assert.equal(summary.photos, 3);
