@@ -1,8 +1,9 @@
 /**
  * Erases the photos that have waited TRASH_DAYS in the Corbeille: every
  * version of their file in the bucket, their thumbnail and renditions, then
- * their row. Run it from the sync machine (worker/weekly.sh) with the
- * app's .env; the bucket key needs listFiles and deleteFiles.
+ * their row. Run it from the sync machine (worker/weekly.sh, with the keys
+ * of both storages) or with the app's .env; the bucket key needs listFiles
+ * and deleteFiles.
  *
  * It refuses, touching nothing, when more photos are due than --max (by
  * default a twentieth of the library): a mark set by mistake on many

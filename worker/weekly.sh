@@ -1,12 +1,12 @@
 #!/bin/sh
 # Weekly bucket sync for Blaze Gallery (indexes photos dropped straight into B2).
-# Runs `npm run sync`, then `npm run palettes` (folder colour strips), then
-# `npm run trash -- purge` (erases what has waited 30 days in the Corbeille,
-# refusing past a twentieth of the library), from the latest main in a
-# throwaway Node container; the container name doubles as a lock, so two
-# runs never overlap. Then queues the new photos for every
-# analysis (existing jobs are left alone) and starts the workers, which stop
-# by themselves once their queue is empty (so Neon can suspend).
+# Runs `npm run sync`, then `npm run palettes` (folder colour strips), from
+# the latest main in a throwaway Node container; the container name doubles
+# as a lock, so two runs never overlap. Then `npm run trash -- purge` erases
+# what has waited 30 days in the Corbeille (refusing past a twentieth of the
+# library). Then queues the new photos for every analysis (existing jobs are
+# left alone) and starts the workers, which stop by themselves once their
+# queue is empty (so Neon can suspend).
 set -eu
 BASE="$HOME/blaze-sync"
 LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
@@ -16,7 +16,13 @@ LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
   docker run --rm --name blaze-sync \
     --env-file "$HOME/blaze-worker/blaze-worker.env" \
     -v "$BASE/repo:/app" -v blaze-sync-npm:/root/.npm -w /app \
-    node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; npm run trash -- purge; exit \$s; }"
+    node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; exit \$s; }"
+  # blaze-thumbs.env has the keys of both storages, originals and thumbnails.
+  # A purge that stops (refused, storage error) leaves the indexing to run
+  docker run --rm --name blaze-trash \
+    --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
+    -v "$BASE/repo:/app" -w /app node:22-slim npm run trash -- purge ||
+    echo "== $(date -Is) purge stopped"
   for task in faces thumbs embed; do
     docker run --rm --env-file "$HOME/blaze-worker/blaze-thumbs.env" \
       --entrypoint blaze-enqueue blaze-worker:embed --task "$task" --all
