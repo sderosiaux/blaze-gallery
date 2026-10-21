@@ -658,8 +658,28 @@ CREATE TABLE IF NOT EXISTS photo_groups (
   UNIQUE (group_id, rank)
 );
 -- raw (a camera's raw file and its JPEG) and bracket (one view at other
--- exposures) came after the table (2026-10-21): the check is widened, which
--- no row can fail
-ALTER TABLE photo_groups DROP CONSTRAINT IF EXISTS photo_groups_link_check;
-ALTER TABLE photo_groups ADD CONSTRAINT photo_groups_link_check
-  CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket'));
+-- exposures) came after the table (2026-10-21): the check is widened once,
+-- which no row can fail (the schema runs on every start: not again after)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'photo_groups_link_check'
+      AND pg_get_constraintdef(oid) LIKE '%bracket%'
+  ) THEN
+    ALTER TABLE photo_groups DROP CONSTRAINT IF EXISTS photo_groups_link_check;
+    ALTER TABLE photo_groups ADD CONSTRAINT photo_groups_link_check
+      CHECK (link IN ('centre', 'copy', 'burst', 'same', 'raw', 'bracket'));
+  END IF;
+END $$;
+
+-- One holder at a time for a worker that must not run twice: the groups
+-- rebuild and the Grouper (task 'groups'). A lease its holder renews while
+-- it runs and that lapses if it dies, not an advisory lock: behind the
+-- pooler (transaction mode) each statement gets any server connection, so
+-- a session lock stays on one of them, held for whoever comes next.
+CREATE TABLE IF NOT EXISTS task_leases (
+  task text PRIMARY KEY,
+  owner text NOT NULL,
+  expires_at timestamptz NOT NULL
+);

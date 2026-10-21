@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from pgvector import HalfVector
@@ -234,14 +234,18 @@ def save_groups(
     centres: Sequence[int],
     rows: Sequence[tuple[Any, ...]],
     model: str,
+    guard: Callable[[Connection], None] | None = None,
 ) -> None:
     """Replaces the stacks around `centres` with `rows` and closes the batch's jobs, at once.
 
     The stacks a batch changes depend on every photo of it: when any job is
     no longer ours, nothing is written (LeaseLost) and the batch comes back
-    to the queue with the expired leases.
+    to the queue with the expired leases. `guard` runs first in the
+    transaction (the Grouper's lease and lock) and raises to write nothing.
     """
     with conn.transaction():
+        if guard is not None:
+            guard(conn)
         held = jobs.complete_many(conn, owner, results, model)
         if len(held) < len(results):
             raise LeaseLost(sorted({job_id for job_id, _ in results} - held))

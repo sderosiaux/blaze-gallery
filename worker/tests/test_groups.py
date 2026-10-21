@@ -630,14 +630,44 @@ def test_photos_out_of_the_gallery_are_not_stacked(conn, schema):
     assert (summary.photos, summary.stacks) == (4, 1)
 
 
+def hold_lease(conn, minutes: int = 10) -> None:
+    """Another worker's 'groups' lease, lapsing in `minutes` (negative: lapsed)."""
+    conn.execute(
+        "INSERT INTO task_leases (task, owner, expires_at)"
+        " VALUES ('groups', 'other:1', now() + %s * interval '1 minute')",
+        (minutes,),
+    )
+
+
 def test_a_rebuild_waits_for_no_grouper(conn, schema):
     store = Store()
     a_library(conn, store)
-    with connect(schema) as holder:
-        holder.execute("SELECT pg_advisory_lock(%s)", (groups.LOCK,))
-        with pytest.raises(Aborted, match="groups worker is running"):
-            rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    hold_lease(conn)
+    with pytest.raises(Aborted, match="groups worker is running"):
+        rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
     assert counts(conn) == (0, 0)
+    # A dry run takes no lease
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=True)
+    # A lease whose holder died lapses: the next one takes it, and gives it back
+    conn.execute("UPDATE task_leases SET expires_at = now() - interval '1 minute'")
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert counts(conn)[0] > 0
+    assert conn.execute("SELECT count(*) FROM task_leases").fetchone()[0] == 0
+
+
+def test_a_rebuild_does_not_undo_stacks_of_newer_rules(conn, schema):
+    store = Store()
+    a_library(conn, store)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    conn.execute(f"UPDATE photo_groups SET model = 'groups v{groups.VERSION + 1} 0000abcd'")
+    with pytest.raises(Aborted, match="newer than"):
+        rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    # Older ones it replaces: that is what a rebuild is for
+    conn.execute("UPDATE photo_groups SET model = 'groups v1 0000abcd'")
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    assert {m for (m,) in conn.execute("SELECT DISTINCT model FROM photo_groups")} == {
+        rules_model()
+    }
 
 
 def run_grouper(schema: str, store: Store, batch: int = 10) -> Grouper:
@@ -731,9 +761,25 @@ def test_only_one_grouper_at_a_time(conn, schema):
     rng = np.random.default_rng(5)
     setup_library(conn, [{"vector": unit(rng), "taken": "2020-01-01T00:00:00.000Z"}])
     enqueue_all(conn, TASK, ready=groups.embedded_sql("p.id"))
-    with connect(schema) as holder:
-        holder.execute("SELECT pg_advisory_lock(%s)", (groups.LOCK,))
-        assert run_grouper(schema, store).counters.done == 0
+    hold_lease(conn)
+    assert run_grouper(schema, store).counters.done == 0
+    conn.execute("DELETE FROM task_leases")
+    assert run_grouper(schema, store).counters.done == 1
+    assert conn.execute("SELECT count(*) FROM task_leases").fetchone()[0] == 0
+
+
+def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema):
+    store = Store()
+    library = a_library(conn, store)
+    rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
+    conn.execute("UPDATE photo_groups SET model = 'groups v1 0000abcd'")
+    conn.execute(
+        "UPDATE analysis_jobs SET status = 'queued' WHERE task = %s AND photo_id = %s",
+        (TASK, library["alone"][0]),
+    )
+    assert run_grouper(schema, store).counters.done == 0
+    # Its own: it goes on
+    conn.execute("UPDATE photo_groups SET model = %s", (rules_model(),))
     assert run_grouper(schema, store).counters.done == 1
 
 

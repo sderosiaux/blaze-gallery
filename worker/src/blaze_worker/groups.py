@@ -67,8 +67,9 @@ Two ways to run. rebuild(): every embedding at once in numpy, all pairs by
 blocks of rows, the table replaced in one transaction and every photo's job
 marked done. Grouper: the queued photos (new ones, weekly), each compared
 with its nearest neighbours through the HNSW index; it joins a stack whose
-centre it is linked to, or forms new stacks with photos in none. One
-Grouper at a time (an advisory lock).
+centre it is linked to, or forms new stacks with photos in none. One of
+them at a time, from start to end (the 'groups' lease, lease.py), and a
+Grouper only adds to stacks its own rules and weights made (model).
 """
 
 from __future__ import annotations
@@ -93,6 +94,7 @@ from PIL import Image
 
 from . import jobs
 from .gallery import EXCLUDED_NOTE, out_of_gallery
+from .lease import Lease, LeaseHeld
 from .siglip import DIM, MODEL
 from .store import LeaseLost, replace_groups, save_groups
 from .tags import Vocabulary, embedded_sql, load_embeddings
@@ -194,8 +196,17 @@ NET_GAP = 0.5
 NEIGHBOURS = 100
 # rebuild: rows of the similarity matrix per block (BLOCK x photos floats)
 BLOCK = 1024
-# Two Groupers would stack the same photos at once
+# Taken by every transaction that writes photo_groups, the dedupe passes'
+# too (src/lib/autoTrash.ts GROUPS_LOCK): one writer at a time. Who may run
+# at all is the lease's (lease.py), as a transaction lock is all the pooler keeps
 LOCK = 0x626C617A6567  # "blazeg"
+MODEL_VERSION = re.compile(r"^groups v(\d+) ")
+
+
+def model_version(model: str) -> int:
+    """The VERSION a photo_groups.model label was written by, 0 when unreadable."""
+    found = MODEL_VERSION.match(model)
+    return int(found.group(1)) if found else 0
 
 
 def rules_model() -> str:
@@ -857,9 +868,36 @@ def rebuild(
     dry_run, when a count of COUNTERS dropped during the transaction, or
     when the new rows are under half the old ones (allow_shrink to confirm).
     A connection is held only while it reads or writes: the pairs and the
-    thumbnails take minutes, past the database's idle suspend.
+    thumbnails take minutes, past the database's idle suspend. A write holds
+    the 'groups' lease from the first read to the end (no Grouper meanwhile),
+    and refuses to replace stacks of a newer VERSION than its own (an old
+    worker undoing new rules); a dry run takes no lease and writes nothing.
     """
     model = rules_model()
+    lease = None
+    if not dry_run:
+        lease = Lease(connect, TASK, owner)
+        try:
+            lease.take()
+        except LeaseHeld as error:
+            raise Aborted(f"a groups worker is running: {error}") from error
+    try:
+        return _rebuild(connect, measurer, vocabulary, lease, model, folder, owner, allow_shrink)
+    finally:
+        if lease is not None:
+            lease.release()
+
+
+def _rebuild(
+    connect: Callable[[], psycopg.Connection],
+    measurer: Measurer,
+    vocabulary: Vocabulary,
+    lease: Lease | None,
+    model: str,
+    folder: str | None,
+    owner: str,
+    allow_shrink: bool,
+) -> Summary:
     where, params = "true", {}
     if folder is not None:
         where = (
@@ -887,13 +925,23 @@ def rebuild(
     rows = group_rows(stacks, by_id, measure(measurer, by_id, member_ids, stored), model)
     summary = Summary.of(len(photos), rows)
     log.info("rebuild: %s", summary.line())
-    if dry_run:
+    if lease is None:
         return summary
     scope = [p.id for p in photos]
     with connect() as conn, conn.transaction():
-        # A Grouper writing meanwhile would stack photos into rows this replaces
+        try:
+            lease.check(conn)
+        except LeaseHeld as error:
+            raise Aborted(str(error)) from error
         if not conn.execute("SELECT pg_try_advisory_xact_lock(%s)", (LOCK,)).fetchone()[0]:
-            raise Aborted("a groups worker is running: try again once it is done")
+            raise Aborted("a dedupe pass is writing: try again once it is done")
+        newer = [
+            stored
+            for (stored,) in conn.execute("SELECT DISTINCT model FROM photo_groups").fetchall()
+            if model_version(stored) > VERSION
+        ]
+        if newer:
+            raise Aborted(f"the stacks are of {newer[0]}, newer than {model}: update the worker")
         before = counters(conn)
         if folder is not None:
             elsewhere = conn.execute(
@@ -1108,7 +1156,9 @@ class Grouper:
                 links[(a, b)] = links[(b, a)] = LINK[c]
         return links
 
-    def group(self, conn: psycopg.Connection, claimed: list[jobs.Job]) -> None:
+    def group(
+        self, conn: psycopg.Connection, claimed: list[jobs.Job], lease: Lease | None = None
+    ) -> None:
         out = [j for j in claimed if j.excluded]
         if out:
             with conn.transaction():
@@ -1156,8 +1206,14 @@ class Grouper:
         rows = group_rows(changed.values(), photos, measured, self.model)
         in_stacks = {r[0] for r in rows}
         results = [(j.id, {"stacked": j.photo_id in in_stacks}) for j in wanted]
+
+        def guard(tx: psycopg.Connection) -> None:
+            if lease is not None:
+                lease.check(tx)
+            tx.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
+
         try:
-            save_groups(conn, self.owner, results, list(changed), rows, self.model)
+            save_groups(conn, self.owner, results, list(changed), rows, self.model, guard)
         except LeaseLost:
             self.counters.lost += len(wanted)
             log.warning("a job of the batch was taken over: the batch is dropped")
@@ -1169,10 +1225,33 @@ class Grouper:
     def run(self) -> Counters:
         self.counters.started = time.monotonic()
         log.info("groups: batch %d, lease %d s, %s", self.batch, self.lease_seconds, self.model)
+        lease = Lease(self.connect, TASK, self.owner, self.lease_seconds)
+        try:
+            lease.take()
+        except LeaseHeld as error:
+            log.info("another groups worker is running (%s): exit", error)
+            return self.counters
+        try:
+            self._run(lease)
+        finally:
+            lease.release()
+        log.info("finished: %s", self.counters.line())
+        return self.counters
+
+    def _run(self, lease: Lease) -> None:
         with self.connect() as conn:
-            if not conn.execute("SELECT pg_try_advisory_lock(%s)", (LOCK,)).fetchone()[0]:
-                log.info("another groups worker holds the lock: exit")
-                return self.counters
+            other = conn.execute(
+                "SELECT model FROM photo_groups WHERE model <> %s LIMIT 1", (self.model,)
+            ).fetchone()
+            if other:
+                # New photos stacked by other rules or weights than their neighbours'
+                log.warning(
+                    "the stacks were made by %s, this worker is %s: rebuild them with this "
+                    "worker first (--rebuild), or run the worker that made them; nothing done",
+                    other[0],
+                    self.model,
+                )
+                return
             requeued, failed = jobs.requeue_expired(conn)
             if requeued or failed:
                 log.info("expired leases: %d requeued, %d failed", requeued, failed)
@@ -1188,7 +1267,9 @@ class Grouper:
                 if not claimed:
                     log.info("queue empty")
                     break
-                self.group(conn, claimed)
+                try:
+                    self.group(conn, claimed, lease)
+                except LeaseHeld:
+                    log.warning("the groups lease was lost: the batch is dropped, exit")
+                    break
                 log.info("%s", self.counters.line())
-        log.info("finished: %s", self.counters.line())
-        return self.counters
