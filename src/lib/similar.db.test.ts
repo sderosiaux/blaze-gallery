@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
+import { NextRequest } from "next/server";
 import type { Client } from "pg";
 import type * as Database from "./database";
 import type * as Resolver from "./filterResolver";
@@ -85,6 +86,25 @@ async function face(photoId: number, person: number) {
 
 const ids = (photos: { id: number | string }[]) =>
   photos.map((p) => Number(p.id));
+
+async function tool(name: string, args: Record<string, unknown> = {}) {
+  const { POST } = await import("../app/api/mcp/route");
+  const response = await POST(
+    new NextRequest("http://localhost/api/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    }),
+  );
+  return (await response.json()) as {
+    result?: { content: { text: string }[] };
+    error?: { message: string };
+  };
+}
 
 /** The URL's filter as a list route runs it (api/_lib/filter.ts listFilter). */
 async function listed(url: Partial<UrlFilter>) {
@@ -222,5 +242,30 @@ void describe("« Photos similaires »", () => {
     });
     assert.equal(page.status, "unavailable");
     assert.deepEqual(ids(page.photos), [503]);
+  });
+
+  void test("MCP similar_photos: ranked with their score, the filters and the pages of the others", async () => {
+    const answer = await tool("similar_photos", {
+      photo_id: SOURCE,
+      people: ["Suzie"],
+      limit: 1,
+    });
+    const page = JSON.parse(answer.result?.content[0]?.text ?? "null") as {
+      status: string;
+      photos: { id: number; score: number; source?: true }[];
+      next_cursor: string | null;
+    };
+    assert.equal(page.status, "ok");
+    assert.deepEqual(
+      page.photos.map((p) => [p.id, p.source ?? false]),
+      [
+        [SOURCE, true],
+        [502, false],
+      ],
+    );
+    assert.ok((page.photos[1]?.score ?? 0) >= SIMILAR_MIN_COSINE);
+    assert.equal(page.next_cursor, null);
+    const missing = await tool("similar_photos", { photo_id: 999 });
+    assert.match(missing.error?.message ?? "", /no photo 999/);
   });
 });
