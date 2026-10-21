@@ -20,6 +20,7 @@ import { asArray, readJsonObject } from "@/hooks/apiJson";
 import { formatCount } from "@/lib/albums";
 import { restoreFromTrash, TrashError } from "@/lib/trashClient";
 import type { Photo } from "@/types";
+import { fetchLots, LotList, LotView, type Lot } from "./Lots";
 
 /** Days a photo waits in the Corbeille (lib/trash.ts TRASH_DAYS). */
 const TRASH_DAYS = 30;
@@ -76,15 +77,33 @@ function Trash() {
     cutoff: string;
   } | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [lots, setLots] = useState<Lot[]>([]);
+  const [lot, setLot] = useState<Lot | null>(null);
 
   const load = useCallback(async () => {
     setFailed(false);
     try {
-      setPage(await fetchTrash(null));
+      const [trash, all] = await Promise.all([fetchTrash(null), fetchLots()]);
+      setPage(trash);
+      setLots(all);
     } catch {
       setFailed(true);
     }
   }, []);
+
+  const restoreLot = async (chosen: Lot) => {
+    try {
+      const n = await restoreFromTrash({ lot: chosen.batch });
+      toast.show(
+        formatCount(n, "photo restaurée", "photos restaurées"),
+        "success",
+      );
+    } catch {
+      toast.show("Le lot n’est pas revenu", "error");
+    }
+    setLot(null);
+    void load();
+  };
 
   useEffect(() => {
     document.title = "Corbeille · Blaze Gallery";
@@ -238,9 +257,31 @@ function Trash() {
       </>
     );
 
+  if (lot)
+    return (
+      <>
+        {header}
+        <LotView
+          lot={lot}
+          onBack={() => {
+            setLot(null);
+            void load();
+          }}
+          onRestore={(chosen) => void restoreLot(chosen)}
+        />
+      </>
+    );
+
   return (
     <>
       {header}
+      {lots.length > 0 && (
+        <LotList
+          lots={lots}
+          onOpen={setLot}
+          onRestore={(chosen) => void restoreLot(chosen)}
+        />
+      )}
       {page.photos.length === 0 ? (
         <EmptyState
           icon={Trash2}

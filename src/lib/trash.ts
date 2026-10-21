@@ -6,11 +6,60 @@
  * Corbeille: every version of its file, its thumbnail and renditions, then
  * its row. Restoring and purging the same photo at once cannot both win:
  * the purge holds the row of the photo it erases locked while its file goes.
+ *
+ * Every throw is a lot (photos.trash_batch): one request of the owner, or
+ * one pass of `npm run dedupe` (lib/autoTrash.ts), which « Restaurer le
+ * lot » puts back whole. A photo that left a stack names the one kept in
+ * its place (trashed_for).
  */
+import { randomBytes } from "node:crypto";
+import type { PoolClient } from "pg";
 import type { Photo } from "@/types";
 import { inGallery, query, requireRow, runTransaction } from "./database";
 import { logger } from "./logger";
 import { thumbnailUrl } from "./photoUrls";
+
+/** Who threw photos away, and the lot they went with. */
+export interface TrashLot {
+  by: "owner" | "auto";
+  batch: string;
+}
+
+/** A new lot: who, what, when (UTC, to the second), and 4 random hex digits. */
+export function newLot(by: TrashLot["by"], what: string): TrashLot {
+  const at = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
+  return { by, batch: `${by}-${what}-${at}-${randomBytes(2).toString("hex")}` };
+}
+
+/**
+ * Marks `photos` thrown away with `lot`, each with the photo kept in its
+ * place (null: none). Those already in the Corbeille stay as they are.
+ * The ids marked.
+ */
+export async function markTrashed(
+  client: PoolClient,
+  photos: readonly { id: number; keep: number | null }[],
+  lot: TrashLot,
+): Promise<number[]> {
+  if (photos.length === 0) return [];
+  const result = await client.query<{ id: number }>(
+    `UPDATE photos p
+     SET trashed_at = now(), trashed_by = $3, trash_batch = $4, trashed_for = t.keep
+     FROM unnest($1::bigint[], $2::bigint[]) AS t(id, keep)
+     WHERE p.id = t.id AND p.trashed_at IS NULL
+     RETURNING p.id::int AS id`,
+    [photos.map((p) => p.id), photos.map((p) => p.keep), lot.by, lot.batch],
+  );
+  return result.rows.map((row) => row.id);
+}
+
+/** Clears the Corbeille's marks of the rows `where` (over photos) selects. */
+const RESTORE = (where: string) =>
+  `UPDATE photos SET trashed_at = NULL, trashed_by = NULL, trash_batch = NULL, trashed_for = NULL
+   WHERE trashed_at IS NOT NULL AND ${where}`;
 
 /** How long a photo waits in the Corbeille before the weekly purge erases it. */
 export const TRASH_DAYS = 30;
@@ -19,15 +68,17 @@ export const TRASH_DAYS = 30;
 export const TRASH_BATCH = 5_000;
 
 /** The photos the Corbeille now holds: ids of those just thrown away (not already in it). */
-export async function trashPhotos(ids: readonly number[]): Promise<number[]> {
-  if (ids.length === 0) return [];
-  const result = await query<{ id: number }>(
-    `UPDATE photos SET trashed_at = now()
-     WHERE id = ANY($1::bigint[]) AND trashed_at IS NULL
-     RETURNING id::int AS id`,
-    [ids],
+export async function trashPhotos(
+  ids: readonly number[],
+  lot: TrashLot = newLot("owner", "photos"),
+): Promise<number[]> {
+  return runTransaction((client) =>
+    markTrashed(
+      client,
+      ids.map((id) => ({ id, keep: null })),
+      lot,
+    ),
   );
-  return result.rows.map((row) => row.id);
 }
 
 /** Puts photos back, all of them with "all"; returns how many came back. */
@@ -36,20 +87,20 @@ export async function restorePhotos(
 ): Promise<number> {
   const result =
     ids === "all"
-      ? await query(
-          "UPDATE photos SET trashed_at = NULL WHERE trashed_at IS NOT NULL",
-        )
-      : await query(
-          `UPDATE photos SET trashed_at = NULL
-           WHERE id = ANY($1::bigint[]) AND trashed_at IS NOT NULL`,
-          [ids],
-        );
+      ? await query(RESTORE("true"))
+      : await query(RESTORE("id = ANY($1::bigint[])"), [ids]);
   return result.rowCount ?? 0;
 }
 
-/** The other photos of `keep`'s stack the gallery shows: what keeping it throws away. */
+/** Puts back every photo of the lot still in the Corbeille; how many came back. */
+export async function restoreLot(batch: string): Promise<number> {
+  const result = await query(RESTORE("trash_batch = $1"), [batch]);
+  return result.rowCount ?? 0;
+}
+
+/** The other photos of `keep`'s stack the gallery shows (photo_id), with `keep` (keep_id). */
 const OTHERS_IN_STACK = `
-  SELECT m.photo_id FROM photo_groups k
+  SELECT m.photo_id, k.photo_id AS keep_id FROM photo_groups k
   JOIN photo_groups m ON m.group_id = k.group_id AND m.photo_id <> k.photo_id
   JOIN photos p ON p.id = m.photo_id
   WHERE k.photo_id = ANY($1::bigint[]) AND ${inGallery()}`;
@@ -59,38 +110,32 @@ const OTHERS_IN_STACK = `
  * goes to the Corbeille. `trash`: the photos the owner saw go; when the
  * stacks now hold others (a sync, a rebuild, another tab since), nothing
  * moves and the number they hold is returned with ok false. A kept photo
- * in the Corbeille comes back. Returns the ids thrown away.
+ * in the Corbeille comes back. All go as one lot of the owner's. Returns
+ * the ids thrown away.
  */
 export async function keepFromStacks(
   keep: readonly number[],
   trash: readonly number[],
 ): Promise<{ ok: boolean; trashed: number[]; count: number }> {
   return runTransaction(async (client) => {
-    const others = await client.query<{ id: number }>(
-      `SELECT DISTINCT photo_id::int AS id FROM (${OTHERS_IN_STACK}) o
+    const others = await client.query<{ id: number; keep: number }>(
+      `SELECT DISTINCT ON (photo_id) photo_id::int AS id, keep_id::int AS keep
+       FROM (${OTHERS_IN_STACK}) o
        WHERE NOT (photo_id = ANY($1::bigint[]))
-       ORDER BY 1`,
+       ORDER BY photo_id`,
       [keep],
     );
     const ids = others.rows.map((row) => row.id);
     const seen = new Set(trash);
     if (ids.length !== seen.size || ids.some((id) => !seen.has(id)))
       return { ok: false, trashed: [], count: ids.length };
-    await client.query(
-      `UPDATE photos SET trashed_at = NULL WHERE id = ANY($1::bigint[]) AND trashed_at IS NOT NULL`,
-      [keep],
+    await client.query(RESTORE("id = ANY($1::bigint[])"), [keep]);
+    const trashed = await markTrashed(
+      client,
+      others.rows,
+      newLot("owner", "stacks"),
     );
-    const trashed = await client.query<{ id: number }>(
-      `UPDATE photos SET trashed_at = now()
-       WHERE id = ANY($1::bigint[]) AND trashed_at IS NULL
-       RETURNING id::int AS id`,
-      [ids],
-    );
-    return {
-      ok: true,
-      trashed: trashed.rows.map((row) => row.id),
-      count: ids.length,
-    };
+    return { ok: true, trashed, count: ids.length };
   });
 }
 
@@ -149,6 +194,109 @@ export async function listTrash(
       page.rows.length > limit && last
         ? { trashedAt: last.trashed_at, id: last.id }
         : null,
+  };
+}
+
+/** A lot of the Corbeille: one request of the owner's, or one pass of npm run dedupe. */
+export interface TrashLotSummary extends TrashLot {
+  /** Photos of it still in the Corbeille */
+  photos: number;
+  /** Stacks it left a photo kept in */
+  stacks: number;
+  trashed_at: string;
+}
+
+/**
+ * The lots worth putting back whole, last first: every pass of npm run
+ * dedupe, and the owner's requests of more than one photo (a stack kept
+ * from, a page of Doublons).
+ */
+export async function listLots(): Promise<TrashLotSummary[]> {
+  const result = await query<{
+    batch: string;
+    by: TrashLot["by"];
+    photos: number;
+    stacks: number;
+    trashed_at: Date;
+  }>(
+    `SELECT trash_batch AS batch, trashed_by AS by, count(*)::int AS photos,
+            count(DISTINCT trashed_for)::int AS stacks, max(trashed_at) AS trashed_at
+     FROM photos
+     WHERE trashed_at IS NOT NULL AND trash_batch IS NOT NULL
+     GROUP BY trash_batch, trashed_by
+     HAVING trashed_by = 'auto' OR count(*) > 1
+     ORDER BY max(trashed_at) DESC, trash_batch`,
+  );
+  return result.rows.map((row) => ({
+    ...row,
+    trashed_at: new Date(row.trashed_at).toISOString(),
+  }));
+}
+
+/** A stack as a lot left it: the photo kept (null when gone since), and those thrown away. */
+export interface LotStack {
+  kept: (Photo & { folder_path: string; trashed: boolean }) | null;
+  trashed: TrashedPhoto[];
+}
+
+/**
+ * The photos of lot `batch` still in the Corbeille, by the photo kept in
+ * their place (ascending id, keyset-paginated on it), each beside it.
+ * Photos thrown away alone (no photo kept) come as stacks of one.
+ */
+export async function listLotStacks(
+  batch: string,
+  after: number | null,
+  limit: number,
+): Promise<{ stacks: LotStack[]; next: number | null }> {
+  const keys = await query<{ key: number }>(
+    `SELECT DISTINCT coalesce(trashed_for, id)::int AS key FROM photos
+     WHERE trash_batch = $1 AND trashed_at IS NOT NULL
+       AND coalesce(trashed_for, id) > $2
+     ORDER BY 1 LIMIT $3`,
+    [batch, after ?? 0, limit + 1],
+  );
+  const page = keys.rows.slice(0, limit).map((row) => row.key);
+  const [trashed, kept] = await Promise.all([
+    query<Photo & { folder_path: string; trashed_at: Date; key: number }>(
+      `SELECT p.*, f.path AS folder_path, coalesce(p.trashed_for, p.id)::int AS key
+       FROM photos p JOIN folders f ON f.id = p.folder_id
+       WHERE p.trash_batch = $1 AND p.trashed_at IS NOT NULL
+         AND coalesce(p.trashed_for, p.id) = ANY($2::bigint[])
+       ORDER BY p.id`,
+      [batch, page],
+    ),
+    query<Photo & { folder_path: string; trashed: boolean }>(
+      `SELECT p.*, f.path AS folder_path, p.trashed_at IS NOT NULL AS trashed
+       FROM photos p JOIN folders f ON f.id = p.folder_id
+       WHERE p.id = ANY($1::bigint[]) AND p.trash_batch IS DISTINCT FROM $2`,
+      [page, batch],
+    ),
+  ]);
+  const shown = <T extends Photo>(row: T): T => ({
+    ...row,
+    id: Number(row.id),
+    is_favorite: Boolean(row.is_favorite),
+    thumbnail_url: thumbnailUrl(row.id),
+  });
+  const keptById = new Map(
+    kept.rows.map((row) => [Number(row.id), shown(row)]),
+  );
+  const stacks = page.map(
+    (key): LotStack => ({
+      kept: keptById.get(key) ?? null,
+      trashed: trashed.rows
+        .filter((row) => row.key === key)
+        .map(({ key: _, ...row }) => ({
+          ...shown(row),
+          trashed_at: new Date(row.trashed_at).toISOString(),
+        })),
+    }),
+  );
+  const last = page[page.length - 1];
+  return {
+    stacks,
+    next: keys.rows.length > limit && last !== undefined ? last : null,
   };
 }
 

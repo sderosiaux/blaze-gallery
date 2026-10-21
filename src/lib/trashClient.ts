@@ -35,11 +35,15 @@ export async function sendToTrash(ids: readonly number[]): Promise<number[]> {
 }
 
 export async function restoreFromTrash(
-  ids: readonly number[] | "all",
+  ids: readonly number[] | "all" | { lot: string },
 ): Promise<number> {
   const data = await post(
     "/api/trash/restore",
-    ids === "all" ? { all: true } : { photo_ids: ids },
+    ids === "all"
+      ? { all: true }
+      : "lot" in ids
+        ? { lot: ids.lot }
+        : { photo_ids: ids },
   );
   return Number(data.restored);
 }

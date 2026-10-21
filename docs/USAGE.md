@@ -68,6 +68,12 @@ file; « Vider la corbeille » does it at once. Admin › Doublons goes through
 the stacks in bulk: the photo kept is ticked, a click picks another, and the
 button says how many photos will go.
 
+`npm run dedupe -- copies`, then `-- near`, does the same without you, only
+where nothing is in doubt (`src/lib/autoTrash.ts` lists what holds a photo
+back). It prints what would go; `--plan` writes that to a file and
+`--apply` throws exactly that away, as one lot. The Corbeille lists each
+lot beside the photos kept, and « Restaurer le lot » puts it back.
+
 ## Naming people
 
 The worker finds faces; you say who they are.

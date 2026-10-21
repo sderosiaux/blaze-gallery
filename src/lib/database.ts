@@ -943,7 +943,7 @@ export function hasPhotoFilter(filter: PhotoFilter): boolean {
 }
 
 /** A face named as its person: seed, manual or auto ("rejected" says it is not). */
-const OWNED = "('seed', 'manual', 'auto')";
+export const OWNED = "('seed', 'manual', 'auto')";
 
 /**
  * A face good enough to read how it looks: cluster_eligible (det_score >=

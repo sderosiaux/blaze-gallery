@@ -1,0 +1,252 @@
+/**
+ * The passes of `npm run dedupe` (scripts/dedupe.ts): the extra photos of
+ * the stacks (photo_groups) into the Corbeille, one lot per pass, and only
+ * where nothing is in doubt. The owner keeps one photo of a stack, copies
+ * across folders and RAW + JPEG included (his calibration answers,
+ * 2026-10-21); the stack's rank says which.
+ *
+ * - copies: of the same file in several places (copy_of), the copy ranked
+ *   first stays, the others go.
+ * - near: of a stack, the front stays; a near-duplicate of it goes when it
+ *   scores NET_GAP below it.
+ *
+ * A photo stays, and its stack waits for the owner in Doublons, when any
+ * hold says so (Hold). The plan is written to a file for the owner's look;
+ * applying it plans again in one snapshot and writes nothing unless that
+ * plan is the same, photo for photo.
+ */
+import type { PoolClient } from "pg";
+import { inGallery, OWNED, runTransaction } from "./database";
+import { markTrashed, newLot, type TrashLot } from "./trash";
+
+export type DedupePass = "copies" | "near";
+
+export const DEDUPE_PASSES: readonly DedupePass[] = ["copies", "near"];
+
+/**
+ * Score gap a near-duplicate must trail the front by (worker groups.py
+ * NET_GAP, measured there): on the owner's 22 choices in bursts, the score
+ * missed his pick only when its lead was 0.36 or less.
+ */
+export const NET_GAP = 0.5;
+
+/** Two shapes differ past this share of the aspect ratio: a crop, an edit. */
+const SHAPE_TOLERANCE = 0.01;
+
+/** What keeps a photo out of the Corbeille. */
+export type Hold =
+  /** a favourite */
+  | "favorite"
+  /** someone named on it is not named on the photo kept */
+  | "person"
+  /** in a shared folder the photo kept is not in */
+  | "shared"
+  /** the photo kept has no thumbnail: it may not show */
+  | "kept_thumbnail"
+  /** dimensions unknown on either side */
+  | "dimensions"
+  /** more pixels than the photo kept */
+  | "larger"
+  /** another shape than the photo kept: a crop (near only) */
+  | "crop"
+  /** within NET_GAP of the photo kept (near only) */
+  | "close";
+
+export const HOLDS: readonly Hold[] = [
+  "favorite",
+  "person",
+  "shared",
+  "kept_thumbnail",
+  "dimensions",
+  "larger",
+  "crop",
+  "close",
+];
+
+const PASS_HOLDS: Record<DedupePass, readonly Hold[]> = {
+  copies: ["favorite", "person", "shared", "kept_thumbnail"],
+  near: HOLDS,
+};
+
+export interface Candidate {
+  id: number;
+  /** The photo kept in its place */
+  keep: number;
+  group_id: number;
+  holds: Hold[];
+}
+
+export interface DedupePlan {
+  pass: DedupePass;
+  net_gap: number;
+  /** Photos that go: no hold */
+  go: Candidate[];
+  /** Photos that stay, with their holds */
+  held: Candidate[];
+}
+
+/**
+ * Per photo of the pass, the photo kept in its place and the holds, over
+ * the gallery's photos (an excluded folder, the Corbeille: neither kept
+ * nor thrown away).
+ */
+function candidatesSql(pass: DedupePass): string {
+  // copies: a unit per file (copy_of), the copy ranked first kept;
+  // near: a unit per stack, its front kept, the front's own copies left to
+  // the copies pass
+  const unit = pass === "copies" ? "copy_of" : "group_id";
+  const members =
+    pass === "copies"
+      ? "m.copy_of IS NOT NULL"
+      : "(m.copy_of IS NULL OR k.copy_of IS NULL OR m.copy_of <> k.copy_of)";
+  const ratio = (x: string) =>
+    `(greatest(${x}.w, ${x}.h) / nullif(least(${x}.w, ${x}.h), 0))`;
+  return `
+    WITH member AS MATERIALIZED (
+      SELECT g.group_id, g.photo_id, g.rank, g.score, g.copy_of, p.folder_id,
+             f.path AS folder_path, coalesce(p.is_favorite, false) AS favorite,
+             p.thumbnail_status,
+             (p.metadata -> 'dimensions' ->> 'width')::float8 AS w,
+             (p.metadata -> 'dimensions' ->> 'height')::float8 AS h
+      FROM photo_groups g
+      JOIN photos p ON p.id = g.photo_id
+      JOIN folders f ON f.id = p.folder_id
+      WHERE ${inGallery("p")} AND p.mime_type LIKE 'image/%'
+    ),
+    kept AS (
+      SELECT DISTINCT ON (${unit}) ${unit} AS unit, photo_id
+      FROM member WHERE ${unit} IS NOT NULL
+      ORDER BY ${unit}, rank
+    )
+    SELECT m.photo_id::int AS id, k.photo_id::int AS keep, m.group_id::int AS group_id,
+      m.favorite,
+      EXISTS (
+        SELECT 1 FROM faces mf
+        WHERE mf.photo_id = m.photo_id AND mf.person_id IS NOT NULL
+          AND mf.assignment IN ${OWNED}
+          AND NOT EXISTS (
+            SELECT 1 FROM faces kf
+            WHERE kf.photo_id = k.photo_id AND kf.person_id = mf.person_id
+              AND kf.assignment IN ${OWNED})
+      ) AS person,
+      m.folder_id <> k.folder_id AND EXISTS (
+        SELECT 1 FROM shared_folders s
+        WHERE s.folder_id = m.folder_id OR s.folder_path = m.folder_path
+      ) AS shared,
+      k.thumbnail_status IS DISTINCT FROM 'generated' AS kept_thumbnail,
+      (m.w IS NULL OR m.h IS NULL OR k.w IS NULL OR k.h IS NULL
+       OR least(m.w, m.h, k.w, k.h) <= 0) AS dimensions,
+      coalesce(m.w * m.h > k.w * k.h, false) AS larger,
+      coalesce(abs(${ratio("m")} - ${ratio("k")}) > ${SHAPE_TOLERANCE} * ${ratio("k")}, false) AS crop,
+      k.score - m.score < $1::float8 AS close
+    FROM kept
+    JOIN member k ON k.photo_id = kept.photo_id
+    JOIN member m ON m.${unit} = kept.unit AND m.photo_id <> k.photo_id
+    WHERE ${members}
+    ORDER BY m.group_id, m.rank, m.photo_id`;
+}
+
+type Row = { id: number; keep: number; group_id: number } & Record<
+  Hold,
+  boolean
+>;
+
+async function plan(client: PoolClient, pass: DedupePass): Promise<DedupePlan> {
+  const rows = await client.query<Row>(candidatesSql(pass), [NET_GAP]);
+  const go: Candidate[] = [];
+  const held: Candidate[] = [];
+  for (const row of rows.rows) {
+    const holds = PASS_HOLDS[pass].filter((hold) => row[hold]);
+    const candidate = {
+      id: row.id,
+      keep: row.keep,
+      group_id: row.group_id,
+      holds,
+    };
+    (holds.length === 0 ? go : held).push(candidate);
+  }
+  return { pass, net_gap: NET_GAP, go, held };
+}
+
+/** What the pass would throw away now, and what it would leave. Writes nothing. */
+export function planDedupe(pass: DedupePass): Promise<DedupePlan> {
+  return runTransaction(async (client) => {
+    await client.query("SET TRANSACTION READ ONLY");
+    return plan(client, pass);
+  });
+}
+
+/** The worker's groups lock (groups.py LOCK): no rebuild or grouper writes meanwhile. */
+const GROUPS_LOCK = 0x626c617a6567;
+
+/** The pass's plan differs from the one shown, or the database moved under it: nothing written. */
+export class DedupeRefused extends Error {}
+
+const key = (c: Candidate) => `${c.id}>${c.keep}`;
+
+/**
+ * Throws away the photos of `shown` (a plan of the same pass, the one the
+ * owner looked at) as one lot of 'auto', if planning again now gives the
+ * same photos with the same photos kept. In one snapshot (repeatable
+ * read) holding the groups lock; checks that it marked exactly those and
+ * that no photo changed otherwise. Returns the lot and the ids marked.
+ */
+export function applyDedupe(
+  shown: DedupePlan,
+): Promise<{ lot: TrashLot; trashed: number[] }> {
+  return runTransaction(async (client) => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    const locked = await client.query<{ ok: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS ok",
+      [GROUPS_LOCK],
+    );
+    if (!locked.rows[0]?.ok)
+      throw new DedupeRefused("a groups worker is running");
+    const now = await plan(client, shown.pass);
+    const wanted = new Set(shown.go.map(key));
+    if (
+      now.net_gap !== shown.net_gap ||
+      now.go.length !== wanted.size ||
+      now.go.some((c) => !wanted.has(key(c)))
+    )
+      throw new DedupeRefused(
+        `the stacks changed since the plan: ${now.go.length} photos would go now, ${wanted.size} were shown`,
+      );
+    const before = await snapshot(client);
+    const lot = newLot("auto", shown.pass);
+    const trashed = await markTrashed(client, now.go, lot);
+    const after = await snapshot(client);
+    if (trashed.length !== now.go.length)
+      throw new DedupeRefused(
+        `${trashed.length} photos marked, ${now.go.length} planned`,
+      );
+    if (
+      after.hash !== before.hash ||
+      after.photos !== before.photos ||
+      after.trashed !== before.trashed + trashed.length
+    )
+      throw new DedupeRefused(
+        `more than the Corbeille's marks changed: ${JSON.stringify({ before, after })}`,
+      );
+    return { lot, trashed };
+  });
+}
+
+/** Photos, those in the Corbeille, and a hash of every photo's columns but the Corbeille's. */
+async function snapshot(client: PoolClient) {
+  const result = await client.query<{
+    photos: number;
+    trashed: number;
+    hash: string;
+  }>(
+    `SELECT count(*)::int AS photos,
+            count(*) FILTER (WHERE trashed_at IS NOT NULL)::int AS trashed,
+            md5(string_agg(md5(concat_ws('|', id, folder_id, filename, s3_key, size,
+              mime_type, created_at, modified_at, thumbnail_path, metadata::text,
+              metadata_status, thumbnail_status, is_favorite, last_synced)), '' ORDER BY id)) AS hash
+     FROM photos`,
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("no snapshot");
+  return row;
+}

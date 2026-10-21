@@ -13,6 +13,8 @@
  *   npm run trash -- purge --dry-run # the keys a purge would erase; writes nothing
  *   npm run trash -- purge           # erase those trashed TRASH_DAYS ago or more
  *   npm run trash -- purge --days 0 --max 40   # everything, if at most 40
+ *   npm run trash -- lots                       # the lots, last first
+ *   npm run trash -- restore <lot>              # put a whole lot back
  */
 import * as dotenv from "dotenv";
 import { out } from "./cli";
@@ -31,9 +33,21 @@ function option(name: string): number | undefined {
 async function main(): Promise<boolean> {
   // After dotenv: the database client reads the environment.
   const { query, requireRow } = await import("../src/lib/database");
-  const { purgeTrash, storagePurgeStore, TRASH_DAYS } = await import(
-    "../src/lib/trash"
-  );
+  const { listLots, purgeTrash, restoreLot, storagePurgeStore, TRASH_DAYS } =
+    await import("../src/lib/trash");
+  if (process.argv[2] === "lots") {
+    for (const lot of await listLots())
+      out(
+        `${lot.batch}  ${lot.by}  ${lot.photos} photos, ${lot.stacks} stacks, ${lot.trashed_at}`,
+      );
+    return true;
+  }
+  if (process.argv[2] === "restore") {
+    const batch = process.argv[3];
+    if (!batch) throw new Error("restore needs a lot (npm run trash -- lots)");
+    out(`${await restoreLot(batch)} photos of ${batch} put back.`);
+    return true;
+  }
   const days = option("--days") ?? TRASH_DAYS;
   const cutoff = new Date(Date.now() - days * 86_400_000);
   const counts = requireRow(

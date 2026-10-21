@@ -694,3 +694,14 @@ CREATE TABLE IF NOT EXISTS task_leases (
 ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_photos_trashed
   ON photos (trashed_at) WHERE trashed_at IS NOT NULL;
+-- Who threw it away: the owner, from the app, or 'auto', a pass of
+-- `npm run dedupe` over the stacks. trash_batch: the request or the pass it
+-- went with, all of which « Restaurer le lot » puts back. trashed_for: the
+-- photo kept in its place when it left a stack (no foreign key: the purge
+-- may erase that one later). All three are cleared with trashed_at.
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_by text
+  CHECK (trashed_by IN ('owner', 'auto'));
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trash_batch text;
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS trashed_for bigint;
+CREATE INDEX IF NOT EXISTS idx_photos_trash_batch
+  ON photos (trash_batch) WHERE trash_batch IS NOT NULL;
