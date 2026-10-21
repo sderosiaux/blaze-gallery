@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import threading
 
 import numpy as np
@@ -807,7 +808,7 @@ def test_only_one_grouper_at_a_time(conn, schema):
     assert conn.execute("SELECT count(*) FROM task_leases").fetchone()[0] == 0
 
 
-def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema):
+def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema, caplog):
     store = Store()
     library = a_library(conn, store)
     rebuild(lambda: connect(schema), Measurer(store, 2), Vocabulary.read(), dry_run=False)
@@ -816,7 +817,11 @@ def test_a_grouper_adds_nothing_to_stacks_of_other_rules(conn, schema):
         "UPDATE analysis_jobs SET status = 'queued' WHERE task = %s AND photo_id = %s",
         (TASK, library["alone"][0]),
     )
-    assert run_grouper(schema, store).counters.done == 0
+    with caplog.at_level(logging.WARNING, logger="blaze_worker"):
+        assert run_grouper(schema, store).counters.done == 0
+    alerts = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ALERT")]
+    assert len(alerts) == 1
+    assert "groups v1 0000abcd" in alerts[0] and rules_model() in alerts[0]
     # Its own: it goes on
     conn.execute("UPDATE photo_groups SET model = %s", (rules_model(),))
     assert run_grouper(schema, store).counters.done == 1

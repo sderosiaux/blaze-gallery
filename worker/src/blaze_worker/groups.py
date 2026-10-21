@@ -1249,10 +1249,11 @@ class Grouper:
                 "SELECT model FROM photo_groups WHERE model <> %s LIMIT 1", (self.model,)
             ).fetchone()
             if other:
-                # New photos stacked by other rules or weights than their neighbours'
+                # New photos stacked by other rules or weights than their neighbours'.
+                # ALERT: the weekly log's grep for what needs a hand
                 log.warning(
-                    "the stacks were made by %s, this worker is %s: rebuild them with this "
-                    "worker first (--rebuild), or run the worker that made them; nothing done",
+                    "ALERT the stacks were made by %s, this worker is %s: rebuild them with "
+                    "this worker first (--rebuild), or run the worker that made them; nothing done",
                     other[0],
                     self.model,
                 )
