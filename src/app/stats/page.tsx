@@ -118,10 +118,7 @@ function StatsContent() {
             )}
             {id === "videos" && <VideosTab active={tabsMayLoad} />}
             {id === "duplicates" && (
-              <DuplicatesTab
-                active={tabsMayLoad}
-                files={s ? s.photos + s.videos : undefined}
-              />
+              <DuplicatesTab active={tabsMayLoad} onChange={refresh} />
             )}
             {id === "health" && <HealthTab active={tabsMayLoad} />}
           </div>

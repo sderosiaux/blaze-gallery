@@ -73,47 +73,6 @@ export interface VideoStats {
   }[];
 }
 
-export interface DuplicateFileGroup {
-  filename: string;
-  size: number;
-  count: number;
-  /** At most six locations; `count` says how many there are in total */
-  photos: { id: number; folder_path: string; folder_name: string }[];
-}
-
-export interface DuplicateFiles {
-  summary: {
-    total_duplicate_filenames: number;
-    total_duplicate_photos: number;
-    potential_space_saved_bytes: number;
-  };
-  /** The groups that free the most space, largest first */
-  duplicates: DuplicateFileGroup[];
-}
-
-export interface DuplicateFolderGroup {
-  folder_signature: string;
-  count: number;
-  file_count: number;
-  total_size_bytes: number;
-  folders: {
-    id: number;
-    path: string;
-    name: string;
-    photo_count: number;
-    total_size_bytes: number;
-  }[];
-}
-
-export interface DuplicateFolders {
-  summary: {
-    total_duplicate_folder_groups: number;
-    total_duplicate_folders: number;
-    potential_space_saved_bytes: number;
-  };
-  duplicates: DuplicateFolderGroup[];
-}
-
 export interface HealthStats {
   metadata: {
     images: number;

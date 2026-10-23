@@ -1,5 +1,10 @@
 /** The Corbeille's routes, from the browser (src/app/api/trash, stacks/keep). */
 import type { Photo } from "@/types";
+import type { CopiesPreview, CopiesSelection } from "./allCopies";
+import type {
+  DuplicatePreview,
+  DuplicateSelection,
+} from "./exactDuplicateTypes";
 import { asArray, asString, readJsonObject } from "@/hooks/apiJson";
 
 export class TrashError extends Error {
@@ -26,6 +31,33 @@ async function post(url: string, body: unknown) {
       typeof data.count === "number" ? data.count : undefined,
     );
   return data;
+}
+
+export async function previewDuplicates(
+  selection: DuplicateSelection,
+): Promise<DuplicatePreview> {
+  const data = await post("/api/stats/duplicates/trash", {
+    action: "preview",
+    ...selection,
+  });
+  return {
+    count: Number(data.count),
+    bytes: Number(data.bytes),
+    groups: Number(data.groups),
+    signature: String(data.signature),
+  };
+}
+
+export async function trashDuplicates(
+  selection: DuplicateSelection,
+  signature: string,
+): Promise<{ count: number; lot: string }> {
+  const data = await post("/api/stats/duplicates/trash", {
+    action: "trash",
+    ...selection,
+    signature,
+  });
+  return { count: Number(data.count), lot: String(data.lot) };
 }
 
 /** Into the Corbeille; the ids that went (not those already in it). */
@@ -102,6 +134,32 @@ export async function keepInStacks(
 ): Promise<number[]> {
   const data = await post("/api/stacks/keep", { keep, trash });
   return asArray(data.trashed).map(Number);
+}
+
+export async function previewAllCopies(
+  selection: CopiesSelection,
+): Promise<CopiesPreview> {
+  const data = await post("/api/stacks/copies", {
+    action: "preview",
+    ...selection,
+  });
+  return {
+    count: Number(data.count),
+    stacks: Number(data.stacks),
+    signature: String(data.signature),
+  };
+}
+
+export async function trashAllCopies(
+  selection: CopiesSelection,
+  signature: string,
+): Promise<{ count: number; lot: string }> {
+  const data = await post("/api/stacks/copies", {
+    action: "trash",
+    ...selection,
+    signature,
+  });
+  return { count: Number(data.count), lot: String(data.lot) };
 }
 
 /**

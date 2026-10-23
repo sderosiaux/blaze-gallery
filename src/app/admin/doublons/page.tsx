@@ -15,8 +15,9 @@ import {
   useToast,
 } from "@/components/ui";
 import { asArray, readJsonObject } from "@/hooks/apiJson";
-import { aspectRatio, formatCount } from "@/lib/albums";
+import { formatCount } from "@/lib/albums";
 import { cn } from "@/lib/cn";
+import type { CopiesSelection } from "@/lib/allCopies";
 import { thumbnailUrl } from "@/lib/photoUrls";
 import { userRotation } from "@/lib/rotation";
 import {
@@ -26,11 +27,12 @@ import {
   TrashError,
 } from "@/lib/trashClient";
 import type { Photo } from "@/types";
+import AllCopiesDialog from "./AllCopiesDialog";
 
 type Kind = "all" | "bursts" | "copies";
 
-/** px, the h-32 of a stack's thumbnails */
-const TILE_HEIGHT = 128;
+const STACK_GRID =
+  "grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] items-start gap-4";
 
 type StackPhoto = Photo & { folder_path: string; rank: number };
 
@@ -83,6 +85,10 @@ function Duplicates() {
   const [skipped, setSkipped] = useState<ReadonlySet<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
+  const [allCopies, setAllCopies] = useState<CopiesSelection | null>(null);
+  const closeAllCopies = useCallback(() => {
+    setAllCopies(null);
+  }, []);
 
   const load = useCallback(async (which: Kind) => {
     setFailed(false);
@@ -200,17 +206,29 @@ function Duplicates() {
       title="Doublons"
       meta="Rafales, reprises, retouches et copies d’un même fichier. Dans chaque pile, la photo cochée reste ; ses copies et ses rafales vont à la corbeille, pour 30 jours."
       actions={
-        going.length > 0 && (
-          <Button
-            variant="danger"
-            icon={Trash2}
-            onClick={() => {
-              setConfirming(true);
-            }}
-          >
-            {`Mettre ${formatCount(going.length, "photo")} à la corbeille`}
-          </Button>
-        )
+        <div className="flex flex-wrap gap-2 lg:flex-col lg:items-end">
+          {kind === "copies" && page && page.total.extra > 0 && (
+            <Button
+              icon={Layers}
+              onClick={() => {
+                setAllCopies({ keep: keepers, skip: [...skipped] });
+              }}
+            >
+              Toutes les copies…
+            </Button>
+          )}
+          {going.length > 0 && (
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={() => {
+                setConfirming(true);
+              }}
+            >
+              {`Mettre ${formatCount(going.length, "photo")} à la corbeille`}
+            </Button>
+          )}
+        </div>
       }
     >
       <Tabs<Kind>
@@ -251,12 +269,16 @@ function Duplicates() {
     return (
       <>
         {header}
-        <ul role="status" aria-label="Chargement" className="space-y-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <li key={i} className="flex gap-2">
-              {Array.from({ length: 4 }).map((__, j) => (
-                <Skeleton key={j} className="h-32 w-40 rounded-md" />
-              ))}
+        <ul role="status" aria-label="Chargement" className={STACK_GRID}>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <li key={i} className="min-w-0 rounded-xl border border-line p-4">
+              <Skeleton className="mb-3 h-4 w-20" />
+              <div className="grid grid-cols-2 gap-2">
+                {Array.from({ length: 2 }).map((__, j) => (
+                  <Skeleton key={j} className="aspect-[4/3] rounded-md" />
+                ))}
+              </div>
+              <Skeleton className="mt-4 h-7 w-full" />
             </li>
           ))}
         </ul>
@@ -278,9 +300,9 @@ function Duplicates() {
             {formatCount(page.total.stacks, "pile")} ·{" "}
             {formatCount(page.total.extra, "photo en trop", "photos en trop")}
           </p>
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className={STACK_GRID}>
             {page.stacks.map((stack) => (
-              <StackRow
+              <StackCard
                 key={stack.id}
                 stack={stack}
                 keep={kept.get(stack.id) ?? stack.photos[0]?.id ?? 0}
@@ -343,11 +365,42 @@ function Duplicates() {
           </>
         }
       />
+      {allCopies && (
+        <AllCopiesDialog
+          selection={allCopies}
+          onClose={closeAllCopies}
+          onChanged={(message) => {
+            closeAllCopies();
+            toast.show(message, "error");
+            void load(kind);
+          }}
+          onDone={({ count, lot }) => {
+            closeAllCopies();
+            void load(kind);
+            toast.show(
+              `${formatCount(count, "copie")} dans la corbeille`,
+              "success",
+              {
+                action: {
+                  label: "Annuler",
+                  onClick: () => {
+                    restoreFromTrash({ lot })
+                      .then(() => load(kind))
+                      .catch(() => {
+                        toast.show("Les copies ne sont pas revenues", "error");
+                      });
+                  },
+                },
+              },
+            );
+          }}
+        />
+      )}
     </>
   );
 }
 
-function StackRow({
+function StackCard({
   stack,
   keep,
   going,
@@ -366,11 +419,15 @@ function StackRow({
   return (
     <li
       className={cn(
-        "py-4 transition-opacity duration-200",
+        "min-w-0 rounded-xl border border-line bg-surface p-4 transition-opacity duration-200",
         skipped && "opacity-50",
       )}
     >
-      <div className="flex flex-wrap items-start gap-2">
+      <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-ink-muted">
+        <Layers className="h-3.5 w-3.5" aria-hidden />
+        {formatCount(stack.photos.length, "photo")}
+      </p>
+      <div className="grid grid-cols-2 items-start gap-x-2 gap-y-3">
         {stack.photos.map((photo) => {
           const on = photo.id === keep;
           return (
@@ -383,13 +440,11 @@ function StackRow({
               onClick={() => {
                 onKeep(photo.id);
               }}
-              className={cn(
-                "group relative flex flex-col items-start gap-1 rounded-md text-left outline-offset-2 transition-transform duration-200 enabled:hover:-translate-y-0.5",
-              )}
+              className="group relative flex min-w-0 flex-col items-start gap-1 rounded-md text-left outline-offset-2 transition-transform duration-200 enabled:hover:-translate-y-0.5"
             >
               <span
                 className={cn(
-                  "relative block overflow-hidden rounded-md outline outline-2 outline-offset-2 transition-[outline-color] duration-200",
+                  "relative block aspect-[4/3] w-full overflow-hidden rounded-md bg-surface-sunken outline outline-2 outline-offset-2 transition-[outline-color] duration-200",
                   on ? "outline-ink" : "outline-transparent",
                 )}
               >
@@ -403,15 +458,8 @@ function StackRow({
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  // Sized before it loads: a lazy image of no width never comes into view
-                  style={{
-                    width: Math.min(
-                      256,
-                      Math.round(TILE_HEIGHT * aspectRatio(photo)),
-                    ),
-                  }}
                   className={cn(
-                    "h-32 bg-surface-sunken object-cover",
+                    "h-full w-full object-contain",
                     !on && "opacity-80",
                   )}
                 />
@@ -423,7 +471,7 @@ function StackRow({
               </span>
               {stack.copies && (
                 <span
-                  className="max-w-[16rem] truncate text-xs text-ink-muted"
+                  className="w-full truncate text-xs text-ink-muted"
                   title={photo.folder_path}
                 >
                   {photo.folder_path}
@@ -441,7 +489,7 @@ function StackRow({
           );
         })}
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-4 border-t border-line pt-3">
         <Switch
           id={`skip-${stack.id}`}
           checked={skipped}

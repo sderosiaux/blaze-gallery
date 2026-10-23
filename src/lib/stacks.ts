@@ -36,7 +36,7 @@ export interface StackCursor {
 }
 
 /** Per stack the gallery shows two photos of or more: its size, its kind, its newest date. */
-const STACKS = `
+export const STACKS = `
   visible AS MATERIALIZED (
     SELECT g.group_id, g.copy_of, p.etag, p.metadata ->> 'date_taken' AS taken
     FROM photo_groups g JOIN photos p ON p.id = g.photo_id

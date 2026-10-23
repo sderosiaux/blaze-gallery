@@ -1,81 +1,126 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { CheckCircle2, Copy, CornerDownRight } from "lucide-react";
-import { albumHref } from "@/components/photos/AlbumCard";
-import { Badge, EmptyState, Section, Skeleton, Stat } from "@/components/ui";
-import { albumDateLabel, formatCount, parseAlbumName } from "@/lib/albums";
-import { ShowMore } from "./charts";
+import { useCallback, useState } from "react";
+import { RotateCw } from "lucide-react";
+import { Button, Section, Skeleton, Stat, useToast } from "@/components/ui";
+import { formatCount } from "@/lib/albums";
+import type {
+  DuplicateSelection,
+  ExactDuplicatesPage,
+} from "@/lib/exactDuplicateTypes";
+import { restoreFromTrash } from "@/lib/trashClient";
 import { formatNumber, formatSeconds, formatSize } from "./format";
 import { TabError } from "./TabState";
-import type { DuplicateFiles, DuplicateFolders } from "./types";
 import {
   useElapsed,
   useStatsResource,
   type Resource,
 } from "./useStatsResource";
+import DuplicateGroups from "./DuplicateGroups";
+import DuplicateTrashDialog from "./DuplicateTrashDialog";
 
 const cell = "border-t border-line pt-4";
 
 export default function DuplicatesTab({
   active,
-  files: libraryFiles,
+  onChange,
 }: {
   active: boolean;
-  files?: number;
+  onChange: () => void;
 }) {
-  // Two independent analyses: each one fills in, or fails, on its own.
-  const folders = useStatsResource<DuplicateFolders>(
+  const toast = useToast();
+  const folders = useStatsResource<ExactDuplicatesPage>(
     "/api/stats/duplicate-folders",
     active,
   );
-  const files = useStatsResource<DuplicateFiles>(
+  const files = useStatsResource<ExactDuplicatesPage>(
     "/api/stats/duplicates",
     active,
   );
-
   const f =
     folders.state.status === "ready" ? folders.state.data.summary : undefined;
   const d =
     files.state.status === "ready" ? files.state.data.summary : undefined;
-
+  const [selection, setSelection] = useState<DuplicateSelection | null>(null);
+  const close = useCallback(() => {
+    setSelection(null);
+  }, []);
+  const reloadFolders = folders.retry;
+  const reloadFiles = files.retry;
+  const reload = useCallback(() => {
+    reloadFolders();
+    reloadFiles();
+    onChange();
+  }, [reloadFolders, reloadFiles, onChange]);
   return (
     <div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-6 pt-8 sm:pt-10 lg:grid-cols-4">
+      <div className="mt-6 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-line bg-surface-sunken p-4">
+        <div className="max-w-3xl text-sm text-ink-muted">
+          <p className="font-medium text-ink">
+            Copies confirmées par leur contenu
+          </p>
+          <p className="mt-1">
+            Photos, vidéos et autres fichiers, y compris les dossiers « Hors
+            galerie ». Les fichiers identiques sont reconnus même après
+            renommage, sans dépendre des piles.
+          </p>
+          <p className="mt-2 text-xs">
+            Les fichiers système, les miniatures NAS et les fichiers de 10 Ko ou
+            moins sont ignorés. Les fichiers sans empreinte fiable ne sont pas
+            proposés à la suppression.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          icon={RotateCw}
+          onClick={reload}
+          disabled={
+            folders.state.status === "loading" ||
+            files.state.status === "loading"
+          }
+        >
+          Actualiser
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-6 pt-8 lg:grid-cols-4">
         <PendingStat
           ready={!!f}
-          label="Dossiers en double"
-          value={f && formatNumber(f.total_duplicate_folder_groups)}
+          label="Dossiers en trop"
+          value={f && formatNumber(f.members - f.groups)}
           hint={
-            f && `${formatCount(f.total_duplicate_folders, "dossier")} en tout`
+            f &&
+            `${formatCount(f.groups, "groupe")} · ${formatCount(f.members, "dossier")}`
           }
         />
         <PendingStat
           ready={!!f}
-          label="Espace des dossiers copiés"
-          value={f && formatSize(f.potential_space_saved_bytes)}
-          hint="Libéré en gardant un exemplaire"
+          label="Copies de dossiers"
+          value={f && formatSize(f.extra_bytes)}
+          hint="Espace récupérable après vidage"
         />
         <PendingStat
           ready={!!d}
-          label="Fichiers en double"
-          value={d && formatNumber(d.total_duplicate_filenames)}
+          label="Fichiers en trop"
+          value={d && formatNumber(d.extra_files)}
           hint={
-            d && `${formatCount(d.total_duplicate_photos, "fichier")} en tout`
+            d &&
+            `${formatCount(d.groups, "groupe")} · ${formatCount(d.members, "fichier")}`
           }
         />
         <PendingStat
           ready={!!d}
-          label="Espace des fichiers copiés"
-          value={d && formatSize(d.potential_space_saved_bytes)}
-          hint="Dossiers copiés compris"
+          label="Copies de fichiers"
+          value={d && formatSize(d.extra_bytes)}
+          hint="Copies de dossiers comprises"
         />
       </div>
-
+      <p className="mt-4 text-xs text-ink-muted">
+        Ces deux estimations d’espace se recoupent : elles ne s’additionnent
+        pas.
+      </p>
       <Section
-        title="Dossiers en double"
-        description="Mêmes fichiers, mêmes tailles, à plusieurs endroits"
+        title="Dossiers copiés"
+        description="Mêmes noms et mêmes contenus pour les fichiers analysés. Choisissez le dossier dont les fichiers restent."
       >
         <Analysis
           resource={folders.state}
@@ -83,23 +128,70 @@ export default function DuplicatesTab({
           what="Comparaison du contenu des dossiers"
           failTitle="La comparaison des dossiers n’a pas abouti"
         >
-          {(data) => <FolderGroups data={data} />}
+          {(data) => (
+            <DuplicateGroups
+              key={folders.state.status === "ready" ? folders.state.tookMs : 0}
+              kind="folders"
+              data={data}
+              onReview={setSelection}
+            />
+          )}
         </Analysis>
       </Section>
-
       <Section
-        title="Fichiers en double"
-        description={`Même nom, même taille${libraryFiles ? `, sur ${formatCount(libraryFiles, "fichier")}` : ""}`}
+        title="Fichiers identiques"
+        description="Même contenu, quels que soient le nom et le dossier. Les copies déjà traitées dans les dossiers disparaissent aussi de cette liste."
       >
         <Analysis
           resource={files.state}
           onRetry={files.retry}
-          what="Comparaison des fichiers par nom et taille"
+          what="Comparaison du contenu des fichiers"
           failTitle="La comparaison des fichiers n’a pas abouti"
         >
-          {(data) => <FileGroups data={data} />}
+          {(data) => (
+            <DuplicateGroups
+              key={files.state.status === "ready" ? files.state.tookMs : 0}
+              kind="files"
+              data={data}
+              onReview={setSelection}
+            />
+          )}
         </Analysis>
       </Section>
+      {selection && (
+        <DuplicateTrashDialog
+          selection={selection}
+          onClose={close}
+          onChanged={(message) => {
+            close();
+            toast.show(message, "error");
+            reload();
+          }}
+          onDone={({ count, lot }) => {
+            close();
+            reload();
+            toast.show(
+              `${formatCount(count, "fichier")} dans la corbeille`,
+              "success",
+              {
+                action: {
+                  label: "Annuler le lot",
+                  onClick: () => {
+                    restoreFromTrash({ lot })
+                      .then(() => {
+                        reload();
+                        toast.show("Le lot a été restauré", "success");
+                      })
+                      .catch(() => {
+                        toast.show("Le lot n’a pas pu être restauré", "error");
+                      });
+                  },
+                },
+              },
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -184,201 +276,5 @@ function Analysis<T>({
         ))}
       </div>
     </div>
-  );
-}
-
-/** "pc-fixe / photos tel a trier / chats", the folder itself in ink. */
-function Location({
-  href,
-  path,
-  note,
-}: {
-  href: string;
-  path: string;
-  note?: string;
-}) {
-  const parts = path.split("/");
-  const popped = parts.pop();
-  const name = popped !== undefined && popped !== "" ? popped : path;
-  return (
-    <li>
-      <Link
-        href={href}
-        title={path}
-        className="touch-target group flex min-w-0 items-start gap-1.5 rounded-sm py-1 text-sm transition-colors duration-150"
-      >
-        <CornerDownRight
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint"
-          aria-hidden
-        />
-        <span className="min-w-0 break-words">
-          {parts.length > 0 && (
-            <span className="text-ink-muted">{parts.join(" / ")} / </span>
-          )}
-          <span className="text-ink underline decoration-line-strong underline-offset-2 transition-colors group-hover:text-accent-strong group-hover:decoration-accent">
-            {name}
-          </span>
-          {note && <span className="text-ink-muted"> · {note}</span>}
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-function GroupHeader({
-  kicker,
-  title,
-  copies,
-  meta,
-}: {
-  kicker?: string;
-  title: string;
-  copies: number;
-  meta: string;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        {kicker && <div className="kicker mb-1 truncate">{kicker}</div>}
-        <h3 className="break-words font-display text-lg font-semibold leading-snug text-ink">
-          {title}
-        </h3>
-        <p className="tabular mt-0.5 text-sm text-ink-muted">{meta}</p>
-      </div>
-      <Badge tone="neutral" icon={Copy} className="mt-0.5 shrink-0">
-        {formatCount(copies, "copie")}
-      </Badge>
-    </div>
-  );
-}
-
-function NoneFound({ what }: { what: string }) {
-  return <EmptyState icon={CheckCircle2} title={what} className="py-8" />;
-}
-
-function FolderGroups({ data }: { data: DuplicateFolders }) {
-  const initial = 6;
-  const [visible, setVisible] = useState(initial);
-  if (data.duplicates.length === 0)
-    return <NoneFound what="Aucun dossier en double" />;
-  return (
-    <>
-      <ol className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
-        {data.duplicates.slice(0, visible).map((g) => {
-          const first = g.folders[0];
-          const name = first?.name ?? "";
-          const { title } = parseAlbumName(name);
-          return (
-            <li key={g.folder_signature} className="min-w-0">
-              <GroupHeader
-                kicker={albumDateLabel({
-                  name,
-                  date_from: null,
-                  date_to: null,
-                })}
-                title={title}
-                copies={g.count}
-                meta={`${formatCount(g.file_count, "fichier")} · ${formatSize(g.total_size_bytes)} chacun · libère\u00A0${formatSize(g.total_size_bytes * (g.count - 1))}`}
-              />
-              <ul className="mt-2">
-                {g.folders.map((folder) => (
-                  <Location
-                    key={folder.id}
-                    href={albumHref(folder.path)}
-                    path={folder.path}
-                  />
-                ))}
-              </ul>
-            </li>
-          );
-        })}
-      </ol>
-      <ShowMore
-        total={data.duplicates.length}
-        visible={visible}
-        initial={initial}
-        step={8}
-        onChange={setVisible}
-      />
-      <Cap
-        shown={data.duplicates.length}
-        total={data.summary.total_duplicate_folder_groups}
-        noun="dossiers"
-      />
-    </>
-  );
-}
-
-function FileGroups({ data }: { data: DuplicateFiles }) {
-  const initial = 6;
-  const [visible, setVisible] = useState(initial);
-  if (data.duplicates.length === 0)
-    return <NoneFound what="Aucun fichier en double" />;
-  return (
-    <>
-      <ol className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
-        {data.duplicates.slice(0, visible).map((g) => {
-          const hidden = g.count - g.photos.length;
-          return (
-            <li key={`${g.filename}|${g.size}`} className="min-w-0">
-              <GroupHeader
-                title={g.filename}
-                copies={g.count}
-                meta={`${formatSize(g.size)} chacun · libère\u00A0${formatSize(g.size * (g.count - 1))}`}
-              />
-              <ul className="mt-2">
-                {g.photos.map((p) => (
-                  <Location
-                    key={p.id}
-                    href={`${albumHref(p.folder_path)}?photo=${p.id}`}
-                    path={p.folder_path}
-                  />
-                ))}
-              </ul>
-              {hidden > 0 && (
-                <p className="mt-1 pl-5 text-xs text-ink-muted">
-                  et{" "}
-                  {formatCount(
-                    hidden,
-                    "autre emplacement",
-                    "autres emplacements",
-                  )}
-                </p>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-      <ShowMore
-        total={data.duplicates.length}
-        visible={visible}
-        initial={initial}
-        step={8}
-        onChange={setVisible}
-      />
-      <Cap
-        shown={data.duplicates.length}
-        total={data.summary.total_duplicate_filenames}
-        noun="fichiers"
-      />
-    </>
-  );
-}
-
-function Cap({
-  shown,
-  total,
-  noun,
-}: {
-  shown: number;
-  total: number;
-  noun: string;
-}) {
-  if (total <= shown) return null;
-  return (
-    <p className="tabular mt-3 text-xs text-ink-muted">
-      Les {formatNumber(shown)} {noun} qui libèrent le plus d’espace, sur{" "}
-      {formatNumber(total)}
-    </p>
   );
 }
