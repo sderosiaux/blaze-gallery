@@ -57,5 +57,8 @@
     "tailwindcss": "^3.4.1",
     "testcontainers": "^12.2.1",
     "tsx": "^4.23.15"
-  }
+  },
+  "workspaces": [
+    "jobs"
+  ]
 }

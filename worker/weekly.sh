@@ -16,10 +16,12 @@ LOG="$BASE/logs/sync-$(date +%Y-%m-%d).log"
 {
   echo "== $(date -Is) start"
   git -C "$BASE/repo" pull -q --ff-only
+  # -w jobs: only the jobs' dependencies (jobs/package.json, ~70MB), not the
+  # web app's (~760MB of Next.js written into the clone every week)
   docker run --rm --name blaze-sync \
     --env-file "$HOME/blaze-worker/blaze-worker.env" \
     -v "$BASE/repo:/app" -v blaze-sync-npm:/root/.npm -w /app \
-    node:22-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; exit \$s; }"
+    node:22-slim sh -c "npm ci -w jobs --no-audit --no-fund --loglevel=error && { npm run sync; s=\$?; npm run palettes; exit \$s; }"
   # No blaze-purge.env yet: the owner has not chosen to erase anything, so
   # no purge and no alert. A purge that refuses or stops leaves the indexing
   # to run, and an ALERT file that outlives the logs' fortnight
